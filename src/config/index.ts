@@ -15,6 +15,12 @@ export interface OrcaConfig {
   disallowedTools: string;
   port: number;
   dbPath: string;
+  // Linear integration
+  linearApiKey: string;
+  linearWebhookSecret: string;
+  linearProjectIds: string[];
+  linearReadyStateType: string;
+  tunnelHostname: string;
 }
 
 function exitWithError(message: string): never {
@@ -77,6 +83,46 @@ export function loadConfig(): OrcaConfig {
     );
   }
 
+  // Required: Linear integration
+  const linearApiKey = readEnv("ORCA_LINEAR_API_KEY");
+  if (!linearApiKey) {
+    exitWithError("ORCA_LINEAR_API_KEY is required");
+  }
+
+  const linearWebhookSecret = readEnv("ORCA_LINEAR_WEBHOOK_SECRET");
+  if (!linearWebhookSecret) {
+    exitWithError("ORCA_LINEAR_WEBHOOK_SECRET is required");
+  }
+
+  const linearProjectIdsRaw = readEnv("ORCA_LINEAR_PROJECT_IDS");
+  if (!linearProjectIdsRaw) {
+    exitWithError("ORCA_LINEAR_PROJECT_IDS is required");
+  }
+  let linearProjectIds: string[];
+  try {
+    const parsed = JSON.parse(linearProjectIdsRaw);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      exitWithError(
+        "ORCA_LINEAR_PROJECT_IDS must be a non-empty JSON array of strings",
+      );
+    }
+    if (!parsed.every((item: unknown) => typeof item === "string")) {
+      exitWithError(
+        "ORCA_LINEAR_PROJECT_IDS must be a JSON array of strings",
+      );
+    }
+    linearProjectIds = parsed as string[];
+  } catch {
+    exitWithError(
+      "ORCA_LINEAR_PROJECT_IDS must be valid JSON (e.g. [\"project-uuid\"])",
+    );
+  }
+
+  const tunnelHostname = readEnv("ORCA_TUNNEL_HOSTNAME");
+  if (!tunnelHostname) {
+    exitWithError("ORCA_TUNNEL_HOSTNAME is required");
+  }
+
   return {
     defaultCwd,
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
@@ -97,5 +143,14 @@ export function loadConfig(): OrcaConfig {
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
+    // Linear integration
+    linearApiKey,
+    linearWebhookSecret,
+    linearProjectIds,
+    linearReadyStateType: readEnvOrDefault(
+      "ORCA_LINEAR_READY_STATE_TYPE",
+      "unstarted",
+    ),
+    tunnelHostname,
   };
 }

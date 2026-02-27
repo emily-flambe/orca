@@ -19,10 +19,22 @@ import {
   type SessionResult,
 } from "../runner/index.js";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
+import type { DependencyGraph } from "../linear/graph.js";
+import type { LinearClient } from "../linear/client.js";
+import type { WorkflowStateMap } from "../linear/client.js";
+import { writeBackStatus } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface SchedulerDeps {
+  db: OrcaDb;
+  config: OrcaConfig;
+  graph: DependencyGraph;
+  client: LinearClient;
+  stateMap: WorkflowStateMap;
+}
 
 export interface SchedulerHandle {
   stop: () => void;
@@ -51,14 +63,19 @@ function log(message: string): void {
 // ---------------------------------------------------------------------------
 
 async function dispatch(
-  db: OrcaDb,
-  config: OrcaConfig,
+  deps: SchedulerDeps,
   task: ReturnType<typeof getReadyTasks>[number],
 ): Promise<void> {
+  const { db, config, client, stateMap } = deps;
   const taskId = task.linearIssueId;
 
   // 1. Mark task as dispatched
   updateTaskStatus(db, taskId, "dispatched");
+
+  // 8.4 Write-back on dispatch (fire-and-forget)
+  writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
+    log(`write-back failed on dispatch for task ${taskId}: ${err}`);
+  });
 
   // 2. Insert invocation record
   const now = new Date().toISOString();
@@ -122,7 +139,7 @@ async function dispatch(
   // 8. Attach completion handler
   handle.done.then((result) => {
     onSessionComplete(
-      db, config, taskId, invocationId, handle, result,
+      deps, taskId, invocationId, handle, result,
       worktreeResult.worktreePath,
     );
   });
@@ -133,14 +150,15 @@ async function dispatch(
 // ---------------------------------------------------------------------------
 
 function onSessionComplete(
-  db: OrcaDb,
-  config: OrcaConfig,
+  deps: SchedulerDeps,
   taskId: string,
   invocationId: number,
   handle: SessionHandle,
   result: SessionResult,
   worktreePath: string,
 ): void {
+  const { db, config, client, stateMap } = deps;
+
   // Remove from active handles
   activeHandles.delete(invocationId);
 
@@ -170,6 +188,11 @@ function onSessionComplete(
     // 3. Success: mark task done, remove worktree
     updateTaskStatus(db, taskId, "done");
 
+    // 8.5 Write-back on success (fire-and-forget)
+    writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+      log(`write-back failed on completion for task ${taskId}: ${err}`);
+    });
+
     try {
       removeWorktree(worktreePath);
     } catch (err) {
@@ -190,7 +213,7 @@ function onSessionComplete(
     );
 
     // 5. Retry logic
-    handleRetry(db, config, taskId);
+    handleRetry(deps, taskId);
   }
 }
 
@@ -198,7 +221,8 @@ function onSessionComplete(
 // Retry logic (6.5)
 // ---------------------------------------------------------------------------
 
-function handleRetry(db: OrcaDb, config: OrcaConfig, taskId: string): void {
+function handleRetry(deps: SchedulerDeps, taskId: string): void {
+  const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) {
     log(`retry: task ${taskId} not found`);
@@ -210,10 +234,20 @@ function handleRetry(db: OrcaDb, config: OrcaConfig, taskId: string): void {
     log(
       `task ${taskId} queued for retry (attempt ${task.retryCount + 1}/${config.maxRetries})`,
     );
+
+    // 8.5 Write-back on retry (fire-and-forget)
+    writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
+      log(`write-back failed on retry for task ${taskId}: ${err}`);
+    });
   } else {
     log(
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
     );
+
+    // 8.5 Write-back on permanent failure (fire-and-forget)
+    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
+      log(`write-back failed on permanent failure for task ${taskId}: ${err}`);
+    });
   }
 }
 
@@ -221,7 +255,8 @@ function handleRetry(db: OrcaDb, config: OrcaConfig, taskId: string): void {
 // Timeout check (6.4)
 // ---------------------------------------------------------------------------
 
-function checkTimeouts(db: OrcaDb, config: OrcaConfig): void {
+function checkTimeouts(deps: SchedulerDeps): void {
+  const { db, config } = deps;
   const running = getRunningInvocations(db);
   const now = Date.now();
   const timeoutMs = config.sessionTimeoutMin * 60 * 1000;
@@ -250,7 +285,7 @@ function checkTimeouts(db: OrcaDb, config: OrcaConfig): void {
       updateTaskStatus(db, inv.linearIssueId, "failed");
 
       // Attempt retry
-      handleRetry(db, config, inv.linearIssueId);
+      handleRetry(deps, inv.linearIssueId);
     }
   }
 }
@@ -259,9 +294,11 @@ function checkTimeouts(db: OrcaDb, config: OrcaConfig): void {
 // Tick (6.2)
 // ---------------------------------------------------------------------------
 
-async function tick(db: OrcaDb, config: OrcaConfig): Promise<void> {
+async function tick(deps: SchedulerDeps): Promise<void> {
+  const { db, config, graph } = deps;
+
   // 6.4 - Check for timed-out invocations first
-  checkTimeouts(db, config);
+  checkTimeouts(deps);
 
   // 1. Count active sessions
   const active = countActiveSessions(db);
@@ -285,9 +322,34 @@ async function tick(db: OrcaDb, config: OrcaConfig): Promise<void> {
     return;
   }
 
+  // 8.3 Skip tasks with empty agent_prompt
+  // 8.1 Filter blocked tasks via dependency graph
+  const getStatus = (id: string): string | undefined =>
+    getTask(db, id)?.orcaStatus;
+
+  const dispatchable = readyTasks.filter((t) => {
+    if (!t.agentPrompt) return false;
+    return graph.isDispatchable(t.linearIssueId, getStatus);
+  });
+
+  if (dispatchable.length === 0) {
+    return;
+  }
+
+  // 8.2 Sort by effective priority (ascending), tiebreak by created_at
+  const getPriority = (id: string): number =>
+    getTask(db, id)?.priority ?? 0;
+
+  dispatchable.sort((a, b) => {
+    const aPrio = graph.computeEffectivePriority(a.linearIssueId, getPriority);
+    const bPrio = graph.computeEffectivePriority(b.linearIssueId, getPriority);
+    if (aPrio !== bPrio) return aPrio - bPrio;
+    return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+  });
+
   // 6. Pick first and dispatch
-  const task = readyTasks[0]!;
-  await dispatch(db, config, task);
+  const task = dispatchable[0]!;
+  await dispatch(deps, task);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,14 +365,15 @@ async function tick(db: OrcaDb, config: OrcaConfig): Promise<void> {
  * @returns A handle with a `stop()` method that clears the interval and
  *          kills all active sessions.
  */
-export function startScheduler(db: OrcaDb, config: OrcaConfig): SchedulerHandle {
+export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
+  const { config } = deps;
   let ticking = false;
 
   async function guardedTick(): Promise<void> {
     if (ticking) return;
     ticking = true;
     try {
-      await tick(db, config);
+      await tick(deps);
     } catch (err) {
       log(`tick error: ${err}`);
     } finally {

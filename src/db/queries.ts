@@ -71,6 +71,18 @@ export function getAllTasks(db: OrcaDb): Task[] {
   return db.select().from(tasks).all();
 }
 
+/** Partial update of task fields (priority, status, etc.) by linear_issue_id. */
+export function updateTaskFields(
+  db: OrcaDb,
+  taskId: string,
+  updates: Partial<Omit<NewTask, "linearIssueId" | "createdAt">>,
+): void {
+  db.update(tasks)
+    .set({ ...updates, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Invocation types
 // ---------------------------------------------------------------------------

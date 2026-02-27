@@ -4,11 +4,21 @@ import { createDb } from "../db/index.js";
 import {
   insertTask,
   getAllTasks,
+  getTask,
   getRunningInvocations,
   sumCostInWindow,
   updateInvocation,
+  updateTaskFields,
 } from "../db/queries.js";
 import { startScheduler, activeHandles } from "../scheduler/index.js";
+import { LinearClient } from "../linear/client.js";
+import { DependencyGraph } from "../linear/graph.js";
+import { fullSync } from "../linear/sync.js";
+import { createWebhookRoute } from "../linear/webhook.js";
+import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
+import { createPoller, type PollerHandle } from "../linear/poller.js";
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
 
 const program = new Command();
 
@@ -64,30 +74,96 @@ program
   );
 
 // ---------------------------------------------------------------------------
+// orca prompt
+// ---------------------------------------------------------------------------
+
+program
+  .command("prompt <issueId> <text>")
+  .description("Set the agent prompt for a Linear issue")
+  .action((issueId: string, text: string) => {
+    const config = loadConfig();
+    const db = createDb(config.dbPath);
+
+    const task = getTask(db, issueId);
+    if (!task) {
+      console.error(`orca: task ${issueId} not found`);
+      process.exit(1);
+    }
+
+    updateTaskFields(db, issueId, { agentPrompt: text });
+    console.log(`Prompt set for ${issueId}`);
+  });
+
+// ---------------------------------------------------------------------------
 // orca start
 // ---------------------------------------------------------------------------
 
 program
   .command("start")
   .description("Start the Orca scheduler")
-  .action(() => {
+  .action(async () => {
     const config = loadConfig();
     const db = createDb(config.dbPath);
 
-    const scheduler = startScheduler(db, config);
+    // Initialize Linear dependencies
+    const client = new LinearClient(config.linearApiKey);
+    const graph = new DependencyGraph();
+
+    // Full sync: populate tasks table + dependency graph
+    await fullSync(db, client, graph, config);
+
+    // Fetch workflow states for write-back (state type → state UUID)
+    const stateMap = await client.fetchWorkflowStates(
+      config.linearProjectIds,
+    );
+
+    // Start Hono HTTP server with webhook endpoint
+    const webhookApp = createWebhookRoute({
+      db,
+      client,
+      graph,
+      config,
+      stateMap,
+    });
+    const app = new Hono();
+    app.route("/", webhookApp);
+    serve({ fetch: app.fetch, port: config.port });
+    console.log(`Hono server listening on port ${config.port}`);
+
+    // Start cloudflared tunnel
+    const tunnel: TunnelHandle = startTunnel();
+
+    // Start polling fallback (activates when tunnel is down)
+    const poller: PollerHandle = createPoller({
+      db,
+      client,
+      graph,
+      config,
+      isTunnelConnected: () => tunnel.isTunnelConnected(),
+    });
+    poller.start();
+
+    // Start scheduler
+    const scheduler = startScheduler({ db, config, graph, client, stateMap });
 
     console.log(
       `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
     );
 
-    // 8.1 Graceful shutdown
+    // Graceful shutdown
     const shutdown = () => {
       console.log("Orca shutting down...");
 
-      // Stop the scheduler (clears interval, kills active sessions)
+      // Stop scheduler (clears interval, kills active sessions)
       scheduler.stop();
 
-      // Mark all running invocations as failed with shutdown note
+      // Stop polling fallback
+      poller.stop();
+
+      // Stop cloudflared tunnel
+      tunnel.stop();
+
+      // Mark all running invocations as failed
       const running = getRunningInvocations(db);
       for (const inv of running) {
         updateInvocation(db, inv.id, {
@@ -97,7 +173,6 @@ program
         });
       }
 
-      // Allow a short delay for cleanup before exiting
       setTimeout(() => {
         process.exit(0);
       }, 500);
