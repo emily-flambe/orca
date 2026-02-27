@@ -1,34 +1,33 @@
-## ADDED Requirements
-
-### Requirement: Add task command
-The CLI SHALL provide an `orca add` command that creates a new task. Required flags: `--prompt` (agent prompt text) and `--repo` (path to git repo). Optional flags: `--priority` (0-4, default 0), `--id` (custom task ID, auto-generated if omitted).
-
-#### Scenario: Add task with required flags
-- **WHEN** user runs `orca add --prompt "Fix the auth bug" --repo /home/user/myapp`
-- **THEN** a task SHALL be inserted into SQLite with the given prompt, repo path, `orca_status` = "ready", and a generated task ID
-
-#### Scenario: Add task with priority
-- **WHEN** user runs `orca add --prompt "Urgent fix" --repo /home/user/myapp --priority 1`
-- **THEN** the task SHALL be created with `priority` = 1
-
-#### Scenario: Missing required flag
-- **WHEN** user runs `orca add --prompt "Fix bug"` without `--repo`
-- **THEN** the CLI SHALL exit with an error message indicating `--repo` is required
+## MODIFIED Requirements
 
 ### Requirement: Start scheduler command
-The CLI SHALL provide an `orca start` command that starts the scheduler loop as a foreground process. It SHALL log session events to the console.
+The CLI SHALL provide an `orca start` command that starts the scheduler loop as a foreground process. On startup, it SHALL initialize the Linear client and fetch workflow states, perform a full sync of Linear issues into the tasks table, start the Hono HTTP server on `ORCA_PORT` (with the webhook endpoint), and spawn the cloudflared tunnel. It SHALL log session events to the console.
 
-#### Scenario: Scheduler starts
+#### Scenario: Scheduler starts with Linear integration
 - **WHEN** user runs `orca start`
-- **THEN** the scheduler loop SHALL begin, logging "Orca scheduler started (concurrency: N, interval: Xs)" to console
+- **THEN** the system SHALL initialize the Linear client, run full sync, start the Hono server, spawn the cloudflared tunnel, and begin the scheduler loop, logging "Orca scheduler started (concurrency: N, interval: Xs)" to console
 
 #### Scenario: Scheduler exits on SIGTERM
 - **WHEN** the orca process receives SIGTERM
-- **THEN** the scheduler SHALL stop dispatching, kill all running child processes, mark their invocations as interrupted, and exit cleanly
+- **THEN** the scheduler SHALL stop dispatching, kill all running child processes, kill the cloudflared tunnel process, mark running invocations as interrupted, and exit cleanly
 
-### Requirement: Status command
-The CLI SHALL provide an `orca status` command that displays current scheduler state: active sessions (count + task IDs), queued tasks (count), budget usage (cost in current window / max), and failed tasks (count).
+#### Scenario: Full sync runs before scheduler loop
+- **WHEN** `orca start` is executed
+- **THEN** the Linear full sync SHALL complete and the dependency graph SHALL be built before the first scheduler tick
 
-#### Scenario: Status with active sessions
-- **WHEN** user runs `orca status` while 2 sessions are running
-- **THEN** the CLI SHALL display the count and task IDs of running sessions, queued task count, budget usage, and failed task count
+## ADDED Requirements
+
+### Requirement: Set agent prompt command
+The CLI SHALL provide an `orca prompt <issueId> "<text>"` command that sets or updates the `agent_prompt` field for a task in the tasks table identified by its Linear issue ID. If no task exists with the given issue ID, the command SHALL exit with an error message.
+
+#### Scenario: Set prompt on existing task
+- **WHEN** user runs `orca prompt PROJ-123 "Fix the authentication bug in the login flow"`
+- **THEN** the task with `linear_issue_id` matching PROJ-123 SHALL have its `agent_prompt` updated to the provided text
+
+#### Scenario: Update existing prompt
+- **WHEN** user runs `orca prompt PROJ-123 "Updated instructions"` on a task that already has an `agent_prompt`
+- **THEN** the task's `agent_prompt` SHALL be overwritten with the new text
+
+#### Scenario: Prompt set on nonexistent task
+- **WHEN** user runs `orca prompt NONEXISTENT-99 "Some prompt"`
+- **THEN** the CLI SHALL exit with an error message indicating no task exists with that issue ID

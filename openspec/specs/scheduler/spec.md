@@ -1,70 +1,63 @@
-## ADDED Requirements
-
-### Requirement: Concurrency-capped dispatch loop
-The scheduler SHALL maintain a configurable maximum number of concurrent running sessions (default 3). It SHALL NOT dispatch new tasks when the cap is reached.
-
-#### Scenario: Dispatch when slots available
-- **WHEN** the scheduler ticks and active sessions < concurrency cap and there are ready tasks
-- **THEN** the scheduler SHALL dispatch the highest-priority ready task
-
-#### Scenario: No dispatch when cap reached
-- **WHEN** the scheduler ticks and active sessions >= concurrency cap
-- **THEN** the scheduler SHALL NOT dispatch any new tasks
+## MODIFIED Requirements
 
 ### Requirement: Priority-based task selection
-The scheduler SHALL select the ready task with the lowest `priority` value (lower = more urgent). Ties SHALL be broken by `created_at` (oldest first).
+The scheduler SHALL select the ready task with the lowest effective priority value (lower = more urgent). Effective priority SHALL be computed by the dependency graph's `computeEffectivePriority` function, which considers the task's own priority and the priorities of all tasks it transitively blocks. Ties SHALL be broken by `created_at` (oldest first).
 
-#### Scenario: Higher priority task dispatched first
-- **WHEN** two tasks are ready with priorities 1 (urgent) and 3 (normal)
-- **THEN** the scheduler SHALL dispatch the priority 1 task first
+#### Scenario: Higher effective priority task dispatched first
+- **WHEN** two tasks are ready with own priorities 3 and 2, but task with priority 3 blocks an urgent priority 1 task
+- **THEN** the scheduler SHALL dispatch the priority-3 task first because its effective priority is 1
 
 #### Scenario: Tiebreaker by creation date
-- **WHEN** two tasks are ready with the same priority
+- **WHEN** two tasks are ready with the same effective priority
 - **THEN** the scheduler SHALL dispatch the task with the earlier `created_at`
 
-### Requirement: Cost budget enforcement
-The scheduler SHALL track cumulative `cost_usd` from all invocations within a rolling window (default 4 hours). It SHALL NOT dispatch new tasks when cumulative cost exceeds `ORCA_BUDGET_MAX_COST_USD`.
+#### Scenario: Effective priority reflects transitive dependencies
+- **WHEN** task A (priority 3) blocks task B (priority 2) which blocks task C (priority 1)
+- **THEN** task A's effective priority SHALL be 1, and it SHALL be dispatched before an unrelated task with priority 2
 
-#### Scenario: Budget exhausted
-- **WHEN** the scheduler ticks and cumulative cost in the rolling window >= budget max
-- **THEN** the scheduler SHALL NOT dispatch any new tasks, even if concurrency slots are available
+## ADDED Requirements
 
-#### Scenario: Budget window rolls forward
-- **WHEN** invocations older than the budget window duration exist
-- **THEN** their costs SHALL NOT count toward the current budget
+### Requirement: Dependency-aware dispatch filtering
+The scheduler SHALL filter out tasks with unresolved blockers before selecting tasks for dispatch. A task SHALL only be eligible for dispatch if `isDispatchable(taskId)` returns true, meaning all tasks in its `blockedBy` set have Orca status "done" or Linear state type "completed".
 
-### Requirement: Hard timeout enforcement
-The scheduler SHALL kill any running session that exceeds `ORCA_SESSION_TIMEOUT_MIN` (default 45 minutes). The invocation SHALL be marked as `timed_out` and the task as `failed`.
+#### Scenario: Blocked task skipped
+- **WHEN** the scheduler ticks and a ready task has an incomplete blocker
+- **THEN** the scheduler SHALL skip the blocked task and dispatch the next eligible task
 
-#### Scenario: Session exceeds timeout
-- **WHEN** a running session has been active longer than the timeout
-- **THEN** the scheduler SHALL kill the process, set invocation status to "timed_out", and set task status to "failed"
+#### Scenario: Unblocked task dispatched
+- **WHEN** the scheduler ticks and a ready task's blockers are all completed
+- **THEN** the scheduler SHALL consider the task eligible for dispatch
 
-### Requirement: Automatic retry on failure
-When a task fails, the scheduler SHALL reset it to "ready" for re-dispatch, unless `retry_count` >= `ORCA_MAX_RETRIES`. In that case, the task SHALL remain "failed".
+#### Scenario: Task becomes dispatchable after blocker completes
+- **WHEN** a blocker task transitions to "done"
+- **THEN** the previously blocked task SHALL become eligible for dispatch on the next scheduler tick
 
-#### Scenario: Task retried after failure
-- **WHEN** a task fails and `retry_count` < `ORCA_MAX_RETRIES`
-- **THEN** the task SHALL be set to "ready" and `retry_count` incremented
+### Requirement: Linear write-back on dispatch and completion
+The scheduler SHALL trigger Linear state write-back when dispatching a task and when a task completes or permanently fails. On dispatch (ready to dispatched), the scheduler SHALL write back the "started" state. On completion (running to done), the scheduler SHALL write back the "completed" state. On permanent failure (running to failed with max retries exhausted), the scheduler SHALL write back the "canceled" state. On retry (failed to ready), the scheduler SHALL write back the "unstarted" state.
 
-#### Scenario: Max retries exhausted
-- **WHEN** a task fails and `retry_count` >= `ORCA_MAX_RETRIES`
-- **THEN** the task SHALL remain in "failed" status permanently
+#### Scenario: Write-back on dispatch
+- **WHEN** the scheduler dispatches a task
+- **THEN** the scheduler SHALL trigger a write-back to set the Linear issue state to "started"
 
-### Requirement: Immediate backfill on session completion
-When a session completes (success or failure), the scheduler SHALL check for dispatchable tasks on the next tick rather than waiting for a fixed interval.
+#### Scenario: Write-back on completion
+- **WHEN** a task completes successfully
+- **THEN** the scheduler SHALL trigger a write-back to set the Linear issue state to "completed"
 
-#### Scenario: Slot freed by completed session
-- **WHEN** a session completes and there are ready tasks below the concurrency cap
-- **THEN** the scheduler SHALL dispatch the next task within one scheduler tick interval
+#### Scenario: Write-back on permanent failure
+- **WHEN** a task fails permanently (max retries exhausted)
+- **THEN** the scheduler SHALL trigger a write-back to set the Linear issue state to "canceled"
 
-### Requirement: Scheduler tick interval
-The scheduler SHALL run its dispatch check on a configurable interval (default 10 seconds). Ticks SHALL NOT overlap — if a tick is still processing, the next SHALL be skipped.
+#### Scenario: Write-back on retry
+- **WHEN** a failed task is reset to ready for retry
+- **THEN** the scheduler SHALL trigger a write-back to set the Linear issue state to "unstarted"
 
-#### Scenario: Tick runs on interval
-- **WHEN** the scheduler is started
-- **THEN** the dispatch check SHALL run every `ORCA_SCHEDULER_INTERVAL_SEC` seconds
+### Requirement: Skip tasks with empty agent_prompt
+The scheduler SHALL NOT dispatch tasks that have an empty or null `agent_prompt`. These tasks SHALL be skipped during task selection regardless of their priority or dispatch eligibility.
 
-#### Scenario: Overlapping tick prevention
-- **WHEN** a tick is still executing when the next interval fires
-- **THEN** the next tick SHALL be skipped
+#### Scenario: Task with empty prompt skipped
+- **WHEN** the scheduler ticks and a ready task has an empty `agent_prompt`
+- **THEN** the scheduler SHALL skip the task and not dispatch it
+
+#### Scenario: Task with populated prompt dispatched
+- **WHEN** the scheduler ticks and a ready task has a non-empty `agent_prompt`
+- **THEN** the task SHALL be eligible for dispatch (subject to other dispatch criteria)
