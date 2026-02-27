@@ -2,6 +2,7 @@ import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
   countActiveSessions,
+  getAllTasks,
   getReadyTasks,
   getRunningInvocations,
   getTask,
@@ -12,6 +13,12 @@ import {
   updateInvocation,
   updateTaskStatus,
 } from "../db/queries.js";
+import {
+  emitTaskUpdated,
+  emitInvocationStarted,
+  emitInvocationCompleted,
+  emitStatusUpdated,
+} from "../events.js";
 import {
   spawnSession,
   killSession,
@@ -71,6 +78,7 @@ async function dispatch(
 
   // 1. Mark task as dispatched
   updateTaskStatus(db, taskId, "dispatched");
+  emitTaskUpdated(getTask(db, taskId)!);
 
   // 8.4 Write-back on dispatch (fire-and-forget)
   writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
@@ -130,6 +138,7 @@ async function dispatch(
 
   // 7. Store handle
   activeHandles.set(invocationId, handle);
+  emitInvocationStarted({ taskId, invocationId });
 
   log(
     `dispatched task ${taskId} as invocation ${invocationId} ` +
@@ -184,9 +193,37 @@ function onSessionComplete(
     });
   }
 
+  // Emit task updated + invocation completed events
+  emitTaskUpdated(getTask(db, taskId)!);
+  emitInvocationCompleted({
+    taskId,
+    invocationId,
+    status: invocationStatus,
+    costUsd: result.costUsd ?? 0,
+  });
+
+  // Emit current status
+  {
+    const activeSessions = countActiveSessions(db);
+    const allTasks = getAllTasks(db);
+    const queuedTasks = allTasks.filter((t) => t.orcaStatus === "ready").length;
+    const windowStart = new Date(
+      Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
+    ).toISOString();
+    const costInWindow = sumCostInWindow(db, windowStart);
+    emitStatusUpdated({
+      activeSessions,
+      queuedTasks,
+      costInWindow,
+      budgetLimit: config.budgetMaxCostUsd,
+      budgetWindowHours: config.budgetWindowHours,
+    });
+  }
+
   if (isSuccess) {
     // 3. Success: mark task done, remove worktree
     updateTaskStatus(db, taskId, "done");
+    emitTaskUpdated(getTask(db, taskId)!);
 
     // 8.5 Write-back on success (fire-and-forget)
     writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
@@ -206,6 +243,7 @@ function onSessionComplete(
   } else {
     // 4. Failure: mark task failed, preserve worktree, attempt retry
     updateTaskStatus(db, taskId, "failed");
+    emitTaskUpdated(getTask(db, taskId)!);
 
     log(
       `task ${taskId} failed (invocation ${invocationId}, ` +
