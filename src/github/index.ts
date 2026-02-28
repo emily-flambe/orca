@@ -67,6 +67,25 @@ export function findPrForBranch(branchName: string, cwd: string): PrInfo {
   }
 }
 
+/**
+ * List branch names that have open PRs in the given repo.
+ *
+ * Uses a single `gh pr list --state open` call and returns a Set of
+ * headRefName values. Returns an empty set on error (best-effort).
+ */
+export function listOpenPrBranches(cwd: string): Set<string> {
+  try {
+    const output = gh(
+      ["pr", "list", "--state", "open", "--json", "headRefName", "--limit", "200"],
+      { cwd },
+    );
+    const prs = JSON.parse(output) as { headRefName: string }[];
+    return new Set(prs.map((pr) => pr.headRefName));
+  } catch {
+    return new Set();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Async helpers for deploy monitoring
 // ---------------------------------------------------------------------------

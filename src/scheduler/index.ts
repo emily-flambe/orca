@@ -33,6 +33,7 @@ import {
 } from "../runner/index.js";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { findPrForBranch, getMergeCommitSha, getWorkflowRunStatus } from "../github/index.js";
+import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
 import type { WorkflowStateMap } from "../linear/client.js";
@@ -567,6 +568,9 @@ function checkTimeouts(deps: SchedulerDeps): void {
 /** Last poll time per task ID, for throttling. */
 const deployPollTimes = new Map<string, number>();
 
+/** Last time cleanup ran (epoch ms), for throttling. */
+let lastCleanupTime = 0;
+
 async function checkDeployments(deps: SchedulerDeps): Promise<void> {
   const { db, config, client, stateMap } = deps;
 
@@ -658,6 +662,18 @@ async function tick(deps: SchedulerDeps): Promise<void> {
 
   // Check deploying tasks (non-blocking per-task polling)
   await checkDeployments(deps);
+
+  // Periodic cleanup of stale branches and orphaned worktrees
+  const cleanupIntervalMs = config.cleanupIntervalMin * 60 * 1000;
+  const now = Date.now();
+  if (now - lastCleanupTime >= cleanupIntervalMs) {
+    lastCleanupTime = now;
+    try {
+      cleanupStaleResources({ db, config });
+    } catch (err) {
+      log(`cleanup error: ${err}`);
+    }
+  }
 
   // 1. Count active sessions
   const active = countActiveSessions(db);

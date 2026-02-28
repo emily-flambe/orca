@@ -26,7 +26,7 @@ import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../events.js";
 import { spawnSession } from "../runner/index.js";
-import { createWorktree } from "../worktree/index.js";
+import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -259,6 +259,15 @@ program
           outputSummary: "interrupted by shutdown",
         });
         updateTaskStatus(db, inv.linearIssueId, "ready");
+
+        // Best-effort worktree cleanup for interrupted sessions
+        if (inv.worktreePath) {
+          try {
+            removeWorktree(inv.worktreePath);
+          } catch {
+            // Worktree may already be removed or in a bad state — ignore
+          }
+        }
       }
 
       setTimeout(() => {

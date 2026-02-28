@@ -21,6 +21,8 @@ export interface OrcaConfig {
   deployStrategy: "none" | "github_actions";
   deployPollIntervalSec: number;
   deployTimeoutMin: number;
+  cleanupIntervalMin: number;
+  cleanupBranchMaxAgeMin: number;
   port: number;
   dbPath: string;
   // Linear integration
@@ -188,6 +190,8 @@ Steps:
     })(),
     deployPollIntervalSec: readIntOrDefault("ORCA_DEPLOY_POLL_INTERVAL_SEC", 30),
     deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
+    cleanupIntervalMin: readIntOrDefault("ORCA_CLEANUP_INTERVAL_MIN", 10),
+    cleanupBranchMaxAgeMin: readIntOrDefault("ORCA_CLEANUP_BRANCH_MAX_AGE_MIN", 60),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     // Linear integration
