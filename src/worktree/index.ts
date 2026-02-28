@@ -122,6 +122,10 @@ export function createWorktree(
   // Fetch origin
   git(["fetch", "origin"], { cwd: repoPath });
 
+  // Always prune stale worktree references (directory removed but git
+  // still tracks it) before checking or creating.
+  git(["worktree", "prune"], { cwd: repoPath });
+
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
     resetWorktree(worktreePath);
@@ -131,7 +135,6 @@ export function createWorktree(
   // If directory exists but isn't a registered worktree (e.g. stale from a
   // previous failed run), remove it so git worktree add can succeed.
   if (existsSync(worktreePath)) {
-    git(["worktree", "prune"], { cwd: repoPath });
     rmSync(worktreePath, { recursive: true, force: true });
   }
 

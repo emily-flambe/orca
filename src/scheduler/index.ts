@@ -241,7 +241,7 @@ function onSessionComplete(
         `cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
     );
   } else {
-    // 4. Failure: mark task failed, preserve worktree, attempt retry
+    // 4. Failure: mark task failed, clean up worktree, attempt retry
     updateTaskStatus(db, taskId, "failed");
     emitTaskUpdated(getTask(db, taskId)!);
 
@@ -249,6 +249,13 @@ function onSessionComplete(
       `task ${taskId} failed (invocation ${invocationId}, ` +
         `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
     );
+
+    // Clean up worktree so retries start fresh
+    try {
+      removeWorktree(worktreePath);
+    } catch (err) {
+      log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+    }
 
     // 5. Retry logic
     handleRetry(deps, taskId);
