@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, copyFileSync } from "node:fs";
+import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 
 /**
@@ -126,6 +126,13 @@ export function createWorktree(
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
     resetWorktree(worktreePath);
     return { worktreePath, branchName };
+  }
+
+  // If directory exists but isn't a registered worktree (e.g. stale from a
+  // previous failed run), remove it so git worktree add can succeed.
+  if (existsSync(worktreePath)) {
+    git(["worktree", "prune"], { cwd: repoPath });
+    rmSync(worktreePath, { recursive: true, force: true });
   }
 
   // If branch already exists, delete it first

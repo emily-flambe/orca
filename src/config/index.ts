@@ -142,7 +142,7 @@ export function loadConfig(): OrcaConfig {
     ),
     schedulerIntervalSec: readIntOrDefault("ORCA_SCHEDULER_INTERVAL_SEC", 10),
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
-    defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 20),
+    defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     appendSystemPrompt: readEnvOrDefault("ORCA_APPEND_SYSTEM_PROMPT", ""),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     port: readIntOrDefault("ORCA_PORT", 3000),

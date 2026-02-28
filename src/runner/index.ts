@@ -78,11 +78,10 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
     opts.agentPrompt,
     "--output-format",
     "stream-json",
+    "--verbose",
     "--max-turns",
     String(opts.maxTurns),
     "--dangerously-skip-permissions",
-    "--cwd",
-    opts.worktreePath,
   ];
 
   if (opts.appendSystemPrompt) {
@@ -122,9 +121,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const logStream = createWriteStream(logPath, { flags: "a" });
 
   // Spawn the claude CLI process.
+  // Strip CLAUDECODE env var so child sessions don't think they're nested.
+  const childEnv = { ...process.env };
+  delete childEnv.CLAUDECODE;
+
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
     stdio: ["ignore", "pipe", "pipe"],
+    env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
