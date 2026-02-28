@@ -120,9 +120,10 @@ program
     await fullSync(db, client, graph, config);
 
     // Fetch workflow states for write-back (state type → state UUID)
-    const stateMap = await client.fetchWorkflowStates(
+    const teamIds = await client.fetchTeamIdsForProjects(
       config.linearProjectIds,
     );
+    const stateMap = await client.fetchWorkflowStates(teamIds);
 
     // Start Hono HTTP server with webhook endpoint
     const webhookApp = createWebhookRoute({
@@ -192,6 +193,7 @@ program
 
     // Start cloudflared tunnel
     const tunnel: TunnelHandle = startTunnel({
+      cloudflaredPath: config.cloudflaredPath,
       token: config.tunnelToken || undefined,
     });
 

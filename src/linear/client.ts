@@ -173,7 +173,7 @@ export class LinearClient {
     }
 
     const graphql = `
-      query($projectIds: [String!]!, $after: String) {
+      query($projectIds: [ID!]!, $after: String) {
         issues(filter: { project: { id: { in: $projectIds } } }, first: 25, after: $after) {
           pageInfo { hasNextPage endCursor }
           nodes {
@@ -259,7 +259,42 @@ export class LinearClient {
   }
 
   // -------------------------------------------------------------------------
-  // 2.3 fetchWorkflowStates
+  // 2.3 fetchTeamIdsForProjects
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch the unique team IDs associated with the given project IDs.
+   */
+  async fetchTeamIdsForProjects(projectIds: string[]): Promise<string[]> {
+    if (projectIds.length === 0) return [];
+
+    const graphql = `
+      query($projectIds: [ID!]!) {
+        projects(filter: { id: { in: $projectIds } }, first: 50) {
+          nodes { teams { nodes { id } } }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      projects: {
+        nodes: Array<{ teams: { nodes: Array<{ id: string }> } }>;
+      };
+    }>(graphql, { projectIds });
+
+    const teamIds = new Set<string>();
+    for (const project of data.projects.nodes) {
+      for (const team of project.teams.nodes) {
+        teamIds.add(team.id);
+      }
+    }
+
+    log(`resolved ${teamIds.size} team(s) from ${projectIds.length} project(s)`);
+    return [...teamIds];
+  }
+
+  // -------------------------------------------------------------------------
+  // 2.4 fetchWorkflowStates
   // -------------------------------------------------------------------------
 
   /**
@@ -311,7 +346,7 @@ export class LinearClient {
 
   async updateIssueState(issueId: string, stateId: string): Promise<boolean> {
     const graphql = `
-      mutation($issueId: String!, $stateId: String!) {
+      mutation($issueId: ID!, $stateId: String!) {
         issueUpdate(id: $issueId, input: { stateId: $stateId }) {
           success
         }

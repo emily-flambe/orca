@@ -22,6 +22,7 @@ export interface OrcaConfig {
   linearReadyStateType: string;
   tunnelHostname: string;
   tunnelToken: string;
+  cloudflaredPath: string;
 }
 
 function exitWithError(message: string): never {
@@ -156,5 +157,6 @@ export function loadConfig(): OrcaConfig {
     ),
     tunnelHostname,
     tunnelToken,
+    cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
   };
 }
