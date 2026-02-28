@@ -17,6 +17,9 @@ export interface OrcaConfig {
   maxReviewCycles: number;
   reviewMaxTurns: number;
   disallowedTools: string;
+  deployStrategy: "none" | "github_actions";
+  deployPollIntervalSec: number;
+  deployTimeoutMin: number;
   port: number;
   dbPath: string;
   // Linear integration
@@ -175,6 +178,15 @@ Steps:
     maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),
     reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
+    deployStrategy: (() => {
+      const val = readEnvOrDefault("ORCA_DEPLOY_STRATEGY", "none");
+      if (val !== "none" && val !== "github_actions") {
+        exitWithError('ORCA_DEPLOY_STRATEGY must be "none" or "github_actions"');
+      }
+      return val as "none" | "github_actions";
+    })(),
+    deployPollIntervalSec: readIntOrDefault("ORCA_DEPLOY_POLL_INTERVAL_SEC", 30),
+    deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     // Linear integration

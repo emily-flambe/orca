@@ -97,11 +97,13 @@ The review agent:
 
 The review agent outputs `REVIEW_RESULT:APPROVED` and merges the PR.
 
-1. Set task to `done`.
-2. **Write-back to Linear:** move issue to **"Done"**.
-3. Remove the git worktree.
+1. Remove the git worktree.
+2. Look up the PR number and merge commit SHA.
+3. If `ORCA_DEPLOY_STRATEGY=none` (default): set task to `done`, write-back **"Done"** to Linear. Task is complete.
+4. If `ORCA_DEPLOY_STRATEGY=github_actions`: store `mergeCommitSha`, `prNumber`, `deployStartedAt` on the task, set status to `deploying`. Linear stays at "In Review" (no write-back).
 
-**Result:** PR is merged. Linear shows "Done". Task is complete.
+**Result (none):** PR is merged. Linear shows "Done". Task is complete.
+**Result (github_actions):** PR is merged. Task enters deploy monitoring phase.
 
 ### 6b. Changes requested
 
@@ -126,6 +128,28 @@ If `reviewCycleCount >= ORCA_MAX_REVIEW_CYCLES`:
 If the review agent doesn't output a `REVIEW_RESULT:*` marker:
 
 1. Leave task as `in_review` (will be re-dispatched for another review attempt).
+
+## 6e. Deploy monitoring (`ORCA_DEPLOY_STRATEGY=github_actions`)
+
+When a task is in `deploying` status, the scheduler polls GitHub Actions on each tick:
+
+1. **Throttle** — skip if last poll was less than `ORCA_DEPLOY_POLL_INTERVAL_SEC` (default 30s) ago.
+2. **Timeout** — if `deployStartedAt` + `ORCA_DEPLOY_TIMEOUT_MIN` (default 30min) exceeded → mark `failed`, write-back **"Canceled"** to Linear.
+3. **No SHA** — if no `mergeCommitSha` (defensive) → mark `done` with warning.
+4. **Poll** `gh run list --commit <sha>`:
+   - All runs succeeded → set task to `done`, write-back **"Done"** to Linear.
+   - Any run failed → set task to `failed`, write-back **"Canceled"** to Linear. No retry — code is already merged, the deploy pipeline needs manual attention.
+   - Runs still pending/in progress → skip, poll again next interval.
+
+`deploying` tasks do NOT consume a concurrency slot (no Claude session is running).
+
+On Orca restart, `deploying` tasks resume polling automatically — they have `mergeCommitSha` stored in the database.
+
+**Linear conflict resolution for `deploying`:**
+- Linear "In Review" → no-op (expected state, already there)
+- Linear "Todo" → reset to `ready` (user reset)
+- Linear "Done" → set to `done` (human override, skip monitoring)
+- Linear "Canceled" → set to `failed`
 
 ## 7. Dispatch (Fix Phase)
 
@@ -190,11 +214,25 @@ If retries exhausted:
               │                    /           \
               │                approved    changes requested
               │                  │              │
-              │                  ▼              ▼
-              │   Done ◄─── done         changes_requested
-              │              │                  │
-              │      write-back "Done"   write-back "In Progress"
-              │        PR merged                │
+              │                  │              ▼
+              │                  │        changes_requested
+              │                  │              │
+              │                  │       write-back "In Progress"
+              │                  │              │
+              │                  ▼              │
+              │            PR merged            │
+              │             /       \           │
+              │    strategy=none  strategy=github_actions
+              │         │              │        │
+              │         ▼              ▼        │
+              │   Done ◄─ done    deploying     │
+              │          │         (polls CI)   │
+              │   write-back       /      \     │
+              │    "Done"     success   failure  │
+              │                 │          │    │
+              │                 ▼          ▼    │
+              │               done       failed │
+              │                │                │
               │                                 ▼
               │                         dispatched [fix]
               │                                 │
@@ -215,7 +253,10 @@ Todo → In Progress (implement dispatched)
      → In Review (implementation done, PR exists)
      → In Progress (changes requested, fix dispatched)
      → In Review (fix done)
-     → Done (reviewer approved + merged)
+     → Done (reviewer approved + merged, strategy=none)
+     → deploying (reviewer approved + merged, strategy=github_actions)
+     → Done (deploy CI passes)
+     → Canceled (deploy CI fails or times out)
 ```
 
 ## Key files
@@ -240,8 +281,11 @@ Todo → In Progress (implement dispatched)
 | `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
 | `ORCA_MAX_REVIEW_CYCLES` | 3 | Max review-fix cycles before human intervention |
 | `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
+| `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
+| `ORCA_DEPLOY_POLL_INTERVAL_SEC` | 30 | How often to poll GitHub Actions |
+| `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed |
 
 ## Known gaps
 
-- **Deploy is manual.** After a PR is merged, someone must run `scripts/deploy.sh` or manually rebuild + restart.
+- **Deploy failure is permanent.** If CI fails after merge, the task is marked failed with no retry — the code is already merged and the deploy pipeline needs manual attention.
 - **Review agent must output marker.** If the review agent fails to output `REVIEW_RESULT:APPROVED` or `REVIEW_RESULT:CHANGES_REQUESTED`, the review will be retried.

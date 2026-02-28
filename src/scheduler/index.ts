@@ -3,6 +3,7 @@ import type { OrcaDb } from "../db/index.js";
 import {
   countActiveSessions,
   getAllTasks,
+  getDeployingTasks,
   getDispatchableTasks,
   getInvocationsByTask,
   getRunningInvocations,
@@ -13,6 +14,7 @@ import {
   insertInvocation,
   sumCostInWindow,
   updateInvocation,
+  updateTaskDeployInfo,
   updateTaskPrBranch,
   updateTaskStatus,
 } from "../db/queries.js";
@@ -30,7 +32,7 @@ import {
   type SessionResult,
 } from "../runner/index.js";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
-import { findPrForBranch } from "../github/index.js";
+import { findPrForBranch, getMergeCommitSha, getWorkflowRunStatus } from "../github/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
 import type { WorkflowStateMap } from "../linear/client.js";
@@ -243,7 +245,9 @@ function onSessionComplete(
     if (phase === "implement") {
       onImplementSuccess(deps, taskId, invocationId, worktreePath, result);
     } else {
-      onReviewSuccess(deps, taskId, invocationId, worktreePath, result);
+      onReviewSuccess(deps, taskId, invocationId, worktreePath, result).catch((err) => {
+        log(`onReviewSuccess error for task ${taskId}: ${err}`);
+      });
     }
   } else {
     onSessionFailure(deps, taskId, invocationId, worktreePath, result);
@@ -311,13 +315,13 @@ function onImplementSuccess(
 // Review success: parse result, merge or request changes
 // ---------------------------------------------------------------------------
 
-function onReviewSuccess(
+async function onReviewSuccess(
   deps: SchedulerDeps,
   taskId: string,
   invocationId: number,
   worktreePath: string,
   result: SessionResult,
-): void {
+): Promise<void> {
   const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) return;
@@ -330,20 +334,51 @@ function onReviewSuccess(
 
   if (approved) {
     // PR was approved and merged by the review agent
-    updateTaskStatus(db, taskId, "done");
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on review approved for task ${taskId}: ${err}`);
-    });
-
+    // Clean up worktree first (review is done regardless of deploy strategy)
     try {
       removeWorktree(worktreePath);
     } catch (err) {
       log(`worktree removal failed for invocation ${invocationId}: ${err}`);
     }
 
-    log(`task ${taskId} review approved → done (invocation ${invocationId})`);
+    if (config.deployStrategy === "github_actions") {
+      // Look up PR number from branch name
+      let prNumber: number | undefined;
+      let mergeCommitSha: string | null = null;
+
+      if (task.prBranchName) {
+        const prInfo = findPrForBranch(task.prBranchName, task.repoPath);
+        prNumber = prInfo.number;
+      }
+
+      if (prNumber) {
+        mergeCommitSha = await getMergeCommitSha(prNumber, task.repoPath);
+      }
+
+      const now = new Date().toISOString();
+      updateTaskDeployInfo(db, taskId, {
+        mergeCommitSha,
+        prNumber: prNumber ?? null,
+        deployStartedAt: now,
+      });
+      updateTaskStatus(db, taskId, "deploying");
+      emitTaskUpdated(getTask(db, taskId)!);
+
+      log(
+        `task ${taskId} review approved → deploying ` +
+          `(PR #${prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
+      );
+    } else {
+      // deploy_strategy = "none" — go straight to done (current behavior)
+      updateTaskStatus(db, taskId, "done");
+      emitTaskUpdated(getTask(db, taskId)!);
+
+      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+        log(`write-back failed on review approved for task ${taskId}: ${err}`);
+      });
+
+      log(`task ${taskId} review approved → done (invocation ${invocationId})`);
+    }
   } else if (changesRequested) {
     if (task.reviewCycleCount < config.maxReviewCycles) {
       // Increment cycle count and send back for fixes
@@ -524,6 +559,92 @@ function checkTimeouts(deps: SchedulerDeps): void {
 }
 
 // ---------------------------------------------------------------------------
+// Deploy monitoring
+// ---------------------------------------------------------------------------
+
+/** Last poll time per task ID, for throttling. */
+const deployPollTimes = new Map<string, number>();
+
+async function checkDeployments(deps: SchedulerDeps): Promise<void> {
+  const { db, config, client, stateMap } = deps;
+
+  if (config.deployStrategy === "none") return;
+
+  const deploying = getDeployingTasks(db);
+  if (deploying.length === 0) return;
+
+  const now = Date.now();
+  const pollIntervalMs = config.deployPollIntervalSec * 1000;
+  const timeoutMs = config.deployTimeoutMin * 60 * 1000;
+
+  for (const task of deploying) {
+    const taskId = task.linearIssueId;
+
+    // Throttle: skip if polled too recently
+    const lastPoll = deployPollTimes.get(taskId) ?? 0;
+    if (now - lastPoll < pollIntervalMs) continue;
+    deployPollTimes.set(taskId, now);
+
+    // Timeout check
+    if (task.deployStartedAt) {
+      const startedAt = new Date(task.deployStartedAt).getTime();
+      if (startedAt + timeoutMs < now) {
+        updateTaskStatus(db, taskId, "failed");
+        emitTaskUpdated(getTask(db, taskId)!);
+        deployPollTimes.delete(taskId);
+
+        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
+          log(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
+        });
+
+        log(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
+        continue;
+      }
+    }
+
+    // Defensive: no SHA means we can't monitor — mark done with warning
+    if (!task.mergeCommitSha) {
+      updateTaskStatus(db, taskId, "done");
+      emitTaskUpdated(getTask(db, taskId)!);
+      deployPollTimes.delete(taskId);
+
+      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+        log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
+      });
+
+      log(`task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`);
+      continue;
+    }
+
+    // Poll GitHub Actions
+    const status = await getWorkflowRunStatus(task.mergeCommitSha, task.repoPath);
+
+    if (status === "success") {
+      updateTaskStatus(db, taskId, "done");
+      emitTaskUpdated(getTask(db, taskId)!);
+      deployPollTimes.delete(taskId);
+
+      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+        log(`write-back failed on deploy success for task ${taskId}: ${err}`);
+      });
+
+      log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
+    } else if (status === "failure") {
+      updateTaskStatus(db, taskId, "failed");
+      emitTaskUpdated(getTask(db, taskId)!);
+      deployPollTimes.delete(taskId);
+
+      writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
+        log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
+      });
+
+      log(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
+    }
+    // "pending", "in_progress", "no_runs" → skip, poll again next interval
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tick — multi-phase dispatch
 // ---------------------------------------------------------------------------
 
@@ -532,6 +653,9 @@ async function tick(deps: SchedulerDeps): Promise<void> {
 
   // Check for timed-out invocations first
   checkTimeouts(deps);
+
+  // Check deploying tasks (non-blocking per-task polling)
+  await checkDeployments(deps);
 
   // 1. Count active sessions
   const active = countActiveSessions(db);

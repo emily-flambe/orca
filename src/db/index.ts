@@ -7,11 +7,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   linear_issue_id TEXT PRIMARY KEY,
   agent_prompt TEXT NOT NULL,
   repo_path TEXT NOT NULL,
-  orca_status TEXT NOT NULL CHECK(orca_status IN ('ready','dispatched','running','done','failed','in_review','changes_requested')),
+  orca_status TEXT NOT NULL,
   priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
   retry_count INTEGER NOT NULL DEFAULT 0,
   pr_branch_name TEXT,
   review_cycle_count INTEGER NOT NULL DEFAULT 0,
+  merge_commit_sha TEXT,
+  pr_number INTEGER,
+  deploy_started_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -119,6 +122,53 @@ function migrateSchema(sqlite: DatabaseType): void {
   // invocations: phase
   if (!hasColumn(sqlite, "invocations", "phase")) {
     sqlite.exec("ALTER TABLE invocations ADD COLUMN phase TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 2 (deploy lifecycle):
+  //   - Remove CHECK constraint on orca_status (plain TEXT NOT NULL)
+  //   - Add merge_commit_sha, pr_number, deploy_started_at columns
+  //   Sentinel: merge_commit_sha column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "merge_commit_sha")) {
+    sqlite.pragma("foreign_keys = OFF");
+
+    sqlite.exec("BEGIN TRANSACTION");
+    try {
+      sqlite.exec(`
+        CREATE TABLE tasks_new (
+          linear_issue_id TEXT PRIMARY KEY,
+          agent_prompt TEXT NOT NULL,
+          repo_path TEXT NOT NULL,
+          orca_status TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          pr_branch_name TEXT,
+          review_cycle_count INTEGER NOT NULL DEFAULT 0,
+          merge_commit_sha TEXT,
+          pr_number INTEGER,
+          deploy_started_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      sqlite.exec(`
+        INSERT INTO tasks_new (linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at)
+        SELECT linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at
+        FROM tasks
+      `);
+
+      sqlite.exec("DROP TABLE tasks");
+      sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
+
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+
+    sqlite.pragma("foreign_keys = ON");
   }
 }
 

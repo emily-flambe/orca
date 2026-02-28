@@ -86,6 +86,27 @@ export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
     .run();
 }
 
+/** Get all tasks with orca_status="deploying". */
+export function getDeployingTasks(db: OrcaDb): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.orcaStatus, "deploying"))
+    .all();
+}
+
+/** Update deploy-related fields on a task. */
+export function updateTaskDeployInfo(
+  db: OrcaDb,
+  taskId: string,
+  info: { mergeCommitSha?: string | null; prNumber?: number | null; deployStartedAt?: string | null },
+): void {
+  db.update(tasks)
+    .set({ ...info, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Get a single task by its linear_issue_id. */
 export function getTask(db: OrcaDb, taskId: string): Task | undefined {
   return db

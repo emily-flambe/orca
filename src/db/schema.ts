@@ -8,6 +8,7 @@ export const TASK_STATUSES = [
   "failed",
   "in_review",
   "changes_requested",
+  "deploying",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -28,6 +29,9 @@ export const tasks = sqliteTable("tasks", {
   retryCount: integer("retry_count").notNull().default(0),
   prBranchName: text("pr_branch_name"),
   reviewCycleCount: integer("review_cycle_count").notNull().default(0),
+  mergeCommitSha: text("merge_commit_sha"),
+  prNumber: integer("pr_number"),
+  deployStartedAt: text("deploy_started_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

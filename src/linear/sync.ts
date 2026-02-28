@@ -137,11 +137,21 @@ function upsertTask(
       updatedAt: now,
     });
   } else {
-    // Always sync prompt, priority, and status from Linear
+    // Protect deploying status from being overwritten by webhook echoes.
+    // resolveConflict handles intentional user overrides (Todo, Done, Canceled).
+    // The default upsert path should not clobber deploying — only explicit
+    // overrides (ready from Todo, done from Done, failed from Canceled) are allowed,
+    // and those are already handled by resolveConflict before we get here.
+    const effectiveStatus =
+      existing.orcaStatus === "deploying" &&
+      orcaStatus !== "ready" && orcaStatus !== "done" && orcaStatus !== "failed"
+        ? "deploying" as const
+        : orcaStatus;
+
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
       priority: issue.priority,
-      orcaStatus,
+      orcaStatus: effectiveStatus,
     });
   }
 }
@@ -301,6 +311,25 @@ export function resolveConflict(
     return;
   }
 
+  // Conflict case 8: deploying, Linear "In Review" → no-op (expected state, don't overwrite)
+  if (task.orcaStatus === "deploying" && linearStateName === "In Review") {
+    return;
+  }
+
+  // Conflict case 9: deploying, Linear Todo → reset to ready (user reset)
+  if (task.orcaStatus === "deploying" && linearStateName === "Todo") {
+    updateTaskStatus(db, taskId, "ready");
+    log(`conflict resolved: task ${taskId} reset to ready from deploying (Linear moved to Todo)`);
+    return;
+  }
+
+  // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
+  if (task.orcaStatus === "deploying" && linearStateName === "Done") {
+    updateTaskStatus(db, taskId, "done");
+    log(`conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`);
+    return;
+  }
+
   // Conflict case 7: Any, Linear Canceled → set failed (permanent, no retry)
   if (linearStateName === "Canceled") {
     // Kill active session if running
@@ -320,9 +349,12 @@ export function resolveConflict(
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
-  orcaTransition: "dispatched" | "in_review" | "done" | "changes_requested" | "failed_permanent" | "retry",
+  orcaTransition: "dispatched" | "in_review" | "deploying" | "done" | "changes_requested" | "failed_permanent" | "retry",
   stateMap: WorkflowStateMap,
 ): Promise<void> {
+  // deploying is a no-op — Linear stays at "In Review", don't write back
+  if (orcaTransition === "deploying") return;
+
   const transitionToStateName: Record<string, string> = {
     dispatched: "In Progress",
     in_review: "In Review",
