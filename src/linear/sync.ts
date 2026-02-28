@@ -148,7 +148,7 @@ export async function fullSync(
   client: LinearClient,
   graph: DependencyGraph,
   config: OrcaConfig,
-): Promise<void> {
+): Promise<number> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
   for (const issue of issues) {
@@ -158,6 +158,7 @@ export async function fullSync(
   graph.rebuild(issues);
 
   log(`full sync complete: ${issues.length} issues`);
+  return issues.length;
 }
 
 // ---------------------------------------------------------------------------

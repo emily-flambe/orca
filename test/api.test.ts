@@ -73,7 +73,7 @@ describe("GET /api/tasks", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask });
+    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
@@ -151,7 +151,7 @@ describe("GET /api/tasks/:id", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask });
+    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
@@ -195,7 +195,7 @@ describe("PUT /api/tasks/:id/prompt", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask });
+    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
@@ -249,7 +249,7 @@ describe("POST /api/tasks/:id/dispatch", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     dispatchTask = vi.fn();
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask });
+    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
   });
 
   it("dispatches successfully and returns invocationId", async () => {
@@ -325,6 +325,7 @@ describe("GET /api/status", () => {
       db,
       config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
       dispatchTask,
+      syncTasks: vi.fn().mockResolvedValue(0),
     });
     dispatchTask.mockReset();
   });
@@ -383,7 +384,7 @@ describe("GET /api/events (SSE)", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask });
+    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
