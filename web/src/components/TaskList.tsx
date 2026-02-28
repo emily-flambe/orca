@@ -27,7 +27,7 @@ function statusBadge(s: string): { bg: string; text: string } {
   switch (s) {
     case "done": return { bg: "bg-green-500/20 text-green-400", text: "done" };
     case "running": return { bg: "bg-blue-500/20 text-blue-400", text: "running" };
-    case "ready": return { bg: "bg-yellow-500/20 text-yellow-400", text: "ready" };
+    case "ready": return { bg: "bg-cyan-500/20 text-cyan-400", text: "ready" };
     case "failed": return { bg: "bg-red-500/20 text-red-400", text: "failed" };
     case "dispatched": return { bg: "bg-gray-500/20 text-gray-400", text: "dispatched" };
     case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
