@@ -1,6 +1,6 @@
 # Ticket Lifecycle
 
-End-to-end flow from Linear issue creation to merged PR.
+End-to-end flow from Linear issue creation to merged PR with automated review.
 
 ## 1. Issue enters Orca
 
@@ -15,7 +15,7 @@ A Linear issue in a tracked project reaches Orca one of two ways:
 |---|---|
 | Todo | `ready` |
 | In Progress | `running` |
-| In Review | `done` |
+| In Review | `in_review` |
 | Done | `done` |
 | Canceled | `failed` |
 | Backlog | *(skipped)* |
@@ -30,79 +30,119 @@ The scheduler ticks every 10s (`ORCA_SCHEDULER_INTERVAL_SEC`). Each tick:
 
 1. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
 2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
-3. **Get ready tasks** — query all tasks with `orca_status = 'ready'`.
-4. **Filter** — exclude tasks with empty `agent_prompt`, and tasks blocked by the dependency graph (Linear "blocks" relations).
-5. **Sort** — by effective priority (ascending, inheriting urgency from downstream blocked tasks), tiebreak by `created_at`.
-6. **Dispatch the top task.**
+3. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
+4. **Filter** — exclude tasks with empty `agent_prompt`, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
+5. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
+6. **Dispatch the top task** with the appropriate phase.
 
-## 3. Dispatch
+## 3. Dispatch (Implementation Phase)
 
-`dispatch()` in `src/scheduler/index.ts`:
+For tasks in `ready` status, dispatch with phase `"implement"`:
 
 1. Set task status to `dispatched`.
 2. **Write-back to Linear:** move issue to **"In Progress"** (fire-and-forget).
-3. Insert an `invocations` row with status `running`.
+3. Insert an `invocations` row with status `running` and `phase = 'implement'`.
 4. **Create git worktree:**
    - `git fetch origin` in the base repo.
    - Create branch `orca/<taskId>-inv-<invocationId>` from `origin/main`.
    - Create worktree as sibling directory: `<repoDir>-<taskId>`.
    - Copy `.env*` files from the base repo.
    - Run `npm install` if `package.json` exists.
-5. **Spawn Claude Code CLI:**
-   ```
-   claude -p "<prompt>" \
-     --output-format stream-json \
-     --verbose \
-     --max-turns <ORCA_DEFAULT_MAX_TURNS> \
-     --dangerously-skip-permissions \
-     --append-system-prompt "<ORCA_APPEND_SYSTEM_PROMPT>"
-   ```
-   The CWD is the worktree directory.
+5. **Spawn Claude Code CLI** with `ORCA_APPEND_SYSTEM_PROMPT`.
 6. Set task status to `running`.
 7. Store the session handle and attach a completion callback.
 
 **Result:** A Claude Code agent is working in an isolated worktree. Linear shows "In Progress".
 
-## 4. Agent executes
+## 4. Implementation completes
 
-The agent runs autonomously with `--dangerously-skip-permissions`. It reads the prompt (issue title + description) and does the work.
-
-If `ORCA_APPEND_SYSTEM_PROMPT` is configured (recommended), the agent is instructed to:
-
-1. Commit all changes on the worktree branch.
-2. Push the branch: `git push -u origin HEAD`.
-3. Open a PR: `gh pr create --fill`.
-4. **Not merge** — leave for human review.
-
-All stdout (stream-json) is tee'd to `logs/<invocationId>.ndjson`.
-
-### Timeout
-
-If the session exceeds `ORCA_SESSION_TIMEOUT_MIN` (default 45 min), the scheduler kills it (SIGTERM, then SIGKILL after 5s). The invocation is marked `timed_out` and retry logic runs.
-
-## 5. Session completes
-
-`onSessionComplete()` fires when the Claude process exits.
-
-### 5a. Success (`result.subtype === "success"`)
+### 4a. Success
 
 1. Update invocation: status `completed`, record cost/turns/summary.
-2. Insert budget event if cost > 0.
-3. Set task to `done`.
-4. **Write-back to Linear:** move issue to **"In Review"** (not "Done" — PR still needs human review).
-5. Remove the git worktree.
+2. **Verify PR exists** via `gh pr list --head <branch>`.
+3. If no PR → treat as failure (triggers retry).
+4. If PR exists → store `prBranchName` on task, set status to `in_review`.
+5. **Write-back to Linear:** move issue to **"In Review"**.
+6. Remove the git worktree.
 
-**Result:** A PR exists on GitHub. Linear shows "In Review". Orca considers the task done.
+**Result:** A PR exists on GitHub. Linear shows "In Review". Task enters review phase.
 
-### 5b. Failure (`result.subtype !== "success"`)
+### 4b. Failure
 
 1. Update invocation: status `failed`, record details.
-2. Insert budget event if cost > 0.
-3. Set task to `failed`.
-4. Remove the git worktree.
-5. **Retry logic** (see below).
+2. Set task to `failed`.
+3. Remove the git worktree.
+4. **Retry logic** (see section 8).
 
-## 6. Retry logic
+## 5. Dispatch (Review Phase)
+
+For tasks in `in_review` status, dispatch with phase `"review"`:
+
+1. Set task status to `dispatched`.
+2. **No write-back** (already "In Review" in Linear).
+3. Insert an `invocations` row with `phase = 'review'`.
+4. **Create git worktree** based on the PR branch (`origin/<prBranchName>`).
+5. **Spawn Claude Code CLI** with `ORCA_REVIEW_SYSTEM_PROMPT`.
+6. Set task status to `running`.
+
+The review agent:
+1. Reads the full diff: `git diff origin/main...HEAD`
+2. Reviews for correctness, bugs, and security issues
+3. Runs tests if available
+4. Decides: approve and merge, or request changes
+
+## 6. Review completes
+
+### 6a. Approved
+
+The review agent outputs `REVIEW_RESULT:APPROVED` and merges the PR.
+
+1. Set task to `done`.
+2. **Write-back to Linear:** move issue to **"Done"**.
+3. Remove the git worktree.
+
+**Result:** PR is merged. Linear shows "Done". Task is complete.
+
+### 6b. Changes requested
+
+The review agent outputs `REVIEW_RESULT:CHANGES_REQUESTED`.
+
+1. Check `reviewCycleCount < ORCA_MAX_REVIEW_CYCLES` (default 3).
+2. If under limit: increment cycle count, set task to `changes_requested`.
+3. **Write-back to Linear:** move issue to **"In Progress"**.
+4. Remove the git worktree.
+
+**Result:** Task enters fix phase.
+
+### 6c. Review cycles exhausted
+
+If `reviewCycleCount >= ORCA_MAX_REVIEW_CYCLES`:
+
+1. Leave task as `in_review` for human intervention.
+2. Log a warning.
+
+### 6d. No review marker
+
+If the review agent doesn't output a `REVIEW_RESULT:*` marker:
+
+1. Leave task as `in_review` (will be re-dispatched for another review attempt).
+
+## 7. Dispatch (Fix Phase)
+
+For tasks in `changes_requested` status, dispatch with phase `"implement"` on the existing PR branch:
+
+1. Set task status to `dispatched`.
+2. **Write-back to Linear:** move issue to **"In Progress"**.
+3. Insert an `invocations` row with `phase = 'implement'`.
+4. **Create git worktree** based on the PR branch (`origin/<prBranchName>`).
+5. **Spawn Claude Code CLI** with `ORCA_FIX_SYSTEM_PROMPT`.
+6. Set task status to `running`.
+
+The fix agent reads review comments and makes corrections on the existing branch.
+
+When the fix completes successfully, the task returns to `in_review` (step 4a) and the review cycle repeats.
+
+## 8. Retry logic
 
 If `retry_count < ORCA_MAX_RETRIES` (default 3):
 
@@ -114,15 +154,6 @@ If retries exhausted:
 
 1. Task stays `failed`.
 2. **Write-back to Linear:** move issue to **"Canceled"**.
-
-## 7. Human review
-
-This part is manual:
-
-1. **Review the PR** on GitHub that the agent opened.
-2. **Merge or request changes.** If changes needed, move the Linear issue back to "Todo" — Orca will detect the state change via webhook and reset the task to `ready` for re-dispatch.
-3. **After merging:** run `scripts/deploy.sh` to pull, rebuild the frontend, and restart Orca. Or do it manually.
-4. **Move the Linear issue to "Done"** (manual). Orca does not do this automatically because the deploy step is human-controlled.
 
 ## State diagram
 
@@ -139,25 +170,52 @@ This part is manual:
               │                          write-back "In Progress"         │
               │                                  │                        │
               │                                  ▼                        │
-              │   In Progress ◄──────────── running                      │
+              │   In Progress ◄──────────── running [implement]           │
               │                                  │                        │
               │                          agent completes                  │
               │                            /          \                   │
               │                        success      failure              │
-              │                          │              │                 │
-              │                          ▼              ▼                 │
-              │                        done          failed ─────► retry?
-              │                          │              │
-              │                  write-back         if exhausted:
-              │                  "In Review"        write-back "Canceled"
+              │                       (PR exists)      │                  │
+              │                          │           retry?               │
+              │                          ▼                                │
+              │                      in_review ◄─────────────────── PR exists
+              │                          │
+              │                  write-back "In Review"
               │                          │
               │                          ▼
-              │   In Review ◄──────── (PR open) ──────────────────► PR exists
-              │                                                        │
-              │                                                   human merges
-              │                                                        │
-              └──────────────────────────────────────────────────► human moves
-                                                                  to "Done"
+              │                  dispatched [review]
+              │                          │
+              │                          ▼
+              │                  running [review]
+              │                    /           \
+              │                approved    changes requested
+              │                  │              │
+              │                  ▼              ▼
+              │   Done ◄─── done         changes_requested
+              │              │                  │
+              │      write-back "Done"   write-back "In Progress"
+              │        PR merged                │
+              │                                 ▼
+              │                         dispatched [fix]
+              │                                 │
+              │                                 ▼
+              │                         running [implement/fix]
+              │                                 │
+              └──── In Progress ◄───── write-back "In Progress"
+                                                │
+                                         agent completes
+                                                │
+                                         back to in_review ───►
+```
+
+## Linear state transitions (automated)
+
+```
+Todo → In Progress (implement dispatched)
+     → In Review (implementation done, PR exists)
+     → In Progress (changes requested, fix dispatched)
+     → In Review (fix done)
+     → Done (reviewer approved + merged)
 ```
 
 ## Key files
@@ -168,14 +226,22 @@ This part is manual:
 | `src/linear/sync.ts` | State mapping, upsert, write-back, conflict resolution |
 | `src/linear/poller.ts` | Fallback polling when tunnel is down |
 | `src/linear/client.ts` | GraphQL API client, WorkflowStateMap |
-| `src/scheduler/index.ts` | Dispatch loop, session lifecycle, retry logic |
+| `src/scheduler/index.ts` | Multi-phase dispatch loop, session lifecycle, retry logic |
 | `src/runner/index.ts` | Spawns/kills Claude CLI child processes |
-| `src/worktree/index.ts` | Git worktree create/remove |
+| `src/worktree/index.ts` | Git worktree create/remove (supports baseRef for review/fix) |
+| `src/github/index.ts` | PR verification via `gh` CLI |
 | `src/config/index.ts` | Env var loading |
+
+## Configuration
+
+| Env Var | Default | Description |
+|---|---|---|
+| `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
+| `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
+| `ORCA_MAX_REVIEW_CYCLES` | 3 | Max review-fix cycles before human intervention |
+| `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
 
 ## Known gaps
 
-- **No verification that the agent actually opened a PR.** The `ORCA_APPEND_SYSTEM_PROMPT` instructs it to, but if it doesn't (e.g. nothing to commit, or `gh` isn't authenticated), Orca still marks the task as done.
-- **Deploy is manual.** After merging a PR, someone must run `scripts/deploy.sh` or manually rebuild + restart.
-- **"Done" is manual.** Orca writes "In Review" on success, but the final move to "Done" in Linear is a human step after merge/deploy.
-- **No conflict resolution for "In Review".** If someone manually moves an issue to "In Review" while it's running, `mapLinearStateToOrcaStatus` maps it to `done`, which could prematurely mark the task as done in Orca.
+- **Deploy is manual.** After a PR is merged, someone must run `scripts/deploy.sh` or manually rebuild + restart.
+- **Review agent must output marker.** If the review agent fails to output `REVIEW_RESULT:APPROVED` or `REVIEW_RESULT:CHANGES_REQUESTED`, the review will be retried.

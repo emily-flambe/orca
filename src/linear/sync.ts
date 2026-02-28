@@ -96,7 +96,7 @@ function mapLinearStateToOrcaStatus(
   switch (stateName) {
     case "Todo": return "ready";
     case "In Progress": return "running";
-    case "In Review": return "done";
+    case "In Review": return "in_review";
     case "Done": return "done";
     case "Canceled": return "failed";
     default: return null; // Backlog and unknown → skip
@@ -220,6 +220,28 @@ export async function processWebhookEvent(
 // 4.4 Conflict resolution
 // ---------------------------------------------------------------------------
 
+/** Kill the running session for a task, if any. */
+function killRunningSession(db: OrcaDb, taskId: string): void {
+  const runningInvocations = getRunningInvocations(db);
+  for (const [invId, handle] of activeHandles) {
+    const matchingInv = runningInvocations.find(
+      (inv) => inv.linearIssueId === taskId && inv.id === invId,
+    );
+    if (matchingInv) {
+      killSession(handle).catch((err) => {
+        log(`error killing session for task ${taskId}: ${err}`);
+      });
+      updateInvocation(db, invId, {
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        outputSummary: "interrupted by Linear state change",
+      });
+      activeHandles.delete(invId);
+      break;
+    }
+  }
+}
+
 export function resolveConflict(
   db: OrcaDb,
   taskId: string,
@@ -237,25 +259,7 @@ export function resolveConflict(
 
   // Conflict case 1: Orca running, Linear Todo → kill session, reset to ready
   if (task.orcaStatus === "running" && linearStateName === "Todo") {
-    // Find and kill active session for this task
-    for (const [invId, handle] of activeHandles) {
-      const runningInvocations = getRunningInvocations(db);
-      const matchingInv = runningInvocations.find(
-        (inv) => inv.linearIssueId === taskId && inv.id === invId,
-      );
-      if (matchingInv) {
-        killSession(handle).catch((err) => {
-          log(`error killing session for task ${taskId}: ${err}`);
-        });
-        updateInvocation(db, invId, {
-          status: "failed",
-          endedAt: new Date().toISOString(),
-          outputSummary: "interrupted by Linear state change",
-        });
-        activeHandles.delete(invId);
-        break;
-      }
-    }
+    killRunningSession(db, taskId);
     updateTaskStatus(db, taskId, "ready");
     log(`conflict resolved: task ${taskId} reset to ready (Linear moved to Todo)`);
     return;
@@ -275,28 +279,33 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 4: Any, Linear Canceled → set failed (permanent, no retry)
+  // Conflict case 4: in_review, Linear Todo → kill review session if running, reset to ready
+  if (task.orcaStatus === "in_review" && linearStateName === "Todo") {
+    killRunningSession(db, taskId);
+    updateTaskStatus(db, taskId, "ready");
+    log(`conflict resolved: task ${taskId} reset to ready from in_review (Linear moved to Todo)`);
+    return;
+  }
+
+  // Conflict case 5: in_review, Linear Done → mark done (human override)
+  if (task.orcaStatus === "in_review" && linearStateName === "Done") {
+    updateTaskStatus(db, taskId, "done");
+    log(`conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`);
+    return;
+  }
+
+  // Conflict case 6: changes_requested, Linear Todo → reset to ready
+  if (task.orcaStatus === "changes_requested" && linearStateName === "Todo") {
+    updateTaskStatus(db, taskId, "ready");
+    log(`conflict resolved: task ${taskId} reset to ready from changes_requested (Linear moved to Todo)`);
+    return;
+  }
+
+  // Conflict case 7: Any, Linear Canceled → set failed (permanent, no retry)
   if (linearStateName === "Canceled") {
     // Kill active session if running
     if (task.orcaStatus === "running") {
-      for (const [invId, handle] of activeHandles) {
-        const runningInvocations = getRunningInvocations(db);
-        const matchingInv = runningInvocations.find(
-          (inv) => inv.linearIssueId === taskId && inv.id === invId,
-        );
-        if (matchingInv) {
-          killSession(handle).catch((err) => {
-            log(`error killing session for canceled task ${taskId}: ${err}`);
-          });
-          updateInvocation(db, invId, {
-            status: "failed",
-            endedAt: new Date().toISOString(),
-            outputSummary: "canceled in Linear",
-          });
-          activeHandles.delete(invId);
-          break;
-        }
-      }
+      killRunningSession(db, taskId);
     }
     updateTaskStatus(db, taskId, "failed");
     log(`conflict resolved: task ${taskId} set to failed (Linear Canceled)`);
@@ -311,12 +320,14 @@ export function resolveConflict(
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
-  orcaTransition: "dispatched" | "done" | "failed_permanent" | "retry",
+  orcaTransition: "dispatched" | "in_review" | "done" | "changes_requested" | "failed_permanent" | "retry",
   stateMap: WorkflowStateMap,
 ): Promise<void> {
   const transitionToStateName: Record<string, string> = {
     dispatched: "In Progress",
-    done: "In Review",
+    in_review: "In Review",
+    done: "Done",
+    changes_requested: "In Progress",
     failed_permanent: "Canceled",
     retry: "Todo",
   };

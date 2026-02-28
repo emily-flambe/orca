@@ -3,16 +3,20 @@ import type { OrcaDb } from "../db/index.js";
 import {
   countActiveSessions,
   getAllTasks,
-  getReadyTasks,
+  getDispatchableTasks,
+  getInvocationsByTask,
   getRunningInvocations,
   getTask,
   incrementRetryCount,
+  incrementReviewCycleCount,
   insertBudgetEvent,
   insertInvocation,
   sumCostInWindow,
   updateInvocation,
+  updateTaskPrBranch,
   updateTaskStatus,
 } from "../db/queries.js";
+import type { TaskStatus } from "../db/schema.js";
 import {
   emitTaskUpdated,
   emitInvocationStarted,
@@ -26,6 +30,7 @@ import {
   type SessionResult,
 } from "../runner/index.js";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
+import { findPrForBranch } from "../github/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
 import type { WorkflowStateMap } from "../linear/client.js";
@@ -34,6 +39,8 @@ import { writeBackStatus } from "../linear/sync.js";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type DispatchPhase = "implement" | "review";
 
 export interface SchedulerDeps {
   db: OrcaDb;
@@ -66,12 +73,13 @@ function log(message: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Dispatch
+// Phase-aware dispatch
 // ---------------------------------------------------------------------------
 
 async function dispatch(
   deps: SchedulerDeps,
-  task: ReturnType<typeof getReadyTasks>[number],
+  task: ReturnType<typeof getDispatchableTasks>[number],
+  phase: DispatchPhase,
 ): Promise<void> {
   const { db, config, client, stateMap } = deps;
   const taskId = task.linearIssueId;
@@ -80,25 +88,32 @@ async function dispatch(
   updateTaskStatus(db, taskId, "dispatched");
   emitTaskUpdated(getTask(db, taskId)!);
 
-  // 8.4 Write-back on dispatch (fire-and-forget)
-  writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
-    log(`write-back failed on dispatch for task ${taskId}: ${err}`);
-  });
+  // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
+  if (phase === "implement") {
+    writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
+      log(`write-back failed on dispatch for task ${taskId}: ${err}`);
+    });
+  }
 
-  // 2. Insert invocation record
+  // 2. Insert invocation record with phase
   const now = new Date().toISOString();
   const invocationId = insertInvocation(db, {
     linearIssueId: taskId,
     startedAt: now,
     status: "running",
+    phase,
   });
 
   const logPath = `logs/${invocationId}.ndjson`;
 
-  // 3. Create worktree
+  // 3. Determine worktree base ref
+  const useExistingBranch = phase === "review" || (phase === "implement" && task.orcaStatus === "changes_requested");
+  const baseRef = useExistingBranch && task.prBranchName ? task.prBranchName : undefined;
+
+  // 4. Create worktree
   let worktreeResult: { worktreePath: string; branchName: string };
   try {
-    worktreeResult = createWorktree(task.repoPath, taskId, invocationId);
+    worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
   } catch (err) {
     log(`worktree creation failed for task ${taskId}: ${err}`);
     updateTaskStatus(db, taskId, "failed");
@@ -110,52 +125,70 @@ async function dispatch(
     return;
   }
 
-  // 4. Spawn session
+  // 5. Build agent prompt and system prompt based on phase
+  let agentPrompt = task.agentPrompt;
+  let systemPrompt: string | undefined;
+  let maxTurns = config.defaultMaxTurns;
+
   const disallowedTools = config.disallowedTools
     ? config.disallowedTools.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
+  if (phase === "review") {
+    agentPrompt = `${task.agentPrompt}\n\nReview the PR on this branch.`;
+    systemPrompt = config.reviewSystemPrompt || undefined;
+    maxTurns = config.reviewMaxTurns;
+  } else if (useExistingBranch) {
+    // Fix phase (implement on changes_requested)
+    agentPrompt = `${task.agentPrompt}\n\nFix issues from code review.`;
+    systemPrompt = config.fixSystemPrompt || undefined;
+  } else {
+    // Normal implement
+    systemPrompt = config.appendSystemPrompt || undefined;
+  }
+
+  // 6. Spawn session
   const handle = spawnSession({
-    agentPrompt: task.agentPrompt,
+    agentPrompt,
     worktreePath: worktreeResult.worktreePath,
-    maxTurns: config.defaultMaxTurns,
+    maxTurns,
     invocationId,
     projectRoot: process.cwd(),
     claudePath: config.claudePath,
-    appendSystemPrompt: config.appendSystemPrompt || undefined,
+    appendSystemPrompt: systemPrompt,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
   });
 
-  // 5. Update task to running
+  // 7. Update task to running
   updateTaskStatus(db, taskId, "running");
 
-  // 6. Update invocation with worktree details
+  // 8. Update invocation with worktree details
   updateInvocation(db, invocationId, {
     branchName: worktreeResult.branchName,
     worktreePath: worktreeResult.worktreePath,
     logPath,
   });
 
-  // 7. Store handle
+  // 9. Store handle
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
 
   log(
     `dispatched task ${taskId} as invocation ${invocationId} ` +
-      `(branch: ${worktreeResult.branchName})`,
+      `(phase: ${phase}, branch: ${worktreeResult.branchName})`,
   );
 
-  // 8. Attach completion handler
+  // 10. Attach completion handler
   handle.done.then((result) => {
     onSessionComplete(
       deps, taskId, invocationId, handle, result,
-      worktreeResult.worktreePath,
+      worktreeResult.worktreePath, phase,
     );
   });
 }
 
 // ---------------------------------------------------------------------------
-// Session completion handler (6.6)
+// Session completion handler
 // ---------------------------------------------------------------------------
 
 function onSessionComplete(
@@ -165,6 +198,7 @@ function onSessionComplete(
   handle: SessionHandle,
   result: SessionResult,
   worktreePath: string,
+  phase: DispatchPhase,
 ): void {
   const { db, config, client, stateMap } = deps;
 
@@ -203,31 +237,104 @@ function onSessionComplete(
   });
 
   // Emit current status
-  {
-    const activeSessions = countActiveSessions(db);
-    const allTasks = getAllTasks(db);
-    const queuedTasks = allTasks.filter((t) => t.orcaStatus === "ready").length;
-    const windowStart = new Date(
-      Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-    ).toISOString();
-    const costInWindow = sumCostInWindow(db, windowStart);
-    emitStatusUpdated({
-      activeSessions,
-      queuedTasks,
-      costInWindow,
-      budgetLimit: config.budgetMaxCostUsd,
-      budgetWindowHours: config.budgetWindowHours,
-    });
-  }
+  emitCurrentStatus(db, config);
 
   if (isSuccess) {
-    // 3. Success: mark task done, remove worktree
+    if (phase === "implement") {
+      onImplementSuccess(deps, taskId, invocationId, worktreePath, result);
+    } else {
+      onReviewSuccess(deps, taskId, invocationId, worktreePath, result);
+    }
+  } else {
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Implement success: verify PR, transition to in_review
+// ---------------------------------------------------------------------------
+
+function onImplementSuccess(
+  deps: SchedulerDeps,
+  taskId: string,
+  invocationId: number,
+  worktreePath: string,
+  result: SessionResult,
+): void {
+  const { db, config, client, stateMap } = deps;
+  const task = getTask(db, taskId);
+  if (!task) return;
+
+  // Get branch name from the invocation record
+  const invocations = getInvocationsByTask(db, taskId);
+  const thisInv = invocations.find((inv) => inv.id === invocationId);
+  const branchName = thisInv?.branchName ?? task.prBranchName;
+
+  // Check if a PR exists
+  if (branchName) {
+    const prInfo = findPrForBranch(branchName, task.repoPath);
+    if (!prInfo.exists) {
+      log(`task ${taskId}: implementation succeeded but no PR found for branch ${branchName} — treating as failure`);
+      onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+      return;
+    }
+
+    // Store the PR branch name on the task
+    updateTaskPrBranch(db, taskId, branchName);
+  } else {
+    log(`task ${taskId}: no branch name found on invocation or task — skipping PR check`);
+  }
+
+  // Transition to in_review
+  updateTaskStatus(db, taskId, "in_review");
+  emitTaskUpdated(getTask(db, taskId)!);
+
+  // Write-back "In Review"
+  writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+    log(`write-back failed on implement success for task ${taskId}: ${err}`);
+  });
+
+  // Clean up worktree
+  try {
+    removeWorktree(worktreePath);
+  } catch (err) {
+    log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+  }
+
+  log(
+    `task ${taskId} implementation complete → in_review (invocation ${invocationId}, ` +
+      `cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Review success: parse result, merge or request changes
+// ---------------------------------------------------------------------------
+
+function onReviewSuccess(
+  deps: SchedulerDeps,
+  taskId: string,
+  invocationId: number,
+  worktreePath: string,
+  result: SessionResult,
+): void {
+  const { db, config, client, stateMap } = deps;
+  const task = getTask(db, taskId);
+  if (!task) return;
+
+  const summary = result.outputSummary ?? "";
+
+  // Parse review result marker
+  const approved = summary.includes("REVIEW_RESULT:APPROVED");
+  const changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
+
+  if (approved) {
+    // PR was approved and merged by the review agent
     updateTaskStatus(db, taskId, "done");
     emitTaskUpdated(getTask(db, taskId)!);
 
-    // 8.5 Write-back on success (fire-and-forget)
     writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on completion for task ${taskId}: ${err}`);
+      log(`write-back failed on review approved for task ${taskId}: ${err}`);
     });
 
     try {
@@ -236,30 +343,111 @@ function onSessionComplete(
       log(`worktree removal failed for invocation ${invocationId}: ${err}`);
     }
 
-    log(
-      `task ${taskId} completed successfully (invocation ${invocationId}, ` +
-        `cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
-    );
+    log(`task ${taskId} review approved → done (invocation ${invocationId})`);
+  } else if (changesRequested) {
+    if (task.reviewCycleCount < config.maxReviewCycles) {
+      // Increment cycle count and send back for fixes
+      incrementReviewCycleCount(db, taskId);
+      updateTaskStatus(db, taskId, "changes_requested");
+      emitTaskUpdated(getTask(db, taskId)!);
+
+      writeBackStatus(client, taskId, "changes_requested", stateMap).catch((err) => {
+        log(`write-back failed on changes requested for task ${taskId}: ${err}`);
+      });
+
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+      }
+
+      log(
+        `task ${taskId} review requested changes → changes_requested ` +
+          `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+      );
+    } else {
+      // Review cycles exhausted — leave as in_review for human intervention
+      updateTaskStatus(db, taskId, "in_review");
+      emitTaskUpdated(getTask(db, taskId)!);
+
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+      }
+
+      log(
+        `task ${taskId} review cycles exhausted (${config.maxReviewCycles}), ` +
+          `leaving as in_review for human intervention`,
+      );
+    }
   } else {
-    // 4. Failure: mark task failed, clean up worktree, attempt retry
-    updateTaskStatus(db, taskId, "failed");
+    // No review result marker found — treat as review failure, retry review
+    log(`task ${taskId}: review completed but no REVIEW_RESULT marker found — retrying review`);
+    updateTaskStatus(db, taskId, "in_review");
     emitTaskUpdated(getTask(db, taskId)!);
 
-    log(
-      `task ${taskId} failed (invocation ${invocationId}, ` +
-        `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
-    );
-
-    // Clean up worktree so retries start fresh
     try {
       removeWorktree(worktreePath);
     } catch (err) {
-      log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+      log(`worktree removal failed for invocation ${invocationId}: ${err}`);
     }
-
-    // 5. Retry logic
-    handleRetry(deps, taskId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Session failure handler
+// ---------------------------------------------------------------------------
+
+function onSessionFailure(
+  deps: SchedulerDeps,
+  taskId: string,
+  invocationId: number,
+  worktreePath: string,
+  result: SessionResult,
+): void {
+  const { db } = deps;
+
+  updateTaskStatus(db, taskId, "failed");
+  emitTaskUpdated(getTask(db, taskId)!);
+
+  log(
+    `task ${taskId} failed (invocation ${invocationId}, ` +
+      `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
+  );
+
+  // Clean up worktree so retries start fresh
+  try {
+    removeWorktree(worktreePath);
+  } catch (err) {
+    log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+  }
+
+  // Retry logic
+  handleRetry(deps, taskId);
+}
+
+// ---------------------------------------------------------------------------
+// Status emission helper
+// ---------------------------------------------------------------------------
+
+function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
+  const activeSessions = countActiveSessions(db);
+  const allTasks = getAllTasks(db);
+  const queuedTasks = allTasks.filter(
+    (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
+  ).length;
+  const windowStart = new Date(
+    Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
+  ).toISOString();
+  const costInWindow = sumCostInWindow(db, windowStart);
+  emitStatusUpdated({
+    activeSessions,
+    queuedTasks,
+    costInWindow,
+    budgetLimit: config.budgetMaxCostUsd,
+    budgetWindowHours: config.budgetWindowHours,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +468,7 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
       `task ${taskId} queued for retry (attempt ${task.retryCount + 1}/${config.maxRetries})`,
     );
 
-    // 8.5 Write-back on retry (fire-and-forget)
+    // Write-back on retry (fire-and-forget)
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
       log(`write-back failed on retry for task ${taskId}: ${err}`);
     });
@@ -289,7 +477,7 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
     );
 
-    // 8.5 Write-back on permanent failure (fire-and-forget)
+    // Write-back on permanent failure (fire-and-forget)
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
       log(`write-back failed on permanent failure for task ${taskId}: ${err}`);
     });
@@ -336,13 +524,13 @@ function checkTimeouts(deps: SchedulerDeps): void {
 }
 
 // ---------------------------------------------------------------------------
-// Tick (6.2)
+// Tick — multi-phase dispatch
 // ---------------------------------------------------------------------------
 
 async function tick(deps: SchedulerDeps): Promise<void> {
   const { db, config, graph } = deps;
 
-  // 6.4 - Check for timed-out invocations first
+  // Check for timed-out invocations first
   checkTimeouts(deps);
 
   // 1. Count active sessions
@@ -351,7 +539,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 3. Check budget
+  // 2. Check budget
   const windowStart = new Date(
     Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
   ).toISOString();
@@ -361,40 +549,64 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 5. Get ready tasks
-  const readyTasks = getReadyTasks(db);
-  if (readyTasks.length === 0) {
+  // 3. Get tasks in dispatchable states: ready, in_review, changes_requested
+  const candidateStatuses: TaskStatus[] = ["ready", "in_review", "changes_requested"];
+  const candidates = getDispatchableTasks(db, candidateStatuses);
+  if (candidates.length === 0) {
     return;
   }
 
-  // 8.3 Skip tasks with empty agent_prompt
-  // 8.1 Filter blocked tasks via dependency graph
+  // 4. Filter: skip empty prompts and blocked tasks (only for ready tasks)
   const getStatus = (id: string): string | undefined =>
     getTask(db, id)?.orcaStatus;
 
-  const dispatchable = readyTasks.filter((t) => {
+  const dispatchable = candidates.filter((t) => {
     if (!t.agentPrompt) return false;
-    return graph.isDispatchable(t.linearIssueId, getStatus);
+    // Dependency graph filtering only applies to initial implementation (ready)
+    if (t.orcaStatus === "ready") {
+      return graph.isDispatchable(t.linearIssueId, getStatus);
+    }
+    // in_review and changes_requested are always dispatchable (they've already passed filtering)
+    return true;
   });
 
   if (dispatchable.length === 0) {
     return;
   }
 
-  // 8.2 Sort by effective priority (ascending), tiebreak by created_at
+  // 5. Sort: prioritize review/fix phases over new implementations
+  const PHASE_ORDER: Record<string, number> = {
+    in_review: 0,
+    changes_requested: 1,
+    ready: 2,
+  };
+
   const getPriority = (id: string): number =>
     getTask(db, id)?.priority ?? 0;
 
   dispatchable.sort((a, b) => {
+    const aPhaseOrder = PHASE_ORDER[a.orcaStatus] ?? 9;
+    const bPhaseOrder = PHASE_ORDER[b.orcaStatus] ?? 9;
+    if (aPhaseOrder !== bPhaseOrder) return aPhaseOrder - bPhaseOrder;
+
     const aPrio = graph.computeEffectivePriority(a.linearIssueId, getPriority);
     const bPrio = graph.computeEffectivePriority(b.linearIssueId, getPriority);
     if (aPrio !== bPrio) return aPrio - bPrio;
     return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
   });
 
-  // 6. Pick first and dispatch
+  // 6. Pick first and dispatch with appropriate phase
   const task = dispatchable[0]!;
-  await dispatch(deps, task);
+  let phase: DispatchPhase;
+  if (task.orcaStatus === "in_review") {
+    phase = "review";
+  } else if (task.orcaStatus === "changes_requested") {
+    phase = "implement"; // fix phase uses implement with existing branch
+  } else {
+    phase = "implement";
+  }
+
+  await dispatch(deps, task, phase);
 }
 
 // ---------------------------------------------------------------------------

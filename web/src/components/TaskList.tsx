@@ -7,7 +7,7 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-const STATUS_FILTERS = ["all", "ready", "running", "done", "failed"] as const;
+const STATUS_FILTERS = ["all", "ready", "running", "in_review", "changes_requested", "done", "failed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 const SORT_OPTIONS = ["priority", "status", "date"] as const;
@@ -30,12 +30,14 @@ function statusBadge(s: string): { bg: string; text: string } {
     case "ready": return { bg: "bg-yellow-500/20 text-yellow-400", text: "ready" };
     case "failed": return { bg: "bg-red-500/20 text-red-400", text: "failed" };
     case "dispatched": return { bg: "bg-gray-500/20 text-gray-400", text: "dispatched" };
+    case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
+    case "changes_requested": return { bg: "bg-orange-500/20 text-orange-400", text: "changes requested" };
     default: return { bg: "bg-gray-500/20 text-gray-400", text: s };
   }
 }
 
 const STATUS_ORDER: Record<string, number> = {
-  running: 0, dispatched: 1, ready: 2, failed: 3, done: 4,
+  running: 0, dispatched: 1, in_review: 2, changes_requested: 3, ready: 4, failed: 5, done: 6,
 };
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {

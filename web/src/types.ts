@@ -2,9 +2,11 @@ export interface Task {
   linearIssueId: string;
   agentPrompt: string;
   repoPath: string;
-  orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed";
+  orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed" | "in_review" | "changes_requested";
   priority: number;
   retryCount: number;
+  prBranchName: string | null;
+  reviewCycleCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +24,7 @@ export interface Invocation {
   numTurns: number | null;
   outputSummary: string | null;
   logPath: string | null;
+  phase: string | null;
 }
 
 export interface TaskWithInvocations extends Task {

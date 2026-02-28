@@ -12,6 +12,10 @@ export interface OrcaConfig {
   claudePath: string;
   defaultMaxTurns: number;
   appendSystemPrompt: string;
+  reviewSystemPrompt: string;
+  fixSystemPrompt: string;
+  maxReviewCycles: number;
+  reviewMaxTurns: number;
   disallowedTools: string;
   port: number;
   dbPath: string;
@@ -127,6 +131,28 @@ export function loadConfig(): OrcaConfig {
 
   const tunnelToken = readEnvOrDefault("ORCA_TUNNEL_TOKEN", "");
 
+  const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are reviewing a pull request. The PR branch is checked out in your working directory.
+
+Steps:
+1. Read the full diff: git diff origin/main...HEAD
+2. Review for correctness, bugs, and security issues
+3. Run tests if a test framework is configured (check package.json scripts)
+4. Verify the implementation matches the task requirements (shown above in the prompt)
+5. Decision:
+   - If the PR is good: run \`gh pr merge --squash --delete-branch\`, then output REVIEW_RESULT:APPROVED
+   - If changes are needed: run \`gh pr review --request-changes -b "detailed description"\`, then output REVIEW_RESULT:CHANGES_REQUESTED
+
+You MUST output exactly one of REVIEW_RESULT:APPROVED or REVIEW_RESULT:CHANGES_REQUESTED.`;
+
+  const DEFAULT_FIX_SYSTEM_PROMPT = `You are fixing issues found during code review on an existing PR branch.
+
+Steps:
+1. Read review comments: gh pr view --comments
+2. Read the review feedback: gh pr reviews
+3. Fix all identified issues
+4. Commit and push your changes to this branch
+5. Do NOT create a new PR — the existing PR will be updated automatically`;
+
   return {
     defaultCwd,
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
@@ -144,6 +170,10 @@ export function loadConfig(): OrcaConfig {
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     appendSystemPrompt: readEnvOrDefault("ORCA_APPEND_SYSTEM_PROMPT", ""),
+    reviewSystemPrompt: readEnvOrDefault("ORCA_REVIEW_SYSTEM_PROMPT", DEFAULT_REVIEW_SYSTEM_PROMPT),
+    fixSystemPrompt: readEnvOrDefault("ORCA_FIX_SYSTEM_PROMPT", DEFAULT_FIX_SYSTEM_PROMPT),
+    maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),
+    reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),

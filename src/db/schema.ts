@@ -6,6 +6,8 @@ export const TASK_STATUSES = [
   "running",
   "done",
   "failed",
+  "in_review",
+  "changes_requested",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -24,6 +26,8 @@ export const tasks = sqliteTable("tasks", {
   orcaStatus: text("orca_status", { enum: TASK_STATUSES }).notNull(),
   priority: integer("priority").notNull().default(0),
   retryCount: integer("retry_count").notNull().default(0),
+  prBranchName: text("pr_branch_name"),
+  reviewCycleCount: integer("review_cycle_count").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -43,6 +47,7 @@ export const invocations = sqliteTable("invocations", {
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
+  phase: text("phase"),
 });
 
 export const budgetEvents = sqliteTable("budget_events", {

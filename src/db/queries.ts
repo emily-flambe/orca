@@ -1,4 +1,4 @@
-import { eq, gte, asc, sql, count, sum } from "drizzle-orm";
+import { eq, gte, asc, sql, count, sum, inArray } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
@@ -55,6 +55,35 @@ export function getReadyTasks(db: OrcaDb): Task[] {
     .where(eq(tasks.orcaStatus, "ready"))
     .orderBy(asc(tasks.priority), asc(tasks.createdAt))
     .all();
+}
+
+/** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */
+export function getDispatchableTasks(db: OrcaDb, statuses: TaskStatus[]): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(inArray(tasks.orcaStatus, statuses))
+    .orderBy(asc(tasks.priority), asc(tasks.createdAt))
+    .all();
+}
+
+/** Set the PR branch name on a task. */
+export function updateTaskPrBranch(db: OrcaDb, taskId: string, branchName: string): void {
+  db.update(tasks)
+    .set({ prBranchName: branchName, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
+/** Increment review_cycle_count by 1. */
+export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({
+      reviewCycleCount: sql`${tasks.reviewCycleCount} + 1`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
 }
 
 /** Get a single task by its linear_issue_id. */

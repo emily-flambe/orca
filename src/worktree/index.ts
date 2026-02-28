@@ -101,6 +101,8 @@ function copyEnvFiles(srcDir: string, destDir: string): void {
  * @param repoPath - Absolute path to the base git repository
  * @param taskId - Task identifier (e.g. "ORC-12")
  * @param invocationId - Invocation identifier (e.g. 7)
+ * @param options - Optional settings: `baseRef` to check out an existing remote branch
+ *   instead of creating a new branch from origin/main (used for review/fix phases)
  * @returns Object with `worktreePath` and `branchName`
  * @throws Error if `repoPath` does not exist or git operations fail
  */
@@ -108,6 +110,7 @@ export function createWorktree(
   repoPath: string,
   taskId: string,
   invocationId: number | string,
+  options?: { baseRef?: string },
 ): { worktreePath: string; branchName: string } {
   // Validate repo path exists
   if (!existsSync(repoPath)) {
@@ -117,7 +120,8 @@ export function createWorktree(
   const repoDirname = basename(repoPath);
   const parentDir = dirname(repoPath);
   const worktreePath = join(parentDir, `${repoDirname}-${taskId}`);
-  const branchName = `orca/${taskId}-inv-${invocationId}`;
+  const baseRef = options?.baseRef;
+  const branchName = baseRef ?? `orca/${taskId}-inv-${invocationId}`;
 
   // Fetch origin
   git(["fetch", "origin"], { cwd: repoPath });
@@ -128,7 +132,13 @@ export function createWorktree(
 
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
-    resetWorktree(worktreePath);
+    if (baseRef) {
+      // For review/fix phases, reset to the remote tracking branch
+      git(["fetch", "origin"], { cwd: worktreePath });
+      git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
+    } else {
+      resetWorktree(worktreePath);
+    }
     return { worktreePath, branchName };
   }
 
@@ -138,13 +148,22 @@ export function createWorktree(
     rmSync(worktreePath, { recursive: true, force: true });
   }
 
-  // If branch already exists, delete it first
-  if (branchExists(repoPath, branchName)) {
-    git(["branch", "-D", branchName], { cwd: repoPath });
+  if (baseRef) {
+    // Check out existing remote branch for review/fix phases.
+    // Create a local branch tracking the remote branch.
+    const localBranch = `orca/${taskId}-inv-${invocationId}`;
+    if (branchExists(repoPath, localBranch)) {
+      git(["branch", "-D", localBranch], { cwd: repoPath });
+    }
+    git(["worktree", "add", "-b", localBranch, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
+  } else {
+    // If branch already exists, delete it first
+    if (branchExists(repoPath, branchName)) {
+      git(["branch", "-D", branchName], { cwd: repoPath });
+    }
+    // Create worktree with new branch based on origin/main
+    git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], { cwd: repoPath });
   }
-
-  // Create worktree with new branch based on origin/main
-  git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], { cwd: repoPath });
 
   // Copy .env* files from base repo
   copyEnvFiles(repoPath, worktreePath);
