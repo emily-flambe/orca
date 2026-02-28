@@ -15,6 +15,7 @@ export interface LinearIssue {
   id: string;
   identifier: string;
   title: string;
+  description: string;
   priority: number;
   state: { id: string; name: string; type: string };
   teamId: string;
@@ -27,8 +28,8 @@ export interface LinearIssue {
   }[];
 }
 
-/** Maps state type (e.g. "started", "completed") to state UUID. */
-export type WorkflowStateMap = Map<string, string>;
+/** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
+export type WorkflowStateMap = Map<string, { id: string; type: string }>;
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -180,6 +181,7 @@ export class LinearClient {
             id
             identifier
             title
+            description
             priority
             state { id name type }
             team { id }
@@ -208,6 +210,7 @@ export class LinearClient {
             id: string;
             identifier: string;
             title: string;
+            description: string | null;
             priority: number;
             state: { id: string; name: string; type: string };
             team: { id: string };
@@ -233,6 +236,7 @@ export class LinearClient {
           id: node.id,
           identifier: node.identifier,
           title: node.title,
+          description: node.description ?? "",
           priority: node.priority,
           state: node.state,
           teamId: node.team.id,
@@ -299,10 +303,10 @@ export class LinearClient {
 
   /**
    * Fetch workflow states for the given team IDs and return a map from
-   * state type to state UUID.
+   * state name to { id, type }.
    *
    * When multiple teams are provided, states are merged with last-team-wins
-   * semantics for conflicting state types.
+   * semantics for conflicting state names.
    */
   async fetchWorkflowStates(teamIds: string[]): Promise<WorkflowStateMap> {
     if (teamIds.length === 0) {
@@ -329,13 +333,13 @@ export class LinearClient {
       }>(graphql, { teamId });
 
       for (const state of data.team.states.nodes) {
-        stateMap.set(state.type, state.id);
+        stateMap.set(state.name, { id: state.id, type: state.type });
       }
     }
 
     log(
       `fetched workflow states from ${teamIds.length} team(s): ` +
-        `${stateMap.size} state type(s)`,
+        `${stateMap.size} state(s)`,
     );
     return stateMap;
   }
