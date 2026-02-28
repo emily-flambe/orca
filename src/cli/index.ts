@@ -191,7 +191,9 @@ program
     console.log(`Hono server listening on port ${config.port}`);
 
     // Start cloudflared tunnel
-    const tunnel: TunnelHandle = startTunnel();
+    const tunnel: TunnelHandle = startTunnel({
+      token: config.tunnelToken || undefined,
+    });
 
     // Start polling fallback (activates when tunnel is down)
     const poller: PollerHandle = createPoller({

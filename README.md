@@ -75,6 +75,7 @@ Copy `.env.example` to `.env` and fill in the required values:
 | `ORCA_DISALLOWED_TOOLS` | `""` | Comma-separated list of blocked tools |
 | `ORCA_PORT` | `3000` | HTTP server port |
 | `ORCA_DB_PATH` | `./orca.db` | Path to SQLite database file |
+| `ORCA_TUNNEL_TOKEN` | `""` | Dashboard-managed tunnel token (skips local config) |
 | `ORCA_LINEAR_READY_STATE_TYPE` | `unstarted` | Linear state type that signals readiness |
 
 ## Usage

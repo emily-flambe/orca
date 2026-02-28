@@ -58,26 +58,39 @@ function matchesAny(line: string, patterns: RegExp[]): boolean {
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Options for {@link startTunnel}. */
+export interface TunnelOptions {
+  /** Path to the `cloudflared` binary. Defaults to `"cloudflared"`. */
+  cloudflaredPath?: string;
+  /** Dashboard-managed tunnel token. When set, passes `--token` to cloudflared
+   *  and skips local config file / credentials entirely. */
+  token?: string;
+}
+
 /**
  * Spawn a `cloudflared tunnel run` child process and return a handle for
  * monitoring its connection state and shutting it down.
  *
- * The tunnel configuration (hostname, credentials) must be pre-configured
- * via the `cloudflared` CLI. This function does not pass any additional
- * configuration -- cloudflared reads its own config files.
+ * If a {@link TunnelOptions.token | token} is provided the tunnel runs in
+ * dashboard-managed mode (`cloudflared tunnel run --token <token>`).
+ * Otherwise cloudflared reads its local config files as before.
  *
- * @param cloudflaredPath - Optional path to the `cloudflared` binary. Defaults to `"cloudflared"`.
  * @returns A {@link TunnelHandle} for health checks and shutdown.
  */
-export function startTunnel(cloudflaredPath?: string): TunnelHandle {
-  const bin = cloudflaredPath ?? "cloudflared";
+export function startTunnel(options?: TunnelOptions): TunnelHandle {
+  const bin = options?.cloudflaredPath ?? "cloudflared";
+  const token = options?.token;
   let connected = false;
   let proc: ChildProcess | null = null;
   let stopped = false;
 
-  log(`spawning: ${bin} tunnel run`);
+  const args = token
+    ? ["tunnel", "run", "--token", token]
+    : ["tunnel", "run"];
 
-  proc = spawn(bin, ["tunnel", "run"], {
+  log(`spawning: ${bin} ${args.join(" ").replace(token ?? "", "<redacted>")}`);
+
+  proc = spawn(bin, args, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
   });

@@ -21,6 +21,7 @@ export interface OrcaConfig {
   linearProjectIds: string[];
   linearReadyStateType: string;
   tunnelHostname: string;
+  tunnelToken: string;
 }
 
 function exitWithError(message: string): never {
@@ -123,6 +124,8 @@ export function loadConfig(): OrcaConfig {
     exitWithError("ORCA_TUNNEL_HOSTNAME is required");
   }
 
+  const tunnelToken = readEnvOrDefault("ORCA_TUNNEL_TOKEN", "");
+
   return {
     defaultCwd,
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
@@ -152,5 +155,6 @@ export function loadConfig(): OrcaConfig {
       "unstarted",
     ),
     tunnelHostname,
+    tunnelToken,
   };
 }
