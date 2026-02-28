@@ -36,6 +36,7 @@ export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [expandedInv, setExpandedInv] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -122,22 +123,44 @@ export default function TaskDetail({ taskId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {invocations.map((inv) => (
-                  <tr key={inv.id} className="border-b border-gray-800/50">
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                      {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                    <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                  </tr>
-                ))}
+                {invocations.map((inv) => {
+                  const isExpanded = expandedInv === inv.id;
+                  const hasSummary = !!inv.outputSummary;
+                  return (
+                    <tr
+                      key={inv.id}
+                      className={`border-b border-gray-800/50 ${hasSummary ? "cursor-pointer hover:bg-gray-800/30" : ""}`}
+                      onClick={() => hasSummary && setExpandedInv(isExpanded ? null : inv.id)}
+                    >
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                      <td className="py-2 pr-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
+                          {inv.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                        {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
+                      <td className="py-2 text-gray-400">
+                        {hasSummary ? (
+                          <div>
+                            {isExpanded ? (
+                              <pre className="whitespace-pre-wrap break-words max-h-64 overflow-y-auto text-gray-300 bg-gray-900 rounded p-2 text-xs">
+                                {inv.outputSummary}
+                              </pre>
+                            ) : (
+                              <span className="truncate block max-w-xs">{inv.outputSummary}</span>
+                            )}
+                          </div>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
