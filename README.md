@@ -19,12 +19,12 @@ Linear Issues  ──sync──>  Orca DB  ──scheduler──>  Claude Code S
 - **Claude Code CLI** (`claude`) installed and authenticated
 - **Git** (for worktree management)
 - **Linear** account with API key and a project to sync
-- **cloudflared** (for webhook tunnel — optional if using polling fallback)
+- **cloudflared** (for webhook tunnel — optional if using polling fallback). See [Cloudflared Tunnel Setup](docs/cloudflared-setup.md) for a full walkthrough.
 
 ### Windows Notes
 
 - `better-sqlite3` requires native compilation. Ensure you have [Windows Build Tools](https://github.com/nicedoc/windows-build-tools) or Visual Studio C++ workload installed.
-- `cloudflared` must be [installed separately](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/).
+- `cloudflared` must be [installed and configured](docs/cloudflared-setup.md) before the tunnel will work.
 - Git worktrees work on Windows, but ensure long path support is enabled: `git config --system core.longpaths true`
 
 ## Setup
@@ -132,6 +132,8 @@ The web dashboard (http://localhost:3000) provides:
 - **Task detail** — edit agent prompts, manually dispatch tasks, view invocation history
 
 ### Linear Integration
+
+> Need to set up the webhook tunnel first? Follow the [Cloudflared Tunnel Setup](docs/cloudflared-setup.md) guide.
 
 1. Create a Linear API key at Settings > API > Personal API keys
 2. Create a webhook at Settings > API > Webhooks pointing to `https://<ORCA_TUNNEL_HOSTNAME>/api/webhooks/linear`
