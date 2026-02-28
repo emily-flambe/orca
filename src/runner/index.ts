@@ -250,9 +250,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         if (subtype === "success") {
           const resultText =
             typeof msg.result === "string" ? msg.result : "";
-          outputSummary = resultText
-            ? resultText.slice(0, 500)
-            : "completed successfully";
+          outputSummary = resultText || "completed successfully";
         } else if (subtype === "error_max_turns") {
           outputSummary = "max turns reached";
         } else if (subtype === "error_during_execution") {

@@ -1,6 +1,40 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail, dispatchTask } from "../hooks/useApi";
+
+/** Inline-expandable text block. Collapsed: single line with ellipsis. */
+function ExpandableText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setClamped(el.scrollHeight > el.clientHeight + 1);
+  }, [text]);
+
+  return (
+    <div className="max-w-md">
+      <div
+        ref={ref}
+        onClick={() => clamped && setExpanded(!expanded)}
+        className={`text-gray-400 whitespace-pre-wrap break-words ${
+          expanded ? "max-h-60 overflow-y-auto" : "line-clamp-1"
+        } ${clamped ? "cursor-pointer" : ""}`}
+      >
+        {text}
+      </div>
+      {clamped && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-blue-400 hover:text-blue-300 mt-0.5"
+        >
+          {expanded ? "collapse" : "show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   taskId: string;
@@ -135,7 +169,9 @@ export default function TaskDetail({ taskId }: Props) {
                       {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
                     </td>
                     <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                    <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                    <td className="py-2">
+                      {inv.outputSummary ? <ExpandableText text={inv.outputSummary} /> : "\u2014"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
