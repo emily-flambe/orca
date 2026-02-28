@@ -1,5 +1,9 @@
 import { Command } from "commander";
-import { loadConfig } from "../config/index.js";
+import {
+  loadConfig,
+  parseRepoPath,
+  validateProjectRepoPaths,
+} from "../config/index.js";
 import { createDb } from "../db/index.js";
 import {
   insertTask,
@@ -95,13 +99,30 @@ program
     const client = new LinearClient(config.linearApiKey);
     const graph = new DependencyGraph();
 
+    // Fetch project metadata: descriptions (for repo mapping) + team IDs
+    const projectMeta = await client.fetchProjectMetadata(
+      config.linearProjectIds,
+    );
+
+    // Build per-project repo map from project descriptions
+    for (const pm of projectMeta) {
+      const repoPath = parseRepoPath(pm.description);
+      if (repoPath) {
+        config.projectRepoMap.set(pm.id, repoPath);
+        console.log(`[orca] project ${pm.id} → repo: ${repoPath}`);
+      }
+    }
+
+    // Validate every project resolves to a valid directory
+    validateProjectRepoPaths(config);
+
     // Full sync: populate tasks table + dependency graph
     await fullSync(db, client, graph, config);
 
-    // Fetch workflow states for write-back (state type → state UUID)
-    const teamIds = await client.fetchTeamIdsForProjects(
-      config.linearProjectIds,
-    );
+    // Fetch workflow states for write-back (state name → state UUID)
+    const teamIds = [
+      ...new Set(projectMeta.flatMap((pm) => pm.teamIds)),
+    ];
     const stateMap = await client.fetchWorkflowStates(teamIds);
 
     // Start Hono HTTP server with webhook endpoint

@@ -31,6 +31,12 @@ export interface LinearIssue {
 /** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
 export type WorkflowStateMap = Map<string, { id: string; type: string }>;
 
+export interface ProjectMetadata {
+  id: string;
+  description: string;
+  teamIds: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
@@ -260,6 +266,50 @@ export class LinearClient {
 
     log(`fetched ${allIssues.length} issues from ${projectIds.length} project(s)`);
     return allIssues;
+  }
+
+  // -------------------------------------------------------------------------
+  // 2.2b fetchProjectMetadata
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch project descriptions and team IDs in a single query.
+   * Used at startup to build the per-project repo map and resolve team IDs.
+   */
+  async fetchProjectMetadata(
+    projectIds: string[],
+  ): Promise<ProjectMetadata[]> {
+    if (projectIds.length === 0) return [];
+
+    const graphql = `
+      query($projectIds: [ID!]!) {
+        projects(filter: { id: { in: $projectIds } }, first: 50) {
+          nodes { id description teams { nodes { id } } }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      projects: {
+        nodes: Array<{
+          id: string;
+          description: string | null;
+          teams: { nodes: Array<{ id: string }> };
+        }>;
+      };
+    }>(graphql, { projectIds });
+
+    const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
+      id: p.id,
+      description: p.description ?? "",
+      teamIds: p.teams.nodes.map((t) => t.id),
+    }));
+
+    log(
+      `fetched metadata for ${results.length} project(s) ` +
+        `(${new Set(results.flatMap((p) => p.teamIds)).size} team(s))`,
+    );
+    return results;
   }
 
   // -------------------------------------------------------------------------

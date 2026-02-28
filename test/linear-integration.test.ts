@@ -83,6 +83,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearProjectIds: ["proj-1"],
     linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
+    projectRepoMap: new Map(),
     ...overrides,
   };
 }

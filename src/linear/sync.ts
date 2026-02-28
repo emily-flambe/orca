@@ -121,6 +121,16 @@ function upsertTask(
   // Skip backlog and unknown states
   if (orcaStatus === null) return;
 
+  // Resolve repo path: per-project map → defaultCwd fallback → skip
+  const repoPath =
+    config.projectRepoMap.get(issue.projectId) ?? config.defaultCwd;
+  if (!repoPath) {
+    log(
+      `skipping ${issue.identifier}: no repo path for project ${issue.projectId}`,
+    );
+    return;
+  }
+
   const agentPrompt = buildPrompt(issue);
   const existing = getTask(db, issue.identifier);
 
@@ -129,7 +139,7 @@ function upsertTask(
     insertTask(db, {
       linearIssueId: issue.identifier,
       agentPrompt,
-      repoPath: config.defaultCwd,
+      repoPath,
       orcaStatus,
       priority: issue.priority,
       retryCount: 0,
@@ -150,6 +160,7 @@ function upsertTask(
 
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
+      repoPath,
       priority: issue.priority,
       orcaStatus: effectiveStatus,
     });

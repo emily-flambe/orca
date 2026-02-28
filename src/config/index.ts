@@ -2,7 +2,8 @@ import { config as dotenvConfig } from "dotenv";
 import { existsSync, statSync } from "node:fs";
 
 export interface OrcaConfig {
-  defaultCwd: string;
+  defaultCwd: string | undefined;
+  projectRepoMap: Map<string, string>;
   concurrencyCap: number;
   sessionTimeoutMin: number;
   maxRetries: number;
@@ -79,17 +80,16 @@ function readPositiveNumberOrDefault(
 export function loadConfig(): OrcaConfig {
   dotenvConfig();
 
-  // Required: ORCA_DEFAULT_CWD
-  const defaultCwd = readEnv("ORCA_DEFAULT_CWD");
-  if (!defaultCwd) {
-    exitWithError(
-      "ORCA_DEFAULT_CWD is required and must be a valid directory path",
-    );
-  }
-  if (!existsSync(defaultCwd) || !statSync(defaultCwd).isDirectory()) {
-    exitWithError(
-      "ORCA_DEFAULT_CWD is required and must be a valid directory path",
-    );
+  // Optional: ORCA_DEFAULT_CWD (fallback when project description has no repo: line)
+  const defaultCwdRaw = readEnv("ORCA_DEFAULT_CWD");
+  let defaultCwd: string | undefined;
+  if (defaultCwdRaw) {
+    if (!existsSync(defaultCwdRaw) || !statSync(defaultCwdRaw).isDirectory()) {
+      exitWithError(
+        "ORCA_DEFAULT_CWD must be a valid directory path",
+      );
+    }
+    defaultCwd = defaultCwdRaw;
   }
 
   // Required: Linear integration
@@ -158,6 +158,7 @@ Steps:
 
   return {
     defaultCwd,
+    projectRepoMap: new Map(),
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
@@ -201,4 +202,50 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
   };
+}
+
+/**
+ * Parse a `repo:` line from a Linear project description.
+ * Returns the path (trimmed) or undefined if not found.
+ */
+export function parseRepoPath(description: string): string | undefined {
+  for (const line of description.split("\n")) {
+    const match = line.match(/^repo:\s*(.+)/i);
+    if (match) {
+      const path = match[1]!.trim();
+      if (path.length > 0) return path;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Validate that every configured project ID resolves to a valid directory
+ * via projectRepoMap or defaultCwd fallback. Exits with a clear error if not.
+ */
+export function validateProjectRepoPaths(config: OrcaConfig): void {
+  const errors: string[] = [];
+
+  for (const projectId of config.linearProjectIds) {
+    const repoPath =
+      config.projectRepoMap.get(projectId) ?? config.defaultCwd;
+    if (!repoPath) {
+      errors.push(
+        `project ${projectId}: no repo: line in description and no ORCA_DEFAULT_CWD fallback`,
+      );
+    } else if (
+      !existsSync(repoPath) ||
+      !statSync(repoPath).isDirectory()
+    ) {
+      errors.push(
+        `project ${projectId}: path "${repoPath}" is not a valid directory`,
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    exitWithError(
+      `project repo path validation failed:\n  ${errors.join("\n  ")}`,
+    );
+  }
 }

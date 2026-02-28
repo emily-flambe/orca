@@ -98,6 +98,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     tunnelHostname: "test.example.com",
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
+    projectRepoMap: new Map(),
     ...overrides,
   };
 }
