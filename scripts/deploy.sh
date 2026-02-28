@@ -16,7 +16,7 @@ echo "[deploy] installing dependencies..."
 npm install
 
 echo "[deploy] rebuilding frontend..."
-npm run build --workspace=web
+(cd web && npm run build)
 
 echo "[deploy] killing existing Orca process (if any)..."
 # Find and kill any running orca process (node with orca in args)
