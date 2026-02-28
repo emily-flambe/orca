@@ -188,59 +188,6 @@ describe("GET /api/tasks/:id", () => {
   });
 });
 
-describe("PUT /api/tasks/:id/prompt", () => {
-  let db: OrcaDb;
-  let app: Hono;
-  const dispatchTask = vi.fn();
-
-  beforeEach(() => {
-    db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
-    dispatchTask.mockReset();
-  });
-
-  it("updates prompt successfully and returns updated task", async () => {
-    insertTask(db, makeTask({ linearIssueId: "PROMPT-TASK" }));
-
-    const res = await app.request("/api/tasks/PROMPT-TASK/prompt", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "New improved prompt" }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.linearIssueId).toBe("PROMPT-TASK");
-    expect(body.agentPrompt).toBe("New improved prompt");
-  });
-
-  it("returns 404 for unknown task ID", async () => {
-    const res = await app.request("/api/tasks/GHOST/prompt", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "Anything" }),
-    });
-
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe("task not found");
-  });
-
-  it("returns 400 when prompt field is missing", async () => {
-    insertTask(db, makeTask({ linearIssueId: "NO-PROMPT" }));
-
-    const res = await app.request("/api/tasks/NO-PROMPT/prompt", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notPrompt: "oops" }),
-    });
-
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("prompt field is required");
-  });
-});
-
 describe("POST /api/tasks/:id/dispatch", () => {
   let db: OrcaDb;
   let app: Hono;
@@ -279,22 +226,6 @@ describe("POST /api/tasks/:id/dispatch", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("task not found");
-  });
-
-  it("returns 400 when task has no prompt", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "NO-PROMPT-DISPATCH",
-      agentPrompt: "",
-      orcaStatus: "ready" as const,
-    }));
-
-    const res = await app.request("/api/tasks/NO-PROMPT-DISPATCH/dispatch", {
-      method: "POST",
-    });
-
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("task has no prompt");
   });
 
   it("returns 400 when task is already running", async () => {

@@ -81,27 +81,6 @@ program
   );
 
 // ---------------------------------------------------------------------------
-// orca prompt
-// ---------------------------------------------------------------------------
-
-program
-  .command("prompt <issueId> <text>")
-  .description("Set the agent prompt for a Linear issue")
-  .action((issueId: string, text: string) => {
-    const config = loadConfig();
-    const db = createDb(config.dbPath);
-
-    const task = getTask(db, issueId);
-    if (!task) {
-      console.error(`orca: task ${issueId} not found`);
-      process.exit(1);
-    }
-
-    updateTaskFields(db, issueId, { agentPrompt: text });
-    console.log(`Prompt set for ${issueId}`);
-  });
-
-// ---------------------------------------------------------------------------
 // orca start
 // ---------------------------------------------------------------------------
 

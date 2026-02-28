@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, updatePrompt, dispatchTask } from "../hooks/useApi";
+import { fetchTaskDetail, dispatchTask } from "../hooks/useApi";
 
 interface Props {
   taskId: string;
@@ -34,17 +34,12 @@ function formatDate(iso: string): string {
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [saving, setSaving] = useState(false);
   const [dispatching, setDispatching] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
-      .then((d) => {
-        setDetail(d);
-        setPrompt(d.agentPrompt ?? "");
-      })
+      .then((d) => setDetail(d))
       .catch(console.error);
   }, [taskId]);
 
@@ -53,21 +48,6 @@ export default function TaskDetail({ taskId }: Props) {
   }
 
   const isRunning = detail.orcaStatus === "running" || detail.orcaStatus === "dispatched";
-  const hasPrompt = prompt.trim().length > 0;
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const updated = await updatePrompt(taskId, prompt);
-      setDetail((prev) => prev ? { ...prev, ...updated } : prev);
-      setMessage({ type: "success", text: "Prompt saved" });
-    } catch (err) {
-      setMessage({ type: "error", text: (err as Error).message });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleDispatch = async () => {
     setDispatching(true);
@@ -99,31 +79,19 @@ export default function TaskDetail({ taskId }: Props) {
         </span>
       </div>
 
-      {/* Agent prompt */}
+      {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={6}
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 resize-y focus:outline-none focus:border-blue-500"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg transition-colors"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-          <button
-            onClick={handleDispatch}
-            disabled={dispatching || isRunning || !hasPrompt}
-            className="px-4 py-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg transition-colors"
-          >
-            {dispatching ? "Dispatching..." : "Dispatch Now"}
-          </button>
-        </div>
+        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+          {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
+        </pre>
+        <button
+          onClick={handleDispatch}
+          disabled={dispatching || isRunning}
+          className="px-4 py-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg transition-colors"
+        >
+          {dispatching ? "Dispatching..." : "Dispatch Now"}
+        </button>
       </div>
 
       {/* Message */}

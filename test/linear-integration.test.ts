@@ -230,10 +230,10 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
     const stateMap = await client.fetchWorkflowStates(["team-1"]);
 
     expect(stateMap).toBeInstanceOf(Map);
-    expect(stateMap.get("unstarted")).toBe("ws-1");
-    expect(stateMap.get("started")).toBe("ws-2");
-    expect(stateMap.get("completed")).toBe("ws-3");
-    expect(stateMap.get("canceled")).toBe("ws-4");
+    expect(stateMap.get("Todo")).toEqual({ id: "ws-1", type: "unstarted" });
+    expect(stateMap.get("In Progress")).toEqual({ id: "ws-2", type: "started" });
+    expect(stateMap.get("Done")).toEqual({ id: "ws-3", type: "completed" });
+    expect(stateMap.get("Canceled")).toEqual({ id: "ws-4", type: "canceled" });
     expect(stateMap.size).toBe(4);
   });
 
@@ -515,52 +515,52 @@ describe("10.3 - Conflict resolution", () => {
     vi.restoreAllMocks();
   });
 
-  test("running task, Linear says unstarted -> task becomes ready", () => {
+  test("running task, Linear says Todo -> task becomes ready", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1",
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "unstarted", config);
+    resolveConflict(db, taskId, "Todo", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
   });
 
-  test("ready task, Linear says completed -> task becomes done", () => {
+  test("ready task, Linear says Done -> task becomes done", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-2",
       orcaStatus: "ready",
     });
 
-    resolveConflict(db, taskId, "completed", config);
+    resolveConflict(db, taskId, "Done", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("done");
   });
 
-  test("done task, Linear says unstarted -> task becomes ready", () => {
+  test("done task, Linear says Todo -> task becomes ready", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-3",
       orcaStatus: "done",
     });
 
-    resolveConflict(db, taskId, "unstarted", config);
+    resolveConflict(db, taskId, "Todo", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
   });
 
-  test("any task, Linear says canceled -> task becomes failed", () => {
+  test("any task, Linear says Canceled -> task becomes failed", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-4",
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "canceled", config);
+    resolveConflict(db, taskId, "Canceled", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -573,8 +573,8 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "ready",
     });
 
-    // Linear says "unstarted" which maps to "ready" -- no conflict
-    resolveConflict(db, taskId, "unstarted", config);
+    // Linear says "Todo" which maps to "ready" -- no conflict
+    resolveConflict(db, taskId, "Todo", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -605,34 +605,34 @@ describe("10.4 - Write-back loop prevention", () => {
   });
 
   test("register and check immediately -> returns true (consumed)", () => {
-    registerExpectedChange("TASK-1", "started");
-    expect(isExpectedChange("TASK-1", "started")).toBe(true);
+    registerExpectedChange("TASK-1", "In Progress");
+    expect(isExpectedChange("TASK-1", "In Progress")).toBe(true);
   });
 
   test("check again after consumption -> returns false", () => {
-    registerExpectedChange("TASK-2", "started");
+    registerExpectedChange("TASK-2", "In Progress");
     // First check consumes
-    isExpectedChange("TASK-2", "started");
+    isExpectedChange("TASK-2", "In Progress");
     // Second check should be false
-    expect(isExpectedChange("TASK-2", "started")).toBe(false);
+    expect(isExpectedChange("TASK-2", "In Progress")).toBe(false);
   });
 
   test("expired entry (>10s) -> returns false", () => {
     vi.useFakeTimers();
 
-    registerExpectedChange("TASK-3", "completed");
+    registerExpectedChange("TASK-3", "In Review");
 
     // Advance time past the 10s expiry
     vi.advanceTimersByTime(11_000);
 
-    expect(isExpectedChange("TASK-3", "completed")).toBe(false);
+    expect(isExpectedChange("TASK-3", "In Review")).toBe(false);
 
     vi.useRealTimers();
   });
 
-  test("different stateType than registered -> returns false", () => {
-    registerExpectedChange("TASK-4", "started");
-    expect(isExpectedChange("TASK-4", "completed")).toBe(false);
+  test("different stateName than registered -> returns false", () => {
+    registerExpectedChange("TASK-4", "In Progress");
+    expect(isExpectedChange("TASK-4", "In Review")).toBe(false);
   });
 });
 

@@ -7,7 +7,6 @@ import {
   getTask,
   getInvocationsByTask,
   getRunningInvocations,
-  updateTaskFields,
   countActiveSessions,
   sumCostInWindow,
 } from "../db/queries.js";
@@ -59,32 +58,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
-  // PUT /api/tasks/:id/prompt
-  // -----------------------------------------------------------------------
-  app.put("/api/tasks/:id/prompt", async (c) => {
-    const taskId = c.req.param("id");
-    const task = getTask(db, taskId);
-    if (!task) {
-      return c.json({ error: "task not found" }, 404);
-    }
-
-    let body: Record<string, unknown>;
-    try {
-      body = (await c.req.json()) as Record<string, unknown>;
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-
-    if (typeof body.prompt !== "string" || !body.prompt) {
-      return c.json({ error: "prompt field is required" }, 400);
-    }
-
-    updateTaskFields(db, taskId, { agentPrompt: body.prompt });
-    const updated = getTask(db, taskId);
-    return c.json(updated);
-  });
-
-  // -----------------------------------------------------------------------
   // POST /api/tasks/:id/dispatch
   // -----------------------------------------------------------------------
   app.post("/api/tasks/:id/dispatch", async (c) => {
@@ -92,9 +65,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const task = getTask(db, taskId);
     if (!task) {
       return c.json({ error: "task not found" }, 404);
-    }
-    if (!task.agentPrompt) {
-      return c.json({ error: "task has no prompt" }, 400);
     }
     if (task.orcaStatus === "running" || task.orcaStatus === "dispatched") {
       return c.json({ error: "task is already running" }, 400);
