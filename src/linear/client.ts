@@ -346,7 +346,7 @@ export class LinearClient {
 
   async updateIssueState(issueId: string, stateId: string): Promise<boolean> {
     const graphql = `
-      mutation($issueId: ID!, $stateId: String!) {
+      mutation($issueId: String!, $stateId: String!) {
         issueUpdate(id: $issueId, input: { stateId: $stateId }) {
           success
         }

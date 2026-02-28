@@ -34,6 +34,7 @@ function npmInstall(cwd: string): void {
       encoding: "utf-8",
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      shell: true,
     });
   } catch (err: unknown) {
     const execErr = err as { stderr?: string; message?: string };
