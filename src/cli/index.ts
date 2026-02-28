@@ -24,6 +24,7 @@ import { createWebhookRoute } from "../linear/webhook.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
+import { securityHeaders } from "../api/security-headers.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../events.js";
 import { spawnSession } from "../runner/index.js";
 import { createWorktree } from "../worktree/index.js";
@@ -202,6 +203,7 @@ program
     });
 
     const app = new Hono();
+    app.use("*", securityHeaders());
     app.route("/", webhookApp);
     app.route("/", apiApp);
 
