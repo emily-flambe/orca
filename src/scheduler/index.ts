@@ -124,6 +124,8 @@ async function dispatch(
       endedAt: new Date().toISOString(),
       outputSummary: `worktree creation failed: ${err}`,
     });
+    emitTaskUpdated(getTask(db, taskId)!);
+    handleRetry(deps, taskId);
     return;
   }
 

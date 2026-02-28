@@ -15,12 +15,23 @@ function git(args: string[], options?: { cwd?: string }): string {
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
   } catch (err: unknown) {
-    const execErr = err as { stderr?: string; message?: string };
+    const execErr = err as {
+      stderr?: string;
+      stdout?: string;
+      message?: string;
+      code?: string;
+      status?: number | null;
+      signal?: string | null;
+    };
     const stderr = execErr.stderr?.trim() ?? "";
-    const detail = stderr || execErr.message || "unknown error";
-    throw new Error(
-      `git command failed: git ${args.join(" ")}\n${detail}`,
-    );
+    const parts = [`git command failed: git ${args.join(" ")}`];
+    if (execErr.code) parts.push(`code: ${execErr.code}`);
+    if (execErr.status != null) parts.push(`exit: ${execErr.status}`);
+    if (execErr.signal) parts.push(`signal: ${execErr.signal}`);
+    if (stderr) parts.push(stderr);
+    if (!stderr && execErr.message) parts.push(execErr.message);
+    if (options?.cwd) parts.push(`cwd: ${options.cwd}`);
+    throw new Error(parts.join("\n"));
   }
 }
 
@@ -123,12 +134,14 @@ export function createWorktree(
   const baseRef = options?.baseRef;
   const branchName = baseRef ?? `orca/${taskId}-inv-${invocationId}`;
 
+  // Prune stale worktree references (directory removed but git still
+  // tracks it) before anything else — this must run before fetch so that
+  // a transient network error doesn't leave stale references blocking
+  // future worktree creation.
+  git(["worktree", "prune"], { cwd: repoPath });
+
   // Fetch origin
   git(["fetch", "origin"], { cwd: repoPath });
-
-  // Always prune stale worktree references (directory removed but git
-  // still tracks it) before checking or creating.
-  git(["worktree", "prune"], { cwd: repoPath });
 
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {

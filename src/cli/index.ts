@@ -116,6 +116,26 @@ program
     // Validate every project resolves to a valid directory
     validateProjectRepoPaths(config);
 
+    // Recover orphaned tasks from previous crash/restart: any task stuck
+    // in "running" or "dispatched" with no running invocation is dead.
+    const allTasks = getAllTasks(db);
+    const runningInvIssueIds = new Set(
+      getRunningInvocations(db).map((inv) => inv.linearIssueId),
+    );
+    let recovered = 0;
+    for (const t of allTasks) {
+      if (
+        (t.orcaStatus === "running" || t.orcaStatus === "dispatched") &&
+        !runningInvIssueIds.has(t.linearIssueId)
+      ) {
+        updateTaskStatus(db, t.linearIssueId, "ready");
+        recovered++;
+      }
+    }
+    if (recovered > 0) {
+      console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
+    }
+
     // Full sync: populate tasks table + dependency graph
     await fullSync(db, client, graph, config);
 
@@ -228,7 +248,9 @@ program
       // Stop cloudflared tunnel
       tunnel.stop();
 
-      // Mark all running invocations as failed
+      // Mark all running invocations as failed AND reset their tasks to
+      // "ready" so they re-enter the dispatch queue on next startup.
+      // Without this, tasks stay orphaned in "running" state forever.
       const running = getRunningInvocations(db);
       for (const inv of running) {
         updateInvocation(db, inv.id, {
@@ -236,6 +258,7 @@ program
           endedAt: new Date().toISOString(),
           outputSummary: "interrupted by shutdown",
         });
+        updateTaskStatus(db, inv.linearIssueId, "ready");
       }
 
       setTimeout(() => {

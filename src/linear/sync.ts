@@ -147,16 +147,19 @@ function upsertTask(
       updatedAt: now,
     });
   } else {
-    // Protect deploying status from being overwritten by webhook echoes.
-    // resolveConflict handles intentional user overrides (Todo, Done, Canceled).
-    // The default upsert path should not clobber deploying — only explicit
-    // overrides (ready from Todo, done from Done, failed from Canceled) are allowed,
-    // and those are already handled by resolveConflict before we get here.
-    const effectiveStatus =
-      existing.orcaStatus === "deploying" &&
-      orcaStatus !== "ready" && orcaStatus !== "done" && orcaStatus !== "failed"
-        ? "deploying" as const
-        : orcaStatus;
+    // Determine whether Linear's state should override Orca's local status.
+    //
+    // User-initiated overrides (Todo, Done, Canceled) always win — these are
+    // intentional actions in Linear that Orca must respect.
+    //
+    // Intermediate states ("In Progress" → running, "In Review" → in_review)
+    // should NOT overwrite Orca's internal state during sync, because they are
+    // typically echoes of Orca's own write-backs. Without this guard, a task
+    // that Orca set to "ready" (via retry) or "failed" gets clobbered back to
+    // "running" by fullSync seeing the stale "In Progress" in Linear.
+    const isUserOverride =
+      orcaStatus === "ready" || orcaStatus === "done" || orcaStatus === "failed";
+    const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
 
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
