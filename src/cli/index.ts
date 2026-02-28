@@ -138,6 +138,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
+      syncTasks: () => fullSync(db, client, graph, config),
       dispatchTask: async (taskId: string): Promise<number> => {
         const task = getTask(db, taskId)!;
         updateTaskStatus(db, taskId, "dispatched");

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Task, OrcaStatus } from "./types";
-import { fetchTasks, fetchStatus } from "./hooks/useApi";
+import { fetchTasks, fetchStatus, triggerSync } from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
 import OrchestratorBar from "./components/OrchestratorBar";
 import TaskList from "./components/TaskList";
@@ -37,6 +37,13 @@ export default function App() {
     [selectedTaskId],
   );
 
+  const handleSync = useCallback(async () => {
+    await triggerSync();
+    const [newTasks, newStatus] = await Promise.all([fetchTasks(), fetchStatus()]);
+    setTasks(newTasks);
+    setStatus(newStatus);
+  }, []);
+
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
@@ -45,7 +52,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
-      <OrchestratorBar status={status} />
+      <OrchestratorBar status={status} onSync={handleSync} />
       <div className="flex flex-1 overflow-hidden">
         <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
           <TaskList

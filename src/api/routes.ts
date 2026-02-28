@@ -21,6 +21,7 @@ export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
   dispatchTask: (taskId: string) => Promise<number>;
+  syncTasks: () => Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, dispatchTask } = deps;
+  const { db, config, dispatchTask, syncTasks } = deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -102,6 +103,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     try {
       const invocationId = await dispatchTask(taskId);
       return c.json({ invocationId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/sync
+  // -----------------------------------------------------------------------
+  app.post("/api/sync", async (c) => {
+    try {
+      const synced = await syncTasks();
+      return c.json({ synced });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: message }, 500);

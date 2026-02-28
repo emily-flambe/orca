@@ -36,3 +36,7 @@ export async function dispatchTask(id: string): Promise<{ invocationId: number }
     method: "POST",
   });
 }
+
+export async function triggerSync(): Promise<{ synced: number }> {
+  return fetchJson<{ synced: number }>("/sync", { method: "POST" });
+}

@@ -1,10 +1,14 @@
+import { useState } from "react";
 import type { OrcaStatus } from "../types";
 
 interface Props {
   status: OrcaStatus | null;
+  onSync: () => Promise<void>;
 }
 
-export default function OrchestratorBar({ status }: Props) {
+export default function OrchestratorBar({ status, onSync }: Props) {
+  const [syncing, setSyncing] = useState(false);
+
   if (!status) {
     return (
       <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 text-sm text-gray-500">
@@ -19,6 +23,15 @@ export default function OrchestratorBar({ status }: Props) {
 
   const barColor =
     pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await onSync();
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-6 text-sm shrink-0">
@@ -54,6 +67,15 @@ export default function OrchestratorBar({ status }: Props) {
         <span className="text-gray-400">Queued</span>
         <span className="text-gray-300">{status.queuedTasks}</span>
       </div>
+
+      {/* Sync button */}
+      <button
+        onClick={handleSync}
+        disabled={syncing}
+        className="ml-auto px-3 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {syncing ? "Syncing..." : "Sync"}
+      </button>
     </div>
   );
 }
