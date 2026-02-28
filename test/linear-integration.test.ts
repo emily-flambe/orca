@@ -844,4 +844,140 @@ describe("10.6 - Polling fallback", () => {
 
     poller.stop();
   });
+
+  test("repeated failures trigger exponential backoff", async () => {
+    fullSyncMock.mockRejectedValue(new Error("API down"));
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    // First tick fires at 30s (normal interval)
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1);
+    expect(poller.health().consecutiveFailures).toBe(1);
+
+    // After 1 failure, next interval = 30s * 2^0 = 30s
+    expect(poller.health().currentIntervalMs).toBe(30_000);
+
+    // Second tick fires at +30s
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(2);
+    expect(poller.health().consecutiveFailures).toBe(2);
+
+    // After 2 failures, next interval = 30s * 2^1 = 60s
+    expect(poller.health().currentIntervalMs).toBe(60_000);
+
+    // Third tick needs 60s
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(3);
+    expect(poller.health().consecutiveFailures).toBe(3);
+
+    // After 3 failures, next interval = 30s * 2^2 = 120s
+    expect(poller.health().currentIntervalMs).toBe(120_000);
+
+    poller.stop();
+  });
+
+  test("backoff resets after successful poll", async () => {
+    let shouldFail = true;
+    fullSyncMock.mockImplementation(() => {
+      if (shouldFail) throw new Error("API down");
+      return Promise.resolve(5);
+    });
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    // Fail twice: 30s, then 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(poller.health().consecutiveFailures).toBe(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(poller.health().consecutiveFailures).toBe(2);
+    expect(poller.health().currentIntervalMs).toBe(60_000);
+
+    // Now succeed
+    shouldFail = false;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(poller.health().consecutiveFailures).toBe(0);
+    expect(poller.health().currentIntervalMs).toBe(30_000);
+    expect(poller.health().lastSuccessAt).not.toBeNull();
+
+    // Logs recovery message
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("recovered after 2 consecutive failure(s)"),
+    );
+
+    poller.stop();
+  });
+
+  test("backoff caps at MAX_BACKOFF_MS (5 minutes)", async () => {
+    const { computeBackoffMs, MAX_BACKOFF_MS } = await import(
+      "../src/linear/poller.js"
+    );
+
+    // At 10 failures: 30s * 2^9 = 15360s — must cap at 300s
+    expect(computeBackoffMs(10)).toBe(MAX_BACKOFF_MS);
+    expect(computeBackoffMs(20)).toBe(MAX_BACKOFF_MS);
+    // Zero failures returns base interval
+    expect(computeBackoffMs(0)).toBe(30_000);
+  });
+
+  test("health() exposes last error message", async () => {
+    fullSyncMock.mockRejectedValue(new Error("rate limited"));
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+    expect(poller.health().lastError).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(poller.health().lastError).toContain("rate limited");
+
+    poller.stop();
+  });
+
+  test("stop() during backoff prevents further ticks", async () => {
+    fullSyncMock.mockRejectedValue(new Error("fail"));
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    // One failure
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1);
+
+    // Stop during backoff
+    poller.stop();
+
+    // Advance well past any backoff period
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1); // No more calls
+  });
 });

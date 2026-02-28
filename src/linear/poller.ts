@@ -20,9 +20,17 @@ export interface PollerDeps {
   isTunnelConnected: () => boolean;
 }
 
+export interface PollerHealth {
+  consecutiveFailures: number;
+  currentIntervalMs: number;
+  lastError: string | null;
+  lastSuccessAt: string | null;
+}
+
 export interface PollerHandle {
   start(): void;
   stop(): void;
+  health(): PollerHealth;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,16 +45,42 @@ function log(message: string): void {
 // Constants
 // ---------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 30_000;
+export const POLL_INTERVAL_MS = 30_000;
+export const MAX_BACKOFF_MS = 5 * 60_000; // 5 minutes
 
 // ---------------------------------------------------------------------------
-// 7.1 Timer-based poller
+// Backoff calculation
+// ---------------------------------------------------------------------------
+
+export function computeBackoffMs(failures: number): number {
+  if (failures <= 0) return POLL_INTERVAL_MS;
+  // Exponential: 30s * 2^(failures-1), capped at 5 min
+  const backoff = POLL_INTERVAL_MS * Math.pow(2, failures - 1);
+  return Math.min(backoff, MAX_BACKOFF_MS);
+}
+
+// ---------------------------------------------------------------------------
+// 7.1 Timer-based poller with exponential backoff
 // ---------------------------------------------------------------------------
 
 export function createPoller(deps: PollerDeps): PollerHandle {
-  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let timerId: ReturnType<typeof setTimeout> | null = null;
   let lastPollActive = false;
   let polling = false;
+  let stopped = false;
+
+  // Backoff state
+  let consecutiveFailures = 0;
+  let lastError: string | null = null;
+  let lastSuccessAt: string | null = null;
+
+  function scheduleNext(): void {
+    if (stopped) return;
+    const interval = computeBackoffMs(consecutiveFailures);
+    timerId = setTimeout(() => {
+      tick().then(() => scheduleNext());
+    }, interval);
+  }
 
   async function tick(): Promise<void> {
     // Prevent overlapping ticks
@@ -62,6 +96,9 @@ export function createPoller(deps: PollerDeps): PollerHandle {
           log("tunnel recovered, stopping poll");
           lastPollActive = false;
         }
+        // Tunnel up is not a failure — reset backoff
+        consecutiveFailures = 0;
+        lastError = null;
         return;
       }
 
@@ -73,8 +110,21 @@ export function createPoller(deps: PollerDeps): PollerHandle {
 
       // 7.3 Reuse fullSync for simplicity — it's idempotent
       await fullSync(deps.db, deps.client, deps.graph, deps.config);
+
+      // Success — reset backoff
+      if (consecutiveFailures > 0) {
+        log(`recovered after ${consecutiveFailures} consecutive failure(s)`);
+      }
+      consecutiveFailures = 0;
+      lastError = null;
+      lastSuccessAt = new Date().toISOString();
     } catch (err) {
-      log(`poll error: ${err}`);
+      consecutiveFailures++;
+      lastError = String(err);
+      const nextInterval = computeBackoffMs(consecutiveFailures);
+      log(
+        `poll error (failure #${consecutiveFailures}, next retry in ${Math.round(nextInterval / 1000)}s): ${err}`,
+      );
     } finally {
       polling = false;
     }
@@ -82,19 +132,28 @@ export function createPoller(deps: PollerDeps): PollerHandle {
 
   return {
     start(): void {
-      if (intervalId !== null) return; // Already started
-      intervalId = setInterval(() => {
-        tick();
-      }, POLL_INTERVAL_MS);
+      if (timerId !== null) return; // Already started
+      stopped = false;
+      scheduleNext();
       log("started (interval: 30s)");
     },
 
     stop(): void {
-      if (intervalId !== null) {
-        clearInterval(intervalId);
-        intervalId = null;
+      stopped = true;
+      if (timerId !== null) {
+        clearTimeout(timerId);
+        timerId = null;
         log("stopped");
       }
+    },
+
+    health(): PollerHealth {
+      return {
+        consecutiveFailures,
+        currentIntervalMs: computeBackoffMs(consecutiveFailures),
+        lastError,
+        lastSuccessAt,
+      };
     },
   };
 }
