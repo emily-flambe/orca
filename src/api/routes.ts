@@ -19,7 +19,6 @@ import { orcaEvents } from "../events.js";
 export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
-  dispatchTask: (taskId: string) => Promise<number>;
   syncTasks: () => Promise<number>;
 }
 
@@ -28,7 +27,7 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, dispatchTask, syncTasks } = deps;
+  const { db, config, syncTasks } = deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -55,28 +54,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const invocations = getInvocationsByTask(db, taskId);
     return c.json({ ...task, invocations });
-  });
-
-  // -----------------------------------------------------------------------
-  // POST /api/tasks/:id/dispatch
-  // -----------------------------------------------------------------------
-  app.post("/api/tasks/:id/dispatch", async (c) => {
-    const taskId = c.req.param("id");
-    const task = getTask(db, taskId);
-    if (!task) {
-      return c.json({ error: "task not found" }, 404);
-    }
-    if (task.orcaStatus === "running" || task.orcaStatus === "dispatched") {
-      return c.json({ error: "task is already running" }, 400);
-    }
-
-    try {
-      const invocationId = await dispatchTask(taskId);
-      return c.json({ invocationId });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: message }, 500);
-    }
   });
 
   // -----------------------------------------------------------------------

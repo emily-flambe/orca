@@ -8,15 +8,12 @@ import { createDb } from "../db/index.js";
 import {
   insertTask,
   getAllTasks,
-  getTask,
   getRunningInvocations,
-  insertInvocation,
   sumCostInWindow,
   updateInvocation,
-  updateTaskFields,
   updateTaskStatus,
 } from "../db/queries.js";
-import { startScheduler, activeHandles, attachCompletionHandler, type SchedulerDeps } from "../scheduler/index.js";
+import { startScheduler } from "../scheduler/index.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync } from "../linear/sync.js";
@@ -24,9 +21,7 @@ import { createWebhookRoute } from "../linear/webhook.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
-import { emitTaskUpdated, emitInvocationStarted } from "../events.js";
-import { spawnSession } from "../runner/index.js";
-import { createWorktree, removeWorktree } from "../worktree/index.js";
+import { removeWorktree } from "../worktree/index.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -172,61 +167,10 @@ program
       stateMap,
     });
 
-    // Build scheduler deps for use by manual dispatch completion handler
-    const schedulerDeps: SchedulerDeps = { db, config, graph, client, stateMap };
-
-    // Create API routes with manual dispatch callback
     const apiApp = createApiRoutes({
       db,
       config,
       syncTasks: () => fullSync(db, client, graph, config),
-      dispatchTask: async (taskId: string): Promise<number> => {
-        const task = getTask(db, taskId)!;
-        updateTaskStatus(db, taskId, "dispatched");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        const now = new Date().toISOString();
-        const invocationId = insertInvocation(db, {
-          linearIssueId: taskId,
-          startedAt: now,
-          status: "running",
-        });
-
-        const worktreeResult = createWorktree(task.repoPath, taskId, invocationId);
-
-        const disallowedTools = config.disallowedTools
-          ? config.disallowedTools.split(",").map((t) => t.trim()).filter(Boolean)
-          : [];
-
-        const handle = spawnSession({
-          agentPrompt: task.agentPrompt,
-          worktreePath: worktreeResult.worktreePath,
-          maxTurns: config.defaultMaxTurns,
-          invocationId,
-          projectRoot: process.cwd(),
-          claudePath: config.claudePath,
-          appendSystemPrompt: config.appendSystemPrompt || undefined,
-          disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
-        });
-
-        updateTaskStatus(db, taskId, "running");
-        updateInvocation(db, invocationId, {
-          branchName: worktreeResult.branchName,
-          worktreePath: worktreeResult.worktreePath,
-          logPath: `logs/${invocationId}.ndjson`,
-        });
-        activeHandles.set(invocationId, handle);
-        emitInvocationStarted({ taskId, invocationId });
-
-        // Attach completion handler so manual dispatches get the same
-        // lifecycle management (cleanup, retry, write-back) as scheduler dispatches
-        attachCompletionHandler(
-          schedulerDeps, taskId, invocationId, handle,
-          worktreeResult.worktreePath, "implement",
-        );
-
-        return invocationId;
-      },
     });
 
     const app = new Hono();

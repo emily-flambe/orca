@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, dispatchTask } from "../hooks/useApi";
+import { fetchTaskDetail } from "../hooks/useApi";
 
 interface Props {
   taskId: string;
@@ -34,8 +34,6 @@ function formatDate(iso: string): string {
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
-  const [dispatching, setDispatching] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -46,24 +44,6 @@ export default function TaskDetail({ taskId }: Props) {
   if (!detail) {
     return <div className="p-4 text-gray-500">Loading...</div>;
   }
-
-  const isRunning = detail.orcaStatus === "running" || detail.orcaStatus === "dispatched";
-
-  const handleDispatch = async () => {
-    setDispatching(true);
-    setMessage(null);
-    try {
-      const result = await dispatchTask(taskId);
-      setMessage({ type: "success", text: `Dispatched (invocation ${result.invocationId})` });
-      // Re-fetch detail
-      const d = await fetchTaskDetail(taskId);
-      setDetail(d);
-    } catch (err) {
-      setMessage({ type: "error", text: (err as Error).message });
-    } finally {
-      setDispatching(false);
-    }
-  };
 
   const invocations = [...(detail.invocations || [])].sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -85,23 +65,7 @@ export default function TaskDetail({ taskId }: Props) {
         <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
           {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
         </pre>
-        <button
-          onClick={handleDispatch}
-          disabled={dispatching || isRunning}
-          className="px-4 py-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 rounded-lg transition-colors"
-        >
-          {dispatching ? "Dispatching..." : "Dispatch Now"}
-        </button>
       </div>
-
-      {/* Message */}
-      {message && (
-        <div className={`text-sm px-3 py-2 rounded ${
-          message.type === "success" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
-        }`}>
-          {message.text}
-        </div>
-      )}
 
       {/* Invocation history */}
       <div>
