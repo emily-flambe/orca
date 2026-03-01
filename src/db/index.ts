@@ -5,6 +5,7 @@ import * as schema from "./schema.js";
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
   linear_issue_id TEXT PRIMARY KEY,
+  title TEXT,
   agent_prompt TEXT NOT NULL,
   repo_path TEXT NOT NULL,
   orca_status TEXT NOT NULL,
@@ -135,9 +136,12 @@ function migrateSchema(sqlite: DatabaseType): void {
 
     sqlite.exec("BEGIN TRANSACTION");
     try {
+      // Include title column here so it survives the table recreation
+      const hasTitle = hasColumn(sqlite, "tasks", "title");
       sqlite.exec(`
         CREATE TABLE tasks_new (
           linear_issue_id TEXT PRIMARY KEY,
+          title TEXT,
           agent_prompt TEXT NOT NULL,
           repo_path TEXT NOT NULL,
           orca_status TEXT NOT NULL,
@@ -153,11 +157,19 @@ function migrateSchema(sqlite: DatabaseType): void {
         )
       `);
 
-      sqlite.exec(`
-        INSERT INTO tasks_new (linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at)
-        SELECT linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at
-        FROM tasks
-      `);
+      if (hasTitle) {
+        sqlite.exec(`
+          INSERT INTO tasks_new (linear_issue_id, title, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at)
+          SELECT linear_issue_id, title, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at
+          FROM tasks
+        `);
+      } else {
+        sqlite.exec(`
+          INSERT INTO tasks_new (linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at)
+          SELECT linear_issue_id, agent_prompt, repo_path, orca_status, priority, retry_count, pr_branch_name, review_cycle_count, created_at, updated_at
+          FROM tasks
+        `);
+      }
 
       sqlite.exec("DROP TABLE tasks");
       sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
@@ -169,6 +181,22 @@ function migrateSchema(sqlite: DatabaseType): void {
     }
 
     sqlite.pragma("foreign_keys = ON");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 3 (title column):
+  //   - Add title column to tasks table
+  //   - Backfill from agent_prompt (first line)
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "title")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN title TEXT");
+    // Backfill: extract the first line of agent_prompt as the title
+    sqlite.exec(`
+      UPDATE tasks SET title = CASE
+        WHEN INSTR(agent_prompt, CHAR(10)) > 0 THEN SUBSTR(agent_prompt, 1, INSTR(agent_prompt, CHAR(10)) - 1)
+        ELSE agent_prompt
+      END
+    `);
   }
 }
 
