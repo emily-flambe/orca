@@ -72,7 +72,7 @@ export default function OrchestratorBar({ status, onSync }: Props) {
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="ml-auto px-3 py-1 rounded bg-purple-600 text-purple-100 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="ml-auto px-3 py-1 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {syncing ? "Syncing..." : "Sync"}
       </button>
