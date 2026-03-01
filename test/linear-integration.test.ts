@@ -763,6 +763,8 @@ describe("10.6 - Polling fallback", () => {
 
   beforeEach(async () => {
     vi.useFakeTimers();
+    // Pin jitter to factor=1.0 so timer intervals are deterministic
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const pollerMod = await import("../src/linear/poller.js");
     createPoller = pollerMod.createPoller;

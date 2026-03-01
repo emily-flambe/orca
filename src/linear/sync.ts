@@ -174,22 +174,47 @@ function upsertTask(
 // 4.1 Full sync
 // ---------------------------------------------------------------------------
 
+export interface SyncResult {
+  total: number;
+  upsertFailures: number;
+}
+
 export async function fullSync(
   db: OrcaDb,
   client: LinearClient,
   graph: DependencyGraph,
   config: OrcaConfig,
-): Promise<number> {
+): Promise<SyncResult> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
+  // Upsert each issue individually so one bad record doesn't abort the batch
+  let upsertFailures = 0;
   for (const issue of issues) {
-    upsertTask(db, issue, config);
+    try {
+      upsertTask(db, issue, config);
+    } catch (err) {
+      upsertFailures++;
+      log(`upsert failed for ${issue.identifier}: ${err}`);
+    }
   }
 
-  graph.rebuild(issues);
+  // Always rebuild the graph even if some upserts failed — the graph uses
+  // Linear's data directly, not the DB rows
+  try {
+    graph.rebuild(issues);
+  } catch (err) {
+    log(`dependency graph rebuild failed: ${err}`);
+  }
 
-  log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  if (upsertFailures > 0) {
+    log(
+      `full sync partial: ${issues.length} issues, ${upsertFailures} upsert failure(s)`,
+    );
+  } else {
+    log(`full sync complete: ${issues.length} issues`);
+  }
+
+  return { total: issues.length, upsertFailures };
 }
 
 // ---------------------------------------------------------------------------

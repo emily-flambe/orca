@@ -12,6 +12,8 @@ import { fullSync } from "./sync.js";
 // Types
 // ---------------------------------------------------------------------------
 
+export type ErrorKind = "transient" | "permanent";
+
 export interface PollerDeps {
   db: OrcaDb;
   client: LinearClient;
@@ -24,7 +26,10 @@ export interface PollerHealth {
   consecutiveFailures: number;
   currentIntervalMs: number;
   lastError: string | null;
+  lastErrorKind: ErrorKind | null;
   lastSuccessAt: string | null;
+  circuitOpen: boolean;
+  halted: boolean;
 }
 
 export interface PollerHandle {
@@ -47,6 +52,17 @@ function log(message: string): void {
 
 export const POLL_INTERVAL_MS = 30_000;
 export const MAX_BACKOFF_MS = 5 * 60_000; // 5 minutes
+export const CIRCUIT_OPEN_THRESHOLD = 10;
+
+// ---------------------------------------------------------------------------
+// Error classification
+// ---------------------------------------------------------------------------
+
+export function classifyError(err: unknown): ErrorKind {
+  const msg = String(err);
+  if (msg.includes("authentication failed")) return "permanent";
+  return "transient";
+}
 
 // ---------------------------------------------------------------------------
 // Backoff calculation
@@ -59,8 +75,17 @@ export function computeBackoffMs(failures: number): number {
   return Math.min(backoff, MAX_BACKOFF_MS);
 }
 
+/**
+ * Add ±20% random jitter to an interval to prevent thundering herd.
+ * Exported for testing — pass a fixed random value to make it deterministic.
+ */
+export function addJitter(ms: number, rand: number = Math.random()): number {
+  const factor = 0.8 + rand * 0.4; // 0.8 to 1.2
+  return Math.round(ms * factor);
+}
+
 // ---------------------------------------------------------------------------
-// 7.1 Timer-based poller with exponential backoff
+// 7.1 Timer-based poller with exponential backoff + error recovery
 // ---------------------------------------------------------------------------
 
 export function createPoller(deps: PollerDeps): PollerHandle {
@@ -72,11 +97,14 @@ export function createPoller(deps: PollerDeps): PollerHandle {
   // Backoff state
   let consecutiveFailures = 0;
   let lastError: string | null = null;
+  let lastErrorKind: ErrorKind | null = null;
   let lastSuccessAt: string | null = null;
+  let halted = false; // permanent error — stop retrying
 
   function scheduleNext(): void {
-    if (stopped) return;
-    const interval = computeBackoffMs(consecutiveFailures);
+    if (stopped || halted) return;
+    const base = computeBackoffMs(consecutiveFailures);
+    const interval = addJitter(base);
     timerId = setTimeout(() => {
       tick().then(() => scheduleNext());
     }, interval);
@@ -99,6 +127,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
         // Tunnel up is not a failure — reset backoff
         consecutiveFailures = 0;
         lastError = null;
+        lastErrorKind = null;
         return;
       }
 
@@ -117,13 +146,30 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       }
       consecutiveFailures = 0;
       lastError = null;
+      lastErrorKind = null;
       lastSuccessAt = new Date().toISOString();
     } catch (err) {
       consecutiveFailures++;
       lastError = String(err);
+      lastErrorKind = classifyError(err);
+
+      // Permanent errors (e.g. auth failures) — halt polling entirely
+      if (lastErrorKind === "permanent") {
+        halted = true;
+        log(`CRITICAL: permanent error, polling halted: ${err}`);
+        return;
+      }
+
+      // Circuit breaker — log critical once when threshold is crossed
+      if (consecutiveFailures === CIRCUIT_OPEN_THRESHOLD) {
+        log(
+          `CRITICAL: ${CIRCUIT_OPEN_THRESHOLD} consecutive failures, circuit open — retries continue at max backoff`,
+        );
+      }
+
       const nextInterval = computeBackoffMs(consecutiveFailures);
       log(
-        `poll error (failure #${consecutiveFailures}, next retry in ${Math.round(nextInterval / 1000)}s): ${err}`,
+        `poll error (failure #${consecutiveFailures}, next retry ~${Math.round(nextInterval / 1000)}s): ${err}`,
       );
     } finally {
       polling = false;
@@ -134,6 +180,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
     start(): void {
       if (timerId !== null) return; // Already started
       stopped = false;
+      halted = false;
       scheduleNext();
       log("started (interval: 30s)");
     },
@@ -152,7 +199,10 @@ export function createPoller(deps: PollerDeps): PollerHandle {
         consecutiveFailures,
         currentIntervalMs: computeBackoffMs(consecutiveFailures),
         lastError,
+        lastErrorKind,
         lastSuccessAt,
+        circuitOpen: consecutiveFailures >= CIRCUIT_OPEN_THRESHOLD,
+        halted,
       };
     },
   };
