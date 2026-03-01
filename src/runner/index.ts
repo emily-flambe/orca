@@ -60,6 +60,13 @@ export interface SpawnSessionOptions {
   resumeSessionId?: string;
   /** Absolute path to the base git repository (used to clean stale Claude project dirs). */
   repoPath?: string;
+  /**
+   * Extra arguments prepended before the standard CLI flags.
+   * Useful for wrapping the executable — e.g. running a Node script as a
+   * mock: `claudePath: process.execPath, prependArgs: ["mock.mjs"]`.
+   */
+  prependArgs?: string[];
+
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +238,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const childEnv = { ...process.env };
   delete childEnv.CLAUDECODE;
 
-  const proc = spawn(claudePath, args, {
+  const prefixArgs = options.prependArgs ?? [];
+  const proc = spawn(claudePath, [...prefixArgs, ...args], {
     cwd: options.worktreePath,
     stdio: ["ignore", "pipe", "pipe"],
     env: childEnv,
