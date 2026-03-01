@@ -752,7 +752,7 @@ describe("10.6 - Polling fallback", () => {
     const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
     return {
       ...actual,
-      fullSync: vi.fn().mockResolvedValue(undefined),
+      fullSync: vi.fn().mockResolvedValue({ total: 0, upsertFailures: 0 }),
       processWebhookEvent: vi.fn().mockResolvedValue(undefined),
     };
   });
