@@ -12,6 +12,7 @@ export interface Task {
   deployStartedAt: string | null;
   doneAt: string | null;
   projectName: string | null;
+  invocationCount: number;
   createdAt: string;
   updatedAt: string;
 }

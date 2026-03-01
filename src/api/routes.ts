@@ -53,7 +53,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       if (a.priority !== b.priority) return a.priority - b.priority;
       return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     });
-    return c.json(tasks);
+    // Attach invocation count so the frontend can filter out done tasks with no history
+    const withCounts = tasks.map((t) => ({
+      ...t,
+      invocationCount: getInvocationsByTask(db, t.linearIssueId).length,
+    }));
+    return c.json(withCounts);
   });
 
   // -----------------------------------------------------------------------

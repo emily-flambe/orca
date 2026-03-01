@@ -64,11 +64,16 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       ? tasks
       : tasks.filter((t) => t.orcaStatus === filter);
 
+    // Always hide done tasks that have zero invocations (imported from Linear already complete)
+    const withHistory = byStatus.filter((t) =>
+      t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
+    );
+
     // Show all done tasks when explicitly filtering for "done"
-    if (filter === "done") return byStatus;
+    if (filter === "done") return withHistory;
 
     // Otherwise hide done tasks older than 15 min (keep selected task visible)
-    return byStatus.filter((t) =>
+    return withHistory.filter((t) =>
       t.orcaStatus !== "done" ||
       t.linearIssueId === selectedTaskId ||
       !t.doneAt ||
