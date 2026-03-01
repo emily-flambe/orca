@@ -36,6 +36,7 @@ export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [expandedInvId, setExpandedInvId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -122,22 +123,43 @@ export default function TaskDetail({ taskId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {invocations.map((inv) => (
-                  <tr key={inv.id} className="border-b border-gray-800/50">
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                      {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                    <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                  </tr>
-                ))}
+                {invocations.map((inv) => {
+                  const isExpanded = expandedInvId === inv.id;
+                  const hasSummary = inv.outputSummary != null;
+                  return (
+                    <tr key={inv.id} className="border-b border-gray-800/50 group">
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                      <td className="py-2 pr-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
+                          {inv.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                        {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
+                      <td className="py-2 text-gray-400">
+                        {hasSummary ? (
+                          <button
+                            onClick={() => setExpandedInvId(isExpanded ? null : inv.id)}
+                            className="text-left w-full hover:text-gray-200 transition-colors"
+                          >
+                            {isExpanded ? (
+                              <pre className="whitespace-pre-wrap break-words text-sm max-h-96 overflow-y-auto bg-gray-900 border border-gray-700 rounded p-2 mt-1">
+                                {inv.outputSummary}
+                              </pre>
+                            ) : (
+                              <span className="truncate block max-w-xs">{inv.outputSummary}</span>
+                            )}
+                          </button>
+                        ) : (
+                          "\u2014"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
