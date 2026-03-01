@@ -4,10 +4,13 @@ import type { OrcaStatus } from "../types";
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
+  onConfigUpdate: (config: { concurrencyCap: number }) => Promise<void>;
 }
 
-export default function OrchestratorBar({ status, onSync }: Props) {
+export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Props) {
   const [syncing, setSyncing] = useState(false);
+  const [editingConcurrency, setEditingConcurrency] = useState(false);
+  const [concurrencyInput, setConcurrencyInput] = useState("");
 
   if (!status) {
     return (
@@ -30,6 +33,27 @@ export default function OrchestratorBar({ status, onSync }: Props) {
       await onSync();
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const startEditConcurrency = () => {
+    setConcurrencyInput(String(status.concurrencyCap));
+    setEditingConcurrency(true);
+  };
+
+  const saveConcurrency = async () => {
+    const val = parseInt(concurrencyInput, 10);
+    if (!Number.isNaN(val) && val >= 1 && val !== status.concurrencyCap) {
+      await onConfigUpdate({ concurrencyCap: val });
+    }
+    setEditingConcurrency(false);
+  };
+
+  const handleConcurrencyKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      saveConcurrency();
+    } else if (e.key === "Escape") {
+      setEditingConcurrency(false);
     }
   };
 
@@ -58,7 +82,29 @@ export default function OrchestratorBar({ status, onSync }: Props) {
           </span>
         )}
         <span className="text-gray-300">
-          {status.activeSessions} active
+          {status.activeSessions}
+          <span className="text-gray-500"> / </span>
+          {editingConcurrency ? (
+            <input
+              type="number"
+              min="1"
+              value={concurrencyInput}
+              onChange={(e) => setConcurrencyInput(e.target.value)}
+              onBlur={saveConcurrency}
+              onKeyDown={handleConcurrencyKeyDown}
+              autoFocus
+              className="w-10 bg-gray-800 border border-gray-600 rounded px-1 text-center text-gray-200 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          ) : (
+            <button
+              onClick={startEditConcurrency}
+              className="text-gray-300 hover:text-blue-400 cursor-pointer border-b border-dashed border-gray-600 hover:border-blue-400 transition-colors"
+              title="Click to change max concurrency"
+            >
+              {status.concurrencyCap}
+            </button>
+          )}
+          {" "}active
         </span>
       </div>
 

@@ -45,4 +45,5 @@ export interface OrcaStatus {
   costInWindow: number;
   budgetLimit: number;
   budgetWindowHours: number;
+  concurrencyCap: number;
 }

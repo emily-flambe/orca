@@ -316,7 +316,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       costInWindow,
       budgetLimit: config.budgetMaxCostUsd,
       budgetWindowHours: config.budgetWindowHours,
+      concurrencyCap: config.concurrencyCap,
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/config
+  // -----------------------------------------------------------------------
+  app.post("/api/config", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    if ("concurrencyCap" in body) {
+      const val = body.concurrencyCap;
+      if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
+        return c.json({ error: "concurrencyCap must be a positive integer" }, 400);
+      }
+      config.concurrencyCap = val;
+    }
+
+    return c.json({ ok: true, concurrencyCap: config.concurrencyCap });
   });
 
   // -----------------------------------------------------------------------
