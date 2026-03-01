@@ -43,6 +43,17 @@ When the claude process exits, the runner SHALL update the invocation's `ended_a
 - **WHEN** the claude process exits with code 1 and no result message was parsed
 - **THEN** the invocation SHALL be set to status "failed" with output_summary "process exited with code 1"
 
+### Requirement: Resume previous session
+The runner SHALL accept an optional `resumeSessionId` in `SpawnSessionOptions`. When set, the runner SHALL prepend `--resume <session_id>` before `-p <prompt>` in the CLI arguments. This resumes a previous Claude CLI session and sends the prompt as a continuation message.
+
+#### Scenario: Session resumed after max turns
+- **WHEN** the scheduler dispatches with `resumeSessionId: "abc-123"` and prompt "Continue where you left off"
+- **THEN** the runner SHALL spawn `claude --resume abc-123 -p "Continue where you left off" --output-format stream-json ...`
+
+#### Scenario: No resume ID provided
+- **WHEN** the scheduler dispatches without `resumeSessionId`
+- **THEN** the runner SHALL spawn `claude -p <prompt> ...` as normal (no `--resume` flag)
+
 ### Requirement: Process kill support
 The runner SHALL expose a method to kill a running session's process (SIGTERM, then SIGKILL after 5 seconds). This is used by the scheduler for timeout enforcement and graceful shutdown.
 

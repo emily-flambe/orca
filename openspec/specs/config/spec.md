@@ -35,7 +35,9 @@ The following defaults SHALL be used when variables are not set:
 | `ORCA_BUDGET_MAX_COST_USD` | 10.00 |
 | `ORCA_SCHEDULER_INTERVAL_SEC` | 10 |
 | `ORCA_CLAUDE_PATH` | "claude" |
-| `ORCA_DEFAULT_MAX_TURNS` | 20 |
+| `ORCA_DEFAULT_MAX_TURNS` | 200 |
+| `ORCA_REVIEW_MAX_TURNS` | 100 |
+| `ORCA_RESUME_ON_MAX_TURNS` | true |
 | `ORCA_APPEND_SYSTEM_PROMPT` | "" |
 | `ORCA_DISALLOWED_TOOLS` | "" |
 | `ORCA_PORT` | 3000 |

@@ -51,6 +51,51 @@ The scheduler SHALL trigger Linear state write-back when dispatching a task and 
 - **WHEN** a failed task is reset to ready for retry
 - **THEN** the scheduler SHALL trigger a write-back to set the Linear issue state to "unstarted"
 
+### Requirement: Resume on max turns
+When `ORCA_RESUME_ON_MAX_TURNS` is true (default) and an implement-phase session hits the max-turns limit, the scheduler SHALL preserve the worktree and session ID for resume on the next retry. On the next dispatch for that task, the scheduler SHALL detect the preserved invocation, reuse the existing worktree, and spawn `claude --resume <session_id> -p <continuation_prompt>` instead of starting fresh. This avoids discarding partial progress.
+
+Resume SHALL only apply to fresh implement-phase sessions. Fix-phase sessions (implement on `changes_requested` tasks) and review-phase sessions SHALL NOT be resumed — they retry normally.
+
+#### Scenario: Implement session hits max turns and is resumed
+- **WHEN** an implement-phase session hits max turns
+- **THEN** the scheduler SHALL preserve the worktree, mark the task as failed, and queue a retry
+- **AND WHEN** the retry dispatches
+- **THEN** the scheduler SHALL find the preserved invocation, reuse its worktree, and pass `--resume <session_id>` to the runner with a continuation prompt
+
+#### Scenario: Preserved worktree deleted before retry
+- **WHEN** the preserved worktree is deleted between failure and retry (e.g. manual cleanup)
+- **THEN** the scheduler SHALL fall back to a fresh dispatch (new worktree, no `--resume` flag)
+
+#### Scenario: Chain-resume on repeated max turns
+- **WHEN** a resumed session also hits max turns
+- **THEN** the scheduler SHALL preserve the worktree again with the new session ID, and the next retry SHALL resume from the latest session
+
+#### Scenario: Review session hits max turns
+- **WHEN** a review-phase session hits max turns
+- **THEN** the scheduler SHALL NOT preserve the worktree for resume and SHALL retry normally as `in_review`
+
+#### Scenario: Fix session hits max turns
+- **WHEN** a fix-phase session (implement on `changes_requested`) hits max turns
+- **THEN** the scheduler SHALL NOT preserve the worktree for resume and SHALL retry normally
+
+#### Scenario: Resume disabled by config
+- **WHEN** `ORCA_RESUME_ON_MAX_TURNS` is false
+- **THEN** the scheduler SHALL remove the worktree on max-turns failure and retry from scratch (original behavior)
+
+### Requirement: Review-phase retry preserves review status
+When a review-phase session fails (any failure type), the scheduler SHALL retry the task as `in_review` (not `ready`) so the review is re-dispatched against the existing PR rather than triggering a fresh implementation.
+
+#### Scenario: Review fails and retries
+- **WHEN** a review-phase session fails
+- **THEN** the scheduler SHALL set the task to `in_review` (not `ready`) when queuing the retry
+
+### Requirement: Cleanup protects preserved worktrees
+The cleanup module SHALL NOT delete worktrees that are preserved for session resume. It SHALL identify these by querying tasks in `ready` state that have a most-recent invocation with `output_summary = "max turns reached"` and a non-null `worktree_path`.
+
+#### Scenario: Preserved worktree skipped during cleanup
+- **WHEN** cleanup runs and finds a worktree belonging to a ready task with a max-turns invocation
+- **THEN** cleanup SHALL skip the worktree (both registered and orphaned directory cleanup)
+
 ### Requirement: Skip tasks with empty agent_prompt
 The scheduler SHALL NOT dispatch tasks that have an empty or null `agent_prompt`. These tasks SHALL be skipped during task selection regardless of their priority or dispatch eligibility.
 
