@@ -52,6 +52,8 @@ export interface SpawnSessionOptions {
   projectRoot: string;
   /** Path or name of the `claude` executable. Defaults to `"claude"`. */
   claudePath?: string;
+  /** Extra arguments prepended before the built-in CLI flags (e.g. a script path when claudePath is `node`). */
+  claudeArgs?: string[];
   /** Optional text appended to the system prompt via `--append-system-prompt`. */
   appendSystemPrompt?: string;
   /** Optional list of disallowed tool names via `--disallowedTools`. */
@@ -111,7 +113,7 @@ function describeExitCode(code: number | null): string | null {
  * Build the argument array for the `claude` CLI invocation.
  */
 function buildArgs(opts: SpawnSessionOptions): string[] {
-  const args: string[] = [];
+  const args: string[] = opts.claudeArgs ? [...opts.claudeArgs] : [];
 
   if (opts.resumeSessionId) {
     args.push("--resume", opts.resumeSessionId);
@@ -262,18 +264,20 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     let exitSignal: NodeJS.Signals | null = null;
     let exitReceived = false;
     let rlClosed = false;
+    let resolved = false;
 
     function tryResolve(): void {
-      if (!exitReceived || !rlClosed) return;
+      if (resolved || !exitReceived || !rlClosed) return;
+      resolved = true;
 
-      // Close the log stream now that all lines have been written.
-      logStream.end();
+      // Build the final result before closing the log stream.
+      let finalResult: SessionResult;
 
       if (resultReceived && handle.result) {
         // Attach exit code and signal to the already-parsed result.
         handle.result.exitCode = exitCode;
         handle.result.exitSignal = exitSignal?.toString() ?? null;
-        resolve(handle.result);
+        finalResult = handle.result;
       } else if (exitCode !== 0 || exitSignal) {
         // No result message and non-zero exit or signal -> process error.
         // Build a descriptive summary with as much info as possible.
@@ -288,7 +292,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           parts.push("with code unknown");
         }
 
-        const result: SessionResult = {
+        finalResult = {
           subtype: "process_error",
           costUsd: null,
           numTurns: null,
@@ -296,13 +300,12 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           exitSignal: exitSignal?.toString() ?? null,
           outputSummary: parts.join(" "),
         };
-        handle.result = result;
-        resolve(result);
+        handle.result = finalResult;
       } else {
         // Process exited with code 0 but no result message.
         // Unusual, but not necessarily an error -- treat as success with
         // limited information.
-        const result: SessionResult = {
+        finalResult = {
           subtype: "success",
           costUsd: null,
           numTurns: null,
@@ -310,9 +313,12 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           exitSignal: null,
           outputSummary: "process exited cleanly with no result message",
         };
-        handle.result = result;
-        resolve(result);
+        handle.result = finalResult;
       }
+
+      // Wait for the log stream to flush before resolving so callers
+      // can rely on the log file existing on disk after `await handle.done`.
+      logStream.end(() => resolve(finalResult));
     }
 
     // ------------------------------------------------------------------
