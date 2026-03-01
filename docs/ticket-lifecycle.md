@@ -17,7 +17,7 @@ A Linear issue in a tracked project reaches Orca one of two ways:
 | In Progress | `running` |
 | In Review | `in_review` |
 | Done | `done` |
-| Canceled | `failed` |
+| Canceled | *(deleted from DB)* |
 | Backlog | *(skipped)* |
 
 The agent prompt is built from `{title}\n\n{description}`. If the issue is a child of a parent issue, the prompt is prefixed with the parent's title and description under a `## Parent Issue` header.
@@ -48,14 +48,15 @@ When a Linear issue has sub-issues:
 
 The scheduler ticks every 10s (`ORCA_SCHEDULER_INTERVAL_SEC`). Each tick:
 
-1. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
+1. **Timeout check** — check for timed-out invocations → kill session, mark failed, attempt retry.
 2. **Deploy check** — poll GitHub Actions for tasks in `deploying` status (throttled by `ORCA_DEPLOY_POLL_INTERVAL_SEC`).
 3. **Cleanup** — periodically (every `ORCA_CLEANUP_INTERVAL_MIN`) remove stale `orca/*` branches and orphaned worktrees. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN`. Worktrees preserved for session resume are also protected.
-4. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
-5. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
-6. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
-7. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
-8. **Dispatch the top task** with the appropriate phase.
+4. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
+5. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
+6. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
+7. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
+8. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
+9. **Dispatch the top task** with the appropriate phase.
 
 ## 3. Dispatch (Implementation Phase)
 
@@ -70,7 +71,7 @@ For tasks in `ready` status, dispatch with phase `"implement"`:
    - Create worktree as sibling directory: `<repoDir>-<taskId>`.
    - Copy `.env*` files from the base repo.
    - Run `npm install` if `package.json` exists.
-5. **Spawn Claude Code CLI** with `ORCA_APPEND_SYSTEM_PROMPT`.
+5. **Spawn Claude Code CLI** with `ORCA_IMPLEMENT_SYSTEM_PROMPT`.
 6. Set task status to `running`.
 7. Store the session handle and attach a completion callback.
 
@@ -192,9 +193,8 @@ When the fix completes successfully, the task returns to `in_review` (step 4a) a
 
 If `retry_count < ORCA_MAX_RETRIES` (default 3):
 
-1. Increment retry count, set task back to `ready`.
-2. **Write-back to Linear:** move issue back to **"Todo"**.
-3. The scheduler will pick it up again on a future tick (fresh worktree from `origin/main`).
+- **Implementation failures:** Increment retry count, set task back to `ready`. Write-back **"Todo"** to Linear. The scheduler will pick it up again on a future tick (fresh worktree from `origin/main`).
+- **Review failures:** Increment retry count, set task back to `in_review`. Write-back **"In Review"** to Linear. The scheduler will re-dispatch the review (not a fresh implementation).
 
 If retries exhausted:
 

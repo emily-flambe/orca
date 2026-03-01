@@ -41,7 +41,7 @@ All backend modules use named exports. The frontend uses default exports for Rea
 | DB | `src/db/index.ts` | Creates SQLite connection, runs CREATE TABLE |
 | Schema | `src/db/schema.ts` | Drizzle ORM table definitions |
 | Queries | `src/db/queries.ts` | All typed DB query functions |
-| Scheduler | `src/scheduler/index.ts` | Tick loop: timeout → deploy poll → cleanup → budget → dispatch |
+| Scheduler | `src/scheduler/index.ts` | Tick loop: timeout → deploy poll → cleanup → concurrency → budget → dispatch |
 | Runner | `src/runner/index.ts` | Spawns `claude -p` with `--output-format stream-json` |
 | Worktree | `src/worktree/index.ts` | `createWorktree` / `removeWorktree` |
 | Cleanup | `src/cleanup/index.ts` | Periodic cleanup of stale `orca/*` branches + orphaned worktrees |
