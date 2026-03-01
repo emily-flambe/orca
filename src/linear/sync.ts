@@ -97,11 +97,12 @@ function mapLinearStateToOrcaStatus(
   stateName: string,
 ): TaskStatus | null {
   switch (stateName) {
+    case "Backlog": return "backlog";
     case "Todo": return "ready";
     case "In Progress": return "running";
     case "In Review": return "in_review";
     case "Done": return "done";
-    default: return null; // Backlog, Canceled, and unknown → skip
+    default: return null; // Canceled and unknown → skip
   }
 }
 
@@ -171,6 +172,7 @@ function upsertTask(
       doneAt: insertStatus === "done" ? now : null,
       parentIdentifier,
       isParent,
+      projectName: issue.projectName,
       createdAt: now,
       updatedAt: now,
     });
@@ -186,7 +188,7 @@ function upsertTask(
     // that Orca set to "ready" (via retry) or "failed" gets clobbered back to
     // "running" by fullSync seeing the stale "In Progress" in Linear.
     const isUserOverride =
-      orcaStatus === "ready" || orcaStatus === "done" || orcaStatus === "failed";
+      orcaStatus === "backlog" || orcaStatus === "ready" || orcaStatus === "done" || orcaStatus === "failed";
     const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
 
     // When Linear "Todo" overrides a non-ready state, reset retry/review counts
@@ -200,6 +202,7 @@ function upsertTask(
       orcaStatus: effectiveStatus,
       parentIdentifier,
       isParent,
+      ...(issue.projectName ? { projectName: issue.projectName } : {}),
       ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
     });
   }
@@ -329,6 +332,7 @@ export async function processWebhookEvent(
     parentId: existingTask?.parentIdentifier ?? null,
     parentTitle: null,
     parentDescription: null,
+    projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
   };
 
@@ -391,6 +395,16 @@ export function resolveConflict(
 
   // If statuses match, no conflict
   if (task.orcaStatus === expectedOrcaStatus) return;
+
+  // Any state → Linear Backlog: reset to backlog.
+  if (linearStateName === "Backlog") {
+    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+      killRunningSession(db, taskId);
+    }
+    updateTaskFields(db, taskId, { orcaStatus: "backlog", retryCount: 0, reviewCycleCount: 0 });
+    log(`conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`);
+    return;
+  }
 
   // Any state → Linear Todo: reset to ready with fresh retry/review counts.
   // This covers: running, done, in_review, changes_requested, deploying, failed.

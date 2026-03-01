@@ -15,7 +15,7 @@ interface Props {
 const STATUS_FILTERS = ["all", "ready", "running", "in_review", "deploying", "changes_requested", "done", "failed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-const SORT_OPTIONS = ["priority", "status", "date"] as const;
+const SORT_OPTIONS = ["priority", "status", "date", "project"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
 
 function priorityColor(p: number): string {
@@ -38,12 +38,13 @@ function statusBadge(s: string): { bg: string; text: string } {
     case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
     case "changes_requested": return { bg: "bg-orange-500/20 text-orange-400", text: "changes requested" };
     case "deploying": return { bg: "bg-teal-500/20 text-teal-400", text: "deploying" };
+    case "backlog": return { bg: "bg-gray-500/20 text-gray-500", text: "backlog" };
     default: return { bg: "bg-gray-500/20 text-gray-400", text: s };
   }
 }
 
 const STATUS_ORDER: Record<string, number> = {
-  running: 0, dispatched: 1, in_review: 2, deploying: 3, changes_requested: 4, ready: 5, failed: 6, done: 7,
+  running: 0, dispatched: 1, in_review: 2, deploying: 3, changes_requested: 4, ready: 5, failed: 6, done: 7, backlog: 8,
 };
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
@@ -82,6 +83,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     }
     if (sort === "status") {
       return (STATUS_ORDER[a.orcaStatus] ?? 9) - (STATUS_ORDER[b.orcaStatus] ?? 9);
+    }
+    if (sort === "project") {
+      return (a.projectName ?? "").localeCompare(b.projectName ?? "");
     }
     return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
   });
@@ -139,6 +143,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               <span className="text-sm font-mono text-gray-400 shrink-0">
                 {task.linearIssueId}
               </span>
+              {task.projectName && (
+                <span className="text-xs text-gray-500 shrink-0">
+                  {task.projectName}
+                </span>
+              )}
               <span className="text-sm text-gray-200 truncate flex-1">
                 {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
               </span>
