@@ -284,7 +284,7 @@ export class LinearClient {
     const graphql = `
       query($projectIds: [ID!]!) {
         projects(filter: { id: { in: $projectIds } }, first: 50) {
-          nodes { id description teams { nodes { id } } }
+          nodes { id description content teams { nodes { id } } }
         }
       }
     `;
@@ -294,6 +294,7 @@ export class LinearClient {
         nodes: Array<{
           id: string;
           description: string | null;
+          content: string | null;
           teams: { nodes: Array<{ id: string }> };
         }>;
       };
@@ -301,7 +302,7 @@ export class LinearClient {
 
     const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
       id: p.id,
-      description: p.description ?? "",
+      description: p.content || p.description || "",
       teamIds: p.teams.nodes.map((t) => t.id),
     }));
 

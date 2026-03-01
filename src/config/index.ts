@@ -225,7 +225,8 @@ export function parseRepoPath(description: string): string | undefined {
   for (const line of description.split("\n")) {
     const match = line.match(/^repo:\s*(.+)/i);
     if (match) {
-      const path = match[1]!.trim();
+      // Normalize escaped backslashes (Linear markdown stores \\ for \)
+      const path = match[1]!.trim().replace(/\\\\/g, "\\");
       if (path.length > 0) return path;
     }
   }
