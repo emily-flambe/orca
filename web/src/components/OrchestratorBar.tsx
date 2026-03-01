@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { OrcaStatus } from "../types";
 
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
   onConfigUpdate: (config: { concurrencyCap: number }) => Promise<void>;
+  children?: ReactNode;
 }
 
-export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Props) {
+export default function OrchestratorBar({ status, onSync, onConfigUpdate, children }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
@@ -113,6 +114,9 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
         <span className="text-gray-400">Queued</span>
         <span className="text-gray-300">{status.queuedTasks}</span>
       </div>
+
+      {/* View tabs */}
+      {children}
 
       {/* Sync button */}
       <button

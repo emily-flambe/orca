@@ -5,8 +5,12 @@ import { useSSE } from "./hooks/useSSE";
 import OrchestratorBar from "./components/OrchestratorBar";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
+import ObservabilityPage from "./components/ObservabilityPage";
+
+type View = "tasks" | "observability";
 
 export default function App() {
+  const [view, setView] = useState<View>("tasks");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -58,25 +62,55 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
-      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
-          <TaskList
-            tasks={tasks}
-            selectedTaskId={selectedTaskId}
-            onSelect={setSelectedTaskId}
-          />
+      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate}>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setView("tasks")}
+            className={`px-3 py-1 rounded text-sm transition-colors ${
+              view === "tasks"
+                ? "bg-gray-700 text-gray-100"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            Tasks
+          </button>
+          <button
+            onClick={() => setView("observability")}
+            className={`px-3 py-1 rounded text-sm transition-colors ${
+              view === "observability"
+                ? "bg-gray-700 text-gray-100"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            Observability
+          </button>
         </div>
-        <div className="w-3/5 overflow-y-auto">
-          {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a task to view details
-            </div>
-          )}
+      </OrchestratorBar>
+
+      {view === "tasks" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+            <TaskList
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelect={setSelectedTaskId}
+            />
+          </div>
+          <div className="w-3/5 overflow-y-auto">
+            {selectedTaskId ? (
+              <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                Select a task to view details
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <ObservabilityPage />
+        </div>
+      )}
     </div>
   );
 }

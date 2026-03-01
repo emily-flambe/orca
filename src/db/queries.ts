@@ -301,6 +301,26 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
 }
 
 // ---------------------------------------------------------------------------
+// Observability queries
+// ---------------------------------------------------------------------------
+
+/** Get all invocations (for metrics aggregation). */
+export function getAllInvocations(db: OrcaDb): Invocation[] {
+  return db.select().from(invocations).all();
+}
+
+/** Get recent failed/timed_out invocations. */
+export function getErrorInvocations(db: OrcaDb, limit: number): Invocation[] {
+  return db
+    .select()
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
+}
+
+// ---------------------------------------------------------------------------
 // Budget event types
 // ---------------------------------------------------------------------------
 type NewBudgetEvent = InferInsertModel<typeof budgetEvents>;

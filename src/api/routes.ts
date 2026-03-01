@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readFile, existsSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,6 +17,8 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getAllInvocations,
+  getErrorInvocations,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -340,6 +342,233 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     return c.json({ ok: true, concurrencyCap: config.concurrencyCap });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/logs  (observability — system log viewer)
+  // -----------------------------------------------------------------------
+  app.get("/api/logs", async (c) => {
+    const maxLines = Math.min(Math.max(Number(c.req.query("lines")) || 200, 1), 2000);
+    const search = c.req.query("search")?.toLowerCase() ?? "";
+
+    const logFile = join(process.cwd(), "orca.log");
+    if (!existsSync(logFile)) {
+      return c.json({ lines: [], totalLines: 0 });
+    }
+
+    const raw = await new Promise<string>((resolve, reject) => {
+      readFile(logFile, "utf-8", (err, data) => (err ? reject(err) : resolve(data)));
+    });
+    let allLines = raw.split("\n").filter((l) => l.trim());
+    const totalLines = allLines.length;
+
+    if (search) {
+      allLines = allLines.filter((l) => l.toLowerCase().includes(search));
+    }
+
+    const matchedLines = allLines.length;
+    const lines = allLines.slice(-maxLines);
+    return c.json({ lines, totalLines, matchedLines });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics  (observability — invocation metrics)
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const allInvs = getAllInvocations(db);
+
+    const total = allInvs.length;
+    const completed = allInvs.filter((i) => i.status === "completed").length;
+    const failed = allInvs.filter((i) => i.status === "failed").length;
+    const timedOut = allInvs.filter((i) => i.status === "timed_out").length;
+    const running = allInvs.filter((i) => i.status === "running").length;
+    const finished = completed + failed + timedOut;
+
+    const withCost = allInvs.filter((i) => i.costUsd != null);
+    const totalCost = withCost.reduce((s, i) => s + (i.costUsd ?? 0), 0);
+    const avgCost = withCost.length > 0 ? totalCost / withCost.length : 0;
+
+    const withDuration = allInvs.filter((i) => i.startedAt && i.endedAt);
+    const durations = withDuration
+      .map((i) => new Date(i.endedAt!).getTime() - new Date(i.startedAt).getTime())
+      .filter((d) => Number.isFinite(d) && d >= 0);
+    const avgDurationMs =
+      durations.length > 0
+        ? durations.reduce((a, b) => a + b, 0) / durations.length
+        : 0;
+
+    const withTurns = allInvs.filter((i) => i.numTurns != null);
+    const avgTurns =
+      withTurns.length > 0
+        ? withTurns.reduce((s, i) => s + (i.numTurns ?? 0), 0) / withTurns.length
+        : 0;
+
+    // Per-day breakdown for last 14 days
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const recentInvs = allInvs.filter(
+      (i) => new Date(i.startedAt) >= fourteenDaysAgo,
+    );
+
+    const dailyMap = new Map<
+      string,
+      {
+        count: number;
+        completed: number;
+        failed: number;
+        timedOut: number;
+        running: number;
+        totalCost: number;
+        totalDurationMs: number;
+        durationCount: number;
+      }
+    >();
+
+    for (const inv of recentInvs) {
+      const day = inv.startedAt.slice(0, 10);
+      const entry = dailyMap.get(day) ?? {
+        count: 0,
+        completed: 0,
+        failed: 0,
+        timedOut: 0,
+        running: 0,
+        totalCost: 0,
+        totalDurationMs: 0,
+        durationCount: 0,
+      };
+      entry.count++;
+      if (inv.status === "completed") entry.completed++;
+      if (inv.status === "failed") entry.failed++;
+      if (inv.status === "timed_out") entry.timedOut++;
+      if (inv.status === "running") entry.running++;
+      if (inv.costUsd != null) entry.totalCost += inv.costUsd;
+      if (inv.endedAt) {
+        const dur = new Date(inv.endedAt).getTime() - new Date(inv.startedAt).getTime();
+        if (Number.isFinite(dur) && dur >= 0) {
+          entry.totalDurationMs += dur;
+          entry.durationCount++;
+        }
+      }
+      dailyMap.set(day, entry);
+    }
+
+    // Fill in missing days
+    const daily: Array<{
+      date: string;
+      count: number;
+      completed: number;
+      failed: number;
+      timedOut: number;
+      running: number;
+      totalCost: number;
+      avgDurationMs: number;
+    }> = [];
+    for (let d = 0; d < 14; d++) {
+      const date = new Date(Date.now() - (13 - d) * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const entry = dailyMap.get(date);
+      daily.push({
+        date,
+        count: entry?.count ?? 0,
+        completed: entry?.completed ?? 0,
+        failed: entry?.failed ?? 0,
+        timedOut: entry?.timedOut ?? 0,
+        running: entry?.running ?? 0,
+        totalCost: entry?.totalCost ?? 0,
+        avgDurationMs:
+          entry && entry.durationCount > 0
+            ? entry.totalDurationMs / entry.durationCount
+            : 0,
+      });
+    }
+
+    // Per-task cost breakdown (top 10 most expensive)
+    const taskCostMap = new Map<
+      string,
+      { totalCost: number; invocationCount: number }
+    >();
+    for (const inv of allInvs) {
+      if (inv.costUsd == null) continue;
+      const entry = taskCostMap.get(inv.linearIssueId) ?? {
+        totalCost: 0,
+        invocationCount: 0,
+      };
+      entry.totalCost += inv.costUsd;
+      entry.invocationCount++;
+      taskCostMap.set(inv.linearIssueId, entry);
+    }
+    const topTasks = [...taskCostMap.entries()]
+      .sort((a, b) => b[1].totalCost - a[1].totalCost)
+      .slice(0, 10)
+      .map(([taskId, data]) => ({ taskId, ...data }));
+
+    return c.json({
+      summary: {
+        total,
+        completed,
+        failed,
+        timedOut,
+        running,
+        finished,
+        totalCost,
+        avgCost,
+        avgDurationMs,
+        avgTurns,
+      },
+      daily,
+      topTasks,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/errors  (observability — error aggregation)
+  // -----------------------------------------------------------------------
+  app.get("/api/errors", (c) => {
+    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+
+    const errorInvs = getErrorInvocations(db, limit);
+
+    // Group by outputSummary pattern
+    const patternMap = new Map<
+      string,
+      { count: number; lastSeen: string; taskIds: Set<string>; status: string }
+    >();
+    for (const inv of errorInvs) {
+      const pattern = inv.outputSummary ?? "unknown error";
+      const entry = patternMap.get(pattern) ?? {
+        count: 0,
+        lastSeen: inv.startedAt,
+        taskIds: new Set<string>(),
+        status: inv.status,
+      };
+      entry.count++;
+      if (inv.startedAt > entry.lastSeen) entry.lastSeen = inv.startedAt;
+      entry.taskIds.add(inv.linearIssueId);
+      patternMap.set(pattern, entry);
+    }
+
+    const patterns = [...patternMap.entries()]
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([pattern, data]) => ({
+        pattern,
+        count: data.count,
+        lastSeen: data.lastSeen,
+        affectedTasks: [...data.taskIds],
+        status: data.status,
+      }));
+
+    const recentErrors = errorInvs.map((inv) => ({
+      id: inv.id,
+      taskId: inv.linearIssueId,
+      status: inv.status,
+      startedAt: inv.startedAt,
+      endedAt: inv.endedAt,
+      outputSummary: inv.outputSummary,
+      phase: inv.phase,
+      costUsd: inv.costUsd,
+    }));
+
+    return c.json({ patterns, recentErrors });
   });
 
   // -----------------------------------------------------------------------
