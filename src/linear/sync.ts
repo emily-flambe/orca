@@ -145,12 +145,18 @@ function upsertTask(
   const existing = getTask(db, issue.identifier);
 
   if (!existing) {
+    // On insert, intermediate Linear states ("In Progress", "In Review")
+    // mean Orca previously dispatched this task but the DB was wiped or
+    // this is a fresh instance. Since no agent is actually running, map
+    // these to "ready" so the scheduler can re-dispatch them.
+    const insertStatus =
+      orcaStatus === "running" || orcaStatus === "in_review" ? "ready" : orcaStatus;
     const now = new Date().toISOString();
     insertTask(db, {
       linearIssueId: issue.identifier,
       agentPrompt,
       repoPath,
-      orcaStatus,
+      orcaStatus: insertStatus,
       priority: issue.priority,
       retryCount: 0,
       createdAt: now,
