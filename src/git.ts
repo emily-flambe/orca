@@ -72,11 +72,40 @@ export function isTransientGitError(err: unknown): boolean {
 }
 
 /**
+ * Tracks global consecutive transient failures across all git operations.
+ * When this exceeds GLOBAL_PAUSE_THRESHOLD, gitWithRetry adds a long
+ * cooldown to reduce system pressure from persistent OS-level errors.
+ */
+let globalTransientFailureCount = 0;
+const GLOBAL_PAUSE_THRESHOLD = 6;
+const GLOBAL_COOLDOWN_MS = 30_000;
+
+/**
+ * Synchronous sleep using Atomics.wait (does NOT busy-spin the CPU).
+ * Falls back to a busy-wait only if SharedArrayBuffer is unavailable.
+ */
+function sleepSync(ms: number): void {
+  try {
+    const buf = new SharedArrayBuffer(4);
+    Atomics.wait(new Int32Array(buf), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      /* fallback spin */
+    }
+  }
+}
+
+/**
  * Wraps git() with retry logic for transient errors.
  *
- * Retries up to `maxAttempts` times with synchronous backoff (2s, 4s)
- * for errors classified as transient by isTransientGitError().
+ * Retries up to `maxAttempts` times with backoff (2s, 4s) for errors
+ * classified as transient by isTransientGitError().
  * Non-transient errors are thrown immediately.
+ *
+ * Tracks global transient failure count — if the system is in a persistent
+ * failure state (e.g. Windows DLL init exhaustion), adds a longer cooldown
+ * to reduce pressure instead of hammering the OS.
  */
 export function gitWithRetry(
   args: string[],
@@ -85,19 +114,37 @@ export function gitWithRetry(
 ): string {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return git(args, options);
+      const result = git(args, options);
+      // Success — reset global failure counter
+      if (globalTransientFailureCount > 0) {
+        console.warn(
+          `[orca/git] global transient failure counter reset (was ${globalTransientFailureCount})`,
+        );
+        globalTransientFailureCount = 0;
+      }
+      return result;
     } catch (err: unknown) {
       if (!isTransientGitError(err) || attempt === maxAttempts) {
         throw err;
       }
-      const waitMs = attempt * 2000;
-      console.warn(
-        `[orca/git] transient error on "git ${args.join(" ")}" ` +
-          `(attempt ${attempt}/${maxAttempts}), retrying in ${waitMs}ms`,
-      );
-      const end = Date.now() + waitMs;
-      while (Date.now() < end) {
-        /* spin */
+
+      globalTransientFailureCount++;
+
+      // If the system is in a persistent failure state, add a long cooldown
+      if (globalTransientFailureCount >= GLOBAL_PAUSE_THRESHOLD) {
+        console.warn(
+          `[orca/git] ${globalTransientFailureCount} consecutive global transient failures — ` +
+            `cooling down for ${GLOBAL_COOLDOWN_MS / 1000}s to reduce system pressure`,
+        );
+        sleepSync(GLOBAL_COOLDOWN_MS);
+      } else {
+        const waitMs = attempt * 2000;
+        console.warn(
+          `[orca/git] transient error on "git ${args.join(" ")}" ` +
+            `(attempt ${attempt}/${maxAttempts}, global: ${globalTransientFailureCount}), ` +
+            `retrying in ${waitMs}ms`,
+        );
+        sleepSync(waitMs);
       }
     }
   }

@@ -33,6 +33,21 @@ function gh(args: string[], options?: { cwd?: string }): string {
   }
 }
 
+/**
+ * Synchronous sleep for retry backoff.
+ */
+function sleepSyncMs(ms: number): void {
+  try {
+    const buf = new SharedArrayBuffer(4);
+    Atomics.wait(new Int32Array(buf), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      /* fallback spin */
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -41,30 +56,52 @@ function gh(args: string[], options?: { cwd?: string }): string {
  * Find a PR for the given branch name.
  *
  * Uses `gh pr list --head <branch>` to check if a PR exists.
+ * Retries up to `maxAttempts` times with backoff to handle transient
+ * CLI failures (e.g. Windows DLL init errors).
  * Returns info about the PR if found, or `{ exists: false }` otherwise.
  */
-export function findPrForBranch(branchName: string, cwd: string): PrInfo {
-  try {
-    const output = gh(
-      ["pr", "list", "--head", branchName, "--json", "url,number,state", "--limit", "1"],
-      { cwd },
-    );
+export function findPrForBranch(
+  branchName: string,
+  cwd: string,
+  maxAttempts = 3,
+): PrInfo {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const output = gh(
+        ["pr", "list", "--head", branchName, "--json", "url,number,state", "--limit", "1"],
+        { cwd },
+      );
 
-    const prs = JSON.parse(output) as { url: string; number: number; state: string }[];
-    if (prs.length === 0) {
-      return { exists: false };
+      const prs = JSON.parse(output) as { url: string; number: number; state: string }[];
+      if (prs.length === 0) {
+        return { exists: false };
+      }
+
+      const pr = prs[0]!;
+      return {
+        exists: true,
+        url: pr.url,
+        number: pr.number,
+        merged: pr.state === "MERGED",
+      };
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[orca/github] findPrForBranch failed for ${branchName} ` +
+          `(attempt ${attempt}/${maxAttempts}): ${msg}`,
+      );
+      if (attempt < maxAttempts) {
+        sleepSyncMs(attempt * 2000);
+      }
     }
-
-    const pr = prs[0]!;
-    return {
-      exists: true,
-      url: pr.url,
-      number: pr.number,
-      merged: pr.state === "MERGED",
-    };
-  } catch {
-    return { exists: false };
   }
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  console.error(
+    `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
+  );
+  return { exists: false };
 }
 
 /**
@@ -81,7 +118,9 @@ export function listOpenPrBranches(cwd: string): Set<string> {
     );
     const prs = JSON.parse(output) as { headRefName: string }[];
     return new Set(prs.map((pr) => pr.headRefName));
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] listOpenPrBranches failed: ${msg}`);
     return new Set();
   }
 }

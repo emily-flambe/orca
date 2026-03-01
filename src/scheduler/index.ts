@@ -82,7 +82,7 @@ export const activeHandles = new Map<number, SessionHandle>();
  * scheduler doesn't spin forever on a persistent "transient" error.
  */
 const transientFailureCounts = new Map<string, number>();
-const TRANSIENT_FAILURE_LIMIT = 10;
+const TRANSIENT_FAILURE_LIMIT = 3;
 
 // ---------------------------------------------------------------------------
 // Logging
