@@ -372,9 +372,15 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         if (subtype === "success") {
           const resultText =
             typeof msg.result === "string" ? msg.result : "";
-          outputSummary = resultText
+          // Extract REVIEW_RESULT marker before truncation — the scheduler
+          // parses it from outputSummary and it's often at the end of long reviews.
+          const markerMatch = resultText.match(/REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/);
+          const truncated = resultText
             ? resultText.slice(0, 500)
             : "completed successfully";
+          outputSummary = markerMatch && !truncated.includes(markerMatch[0])
+            ? `${markerMatch[0]}\n\n${truncated}`
+            : truncated;
         } else if (subtype === "error_max_turns") {
           outputSummary = "max turns reached";
         } else if (subtype === "error_during_execution") {

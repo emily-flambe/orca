@@ -167,13 +167,12 @@ export function createWorktree(
   }
 
   if (baseRef) {
-    // Check out existing remote branch for review/fix phases.
-    // Create a local branch tracking the remote branch.
-    const localBranch = `orca/${taskId}-inv-${invocationId}`;
-    if (branchExists(repoPath, localBranch)) {
-      git(["branch", "-D", localBranch], { cwd: repoPath });
+    // Use the same branch name as the PR branch so pushes update the existing PR
+    // instead of creating a new remote branch.
+    if (branchExists(repoPath, baseRef)) {
+      git(["branch", "-D", baseRef], { cwd: repoPath });
     }
-    git(["worktree", "add", "-b", localBranch, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
+    git(["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
   } else {
     // If branch already exists, delete it first
     if (branchExists(repoPath, branchName)) {

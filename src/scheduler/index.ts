@@ -85,6 +85,14 @@ const transientFailureCounts = new Map<string, number>();
 const TRANSIENT_FAILURE_LIMIT = 5;
 
 /**
+ * Per-task count of review completions that lack a REVIEW_RESULT marker.
+ * After NO_MARKER_RETRY_LIMIT attempts, the task burns a real retry instead
+ * of looping indefinitely.
+ */
+const noMarkerRetryCounts = new Map<string, number>();
+const NO_MARKER_RETRY_LIMIT = 3;
+
+/**
  * Per-repo cooldown timestamps. When worktree creation fails with a
  * DLL init error (0xC0000142), the repo is put on cooldown so the
  * scheduler doesn't immediately re-dispatch to it on the next tick.
@@ -576,6 +584,7 @@ async function onReviewSuccess(
   const changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
 
   if (approved) {
+    noMarkerRetryCounts.delete(taskId);
     // Clean up worktree
     try {
       removeWorktree(worktreePath);
@@ -607,6 +616,7 @@ async function onReviewSuccess(
         `PR #${task.prNumber ?? "?"})`,
     );
   } else if (changesRequested) {
+    noMarkerRetryCounts.delete(taskId);
     if (task.reviewCycleCount < config.maxReviewCycles) {
       // Increment cycle count and send back for fixes
       incrementReviewCycleCount(db, taskId);
@@ -652,10 +662,22 @@ async function onReviewSuccess(
       );
     }
   } else {
-    // No review result marker found — treat as review failure, retry review
-    log(`task ${taskId}: review completed but no REVIEW_RESULT marker found — retrying review`);
-    updateTaskStatus(db, taskId, "in_review");
-    emitTaskUpdated(getTask(db, taskId)!);
+    // No review result marker found — retry review up to NO_MARKER_RETRY_LIMIT times
+    const noMarkerCount = (noMarkerRetryCounts.get(taskId) ?? 0) + 1;
+    noMarkerRetryCounts.set(taskId, noMarkerCount);
+
+    if (noMarkerCount >= NO_MARKER_RETRY_LIMIT) {
+      // Too many retries without a marker — burn a real retry
+      log(`task ${taskId}: ${noMarkerCount} reviews without REVIEW_RESULT marker — treating as failure`);
+      noMarkerRetryCounts.delete(taskId);
+      updateTaskStatus(db, taskId, "failed");
+      emitTaskUpdated(getTask(db, taskId)!);
+      handleRetry(deps, taskId, "review completed without REVIEW_RESULT marker after multiple attempts", "review");
+    } else {
+      log(`task ${taskId}: review completed but no REVIEW_RESULT marker found (${noMarkerCount}/${NO_MARKER_RETRY_LIMIT}) — retrying review`);
+      updateTaskStatus(db, taskId, "in_review");
+      emitTaskUpdated(getTask(db, taskId)!);
+    }
 
     try {
       removeWorktree(worktreePath);
