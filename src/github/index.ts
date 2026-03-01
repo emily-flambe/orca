@@ -125,6 +125,61 @@ export function listOpenPrBranches(cwd: string): Set<string> {
   }
 }
 
+/**
+ * Close open PRs for the same task that have been superseded by a new PR.
+ *
+ * Finds PRs whose branch starts with `orca/<taskId>-`, filters out the
+ * current PR, then comments and closes each superseded PR.
+ * Best-effort: logs warnings but never throws.
+ */
+export function closeSupersededPrs(
+  taskId: string,
+  currentPrNumber: number,
+  cwd: string,
+): { closed: number[] } {
+  const closed: number[] = [];
+  try {
+    const output = gh(
+      [
+        "pr", "list",
+        "--search", `head:orca/${taskId}-`,
+        "--state", "open",
+        "--json", "number,headRefName",
+      ],
+      { cwd },
+    );
+    const prs = JSON.parse(output) as { number: number; headRefName: string }[];
+    const prefix = `orca/${taskId}-`;
+
+    for (const pr of prs) {
+      if (pr.number === currentPrNumber) continue;
+      // GitHub search is substring-based — verify exact prefix to avoid
+      // closing PRs for a different task (e.g. EMI-6 vs EMI-66)
+      if (!pr.headRefName?.startsWith(prefix)) continue;
+      try {
+        gh(
+          ["pr", "comment", String(pr.number), "--body", `Superseded by #${currentPrNumber}`],
+          { cwd },
+        );
+        gh(
+          ["pr", "close", String(pr.number), "--delete-branch"],
+          { cwd },
+        );
+        closed.push(pr.number);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[orca/github] closeSupersededPrs: failed to close PR #${pr.number}: ${msg}`,
+        );
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] closeSupersededPrs: failed to list PRs for ${taskId}: ${msg}`);
+  }
+  return { closed };
+}
+
 // ---------------------------------------------------------------------------
 // Async helpers for deploy monitoring
 // ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError } from "../git.js";
-import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr } from "../github/index.js";
+import { closeSupersededPrs, findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
@@ -505,6 +505,18 @@ function onImplementSuccess(
     client.createAttachment(task.linearIssueId, prInfo.url, "Pull Request").catch((err) => {
       log(`failed to attach PR link to Linear issue ${taskId}: ${err}`);
     });
+  }
+
+  // Close superseded PRs for this task (best-effort)
+  if (prInfo.number != null) {
+    try {
+      const { closed } = closeSupersededPrs(taskId, prInfo.number, task.repoPath);
+      if (closed.length > 0) {
+        log(`task ${taskId}: closed superseded PRs: ${closed.map((n) => `#${n}`).join(", ")}`);
+      }
+    } catch (err) {
+      log(`task ${taskId}: failed to close superseded PRs: ${err}`);
+    }
   }
 
   // Transition to in_review
