@@ -145,7 +145,8 @@ describe("9.1 - Add task via DB and verify", () => {
 // 9.2  Runner: spawnSession with mock claude script
 // ---------------------------------------------------------------------------
 
-describe("9.2 - Runner spawns mock claude session through full lifecycle", () => {
+// Bash shebangs don't work on Windows; skip since production uses a real executable
+describe.skipIf(process.platform === "win32")("9.2 - Runner spawns mock claude session through full lifecycle", () => {
   let tmpDir: string;
   let mockScript: string;
 
@@ -215,7 +216,7 @@ describe("9.2 - Runner spawns mock claude session through full lifecycle", () =>
 // 9.3  Timeout enforcement / killSession
 // ---------------------------------------------------------------------------
 
-describe("9.3 - Timeout enforcement via killSession", () => {
+describe.skipIf(process.platform === "win32")("9.3 - Timeout enforcement via killSession", () => {
   let tmpDir: string;
   let sleepScript: string;
 

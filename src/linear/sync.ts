@@ -102,7 +102,8 @@ function mapLinearStateToOrcaStatus(
     case "In Progress": return "running";
     case "In Review": return "in_review";
     case "Done": return "done";
-    default: return null; // Canceled and unknown → skip
+    case "Canceled": return "failed";
+    default: return null; // unknown → skip
   }
 }
 
@@ -123,12 +124,12 @@ function upsertTask(
   issue: LinearIssue,
   config: OrcaConfig,
 ): void {
-  // Canceled issues should not exist in Orca's DB at all
+  // Canceled issues → mark as failed (not deleted) so the dashboard shows them
   if (issue.state.name === "Canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      deleteTask(db, issue.identifier);
-      log(`deleted canceled task ${issue.identifier}`);
+      updateTaskStatus(db, issue.identifier, "failed");
+      log(`canceled task ${issue.identifier} set to failed`);
     }
     return;
   }
@@ -443,13 +444,13 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 7: Any, Linear Canceled → kill session if running, delete task
+  // Conflict case 7: Any, Linear Canceled → kill session if running, set to failed
   if (linearStateName === "Canceled") {
-    if (task.orcaStatus === "running") {
+    if (task.orcaStatus === "running" || task.orcaStatus === "deploying") {
       killRunningSession(db, taskId);
     }
-    deleteTask(db, taskId);
-    log(`conflict resolved: task ${taskId} deleted (Linear Canceled)`);
+    updateTaskStatus(db, taskId, "failed");
+    log(`conflict resolved: task ${taskId} set to failed (Linear Canceled)`);
     return;
   }
 }
