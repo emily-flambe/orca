@@ -30,3 +30,7 @@ export async function triggerSync(): Promise<{ synced: number }> {
 export function fetchInvocationLogs(id: number): Promise<{ lines: unknown[] }> {
   return fetchJson<{ lines: unknown[] }>(`/invocations/${id}/logs`);
 }
+
+export function abortInvocation(id: number): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/invocations/${id}/abort`, { method: "POST" });
+}

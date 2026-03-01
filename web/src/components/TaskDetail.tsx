@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -84,7 +84,8 @@ export default function TaskDetail({ taskId }: Props) {
                   <th className="pb-2 pr-4">Status</th>
                   <th className="pb-2 pr-4">Cost</th>
                   <th className="pb-2 pr-4">Turns</th>
-                  <th className="pb-2">Summary</th>
+                  <th className="pb-2 pr-4">Summary</th>
+                  <th className="pb-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -105,11 +106,28 @@ export default function TaskDetail({ taskId }: Props) {
                         {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
                       </td>
                       <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                      <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                      <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                      <td className="py-2">
+                        {inv.status === "running" && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                              abortInvocation(inv.id)
+                                .then(() => fetchTaskDetail(taskId))
+                                .then((d) => setDetail(d))
+                                .catch(console.error);
+                            }}
+                            className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                          >
+                            Abort
+                          </button>
+                        )}
+                      </td>
                     </tr>
                     {selectedInvocationId === inv.id && (
                       <tr>
-                        <td colSpan={6} className="py-2">
+                        <td colSpan={7} className="py-2">
                           <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
                         </td>
                       </tr>
