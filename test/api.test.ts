@@ -2,17 +2,19 @@
 // Phase 3 UI Dashboard - API endpoint tests
 // ---------------------------------------------------------------------------
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb } from "../src/db/index.js";
 import { createApiRoutes } from "../src/api/routes.js";
 import {
   insertTask,
   insertInvocation,
   insertBudgetEvent,
+  getTask,
 } from "../src/db/queries.js";
 import { orcaEvents } from "../src/events.js";
 import type { OrcaDb } from "../src/db/index.js";
 import type { OrcaConfig } from "../src/config/index.js";
+import type { WorkflowStateMap } from "../src/linear/client.js";
 import type { Hono } from "hono";
 
 // ---------------------------------------------------------------------------
@@ -318,5 +320,502 @@ describe("GET /api/events (SSE)", () => {
     // Verify the SSE event was streamed
     expect(output).toContain("event: task:updated");
     expect(output).toContain(JSON.stringify(eventPayload));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/tasks/:id/status  (EMI-93: status update from UI)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tasks/:id/status", () => {
+  let db: OrcaDb;
+  let app: Hono;
+  let writeBackStatusMock: ReturnType<typeof vi.fn>;
+  let stateMap: WorkflowStateMap;
+  let taskUpdatedSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    writeBackStatusMock = vi.fn().mockResolvedValue(undefined);
+    stateMap = new Map([
+      ["Backlog", { id: "state-backlog", type: "backlog" }],
+      ["Todo", { id: "state-todo", type: "unstarted" }],
+      ["In Progress", { id: "state-progress", type: "started" }],
+      ["Done", { id: "state-done", type: "completed" }],
+    ]);
+
+    // Create a mock client that has writeBackStatus mocked
+    const mockClient = {
+      updateIssueState: vi.fn().mockResolvedValue(true),
+      createComment: vi.fn().mockResolvedValue(undefined),
+    } as any;
+
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: mockClient,
+      stateMap,
+    });
+
+    // Spy on task:updated event emissions
+    taskUpdatedSpy = vi.fn();
+    orcaEvents.on("task:updated", taskUpdatedSpy);
+  });
+
+  afterEach(() => {
+    orcaEvents.removeListener("task:updated", taskUpdatedSpy);
+    vi.restoreAllMocks();
+  });
+
+  // --- Helper to POST status ---
+  function postStatus(taskId: string, body: unknown) {
+    return app.request(`/api/tasks/${taskId}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // Happy path transitions
+  // -----------------------------------------------------------------------
+
+  it("backlog -> ready: succeeds and resets counters", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-1",
+      orcaStatus: "backlog" as const,
+      retryCount: 3,
+    }));
+
+    const res = await postStatus("T-1", { status: "ready" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const task = getTask(db, "T-1");
+    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.retryCount).toBe(0);
+    expect(task!.reviewCycleCount).toBe(0);
+  });
+
+  it("ready -> done: succeeds", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-2",
+      orcaStatus: "ready" as const,
+    }));
+
+    const res = await postStatus("T-2", { status: "done" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-2");
+    expect(task!.orcaStatus).toBe("done");
+  });
+
+  it("done -> backlog: succeeds and resets counters", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-3",
+      orcaStatus: "done" as const,
+      retryCount: 2,
+    }));
+
+    const res = await postStatus("T-3", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-3");
+    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.retryCount).toBe(0);
+    expect(task!.reviewCycleCount).toBe(0);
+  });
+
+  it("failed -> ready: succeeds (re-queue via status endpoint)", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-4",
+      orcaStatus: "failed" as const,
+      retryCount: 5,
+    }));
+
+    const res = await postStatus("T-4", { status: "ready" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-4");
+    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.retryCount).toBe(0);
+  });
+
+  it("failed -> backlog: succeeds", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-5",
+      orcaStatus: "failed" as const,
+    }));
+
+    const res = await postStatus("T-5", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-5");
+    expect(task!.orcaStatus).toBe("backlog");
+  });
+
+  it("ready -> backlog: succeeds", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-6",
+      orcaStatus: "ready" as const,
+    }));
+
+    const res = await postStatus("T-6", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-6");
+    expect(task!.orcaStatus).toBe("backlog");
+  });
+
+  // -----------------------------------------------------------------------
+  // Error responses
+  // -----------------------------------------------------------------------
+
+  it("returns 400 for invalid status value", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-ERR-1" }));
+
+    const res = await postStatus("T-ERR-1", { status: "running" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("status must be one of");
+  });
+
+  it("returns 400 for status=null", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-ERR-2" }));
+
+    const res = await postStatus("T-ERR-2", { status: null });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for missing status field", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-ERR-3" }));
+
+    const res = await postStatus("T-ERR-3", {});
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for status as integer", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-ERR-4" }));
+
+    const res = await postStatus("T-ERR-4", { status: 42 });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 for non-existent task", async () => {
+    const res = await postStatus("NONEXISTENT", { status: "ready" });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("task not found");
+  });
+
+  it("returns 409 when setting same status as current", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-SAME",
+      orcaStatus: "ready" as const,
+    }));
+
+    const res = await postStatus("T-SAME", { status: "ready" });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("already");
+  });
+
+  it("returns 409 when setting done on already-done task", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-DONE-SAME",
+      orcaStatus: "done" as const,
+    }));
+
+    const res = await postStatus("T-DONE-SAME", { status: "done" });
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 409 when setting backlog on already-backlog task", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-BL-SAME",
+      orcaStatus: "backlog" as const,
+    }));
+
+    const res = await postStatus("T-BL-SAME", { status: "backlog" });
+    expect(res.status).toBe(409);
+  });
+
+  // -----------------------------------------------------------------------
+  // Malformed body
+  // -----------------------------------------------------------------------
+
+  it("returns error for malformed JSON body (BUG: should be 400, not 500)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-MALFORMED" }));
+
+    const res = await app.request("/api/tasks/T-MALFORMED/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not-valid-json{{{",
+    });
+
+    // The endpoint does not try/catch c.req.json(), so Hono's default
+    // error handler catches the SyntaxError. This should ideally be 400
+    // (Bad Request) with a descriptive error, not 500.
+    // Let's check what actually happens:
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    // Ideally this should be 400, not 500:
+    expect(res.status).toBe(400);
+  });
+
+  it("returns error for empty body (BUG: should be 400, not 500)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-EMPTY" }));
+
+    const res = await app.request("/api/tasks/T-EMPTY/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "",
+    });
+
+    // Same issue: no try/catch around c.req.json()
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    // Ideally this should be 400, not 500:
+    expect(res.status).toBe(400);
+  });
+
+  // -----------------------------------------------------------------------
+  // Counter resets
+  // -----------------------------------------------------------------------
+
+  it("resets retryCount and reviewCycleCount when moving to ready", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-COUNTERS-1",
+      orcaStatus: "failed" as const,
+      retryCount: 5,
+    }));
+
+    // Set reviewCycleCount using updateTaskFields
+    const { updateTaskFields } = await import("../src/db/queries.js");
+    updateTaskFields(db, "T-COUNTERS-1", { reviewCycleCount: 3 });
+
+    // Verify precondition
+    const before = getTask(db, "T-COUNTERS-1");
+    expect(before!.retryCount).toBe(5);
+    expect(before!.reviewCycleCount).toBe(3);
+
+    const res = await postStatus("T-COUNTERS-1", { status: "ready" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-COUNTERS-1");
+    expect(task!.retryCount).toBe(0);
+    expect(task!.reviewCycleCount).toBe(0);
+  });
+
+  it("resets retryCount and reviewCycleCount when moving to backlog", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-COUNTERS-2",
+      orcaStatus: "done" as const,
+      retryCount: 2,
+    }));
+
+    const { updateTaskFields } = await import("../src/db/queries.js");
+    updateTaskFields(db, "T-COUNTERS-2", { reviewCycleCount: 4 });
+
+    const res = await postStatus("T-COUNTERS-2", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-COUNTERS-2");
+    expect(task!.retryCount).toBe(0);
+    expect(task!.reviewCycleCount).toBe(0);
+  });
+
+  it("does NOT reset counters when moving to done (uses updateTaskStatus)", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-COUNTERS-3",
+      orcaStatus: "ready" as const,
+      retryCount: 3,
+    }));
+
+    const res = await postStatus("T-COUNTERS-3", { status: "done" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-COUNTERS-3");
+    // updateTaskStatus does NOT reset retryCount, so it should remain 3
+    expect(task!.retryCount).toBe(3);
+  });
+
+  // -----------------------------------------------------------------------
+  // done -> sets doneAt timestamp
+  // -----------------------------------------------------------------------
+
+  it("sets doneAt when moving to done", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-DONEAT",
+      orcaStatus: "ready" as const,
+    }));
+
+    await postStatus("T-DONEAT", { status: "done" });
+
+    const task = getTask(db, "T-DONEAT");
+    expect(task!.doneAt).not.toBeNull();
+  });
+
+  it("clears doneAt when moving from done to backlog", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-DONEAT-CLEAR",
+      orcaStatus: "done" as const,
+    }));
+    // Set doneAt
+    const { updateTaskStatus: uts } = await import("../src/db/queries.js");
+    uts(db, "T-DONEAT-CLEAR", "done");
+
+    const before = getTask(db, "T-DONEAT-CLEAR");
+    expect(before!.doneAt).not.toBeNull();
+
+    await postStatus("T-DONEAT-CLEAR", { status: "backlog" });
+
+    const after = getTask(db, "T-DONEAT-CLEAR");
+    expect(after!.doneAt).toBeNull();
+  });
+
+  // -----------------------------------------------------------------------
+  // Event emission
+  // -----------------------------------------------------------------------
+
+  it("emits task:updated event after status change", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-EVENT",
+      orcaStatus: "backlog" as const,
+    }));
+
+    await postStatus("T-EVENT", { status: "ready" });
+
+    // The event should have been emitted with the updated task
+    expect(taskUpdatedSpy).toHaveBeenCalledTimes(1);
+    const emittedTask = taskUpdatedSpy.mock.calls[0][0];
+    expect(emittedTask.linearIssueId).toBe("T-EVENT");
+    expect(emittedTask.orcaStatus).toBe("ready");
+  });
+
+  it("does NOT emit task:updated on error (404)", async () => {
+    await postStatus("NONEXISTENT", { status: "ready" });
+    expect(taskUpdatedSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT emit task:updated on error (409)", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-NO-EVENT",
+      orcaStatus: "ready" as const,
+    }));
+
+    await postStatus("T-NO-EVENT", { status: "ready" });
+    expect(taskUpdatedSpy).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // Edge case: moving from active states (running/dispatched/in_review)
+  // -----------------------------------------------------------------------
+
+  it("running -> done: succeeds (kills session logic does not crash without active handles)", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-RUNNING",
+      orcaStatus: "running" as const,
+    }));
+    // Insert a running invocation
+    insertInvocation(db, {
+      linearIssueId: "T-RUNNING",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const res = await postStatus("T-RUNNING", { status: "done" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-RUNNING");
+    expect(task!.orcaStatus).toBe("done");
+  });
+
+  it("dispatched -> backlog: succeeds", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-DISPATCHED",
+      orcaStatus: "dispatched" as const,
+    }));
+
+    const res = await postStatus("T-DISPATCHED", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-DISPATCHED");
+    expect(task!.orcaStatus).toBe("backlog");
+  });
+
+  it("in_review -> ready: succeeds", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-REVIEW",
+      orcaStatus: "in_review" as const,
+    }));
+
+    const res = await postStatus("T-REVIEW", { status: "ready" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-REVIEW");
+    expect(task!.orcaStatus).toBe("ready");
+  });
+
+  // -----------------------------------------------------------------------
+  // Edge case: extra fields in body should be ignored
+  // -----------------------------------------------------------------------
+
+  it("ignores extra fields in request body", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-EXTRA",
+      orcaStatus: "backlog" as const,
+    }));
+
+    const res = await postStatus("T-EXTRA", {
+      status: "ready",
+      extraField: "should be ignored",
+      priority: 999,
+    });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-EXTRA");
+    expect(task!.orcaStatus).toBe("ready");
+    // Priority should NOT have changed
+    expect(task!.priority).toBe(2);
+  });
+
+  // -----------------------------------------------------------------------
+  // Edge case: status values that look close but aren't valid
+  // -----------------------------------------------------------------------
+
+  it("rejects status='Ready' (case sensitive)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-CASE" }));
+
+    const res = await postStatus("T-CASE", { status: "Ready" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects status='DONE' (case sensitive)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-CASE-2" }));
+
+    const res = await postStatus("T-CASE-2", { status: "DONE" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects status='failed' (not an allowed target)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-FAILED-TARGET" }));
+
+    const res = await postStatus("T-FAILED-TARGET", { status: "failed" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects status='running' (not an allowed target)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-RUNNING-TARGET" }));
+
+    const res = await postStatus("T-RUNNING-TARGET", { status: "running" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects status='' (empty string)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-EMPTY-STR" }));
+
+    const res = await postStatus("T-EMPTY-STR", { status: "" });
+    expect(res.status).toBe(400);
   });
 });

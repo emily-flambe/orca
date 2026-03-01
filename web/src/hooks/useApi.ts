@@ -38,3 +38,11 @@ export function abortInvocation(id: number): Promise<{ ok: boolean }> {
 export function retryTask(id: string): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
 }
+
+export function updateTaskStatus(id: string, status: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}

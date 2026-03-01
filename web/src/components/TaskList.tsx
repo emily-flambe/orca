@@ -1,7 +1,8 @@
 // merge gate test
 // merge gate test
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Task } from "../types";
+import { updateTaskStatus } from "../hooks/useApi";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -48,15 +49,33 @@ const STATUS_ORDER: Record<string, number> = {
   running: 0, dispatched: 1, in_review: 2, awaiting_ci: 3, deploying: 4, changes_requested: 5, ready: 6, failed: 7, done: 8, backlog: 9,
 };
 
+const MANUAL_STATUSES = [
+  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
+  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
+  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
+] as const;
+
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortOption>("priority");
   const [, tick] = useState(0);
+  const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
 
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+        setStatusMenuTaskId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const now = Date.now();
@@ -138,10 +157,13 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
           const badge = statusBadge(task.orcaStatus);
           const isSelected = task.linearIssueId === selectedTaskId;
           return (
-            <button
+            <div
               key={task.linearIssueId}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(task.linearIssueId)}
-              className={`w-full text-left px-3 py-2.5 flex items-center gap-3 border-b border-gray-800/50 hover:bg-gray-800/50 transition-colors ${
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(task.linearIssueId); } }}
+              className={`w-full text-left px-3 py-2.5 flex items-center gap-3 border-b border-gray-800/50 hover:bg-gray-800/50 transition-colors cursor-pointer ${
                 isSelected ? "bg-gray-800" : ""
               }`}
             >
@@ -157,10 +179,40 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               <span className="text-sm text-gray-200 truncate flex-1">
                 {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
               </span>
-              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${badge.bg}`}>
-                {badge.text}
-              </span>
-            </button>
+              <div
+                className="relative shrink-0"
+                ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
+              >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStatusMenuTaskId(
+                      statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
+                    );
+                  }}
+                  className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
+                >
+                  {badge.text} &#9662;
+                </button>
+                {statusMenuTaskId === task.linearIssueId && (
+                  <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+                    {MANUAL_STATUSES.filter((s) => s.value !== task.orcaStatus).map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStatusMenuTaskId(null);
+                          updateTaskStatus(task.linearIssueId, s.value).catch(console.error);
+                        }}
+                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           );
         })}
         {sorted.length === 0 && (

@@ -476,7 +476,7 @@ export function resolveConflict(
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
-  orcaTransition: "dispatched" | "in_review" | "deploying" | "awaiting_ci" | "done" | "changes_requested" | "failed_permanent" | "retry",
+  orcaTransition: "dispatched" | "in_review" | "deploying" | "awaiting_ci" | "done" | "changes_requested" | "failed_permanent" | "retry" | "backlog",
   stateMap: WorkflowStateMap,
 ): Promise<void> {
   // deploying and awaiting_ci are no-ops — Linear stays at "In Review", don't write back
@@ -489,6 +489,7 @@ export async function writeBackStatus(
     changes_requested: "In Progress",
     failed_permanent: "Canceled",
     retry: "Todo",
+    backlog: "Backlog",
   };
 
   const targetStateName = transitionToStateName[orcaTransition];
