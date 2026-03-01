@@ -41,4 +41,5 @@ export interface OrcaStatus {
   costInWindow: number;
   budgetLimit: number;
   budgetWindowHours: number;
+  linearBaseUrl: string;
 }

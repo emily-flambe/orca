@@ -414,6 +414,25 @@ export class LinearClient {
     return data.attachmentCreate.success;
   }
 
+  // -------------------------------------------------------------------------
+  // fetchOrganizationUrlKey
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch the organization's URL key (workspace slug) used to construct
+   * Linear issue URLs: https://linear.app/{urlKey}/issue/{identifier}
+   */
+  async fetchOrganizationUrlKey(): Promise<string> {
+    const graphql = `query { organization { urlKey } }`;
+
+    const data = await this.query<{
+      organization: { urlKey: string };
+    }>(graphql);
+
+    log(`fetched organization urlKey: ${data.organization.urlKey}`);
+    return data.organization.urlKey;
+  }
+
   async updateIssueState(issueId: string, stateId: string): Promise<boolean> {
     const graphql = `
       mutation($issueId: String!, $stateId: String!) {

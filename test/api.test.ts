@@ -78,7 +78,7 @@ describe("GET /api/tasks", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), linearBaseUrl: "https://linear.app/test", dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
@@ -156,7 +156,7 @@ describe("GET /api/tasks/:id", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), linearBaseUrl: "https://linear.app/test", dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 
@@ -201,7 +201,7 @@ describe("POST /api/tasks/:id/dispatch", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     dispatchTask = vi.fn();
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), linearBaseUrl: "https://linear.app/test", dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
   });
 
   it("dispatches successfully and returns invocationId", async () => {
@@ -260,6 +260,7 @@ describe("GET /api/status", () => {
     app = createApiRoutes({
       db,
       config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      linearBaseUrl: "https://linear.app/test",
       dispatchTask,
       syncTasks: vi.fn().mockResolvedValue(0),
     });
@@ -320,7 +321,7 @@ describe("GET /api/events (SSE)", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), linearBaseUrl: "https://linear.app/test", dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
     dispatchTask.mockReset();
   });
 

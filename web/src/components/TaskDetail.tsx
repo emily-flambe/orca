@@ -4,6 +4,7 @@ import { fetchTaskDetail, dispatchTask } from "../hooks/useApi";
 
 interface Props {
   taskId: string;
+  linearBaseUrl: string;
 }
 
 function statusBadge(s: string): string {
@@ -32,7 +33,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-export default function TaskDetail({ taskId }: Props) {
+export default function TaskDetail({ taskId, linearBaseUrl }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [dispatching, setDispatching] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -73,7 +74,18 @@ export default function TaskDetail({ taskId }: Props) {
     <div className="p-4 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
+        {linearBaseUrl ? (
+          <a
+            href={`${linearBaseUrl}/issue/${detail.linearIssueId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-lg font-mono font-semibold hover:text-blue-400 hover:underline"
+          >
+            {detail.linearIssueId}
+          </a>
+        ) : (
+          <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
+        )}
         <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(detail.orcaStatus)}`}>
           {detail.orcaStatus}
         </span>

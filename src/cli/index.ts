@@ -136,6 +136,10 @@ program
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
     }
 
+    // Fetch Linear organization URL key for issue hyperlinks
+    const orgUrlKey = await client.fetchOrganizationUrlKey();
+    const linearBaseUrl = `https://linear.app/${orgUrlKey}`;
+
     // Full sync: populate tasks table + dependency graph
     await fullSync(db, client, graph, config);
 
@@ -158,6 +162,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
+      linearBaseUrl,
       syncTasks: () => fullSync(db, client, graph, config),
       dispatchTask: async (taskId: string): Promise<number> => {
         const task = getTask(db, taskId)!;
