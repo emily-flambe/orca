@@ -104,6 +104,27 @@ export function getDeployingTasks(db: OrcaDb): Task[] {
     .all();
 }
 
+/** Get all tasks with orca_status="awaiting_ci". */
+export function getAwaitingCiTasks(db: OrcaDb): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.orcaStatus, "awaiting_ci"))
+    .all();
+}
+
+/** Update CI tracking fields on a task. */
+export function updateTaskCiInfo(
+  db: OrcaDb,
+  taskId: string,
+  info: { ciStartedAt?: string | null },
+): void {
+  db.update(tasks)
+    .set({ ...info, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Update deploy-related fields on a task. */
 export function updateTaskDeployInfo(
   db: OrcaDb,

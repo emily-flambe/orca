@@ -135,6 +135,64 @@ export async function getMergeCommitSha(
   return null;
 }
 
+export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
+
+/**
+ * Check CI check status on a PR by number.
+ *
+ * Uses `gh pr checks <number> --json name,state,bucket` to inspect check runs.
+ * - Any pending/queued → "pending"
+ * - Any fail → "failure"
+ * - All pass/skipping → "success"
+ * - CLI error or no checks → "no_checks"
+ */
+export async function getPrCheckStatus(
+  prNumber: number,
+  cwd: string,
+): Promise<PrCheckStatus> {
+  try {
+    const output = await ghAsync(
+      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+      { cwd },
+    );
+    const checks = JSON.parse(output) as { name: string; state: string; bucket: string }[];
+
+    if (checks.length === 0) return "no_checks";
+
+    const hasPending = checks.some(
+      (c) => c.bucket === "pending" || c.bucket === "queued",
+    );
+    if (hasPending) return "pending";
+
+    const hasFail = checks.some((c) => c.bucket === "fail");
+    if (hasFail) return "failure";
+
+    return "success";
+  } catch {
+    return "no_checks";
+  }
+}
+
+/**
+ * Merge a PR by number using squash merge and delete the branch.
+ * Returns structured success/failure.
+ */
+export async function mergePr(
+  prNumber: number,
+  cwd: string,
+): Promise<{ merged: true } | { merged: false; error: string }> {
+  try {
+    await ghAsync(
+      ["pr", "merge", String(prNumber), "--squash", "--delete-branch"],
+      { cwd },
+    );
+    return { merged: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { merged: false, error: message };
+  }
+}
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"

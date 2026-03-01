@@ -10,6 +10,7 @@ export const TASK_STATUSES = [
   "in_review",
   "changes_requested",
   "deploying",
+  "awaiting_ci",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -33,6 +34,7 @@ export const tasks = sqliteTable("tasks", {
   mergeCommitSha: text("merge_commit_sha"),
   prNumber: integer("pr_number"),
   deployStartedAt: text("deploy_started_at"),
+  ciStartedAt: text("ci_started_at"),
   doneAt: text("done_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),

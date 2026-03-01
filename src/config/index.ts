@@ -217,7 +217,7 @@ Steps:
 
 IMPORTANT: A diff that looks correct for what it touches is NOT sufficient. You must verify completeness — check that ALL instances of the pattern were updated, not just the ones in the diff. Use grep to search for related code.
 
-If approving: merge the PR using \`gh pr merge <PR number> --squash --delete-branch\` (the PR number is in the task prompt above). Do NOT create a new PR — merge the existing one. Verify the merge succeeded, then output REVIEW_RESULT:APPROVED
+If approving: output REVIEW_RESULT:APPROVED. Do NOT merge the PR — the orchestrator will merge it after CI checks pass.
 If requesting changes: run \`gh pr review <PR number> --request-changes -b "detailed description"\`, then output REVIEW_RESULT:CHANGES_REQUESTED
 
 You MUST output exactly one of REVIEW_RESULT:APPROVED or REVIEW_RESULT:CHANGES_REQUESTED.`;

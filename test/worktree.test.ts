@@ -453,12 +453,13 @@ describe("cleanStaleLockFiles — edge cases", () => {
     }
   });
 
-  test("maxAge of 0 removes any lock file (filesystem timestamp granularity > 0)", () => {
-    // Even though the check is `age > maxAgeMs` (strict greater-than),
-    // filesystem timestamp resolution means a just-created file always has
-    // age >= 1ms by the time we stat it, so maxAge=0 effectively removes all.
+  test("maxAge of 0 removes lock files with any measurable age", () => {
+    // With strict `age > 0`, a file created in the same millisecond may
+    // survive. Backdate the mtime by 10ms so age is guaranteed > 0.
     const lockPath = join(tempDir, ".git", "index.lock");
     writeFileSync(lockPath, "");
+    const past = new Date(Date.now() - 10);
+    utimesSync(lockPath, past, past);
     cleanStaleLockFiles(tempDir, 0);
     expect(existsSync(lockPath)).toBe(false);
   });

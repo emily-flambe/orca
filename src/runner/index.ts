@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { createWriteStream, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join, basename } from "node:path";
+import { homedir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +56,8 @@ export interface SpawnSessionOptions {
   disallowedTools?: string[];
   /** Session ID from a previous invocation to resume via `--resume`. */
   resumeSessionId?: string;
+  /** Absolute path to the base git repository (used to clean stale Claude project dirs). */
+  repoPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +106,62 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
   return args;
 }
 
+/**
+ * Remove Claude Code project settings dirs for worktrees of the same repo.
+ *
+ * Claude Code keys project dirs by filesystem path (separators → dashes).
+ * With git worktrees it resolves to the first-seen project path, causing
+ * cross-contamination between tasks. Deleting all worktree project dirs
+ * (including the current one) forces a fresh resolution on spawn.
+ *
+ * Worktree dirs are `<parent>/<repo>-<taskId>`, so the Claude key looks like
+ * `C--Users-emily-Documents-Github-orca-EMI-88`. We use `repoPath` to derive
+ * the exact repo name (handles repos with hyphens like `baba-is-win`).
+ */
+function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): void {
+  try {
+    const projectsDir = join(homedir(), ".claude", "projects");
+
+    if (!repoPath) {
+      process.stderr.write(
+        `[orca/runner] warning: no repoPath provided, skipping stale Claude project dir cleanup\n`,
+      );
+      return;
+    }
+
+    const repoName = basename(repoPath);
+
+    // Claude's key format: replace all : \ / with -
+    // The parent dir of worktrees is the same as the parent dir of the repo.
+    const repoParentPath = join(repoPath, "..");
+    const parentKey = repoParentPath.replace(/[:\\/]/g, "-") + "-";
+
+    // Match prefix: <parentKey><repoName>- (e.g. "C--Users-emily-Documents-Github-orca-")
+    // This matches all worktree project dirs like "C--Users-emily-Documents-Github-orca-EMI-88"
+    const matchPrefix = parentKey + repoName + "-";
+    // The main repo's project dir (no task suffix): "C--Users-emily-Documents-Github-orca"
+    const mainRepoKey = parentKey + repoName;
+
+    const entries = readdirSync(projectsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith(matchPrefix)) continue;
+      // Don't delete the main repo's project dir
+      if (entry.name === mainRepoKey) continue;
+
+      const fullPath = join(projectsDir, entry.name);
+      rmSync(fullPath, { recursive: true, force: true });
+      process.stderr.write(
+        `[orca/runner] cleaned stale Claude project dir: ${entry.name}\n`,
+      );
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -127,6 +186,12 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const logsDir = ensureLogsDir(options.projectRoot);
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
   const logStream = createWriteStream(logPath, { flags: "a" });
+
+  // Clean stale Claude Code project dirs for other worktrees of the same repo.
+  // Claude Code identifies projects by path, but resolves git worktrees to the
+  // first-seen path — causing sessions to run in the wrong directory. Removing
+  // stale project dirs forces Claude to create a fresh one for this worktree.
+  cleanStaleClaudeProjectDirs(options.worktreePath, options.repoPath);
 
   // Spawn the claude CLI process.
   // Strip CLAUDECODE env var so child sessions don't think they're nested.

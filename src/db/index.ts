@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   merge_commit_sha TEXT,
   pr_number INTEGER,
   deploy_started_at TEXT,
+  ci_started_at TEXT,
   done_at TEXT,
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
@@ -204,6 +205,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "project_name")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN project_name TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 6 (CI gate):
+  //   - Add ci_started_at column to tasks (tracks when CI polling began)
+  //   Sentinel: ci_started_at column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "ci_started_at")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN ci_started_at TEXT");
   }
 }
 

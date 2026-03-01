@@ -217,6 +217,7 @@ const ACTIVE_CHILD_STATUSES = new Set<string>([
   "in_review",
   "changes_requested",
   "deploying",
+  "awaiting_ci",
 ]);
 
 /**
@@ -446,10 +447,22 @@ export function resolveConflict(
     return;
   }
 
+  // Conflict case 8b: awaiting_ci, Linear "In Review" → no-op (expected state, don't overwrite)
+  if (task.orcaStatus === "awaiting_ci" && linearStateName === "In Review") {
+    return;
+  }
+
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
   if (task.orcaStatus === "deploying" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
     log(`conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`);
+    return;
+  }
+
+  // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
+  if (task.orcaStatus === "awaiting_ci" && linearStateName === "Done") {
+    updateTaskStatus(db, taskId, "done");
+    log(`conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`);
     return;
   }
 
@@ -463,11 +476,11 @@ export function resolveConflict(
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
-  orcaTransition: "dispatched" | "in_review" | "deploying" | "done" | "changes_requested" | "failed_permanent" | "retry",
+  orcaTransition: "dispatched" | "in_review" | "deploying" | "awaiting_ci" | "done" | "changes_requested" | "failed_permanent" | "retry",
   stateMap: WorkflowStateMap,
 ): Promise<void> {
-  // deploying is a no-op — Linear stays at "In Review", don't write back
-  if (orcaTransition === "deploying") return;
+  // deploying and awaiting_ci are no-ops — Linear stays at "In Review", don't write back
+  if (orcaTransition === "deploying" || orcaTransition === "awaiting_ci") return;
 
   const transitionToStateName: Record<string, string> = {
     dispatched: "In Progress",

@@ -2,7 +2,7 @@ export interface Task {
   linearIssueId: string;
   agentPrompt: string;
   repoPath: string;
-  orcaStatus: "backlog" | "ready" | "dispatched" | "running" | "done" | "failed" | "in_review" | "changes_requested" | "deploying";
+  orcaStatus: "backlog" | "ready" | "dispatched" | "running" | "done" | "failed" | "in_review" | "changes_requested" | "deploying" | "awaiting_ci";
   priority: number;
   retryCount: number;
   prBranchName: string | null;
@@ -10,6 +10,7 @@ export interface Task {
   mergeCommitSha: string | null;
   prNumber: number | null;
   deployStartedAt: string | null;
+  ciStartedAt: string | null;
   doneAt: string | null;
   projectName: string | null;
   invocationCount: number;

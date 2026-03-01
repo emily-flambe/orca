@@ -12,7 +12,7 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-const STATUS_FILTERS = ["all", "ready", "running", "in_review", "deploying", "changes_requested", "done", "failed"] as const;
+const STATUS_FILTERS = ["all", "ready", "running", "in_review", "awaiting_ci", "deploying", "changes_requested", "done", "failed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 const SORT_OPTIONS = ["priority", "status", "date", "project"] as const;
@@ -37,6 +37,7 @@ function statusBadge(s: string): { bg: string; text: string } {
     case "dispatched": return { bg: "bg-gray-500/20 text-gray-400", text: "dispatched" };
     case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
     case "changes_requested": return { bg: "bg-orange-500/20 text-orange-400", text: "changes requested" };
+    case "awaiting_ci": return { bg: "bg-yellow-500/20 text-yellow-400", text: "awaiting CI" };
     case "deploying": return { bg: "bg-teal-500/20 text-teal-400", text: "deploying" };
     case "backlog": return { bg: "bg-gray-500/20 text-gray-500", text: "backlog" };
     default: return { bg: "bg-gray-500/20 text-gray-400", text: s };
@@ -44,7 +45,7 @@ function statusBadge(s: string): { bg: string; text: string } {
 }
 
 const STATUS_ORDER: Record<string, number> = {
-  running: 0, dispatched: 1, in_review: 2, deploying: 3, changes_requested: 4, ready: 5, failed: 6, done: 7, backlog: 8,
+  running: 0, dispatched: 1, in_review: 2, awaiting_ci: 3, deploying: 4, changes_requested: 5, ready: 6, failed: 7, done: 8, backlog: 9,
 };
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
@@ -110,7 +111,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   : "text-gray-400 hover:text-gray-200"
               }`}
             >
-              {f === "ready" ? "queued" : f}
+              {f === "ready" ? "queued" : f === "awaiting_ci" ? "awaiting CI" : f}
             </button>
           ))}
         </div>
