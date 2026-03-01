@@ -60,7 +60,8 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [sort, setSort] = useState<SortOption>("priority");
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const desktopMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
@@ -70,7 +71,10 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideDesktop = desktopMenuRef.current?.contains(target);
+      const insideMobile = mobileMenuRef.current?.contains(target);
+      if (!insideDesktop && !insideMobile) {
         setStatusMenuTaskId(null);
       }
     }
@@ -130,7 +134,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   : "text-gray-400 hover:text-gray-200"
               }`}
             >
-              {f === "ready" ? "queued" : f === "awaiting_ci" ? "CI" : f === "changes_requested" ? "changes" : f}
+              {f === "ready" ? "queued" : f === "awaiting_ci" ? (
+                <><span className="md:hidden">CI</span><span className="hidden md:inline">awaiting CI</span></>
+              ) : f === "changes_requested" ? (
+                <><span className="md:hidden">changes</span><span className="hidden md:inline">changes requested</span></>
+              ) : f}
             </button>
           ))}
         </div>
@@ -183,7 +191,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                 </span>
                 <div
                   className="relative shrink-0"
-                  ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
+                  ref={statusMenuTaskId === task.linearIssueId ? desktopMenuRef : undefined}
                 >
                   <button
                     onClick={(e) => {
@@ -229,7 +237,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   )}
                   <div
                     className="relative shrink-0 ml-auto"
-                    ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
+                    ref={statusMenuTaskId === task.linearIssueId ? mobileMenuRef : undefined}
                   >
                     <button
                       onClick={(e) => {
