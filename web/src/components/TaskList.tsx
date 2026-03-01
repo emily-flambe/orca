@@ -114,7 +114,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                 {task.linearIssueId}
               </span>
               <span className="text-sm text-gray-200 truncate flex-1">
-                {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
+                {task.title || task.linearIssueId}
               </span>
               <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${badge.bg}`}>
                 {badge.text}

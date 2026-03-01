@@ -5,6 +5,7 @@ import * as schema from "./schema.js";
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
   linear_issue_id TEXT PRIMARY KEY,
+  title TEXT,
   agent_prompt TEXT NOT NULL,
   repo_path TEXT NOT NULL,
   orca_status TEXT NOT NULL,
@@ -122,6 +123,14 @@ function migrateSchema(sqlite: DatabaseType): void {
   // invocations: phase
   if (!hasColumn(sqlite, "invocations", "phase")) {
     sqlite.exec("ALTER TABLE invocations ADD COLUMN phase TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration: title column
+  //   Sentinel: title column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "title")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN title TEXT");
   }
 
   // ---------------------------------------------------------------------------
