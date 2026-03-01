@@ -131,6 +131,24 @@ program
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
     }
 
+    // Reset all failed tasks so they re-enter the dispatch queue.
+    // fullSync() runs after this and will correct any that should stay
+    // failed (e.g. Linear "Canceled" → failed via isUserOverride).
+    let resetFailed = 0;
+    for (const t of allTasks) {
+      if (t.orcaStatus === "failed") {
+        updateTaskFields(db, t.linearIssueId, {
+          orcaStatus: "ready",
+          retryCount: 0,
+          reviewCycleCount: 0,
+        });
+        resetFailed++;
+      }
+    }
+    if (resetFailed > 0) {
+      console.log(`[orca] reset ${resetFailed} failed task(s) → ready`);
+    }
+
     // Second pass: mark orphaned invocations as failed.
     // At startup activeHandles is empty, so ALL "running" invocations are
     // orphans from a previous crash/restart. Without this, they count

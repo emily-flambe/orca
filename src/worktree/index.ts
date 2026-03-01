@@ -24,6 +24,33 @@ function npmInstall(cwd: string): void {
 }
 
 /**
+ * rmSync with retry for Windows EPERM errors.
+ *
+ * On Windows, antivirus / indexing services can hold brief locks on files,
+ * causing EPERM when deleting a directory tree. Retry up to 3 times with
+ * a 2-second synchronous pause between attempts.
+ */
+function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      rmSync(dirPath, { recursive: true, force: true });
+      return;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" || attempt === maxAttempts) {
+        throw err;
+      }
+      // Synchronous busy-wait — acceptable here (see createWorktree jsdoc)
+      const waitMs = 2000;
+      const end = Date.now() + waitMs;
+      while (Date.now() < end) {
+        /* spin */
+      }
+    }
+  }
+}
+
+/**
  * Check whether a git worktree is already registered at the given path.
  */
 function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
@@ -126,7 +153,7 @@ export function createWorktree(
   // If directory exists but isn't a registered worktree (e.g. stale from a
   // previous failed run), remove it so git worktree add can succeed.
   if (existsSync(worktreePath)) {
-    rmSync(worktreePath, { recursive: true, force: true });
+    rmSyncWithRetry(worktreePath);
   }
 
   if (baseRef) {
@@ -180,7 +207,7 @@ export function removeWorktree(worktreePath: string): void {
   // --git-common-dir returns the .git directory (e.g. /repo/.git).
   // We need the repo root, which is its parent.
   const repoRoot = dirname(mainWorktree);
-  git(["worktree", "remove", worktreePath], { cwd: repoRoot });
+  git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
 }
 
 /**
