@@ -159,6 +159,7 @@ function upsertTask(
       orcaStatus: insertStatus,
       priority: issue.priority,
       retryCount: 0,
+      doneAt: insertStatus === "done" ? now : null,
       createdAt: now,
       updatedAt: now,
     });

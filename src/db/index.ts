@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   merge_commit_sha TEXT,
   pr_number INTEGER,
   deploy_started_at TEXT,
+  done_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -169,6 +170,17 @@ function migrateSchema(sqlite: DatabaseType): void {
     }
 
     sqlite.pragma("foreign_keys = ON");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 3 (done_at timestamp):
+  //   - Add done_at column to tasks
+  //   - Backfill existing done tasks with updated_at as a reasonable timestamp
+  //   Sentinel: done_at column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "done_at")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN done_at TEXT");
+    sqlite.exec("UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL");
   }
 }
 
