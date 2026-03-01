@@ -172,6 +172,8 @@ program
       db,
       config,
       syncTasks: () => fullSync(db, client, graph, config),
+      client,
+      stateMap,
     });
 
     const app = new Hono();

@@ -4,6 +4,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
+import type { LinearClient } from "../linear/client.js";
+import type { WorkflowStateMap } from "../linear/client.js";
 import {
   getAllTasks,
   getTask,
@@ -12,8 +14,14 @@ import {
   getRunningInvocations,
   countActiveSessions,
   sumCostInWindow,
+  updateInvocation,
+  updateTaskStatus,
+  updateTaskFields,
 } from "../db/queries.js";
-import { orcaEvents } from "../events.js";
+import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
+import { activeHandles } from "../scheduler/index.js";
+import { killSession } from "../runner/index.js";
+import { writeBackStatus } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,6 +31,8 @@ export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
   syncTasks: () => Promise<number>;
+  client: LinearClient;
+  stateMap: WorkflowStateMap;
 }
 
 // ---------------------------------------------------------------------------
@@ -30,7 +40,7 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, syncTasks } = deps;
+  const { db, config, syncTasks, client, stateMap } = deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -100,6 +110,65 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     return c.json({ lines });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/invocations/:id/abort
+  // -----------------------------------------------------------------------
+  app.post("/api/invocations/:id/abort", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      return c.json({ error: "invocation not found" }, 404);
+    }
+
+    if (invocation.status !== "running") {
+      return c.json({ error: `invocation is "${invocation.status}", not running` }, 409);
+    }
+
+    // Kill the Claude session if a handle exists
+    const handle = activeHandles.get(id);
+    if (handle) {
+      try {
+        await killSession(handle);
+      } catch {
+        // Process may already be dead — that's fine
+      }
+      activeHandles.delete(id);
+    }
+
+    const now = new Date().toISOString();
+
+    // Mark invocation as failed
+    updateInvocation(db, id, {
+      status: "failed",
+      endedAt: now,
+      outputSummary: "aborted by user",
+    });
+
+    // Reset task to ready with zeroed counters
+    const taskId = invocation.linearIssueId;
+    updateTaskStatus(db, taskId, "ready");
+    updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0 });
+
+    emitTaskUpdated(getTask(db, taskId)!);
+    emitInvocationCompleted({
+      taskId,
+      invocationId: id,
+      status: "failed",
+      costUsd: 0,
+    });
+
+    // Write back Linear state to "Todo"
+    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
+      // Best-effort — don't fail the abort if Linear write-back fails
+    });
+
+    return c.json({ ok: true });
   });
 
   // -----------------------------------------------------------------------
