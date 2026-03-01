@@ -107,16 +107,19 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
 }
 
 /**
- * Remove Claude Code project settings dirs for worktrees of the same repo.
+ * Remove Claude Code project settings dirs for ALL worktrees and the main
+ * repo of the same repository.
  *
- * Claude Code keys project dirs by filesystem path (separators → dashes).
- * With git worktrees it resolves to the first-seen project path, causing
- * cross-contamination between tasks. Deleting all worktree project dirs
- * (including the current one) forces a fresh resolution on spawn.
+ * Claude Code resolves projects by git repo identity (the common .git dir).
+ * All worktrees share the same repo identity, so Claude maps them all to
+ * whichever path it first saw — causing cross-contamination between tasks.
  *
- * Worktree dirs are `<parent>/<repo>-<taskId>`, so the Claude key looks like
- * `C--Users-emily-Documents-Github-orca-EMI-88`. We use `repoPath` to derive
- * the exact repo name (handles repos with hyphens like `baba-is-win`).
+ * The only reliable fix is to delete ALL Claude project dirs for this repo
+ * (main + every worktree) before each spawn. This forces Claude to create
+ * a fresh project dir keyed to the *current* worktree path.
+ *
+ * This deletes conversation transcripts (jsonl files) for the main repo too,
+ * but that's acceptable — agent sessions are ephemeral.
  */
 function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): void {
   try {
@@ -136,18 +139,15 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
     const repoParentPath = join(repoPath, "..");
     const parentKey = repoParentPath.replace(/[:\\/]/g, "-") + "-";
 
-    // Match prefix: <parentKey><repoName>- (e.g. "C--Users-emily-Documents-Github-orca-")
-    // This matches all worktree project dirs like "C--Users-emily-Documents-Github-orca-EMI-88"
-    const matchPrefix = parentKey + repoName + "-";
-    // The main repo's project dir (no task suffix): "C--Users-emily-Documents-Github-orca"
+    // Match: <parentKey><repoName> (exact = main repo)
+    // Match: <parentKey><repoName>-* (worktree dirs like orca-EMI-88)
     const mainRepoKey = parentKey + repoName;
 
     const entries = readdirSync(projectsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (!entry.name.startsWith(matchPrefix)) continue;
-      // Don't delete the main repo's project dir
-      if (entry.name === mainRepoKey) continue;
+      // Match the main repo dir exactly OR any worktree dir (has - suffix)
+      if (entry.name !== mainRepoKey && !entry.name.startsWith(mainRepoKey + "-")) continue;
 
       const fullPath = join(projectsDir, entry.name);
       rmSync(fullPath, { recursive: true, force: true });
