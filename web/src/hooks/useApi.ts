@@ -26,3 +26,7 @@ export function fetchStatus(): Promise<OrcaStatus> {
 export async function triggerSync(): Promise<{ synced: number }> {
   return fetchJson<{ synced: number }>("/sync", { method: "POST" });
 }
+
+export function fetchInvocationLogs(id: number): Promise<{ lines: unknown[] }> {
+  return fetchJson<{ lines: unknown[] }>(`/invocations/${id}/logs`);
+}

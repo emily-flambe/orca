@@ -180,6 +180,15 @@ export function updateInvocation(
     .run();
 }
 
+/** Get a single invocation by id. */
+export function getInvocation(db: OrcaDb, id: number): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(eq(invocations.id, id))
+    .get();
+}
+
 /** Get all invocations for a given task. */
 export function getInvocationsByTask(
   db: OrcaDb,

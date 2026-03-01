@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail } from "../hooks/useApi";
+import LogViewer from "./LogViewer";
 
 interface Props {
   taskId: string;
@@ -34,8 +35,10 @@ function formatDate(iso: string): string {
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
+  const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
 
   useEffect(() => {
+    setSelectedInvocationId(null);
     fetchTaskDetail(taskId)
       .then((d) => setDetail(d))
       .catch(console.error);
@@ -87,7 +90,19 @@ export default function TaskDetail({ taskId }: Props) {
               </thead>
               <tbody>
                 {invocations.map((inv) => (
-                  <tr key={inv.id} className="border-b border-gray-800/50">
+                  <tr
+                    key={inv.id}
+                    onClick={() =>
+                      setSelectedInvocationId(
+                        selectedInvocationId === inv.id ? null : inv.id
+                      )
+                    }
+                    className={`border-b border-gray-800/50 cursor-pointer transition-colors ${
+                      selectedInvocationId === inv.id
+                        ? "bg-gray-800/60"
+                        : "hover:bg-gray-800/30"
+                    }`}
+                  >
                     <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
                     <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
                     <td className="py-2 pr-4">
@@ -106,6 +121,18 @@ export default function TaskDetail({ taskId }: Props) {
             </table>
           </div>
         )}
+
+        {/* Log viewer for selected invocation */}
+        {selectedInvocationId != null && (() => {
+          const inv = invocations.find((i) => i.id === selectedInvocationId);
+          if (!inv) return null;
+          return (
+            <LogViewer
+              invocationId={inv.id}
+              status={inv.status}
+            />
+          );
+        })()}
       </div>
     </div>
   );
