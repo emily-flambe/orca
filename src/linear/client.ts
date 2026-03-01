@@ -20,6 +20,7 @@ export interface LinearIssue {
   state: { id: string; name: string; type: string };
   teamId: string;
   projectId: string;
+  projectName: string;
   relations: { type: string; issueId: string; issueIdentifier: string }[];
   inverseRelations: {
     type: string;
@@ -37,6 +38,7 @@ export type WorkflowStateMap = Map<string, { id: string; type: string }>;
 
 export interface ProjectMetadata {
   id: string;
+  name: string;
   description: string;
   teamIds: string[];
 }
@@ -195,7 +197,7 @@ export class LinearClient {
             priority
             state { id name type }
             team { id }
-            project { id }
+            project { id name }
             relations { nodes { type relatedIssue { id identifier } } }
             inverseRelations { nodes { type issue { id identifier } } }
             parent { id identifier title description }
@@ -226,7 +228,7 @@ export class LinearClient {
             priority: number;
             state: { id: string; name: string; type: string };
             team: { id: string };
-            project: { id: string };
+            project: { id: string; name: string };
             relations: {
               nodes: Array<{
                 type: string;
@@ -262,6 +264,7 @@ export class LinearClient {
           state: node.state,
           teamId: node.team.id,
           projectId: node.project.id,
+          projectName: node.project.name,
           relations: node.relations.nodes.map((r) => ({
             type: r.type,
             issueId: r.relatedIssue.id,
@@ -303,7 +306,7 @@ export class LinearClient {
     const graphql = `
       query($projectIds: [ID!]!) {
         projects(filter: { id: { in: $projectIds } }, first: 50) {
-          nodes { id description content teams { nodes { id } } }
+          nodes { id name description content teams { nodes { id } } }
         }
       }
     `;
@@ -312,6 +315,7 @@ export class LinearClient {
       projects: {
         nodes: Array<{
           id: string;
+          name: string;
           description: string | null;
           content: string | null;
           teams: { nodes: Array<{ id: string }> };
@@ -321,6 +325,7 @@ export class LinearClient {
 
     const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
       id: p.id,
+      name: p.name,
       description: p.content || p.description || "",
       teamIds: p.teams.nodes.map((t) => t.id),
     }));

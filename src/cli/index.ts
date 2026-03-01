@@ -99,12 +99,13 @@ program
       config.linearProjectIds,
     );
 
-    // Build per-project repo map from project descriptions
+    // Build per-project repo map and name map from project metadata
     for (const pm of projectMeta) {
+      config.projectNameMap.set(pm.id, pm.name);
       const repoPath = parseRepoPath(pm.description);
       if (repoPath) {
         config.projectRepoMap.set(pm.id, repoPath);
-        console.log(`[orca] project ${pm.id} → repo: ${repoPath}`);
+        console.log(`[orca] project ${pm.id} (${pm.name}) → repo: ${repoPath}`);
       }
     }
 

@@ -4,6 +4,7 @@ import { existsSync, statSync } from "node:fs";
 export interface OrcaConfig {
   defaultCwd: string | undefined;
   projectRepoMap: Map<string, string>;
+  projectNameMap: Map<string, string>;
   concurrencyCap: number;
   sessionTimeoutMin: number;
   maxRetries: number;
@@ -242,6 +243,7 @@ Steps:
   return {
     defaultCwd,
     projectRepoMap: new Map(),
+    projectNameMap: new Map(),
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),

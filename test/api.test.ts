@@ -44,6 +44,7 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),
+    projectNameMap: new Map(),
     ...overrides,
   };
 }

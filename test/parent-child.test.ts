@@ -47,6 +47,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
     defaultCwd: "/tmp/test",
     projectRepoMap: new Map(),
+    projectNameMap: new Map(),
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
@@ -463,6 +464,7 @@ describe("fullSync - parent/child fields", () => {
       state: { id: "s1", name: "Todo", type: "unstarted" },
       teamId: "team-1",
       projectId: "proj-1",
+      projectName: "Test Project",
       relations: [],
       inverseRelations: [],
       parentId: null,

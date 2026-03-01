@@ -132,6 +132,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
     projectRepoMap: new Map(),
+    projectNameMap: new Map(),
     ...overrides,
   };
 }

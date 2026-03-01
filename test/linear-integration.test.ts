@@ -84,6 +84,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),
+    projectNameMap: new Map(),
     ...overrides,
   };
 }
@@ -332,6 +333,7 @@ describe("10.2 - DependencyGraph", () => {
       state: { id: "s1", name: "Todo", type: "unstarted" },
       teamId: "team-1",
       projectId: "proj-1",
+      projectName: "Test Project",
       relations,
       inverseRelations,
       parentId: null,

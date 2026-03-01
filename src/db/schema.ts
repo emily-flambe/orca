@@ -33,6 +33,7 @@ export const tasks = sqliteTable("tasks", {
   prNumber: integer("pr_number"),
   deployStartedAt: text("deploy_started_at"),
   doneAt: text("done_at"),
+  projectName: text("project_name"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),
   createdAt: text("created_at").notNull(),

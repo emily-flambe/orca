@@ -169,6 +169,7 @@ function upsertTask(
       priority: issue.priority,
       retryCount: 0,
       doneAt: insertStatus === "done" ? now : null,
+      projectName: issue.projectName || null,
       parentIdentifier,
       isParent,
       createdAt: now,
@@ -198,6 +199,7 @@ function upsertTask(
       repoPath,
       priority: issue.priority,
       orcaStatus: effectiveStatus,
+      projectName: issue.projectName || null,
       parentIdentifier,
       isParent,
       ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
@@ -315,6 +317,7 @@ export async function processWebhookEvent(
   // For prompt enrichment fields, we set null — the DB already has the correct
   // agentPrompt from fullSync.
   const existingTask = getTask(db, event.data.identifier);
+  const webhookProjectId = event.data.projectId ?? "";
   const issueFromEvent: LinearIssue = {
     id: event.data.id,
     identifier: event.data.identifier,
@@ -323,7 +326,8 @@ export async function processWebhookEvent(
     priority: event.data.priority,
     state: event.data.state ?? { id: "", name: "", type: "" },
     teamId: event.data.teamId ?? "",
-    projectId: event.data.projectId ?? "",
+    projectId: webhookProjectId,
+    projectName: config.projectNameMap.get(webhookProjectId) ?? existingTask?.projectName ?? "",
     relations: [],
     inverseRelations: [],
     parentId: existingTask?.parentIdentifier ?? null,

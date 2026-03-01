@@ -15,7 +15,7 @@ interface Props {
 const STATUS_FILTERS = ["all", "ready", "running", "in_review", "deploying", "changes_requested", "done", "failed"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-const SORT_OPTIONS = ["priority", "status", "date"] as const;
+const SORT_OPTIONS = ["priority", "status", "project", "date"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
 
 function priorityColor(p: number): string {
@@ -83,6 +83,12 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     if (sort === "status") {
       return (STATUS_ORDER[a.orcaStatus] ?? 9) - (STATUS_ORDER[b.orcaStatus] ?? 9);
     }
+    if (sort === "project") {
+      const ap = a.projectName ?? "";
+      const bp = b.projectName ?? "";
+      if (ap !== bp) return ap.localeCompare(bp);
+      return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+    }
     return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
   });
 
@@ -139,6 +145,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               <span className="text-sm font-mono text-gray-400 shrink-0">
                 {task.linearIssueId}
               </span>
+              {task.projectName && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-300 shrink-0 truncate max-w-[120px]" title={task.projectName}>
+                  {task.projectName}
+                </span>
+              )}
               <span className="text-sm text-gray-200 truncate flex-1">
                 {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
               </span>
