@@ -174,22 +174,48 @@ function upsertTask(
 // 4.1 Full sync
 // ---------------------------------------------------------------------------
 
+export interface SyncResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  errors: Array<{ issueId: string; error: string }>;
+}
+
 export async function fullSync(
   db: OrcaDb,
   client: LinearClient,
   graph: DependencyGraph,
   config: OrcaConfig,
-): Promise<number> {
+): Promise<SyncResult> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
+  let succeeded = 0;
+  let failed = 0;
+  const errors: Array<{ issueId: string; error: string }> = [];
+
   for (const issue of issues) {
-    upsertTask(db, issue, config);
+    try {
+      upsertTask(db, issue, config);
+      succeeded++;
+    } catch (err) {
+      failed++;
+      const msg = String(err);
+      errors.push({ issueId: issue.identifier, error: msg });
+      log(`upsert failed for ${issue.identifier}: ${msg}`);
+    }
   }
 
   graph.rebuild(issues);
 
-  log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  if (failed > 0) {
+    log(
+      `full sync partial: ${succeeded}/${issues.length} succeeded, ${failed} failed`,
+    );
+  } else {
+    log(`full sync complete: ${issues.length} issues`);
+  }
+
+  return { total: issues.length, succeeded, failed, errors };
 }
 
 // ---------------------------------------------------------------------------

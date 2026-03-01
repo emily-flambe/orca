@@ -752,7 +752,7 @@ describe("10.6 - Polling fallback", () => {
     const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
     return {
       ...actual,
-      fullSync: vi.fn().mockResolvedValue(undefined),
+      fullSync: vi.fn().mockResolvedValue({ total: 0, succeeded: 0, failed: 0, errors: [] }),
       processWebhookEvent: vi.fn().mockResolvedValue(undefined),
     };
   });
@@ -763,6 +763,8 @@ describe("10.6 - Polling fallback", () => {
 
   beforeEach(async () => {
     vi.useFakeTimers();
+    // Eliminate jitter for deterministic timer assertions (2*0.5-1 = 0)
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     const pollerMod = await import("../src/linear/poller.js");
     createPoller = pollerMod.createPoller;
@@ -894,7 +896,7 @@ describe("10.6 - Polling fallback", () => {
     let shouldFail = true;
     fullSyncMock.mockImplementation(() => {
       if (shouldFail) throw new Error("API down");
-      return Promise.resolve(5);
+      return Promise.resolve({ total: 5, succeeded: 5, failed: 0, errors: [] });
     });
 
     const poller = createPoller({
@@ -984,5 +986,98 @@ describe("10.6 - Polling fallback", () => {
     // Advance well past any backoff period
     await vi.advanceTimersByTimeAsync(600_000);
     expect(fullSyncMock).toHaveBeenCalledTimes(1); // No more calls
+  });
+
+  test("permanent error (auth failure) stops the poller", async () => {
+    fullSyncMock.mockRejectedValue(
+      new Error("LinearClient: authentication failed (HTTP 401). Check that ORCA_LINEAR_API_KEY is valid."),
+    );
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    // First tick: permanent error → poller stops itself
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1);
+    expect(poller.health().consecutiveFailures).toBe(1);
+    expect(poller.health().lastErrorCategory).toBe("permanent");
+    expect(poller.health().stopped).toBe(true);
+
+    // Advance well past any backoff — no more ticks because stopped
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1);
+
+    poller.stop();
+  });
+
+  test("partial sync failure increments backoff but tracks last success", async () => {
+    fullSyncMock.mockResolvedValue({
+      total: 10,
+      succeeded: 8,
+      failed: 2,
+      errors: [
+        { issueId: "PROJ-1", error: "db constraint" },
+        { issueId: "PROJ-2", error: "invalid state" },
+      ],
+    });
+
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fullSyncMock).toHaveBeenCalledTimes(1);
+
+    const health = poller.health();
+    expect(health.consecutiveFailures).toBe(1);
+    expect(health.lastError).toContain("2/10 issues failed");
+    expect(health.lastErrorCategory).toBe("transient");
+    // Partial success still updates lastSuccessAt
+    expect(health.lastSuccessAt).not.toBeNull();
+    expect(health.lastSyncResult?.failed).toBe(2);
+    expect(health.lastSyncResult?.succeeded).toBe(8);
+
+    poller.stop();
+  });
+
+  test("health() exposes lastErrorCategory and stopped state", async () => {
+    const poller = createPoller({
+      db: {} as OrcaDb,
+      client: {} as any,
+      graph: {} as any,
+      config: testConfig(),
+      isTunnelConnected: () => false,
+    });
+
+    poller.start();
+
+    // Initial health: no errors, not stopped
+    const initial = poller.health();
+    expect(initial.lastErrorCategory).toBeNull();
+    expect(initial.stopped).toBe(false);
+    expect(initial.lastSyncResult).toBeNull();
+
+    // Trigger a transient error
+    fullSyncMock.mockRejectedValue(new Error("network timeout"));
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const afterError = poller.health();
+    expect(afterError.lastErrorCategory).toBe("transient");
+    expect(afterError.stopped).toBe(false);
+
+    poller.stop();
   });
 });
