@@ -19,6 +19,7 @@ import {
 } from "../db/queries.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
+import { closePrsForTask } from "../github/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,11 +124,15 @@ function upsertTask(
   config: OrcaConfig,
 ): void {
   // Canceled → transition existing tasks to failed; skip creating new ones.
+  // Skip if already "failed" — resolveConflict already handled it (webhook path).
   if (issue.state.name === "Canceled") {
     const existing = getTask(db, issue.identifier);
-    if (existing) {
+    if (existing && existing.orcaStatus !== "failed") {
       updateTaskStatus(db, issue.identifier, "failed");
       log(`canceled task ${issue.identifier} → failed`);
+      closePrsForTask(issue.identifier, existing.repoPath).catch((err) => {
+        log(`failed to close PRs for canceled task ${issue.identifier}: ${err}`);
+      });
     }
     return;
   }
@@ -398,6 +403,9 @@ export function resolveConflict(
     }
     updateTaskStatus(db, taskId, "failed");
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
+    closePrsForTask(taskId, task.repoPath).catch((err) => {
+      log(`failed to close PRs for canceled task ${taskId}: ${err}`);
+    });
     return;
   }
 

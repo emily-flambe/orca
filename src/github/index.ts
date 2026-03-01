@@ -274,3 +274,44 @@ export async function getWorkflowRunStatus(
     return "no_runs";
   }
 }
+
+/**
+ * Close all open PRs whose branch matches `orca/<taskId>-*`.
+ *
+ * Best-effort: catches and logs all errors, never throws.
+ * Used when a Linear issue is canceled to clean up orphaned PRs.
+ */
+export async function closePrsForTask(taskId: string, cwd: string): Promise<void> {
+  try {
+    const output = await ghAsync(
+      ["pr", "list", "--search", `head:orca/${taskId}-`, "--state", "open", "--json", "number,headRefName,url", "--limit", "10"],
+      { cwd },
+    );
+    const prs = JSON.parse(output) as { number: number; headRefName: string; url: string }[];
+
+    // Filter client-side to avoid prefix collisions (e.g. EMI-9 matching EMI-95)
+    const prefix = `orca/${taskId}-`;
+    const matched = prs.filter((pr) => pr.headRefName.startsWith(prefix));
+
+    if (matched.length === 0) {
+      console.log(`[orca/github] no open PRs found for canceled task ${taskId}`);
+      return;
+    }
+
+    for (const pr of matched) {
+      try {
+        await ghAsync(
+          ["pr", "close", String(pr.number), "--comment", `Automatically closed: the Linear issue ${taskId} was canceled.`, "--delete-branch"],
+          { cwd },
+        );
+        console.log(`[orca/github] closed PR #${pr.number} (${pr.url}) for canceled task ${taskId}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[orca/github] failed to close PR #${pr.number} for task ${taskId}: ${msg}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] failed to list PRs for canceled task ${taskId}: ${msg}`);
+  }
+}
