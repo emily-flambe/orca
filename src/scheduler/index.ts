@@ -351,9 +351,12 @@ function onImplementSuccess(
 
   // Hard gate: branch name is required
   if (!branchName) {
-    const gateSummary = "Post-implementation gate failed: no branch name found on invocation or task";
-    log(`task ${taskId}: ${gateSummary} — treating as failure`);
-    updateInvocation(db, invocationId, { status: "failed", outputSummary: gateSummary });
+    const gateMsg = "no branch name found on invocation or task";
+    log(`task ${taskId}: ${gateMsg} — treating as failure`);
+    updateInvocation(db, invocationId, {
+      status: "failed",
+      outputSummary: `Post-implementation gate failed: ${gateMsg}`,
+    });
     onSessionFailure(deps, taskId, invocationId, worktreePath, result);
     return;
   }
@@ -361,9 +364,12 @@ function onImplementSuccess(
   // Hard gate: PR must exist
   const prInfo = findPrForBranch(branchName, task.repoPath);
   if (!prInfo.exists) {
-    const gateSummary = `Post-implementation gate failed: no PR found for branch ${branchName}`;
-    log(`task ${taskId}: ${gateSummary} — treating as failure`);
-    updateInvocation(db, invocationId, { status: "failed", outputSummary: gateSummary });
+    const gateMsg = `no PR found for branch ${branchName}`;
+    log(`task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`);
+    updateInvocation(db, invocationId, {
+      status: "failed",
+      outputSummary: `Post-implementation gate failed: ${gateMsg}`,
+    });
     onSessionFailure(deps, taskId, invocationId, worktreePath, result);
     return;
   }

@@ -111,8 +111,26 @@ program
     // Validate every project resolves to a valid directory
     validateProjectRepoPaths(config);
 
-    // Recover orphaned tasks from previous crash/restart: any task stuck
-    // in "running" or "dispatched" with no running invocation is dead.
+    // Mark orphaned invocations as failed FIRST. At startup activeHandles
+    // is empty, so ALL "running" invocations are orphans from a previous
+    // crash/restart. This must happen before orphan task recovery so that
+    // orphaned tasks have no running invocations and get correctly reset.
+    const orphanedInvocations = getRunningInvocations(db);
+    for (const inv of orphanedInvocations) {
+      updateInvocation(db, inv.id, {
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        outputSummary: "orphaned by crash/restart",
+      });
+    }
+    if (orphanedInvocations.length > 0) {
+      console.log(
+        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
+      );
+    }
+
+    // Now recover orphaned tasks: any task stuck in "running" or
+    // "dispatched" with no running invocation is dead.
     const allTasks = getAllTasks(db);
     const runningInvIssueIds = new Set(
       getRunningInvocations(db).map((inv) => inv.linearIssueId),
@@ -129,24 +147,6 @@ program
     }
     if (recovered > 0) {
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
-    }
-
-    // Second pass: mark orphaned invocations as failed.
-    // At startup activeHandles is empty, so ALL "running" invocations are
-    // orphans from a previous crash/restart. Without this, they count
-    // against countActiveSessions() and block new dispatches.
-    const orphanedInvocations = getRunningInvocations(db);
-    for (const inv of orphanedInvocations) {
-      updateInvocation(db, inv.id, {
-        status: "failed",
-        endedAt: new Date().toISOString(),
-        outputSummary: "orphaned by crash/restart",
-      });
-    }
-    if (orphanedInvocations.length > 0) {
-      console.log(
-        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
-      );
     }
 
     // Full sync: populate tasks table + dependency graph
