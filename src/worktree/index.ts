@@ -133,7 +133,14 @@ export function createWorktree(
   // tracks it) before anything else — this must run before fetch so that
   // a transient network error doesn't leave stale references blocking
   // future worktree creation.
-  git(["worktree", "prune"], { cwd: repoPath });
+  // Best-effort: a transient OS error (e.g. Windows 0xC0000142) should
+  // not prevent the worktree add attempt.
+  try {
+    git(["worktree", "prune"], { cwd: repoPath });
+  } catch (pruneErr) {
+    // Log but don't throw — worktree add may still succeed
+    console.warn(`[orca/worktree] prune failed (non-fatal): ${pruneErr}`);
+  }
 
   // Fetch origin
   git(["fetch", "origin"], { cwd: repoPath });
