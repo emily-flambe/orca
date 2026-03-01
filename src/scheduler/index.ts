@@ -1,3 +1,4 @@
+// PR lifecycle gates verified
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
