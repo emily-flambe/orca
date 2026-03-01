@@ -121,6 +121,11 @@ export function getAllTasks(db: OrcaDb): Task[] {
   return db.select().from(tasks).all();
 }
 
+/** Delete a task by its linear_issue_id. */
+export function deleteTask(db: OrcaDb, taskId: string): void {
+  db.delete(tasks).where(eq(tasks.linearIssueId, taskId)).run();
+}
+
 /** Partial update of task fields (priority, status, etc.) by linear_issue_id. */
 export function updateTaskFields(
   db: OrcaDb,

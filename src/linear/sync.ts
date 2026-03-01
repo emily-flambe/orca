@@ -8,6 +8,7 @@ import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
+  deleteTask,
   getTask,
   insertTask,
   updateTaskStatus,
@@ -98,8 +99,7 @@ function mapLinearStateToOrcaStatus(
     case "In Progress": return "running";
     case "In Review": return "in_review";
     case "Done": return "done";
-    case "Canceled": return "failed";
-    default: return null; // Backlog and unknown → skip
+    default: return null; // Backlog, Canceled, and unknown → skip
   }
 }
 
@@ -116,6 +116,16 @@ function upsertTask(
   issue: LinearIssue,
   config: OrcaConfig,
 ): void {
+  // Canceled issues should not exist in Orca's DB at all
+  if (issue.state.name === "Canceled") {
+    const existing = getTask(db, issue.identifier);
+    if (existing) {
+      deleteTask(db, issue.identifier);
+      log(`deleted canceled task ${issue.identifier}`);
+    }
+    return;
+  }
+
   const orcaStatus = mapLinearStateToOrcaStatus(issue.state.name);
 
   // Skip backlog and unknown states
@@ -344,14 +354,13 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 7: Any, Linear Canceled → set failed (permanent, no retry)
+  // Conflict case 7: Any, Linear Canceled → kill session if running, delete task
   if (linearStateName === "Canceled") {
-    // Kill active session if running
     if (task.orcaStatus === "running") {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed");
-    log(`conflict resolved: task ${taskId} set to failed (Linear Canceled)`);
+    deleteTask(db, taskId);
+    log(`conflict resolved: task ${taskId} deleted (Linear Canceled)`);
     return;
   }
 }
