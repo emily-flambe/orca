@@ -39,12 +39,16 @@ export function updateTaskStatus(
     .run();
 }
 
-/** Increment retry_count by 1 and reset status to "ready". */
-export function incrementRetryCount(db: OrcaDb, taskId: string): void {
+/** Increment retry_count by 1 and reset status to the given value (default "ready"). */
+export function incrementRetryCount(
+  db: OrcaDb,
+  taskId: string,
+  resetStatus: TaskStatus = "ready",
+): void {
   db.update(tasks)
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
-      orcaStatus: "ready" as const,
+      orcaStatus: resetStatus,
       doneAt: null,
       updatedAt: new Date().toISOString(),
     })
@@ -124,6 +128,24 @@ export function getTask(db: OrcaDb, taskId: string): Task | undefined {
 /** Get all tasks. */
 export function getAllTasks(db: OrcaDb): Task[] {
   return db.select().from(tasks).all();
+}
+
+/** Get all child tasks for a given parent identifier. */
+export function getChildTasks(db: OrcaDb, parentIdentifier: string): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.parentIdentifier, parentIdentifier))
+    .all();
+}
+
+/** Get all parent tasks (isParent = 1). */
+export function getParentTasks(db: OrcaDb): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.isParent, 1))
+    .all();
 }
 
 /** Delete a task and its invocations/budget events by linear_issue_id. */

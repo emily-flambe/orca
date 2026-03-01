@@ -679,8 +679,8 @@ function onSessionFailure(
     }
   }
 
-  // Retry logic
-  handleRetry(deps, taskId, result.outputSummary);
+  // Retry logic — review failures retry as in_review, not ready
+  handleRetry(deps, taskId, result.outputSummary, phase);
 }
 
 // ---------------------------------------------------------------------------
@@ -710,7 +710,12 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
 // Retry logic (6.5)
 // ---------------------------------------------------------------------------
 
-function handleRetry(deps: SchedulerDeps, taskId: string, summary?: string): void {
+function handleRetry(
+  deps: SchedulerDeps,
+  taskId: string,
+  summary?: string,
+  phase?: DispatchPhase,
+): void {
   const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) {
@@ -721,13 +726,17 @@ function handleRetry(deps: SchedulerDeps, taskId: string, summary?: string): voi
   const briefSummary = summary ? summary.slice(0, 200) : "unknown error";
 
   if (task.retryCount < config.maxRetries) {
-    incrementRetryCount(db, taskId);
+    // Review failures retry as in_review so the review is re-dispatched,
+    // not a fresh implementation.
+    const retryStatus = phase === "review" ? "in_review" as const : "ready" as const;
+    incrementRetryCount(db, taskId, retryStatus);
     log(
-      `task ${taskId} queued for retry (attempt ${task.retryCount + 1}/${config.maxRetries})`,
+      `task ${taskId} queued for retry as "${retryStatus}" (attempt ${task.retryCount + 1}/${config.maxRetries})`,
     );
 
     // Write-back on retry (fire-and-forget)
-    writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
+    const writeBackEvent = phase === "review" ? "in_review" as const : "retry" as const;
+    writeBackStatus(client, taskId, writeBackEvent, stateMap).catch((err) => {
       log(`write-back failed on retry for task ${taskId}: ${err}`);
     });
 
