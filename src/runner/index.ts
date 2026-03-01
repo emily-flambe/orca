@@ -86,6 +86,8 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
     opts.agentPrompt,
     "--output-format",
     "stream-json",
+    "--input-format",
+    "stream-json",
     "--verbose",
     "--max-turns",
     String(opts.maxTurns),
@@ -135,11 +137,19 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
+
+  // Absorb async EPIPE / write-after-close errors on stdin so they don't
+  // crash the parent process. These can occur when a prompt is written just
+  // as the child exits — the synchronous write succeeds but the pipe
+  // delivers the data to a dead process asynchronously.
+  if (proc.stdin) {
+    proc.stdin.on("error", () => {});
+  }
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -306,6 +316,11 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // Process exit handler
     // ------------------------------------------------------------------
     proc.on("exit", (code: number | null, _signal: NodeJS.Signals | null) => {
+      // Close stdin so no further writes can occur after the process exits.
+      if (proc.stdin && !proc.stdin.destroyed) {
+        proc.stdin.end();
+      }
+
       exitCode = code;
       exitReceived = true;
       tryResolve();
@@ -369,6 +384,12 @@ export async function killSession(handle: SessionHandle): Promise<SessionResult>
     return handle.done;
   }
 
+  // Close stdin before signalling so the child sees EOF and can shut down
+  // gracefully instead of blocking on stdin reads.
+  if (proc.stdin && !proc.stdin.destroyed) {
+    proc.stdin.end();
+  }
+
   // Send SIGTERM.
   proc.kill("SIGTERM");
 
@@ -393,4 +414,36 @@ export async function killSession(handle: SessionHandle): Promise<SessionResult>
   }
 
   return handle.done;
+}
+
+/**
+ * Send a user message to a running Claude Code session via stdin.
+ *
+ * The message is sent as NDJSON (newline-delimited JSON) in the format
+ * expected by `--input-format stream-json`.
+ *
+ * @returns true if the message was written, false if the process is not writable.
+ */
+export function sendPrompt(handle: SessionHandle, message: string): boolean {
+  const proc = handle.process;
+
+  // Check if process is still alive and stdin is writable
+  if (proc.exitCode !== null || proc.killed || !proc.stdin || proc.stdin.destroyed) {
+    return false;
+  }
+
+  const payload = JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: message,
+    },
+  });
+
+  try {
+    proc.stdin.write(payload + "\n");
+    return true;
+  } catch {
+    return false;
+  }
 }

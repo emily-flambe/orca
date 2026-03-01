@@ -34,3 +34,11 @@ export function fetchInvocationLogs(id: number): Promise<{ lines: unknown[] }> {
 export function abortInvocation(id: number): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/invocations/${id}/abort`, { method: "POST" });
 }
+
+export function sendPrompt(invocationId: number, message: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/invocations/${invocationId}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+}

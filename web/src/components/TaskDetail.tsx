@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation, sendPrompt as sendPromptApi } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -31,6 +31,59 @@ function formatDuration(start: string, end: string | null): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
+}
+
+function PromptInput({ invocationId }: { invocationId: number }) {
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const handleSubmit = async () => {
+    if (!message.trim() || status === "sending") return;
+
+    setStatus("sending");
+    setErrorMsg("");
+
+    try {
+      await sendPromptApi(invocationId, message.trim());
+      setStatus("sent");
+      setMessage("");
+
+      // Reset to idle after brief success indicator
+      setTimeout(() => setStatus("idle"), 2000);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Failed to send prompt");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 mt-3">
+      <input
+        type="text"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+        placeholder="Send a message to the running agent..."
+        disabled={status === "sending"}
+        className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+      />
+      <button
+        onClick={handleSubmit}
+        disabled={!message.trim() || status === "sending"}
+        className="px-3 py-1.5 text-sm rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {status === "sending" ? "Sending..." : "Send"}
+      </button>
+      {status === "sent" && (
+        <span className="text-xs text-green-400">Sent</span>
+      )}
+      {status === "error" && (
+        <span className="text-xs text-red-400">{errorMsg}</span>
+      )}
+    </div>
+  );
 }
 
 export default function TaskDetail({ taskId }: Props) {
@@ -139,6 +192,18 @@ export default function TaskDetail({ taskId }: Props) {
           </div>
         )}
       </div>
+
+      {/* Prompt input for running invocations */}
+      {(() => {
+        const runningInv = invocations.find((inv) => inv.status === "running");
+        if (!runningInv) return null;
+        return (
+          <div className="mt-4">
+            <label className="text-sm text-gray-400 mb-1 block">Send prompt to running agent</label>
+            <PromptInput invocationId={runningInv.id} />
+          </div>
+        );
+      })()}
     </div>
   );
 }

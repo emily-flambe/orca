@@ -20,7 +20,7 @@ import {
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
-import { killSession } from "../runner/index.js";
+import { killSession, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
@@ -167,6 +167,46 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
       // Best-effort — don't fail the abort if Linear write-back fails
     });
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/invocations/:id/prompt
+  // -----------------------------------------------------------------------
+  app.post("/api/invocations/:id/prompt", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    // Parse body
+    const body = await c.req.json<{ message?: string }>().catch(() => ({} as { message?: string }));
+    const message = body.message;
+    if (!message || typeof message !== "string" || message.trim().length === 0) {
+      return c.json({ error: "message is required" }, 400);
+    }
+
+    // Check invocation exists and is running
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      return c.json({ error: "invocation not found" }, 404);
+    }
+    if (invocation.status !== "running") {
+      return c.json({ error: `invocation is "${invocation.status}", not running` }, 409);
+    }
+
+    // Get the active session handle
+    const handle = activeHandles.get(id);
+    if (!handle) {
+      return c.json({ error: "no active session handle found (session may have just ended)" }, 409);
+    }
+
+    // Send the prompt to the running session
+    const sent = sendPrompt(handle, message.trim());
+    if (!sent) {
+      return c.json({ error: "failed to write to session stdin (process may have exited)" }, 409);
+    }
 
     return c.json({ ok: true });
   });
