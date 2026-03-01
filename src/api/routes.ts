@@ -1,4 +1,4 @@
-import { readFileSync, readFile, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync, createReadStream } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,7 +17,9 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
-  getAllInvocations,
+  getMetricsSummary,
+  getDailyInvocationStats,
+  getTopTasksByCost,
   getErrorInvocations,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
@@ -353,13 +355,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const logFile = join(process.cwd(), "orca.log");
     if (!existsSync(logFile)) {
-      return c.json({ lines: [], totalLines: 0 });
+      return c.json({ lines: [], totalLines: 0, matchedLines: 0 });
     }
 
+    // Read only the tail of the file to avoid OOM on large logs
+    const { size } = statSync(logFile);
+    const TAIL_BYTES = 512 * 1024; // 512 KB — enough for ~2000 lines
+    const start = Math.max(0, size - TAIL_BYTES);
+
     const raw = await new Promise<string>((resolve, reject) => {
-      readFile(logFile, "utf-8", (err, data) => (err ? reject(err) : resolve(data)));
+      let data = "";
+      const stream = createReadStream(logFile, { start, encoding: "utf-8" });
+      stream.on("data", (chunk: string) => { data += chunk; });
+      stream.on("end", () => resolve(data));
+      stream.on("error", reject);
     });
-    let allLines = raw.split("\n").filter((l) => l.trim());
+
+    // If we started mid-file, drop the first (potentially partial) line
+    let text = raw;
+    if (start > 0) {
+      const firstNewline = text.indexOf("\n");
+      if (firstNewline >= 0) text = text.slice(firstNewline + 1);
+    }
+
+    let allLines = text.split("\n").filter((l) => l.trim());
     const totalLines = allLines.length;
 
     if (search) {
@@ -375,40 +394,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // GET /api/metrics  (observability — invocation metrics)
   // -----------------------------------------------------------------------
   app.get("/api/metrics", (c) => {
-    const allInvs = getAllInvocations(db);
-
-    const total = allInvs.length;
-    const completed = allInvs.filter((i) => i.status === "completed").length;
-    const failed = allInvs.filter((i) => i.status === "failed").length;
-    const timedOut = allInvs.filter((i) => i.status === "timed_out").length;
-    const running = allInvs.filter((i) => i.status === "running").length;
-    const finished = completed + failed + timedOut;
-
-    const withCost = allInvs.filter((i) => i.costUsd != null);
-    const totalCost = withCost.reduce((s, i) => s + (i.costUsd ?? 0), 0);
-    const avgCost = withCost.length > 0 ? totalCost / withCost.length : 0;
-
-    const withDuration = allInvs.filter((i) => i.startedAt && i.endedAt);
-    const durations = withDuration
-      .map((i) => new Date(i.endedAt!).getTime() - new Date(i.startedAt).getTime())
-      .filter((d) => Number.isFinite(d) && d >= 0);
-    const avgDurationMs =
-      durations.length > 0
-        ? durations.reduce((a, b) => a + b, 0) / durations.length
-        : 0;
-
-    const withTurns = allInvs.filter((i) => i.numTurns != null);
-    const avgTurns =
-      withTurns.length > 0
-        ? withTurns.reduce((s, i) => s + (i.numTurns ?? 0), 0) / withTurns.length
-        : 0;
+    // All aggregation is pushed into SQL — no full-table scan
+    const summary = getMetricsSummary(db);
 
     // Per-day breakdown for last 14 days
-    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const recentInvs = allInvs.filter(
-      (i) => new Date(i.startedAt) >= fourteenDaysAgo,
-    );
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+      .toISOString();
+    const dailyRows = getDailyInvocationStats(db, fourteenDaysAgo);
 
+    // Pivot daily rows (grouped by day+status) into per-day objects
     const dailyMap = new Map<
       string,
       {
@@ -418,37 +412,33 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         timedOut: number;
         running: number;
         totalCost: number;
-        totalDurationMs: number;
+        avgDurationMs: number;
         durationCount: number;
       }
     >();
-
-    for (const inv of recentInvs) {
-      const day = inv.startedAt.slice(0, 10);
-      const entry = dailyMap.get(day) ?? {
+    for (const row of dailyRows) {
+      const entry = dailyMap.get(row.day) ?? {
         count: 0,
         completed: 0,
         failed: 0,
         timedOut: 0,
         running: 0,
         totalCost: 0,
-        totalDurationMs: 0,
+        avgDurationMs: 0,
         durationCount: 0,
       };
-      entry.count++;
-      if (inv.status === "completed") entry.completed++;
-      if (inv.status === "failed") entry.failed++;
-      if (inv.status === "timed_out") entry.timedOut++;
-      if (inv.status === "running") entry.running++;
-      if (inv.costUsd != null) entry.totalCost += inv.costUsd;
-      if (inv.endedAt) {
-        const dur = new Date(inv.endedAt).getTime() - new Date(inv.startedAt).getTime();
-        if (Number.isFinite(dur) && dur >= 0) {
-          entry.totalDurationMs += dur;
-          entry.durationCount++;
-        }
+      entry.count += row.cnt;
+      if (row.status === "completed") entry.completed += row.cnt;
+      if (row.status === "failed") entry.failed += row.cnt;
+      if (row.status === "timed_out") entry.timedOut += row.cnt;
+      if (row.status === "running") entry.running += row.cnt;
+      entry.totalCost += row.totalCost ?? 0;
+      if (row.avgDurationMs != null && Number.isFinite(row.avgDurationMs)) {
+        // Weighted merge: store sum and count to compute combined avg later
+        entry.avgDurationMs += row.avgDurationMs * row.cnt;
+        entry.durationCount += row.cnt;
       }
-      dailyMap.set(day, entry);
+      dailyMap.set(row.day, entry);
     }
 
     // Fill in missing days
@@ -477,47 +467,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         totalCost: entry?.totalCost ?? 0,
         avgDurationMs:
           entry && entry.durationCount > 0
-            ? entry.totalDurationMs / entry.durationCount
+            ? entry.avgDurationMs / entry.durationCount
             : 0,
       });
     }
 
     // Per-task cost breakdown (top 10 most expensive)
-    const taskCostMap = new Map<
-      string,
-      { totalCost: number; invocationCount: number }
-    >();
-    for (const inv of allInvs) {
-      if (inv.costUsd == null) continue;
-      const entry = taskCostMap.get(inv.linearIssueId) ?? {
-        totalCost: 0,
-        invocationCount: 0,
-      };
-      entry.totalCost += inv.costUsd;
-      entry.invocationCount++;
-      taskCostMap.set(inv.linearIssueId, entry);
-    }
-    const topTasks = [...taskCostMap.entries()]
-      .sort((a, b) => b[1].totalCost - a[1].totalCost)
-      .slice(0, 10)
-      .map(([taskId, data]) => ({ taskId, ...data }));
+    const topTasks = getTopTasksByCost(db, 10);
 
-    return c.json({
-      summary: {
-        total,
-        completed,
-        failed,
-        timedOut,
-        running,
-        finished,
-        totalCost,
-        avgCost,
-        avgDurationMs,
-        avgTurns,
-      },
-      daily,
-      topTasks,
-    });
+    return c.json({ summary, daily, topTasks });
   });
 
   // -----------------------------------------------------------------------

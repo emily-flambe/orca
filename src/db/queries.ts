@@ -1,4 +1,4 @@
-import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull } from "drizzle-orm";
+import { eq, gte, asc, desc, sql, count, sum, avg, inArray, and, isNotNull } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
@@ -304,9 +304,89 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
 // Observability queries
 // ---------------------------------------------------------------------------
 
-/** Get all invocations (for metrics aggregation). */
-export function getAllInvocations(db: OrcaDb): Invocation[] {
-  return db.select().from(invocations).all();
+/** Aggregated metrics summary computed in SQL (no full-table scan). */
+export function getMetricsSummary(db: OrcaDb) {
+  const statusCounts = db
+    .select({ status: invocations.status, cnt: count() })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all();
+
+  const countMap = new Map(statusCounts.map((r) => [r.status, r.cnt]));
+  const total = statusCounts.reduce((s, r) => s + r.cnt, 0);
+  const completed = countMap.get("completed") ?? 0;
+  const failed = countMap.get("failed") ?? 0;
+  const timedOut = countMap.get("timed_out") ?? 0;
+  const running = countMap.get("running") ?? 0;
+  const finished = completed + failed + timedOut;
+
+  const costRow = db
+    .select({ total: sum(invocations.costUsd), cnt: count() })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .get();
+  const totalCost = costRow?.total ? Number(costRow.total) : 0;
+  const costCount = costRow?.cnt ?? 0;
+
+  const durationRow = db
+    .select({
+      avgMs: sql<number>`AVG((julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400000)`,
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.endedAt))
+    .get();
+  const avgDurationMs = durationRow?.avgMs ?? 0;
+
+  const turnsRow = db
+    .select({ avgTurns: sql<number>`AVG(${invocations.numTurns})` })
+    .from(invocations)
+    .where(isNotNull(invocations.numTurns))
+    .get();
+
+  return {
+    total,
+    completed,
+    failed,
+    timedOut,
+    running,
+    finished,
+    totalCost,
+    avgCost: costCount > 0 ? totalCost / costCount : 0,
+    avgDurationMs: Number.isFinite(avgDurationMs) && avgDurationMs >= 0 ? avgDurationMs : 0,
+    avgTurns: turnsRow?.avgTurns ?? 0,
+  };
+}
+
+/** Daily invocation breakdown grouped by day and status, computed in SQL. */
+export function getDailyInvocationStats(db: OrcaDb, since: string) {
+  return db
+    .select({
+      day: sql<string>`substr(${invocations.startedAt}, 1, 10)`,
+      status: invocations.status,
+      cnt: count(),
+      totalCost: sql<number>`COALESCE(SUM(${invocations.costUsd}), 0)`,
+      avgDurationMs: sql<number>`AVG(CASE WHEN ${invocations.endedAt} IS NOT NULL THEN (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400000 END)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, since))
+    .groupBy(sql`substr(${invocations.startedAt}, 1, 10)`, invocations.status)
+    .all();
+}
+
+/** Top N tasks by total cost, computed in SQL. */
+export function getTopTasksByCost(db: OrcaDb, limit: number) {
+  return db
+    .select({
+      taskId: invocations.linearIssueId,
+      totalCost: sql<number>`SUM(${invocations.costUsd})`,
+      invocationCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .groupBy(invocations.linearIssueId)
+    .orderBy(sql`SUM(${invocations.costUsd}) DESC`)
+    .limit(limit)
+    .all();
 }
 
 /** Get recent failed/timed_out invocations. */
