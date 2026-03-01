@@ -31,7 +31,7 @@ fi
 sleep 2
 
 echo "[deploy] starting Orca..."
-npx tsx src/cli/index.ts start &
+npx tsx src/cli/index.ts start >> "$ORCA_DIR/orca.log" 2>&1 &
 disown
 
 echo "[deploy] done. Orca is running in the background."

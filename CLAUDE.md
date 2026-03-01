@@ -14,9 +14,9 @@ wmic process where "name='node.exe' and CommandLine like '%orca%start%'" get Pro
 
 sleep 2
 
-# Start Orca in background
+# Start Orca in background (redirect stdout/stderr to orca.log)
 cd /c/Users/emily/Documents/Github/orca
-npx tsx src/cli/index.ts start &
+npx tsx src/cli/index.ts start >> orca.log 2>&1 &
 disown
 ```
 
