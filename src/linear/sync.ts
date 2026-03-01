@@ -8,7 +8,6 @@ import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
-  deleteTask,
   getTask,
   getChildTasks,
   getParentTasks,
@@ -123,12 +122,12 @@ function upsertTask(
   issue: LinearIssue,
   config: OrcaConfig,
 ): void {
-  // Canceled issues should not exist in Orca's DB at all
+  // Canceled → transition existing tasks to failed; skip creating new ones.
   if (issue.state.name === "Canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      deleteTask(db, issue.identifier);
-      log(`deleted canceled task ${issue.identifier}`);
+      updateTaskStatus(db, issue.identifier, "failed");
+      log(`canceled task ${issue.identifier} → failed`);
     }
     return;
   }
@@ -390,6 +389,17 @@ export function resolveConflict(
   const task = getTask(db, taskId);
   if (!task) return;
 
+  // Canceled must be checked before the null guard because
+  // mapLinearStateToOrcaStatus returns null for Canceled.
+  if (linearStateName === "Canceled") {
+    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+      killRunningSession(db, taskId);
+    }
+    updateTaskStatus(db, taskId, "failed");
+    log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
+    return;
+  }
+
   const expectedOrcaStatus = mapLinearStateToOrcaStatus(linearStateName);
   if (expectedOrcaStatus === null) return;
 
@@ -443,15 +453,7 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 7: Any, Linear Canceled → kill session if running, delete task
-  if (linearStateName === "Canceled") {
-    if (task.orcaStatus === "running") {
-      killRunningSession(db, taskId);
-    }
-    deleteTask(db, taskId);
-    log(`conflict resolved: task ${taskId} deleted (Linear Canceled)`);
-    return;
-  }
+  // Note: Canceled is handled above the null guard at the top of this function.
 }
 
 // ---------------------------------------------------------------------------

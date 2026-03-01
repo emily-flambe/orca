@@ -145,7 +145,12 @@ describe("9.1 - Add task via DB and verify", () => {
 // 9.2  Runner: spawnSession with mock claude script
 // ---------------------------------------------------------------------------
 
-describe("9.2 - Runner spawns mock claude session through full lifecycle", () => {
+// These tests create bash scripts as mock claude executables. On Windows,
+// spawn() without shell:true cannot execute shebang scripts, so we skip them.
+// Production is unaffected because the real `claude` CLI is a proper executable.
+const isWindows = process.platform === "win32";
+
+describe.skipIf(isWindows)("9.2 - Runner spawns mock claude session through full lifecycle", () => {
   let tmpDir: string;
   let mockScript: string;
 
@@ -215,7 +220,7 @@ describe("9.2 - Runner spawns mock claude session through full lifecycle", () =>
 // 9.3  Timeout enforcement / killSession
 // ---------------------------------------------------------------------------
 
-describe("9.3 - Timeout enforcement via killSession", () => {
+describe.skipIf(isWindows)("9.3 - Timeout enforcement via killSession", () => {
   let tmpDir: string;
   let sleepScript: string;
 
