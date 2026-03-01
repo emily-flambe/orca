@@ -132,6 +132,17 @@ async function dispatch(
 
   const logPath = `logs/${invocationId}.ndjson`;
 
+  // Post dispatch comment to Linear (fire-and-forget)
+  const dispatchComment =
+    phase === "review"
+      ? `Dispatched for code review (invocation #${invocationId}, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`
+      : task.orcaStatus === "changes_requested"
+        ? `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
+        : `Dispatched for implementation (invocation #${invocationId})`;
+  client.createComment(taskId, dispatchComment).catch((err) => {
+    log(`comment failed on dispatch for task ${taskId}: ${err}`);
+  });
+
   // 3. Determine worktree base ref
   const useExistingBranch = phase === "review" || (phase === "implement" && task.orcaStatus === "changes_requested");
   const baseRef = useExistingBranch && task.prBranchName ? task.prBranchName : undefined;
@@ -396,6 +407,14 @@ function onImplementSuccess(
     log(`write-back failed on implement success for task ${taskId}: ${err}`);
   });
 
+  // Post implementation success comment (fire-and-forget)
+  client.createComment(
+    taskId,
+    `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${branchName}\``,
+  ).catch((err) => {
+    log(`comment failed on implement success for task ${taskId}: ${err}`);
+  });
+
   // Clean up worktree
   try {
     removeWorktree(worktreePath);
@@ -481,6 +500,14 @@ async function onReviewSuccess(
       updateTaskStatus(db, taskId, "deploying");
       emitTaskUpdated(getTask(db, taskId)!);
 
+      // Post review approved + deploy started comments (fire-and-forget)
+      client.createComment(taskId, `Review approved — PR #${prNumber ?? "?"} merged`).catch((err) => {
+        log(`comment failed on review approved for task ${taskId}: ${err}`);
+      });
+      client.createComment(taskId, `Deploy started — monitoring CI for commit ${mergeCommitSha ?? "unknown"}`).catch((err) => {
+        log(`comment failed on deploy started for task ${taskId}: ${err}`);
+      });
+
       log(
         `task ${taskId} review approved → deploying ` +
           `(PR #${prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
@@ -494,6 +521,14 @@ async function onReviewSuccess(
         log(`write-back failed on review approved for task ${taskId}: ${err}`);
       });
 
+      // Post review approved + done comments (fire-and-forget)
+      client.createComment(taskId, `Review approved — PR #${task.prNumber ?? "?"} merged`).catch((err) => {
+        log(`comment failed on review approved for task ${taskId}: ${err}`);
+      });
+      client.createComment(taskId, "Task complete").catch((err) => {
+        log(`comment failed on done for task ${taskId}: ${err}`);
+      });
+
       log(`task ${taskId} review approved → done (invocation ${invocationId})`);
     }
   } else if (changesRequested) {
@@ -505,6 +540,14 @@ async function onReviewSuccess(
 
       writeBackStatus(client, taskId, "changes_requested", stateMap).catch((err) => {
         log(`write-back failed on changes requested for task ${taskId}: ${err}`);
+      });
+
+      // Post changes requested comment (fire-and-forget)
+      client.createComment(
+        taskId,
+        `Review requested changes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+      ).catch((err) => {
+        log(`comment failed on changes requested for task ${taskId}: ${err}`);
       });
 
       try {
@@ -558,7 +601,7 @@ function onSessionFailure(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db } = deps;
+  const { db, client } = deps;
 
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
@@ -576,7 +619,7 @@ function onSessionFailure(
   }
 
   // Retry logic
-  handleRetry(deps, taskId);
+  handleRetry(deps, taskId, result.outputSummary);
 }
 
 // ---------------------------------------------------------------------------
@@ -606,13 +649,15 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
 // Retry logic (6.5)
 // ---------------------------------------------------------------------------
 
-function handleRetry(deps: SchedulerDeps, taskId: string): void {
+function handleRetry(deps: SchedulerDeps, taskId: string, summary?: string): void {
   const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) {
     log(`retry: task ${taskId} not found`);
     return;
   }
+
+  const briefSummary = summary ? summary.slice(0, 200) : "unknown error";
 
   if (task.retryCount < config.maxRetries) {
     incrementRetryCount(db, taskId);
@@ -624,6 +669,17 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
       log(`write-back failed on retry for task ${taskId}: ${err}`);
     });
+
+    // Post retry comments (fire-and-forget)
+    client.createComment(
+      taskId,
+      `Invocation failed — retrying (attempt ${task.retryCount + 1}/${config.maxRetries}): ${briefSummary}`,
+    ).catch((err) => {
+      log(`comment failed on retry for task ${taskId}: ${err}`);
+    });
+    client.createComment(taskId, "Queued for retry").catch((err) => {
+      log(`comment failed on queued for retry for task ${taskId}: ${err}`);
+    });
   } else {
     log(
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
@@ -632,6 +688,14 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
     // Write-back on permanent failure (fire-and-forget)
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
       log(`write-back failed on permanent failure for task ${taskId}: ${err}`);
+    });
+
+    // Post permanent failure comment (fire-and-forget)
+    client.createComment(
+      taskId,
+      `Task failed permanently after ${config.maxRetries} retries: ${briefSummary}`,
+    ).catch((err) => {
+      log(`comment failed on permanent failure for task ${taskId}: ${err}`);
     });
   }
 }
@@ -749,6 +813,14 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           log(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
         });
 
+        // Post deploy timeout comment (fire-and-forget)
+        client.createComment(
+          taskId,
+          `Task failed permanently after ${config.maxRetries} retries: deploy timed out after ${config.deployTimeoutMin}min`,
+        ).catch((err) => {
+          log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
+        });
+
         log(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
         continue;
       }
@@ -762,6 +834,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
         log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
+      });
+
+      client.createComment(taskId, "Task complete").catch((err) => {
+        log(`comment failed on done (no SHA) for task ${taskId}: ${err}`);
       });
 
       log(`task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`);
@@ -780,6 +856,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         log(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
 
+      // Post done comment (fire-and-forget)
+      client.createComment(taskId, "Task complete").catch((err) => {
+        log(`comment failed on deploy success for task ${taskId}: ${err}`);
+      });
+
       log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
     } else if (status === "failure") {
       updateTaskStatus(db, taskId, "failed");
@@ -788,6 +869,14 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 
       writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
         log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
+      });
+
+      // Post deploy failure comment (fire-and-forget)
+      client.createComment(
+        taskId,
+        `Task failed permanently after ${config.maxRetries} retries: deploy CI failed for commit ${task.mergeCommitSha}`,
+      ).catch((err) => {
+        log(`comment failed on deploy failure for task ${taskId}: ${err}`);
       });
 
       log(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
