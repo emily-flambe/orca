@@ -132,7 +132,8 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
               priority: 2,
               state: { id: "state-1", name: "Todo", type: "unstarted" },
               team: { id: "team-1" },
-              project: { id: "proj-1" },
+              project: { id: "proj-1", name: "Test Project" },
+              description: null,
               relations: {
                 nodes: [
                   {
@@ -142,6 +143,8 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
                 ],
               },
               inverseRelations: { nodes: [] },
+              parent: null,
+              children: { nodes: [] },
             },
           ],
         },
@@ -158,10 +161,11 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
               id: "issue-2",
               identifier: "PROJ-2",
               title: "Second issue",
+              description: null,
               priority: 1,
               state: { id: "state-2", name: "In Progress", type: "started" },
               team: { id: "team-1" },
-              project: { id: "proj-1" },
+              project: { id: "proj-1", name: "Test Project" },
               relations: { nodes: [] },
               inverseRelations: {
                 nodes: [
@@ -171,6 +175,8 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
                   },
                 ],
               },
+              parent: null,
+              children: { nodes: [] },
             },
           ],
         },
