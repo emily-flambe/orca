@@ -223,9 +223,12 @@ async function dispatch(
   let systemPrompt: string | undefined;
   let maxTurns = config.defaultMaxTurns;
 
-  const disallowedTools = config.disallowedTools
+  // Always block interactive-only tools; merge with user-configured list
+  const ALWAYS_DISALLOWED = ["EnterPlanMode", "AskUserQuestion"];
+  const userDisallowed = config.disallowedTools
     ? config.disallowedTools.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
+  const disallowedTools = [...new Set([...ALWAYS_DISALLOWED, ...userDisallowed])];
 
   if (phase === "review") {
     const prRef = task.prNumber ? `#${task.prNumber}` : "on this branch";
