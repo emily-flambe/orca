@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, ObservabilityMetrics, ObservabilityErrors, LogSearchResult } from "../types";
 
 const BASE = "/api";
 
@@ -53,4 +53,19 @@ export function updateConfig(config: { concurrencyCap?: number }): Promise<{ ok:
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
   });
+}
+
+export function fetchObservabilityMetrics(): Promise<ObservabilityMetrics> {
+  return fetchJson<ObservabilityMetrics>("/observability/metrics");
+}
+
+export function fetchObservabilityErrors(): Promise<ObservabilityErrors> {
+  return fetchJson<ObservabilityErrors>("/observability/errors");
+}
+
+export function searchLogs(params: { q?: string; taskId?: string }): Promise<LogSearchResult> {
+  const searchParams = new URLSearchParams();
+  if (params.q) searchParams.set("q", params.q);
+  if (params.taskId) searchParams.set("taskId", params.taskId);
+  return fetchJson<LogSearchResult>(`/observability/logs/search?${searchParams.toString()}`);
 }

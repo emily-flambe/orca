@@ -17,6 +17,17 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getTasksByStatus,
+  getInvocationsByStatusGroup,
+  getTotalCostAllTime,
+  getCostByDay,
+  getAvgSessionDuration,
+  getTotalInvocations,
+  getRecentCompletions,
+  getRecentErrors,
+  getErrorPatterns,
+  getFailureRate,
+  getInvocationsForLogSearch,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -340,6 +351,187 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     return c.json({ ok: true, concurrencyCap: config.concurrencyCap });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/metrics", (c) => {
+    const tasksByStatus = getTasksByStatus(db);
+    const invocationsByStatus = getInvocationsByStatusGroup(db);
+    const totalCostAllTime = getTotalCostAllTime(db);
+    const costByDay = getCostByDay(db);
+    const avgSessionDuration = getAvgSessionDuration(db);
+    const totalInvocations = getTotalInvocations(db);
+    const recentCompletionsRaw = getRecentCompletions(db, 20);
+
+    const recentCompletions = recentCompletionsRaw.map((inv) => ({
+      id: inv.id,
+      linearIssueId: inv.linearIssueId,
+      startedAt: inv.startedAt,
+      endedAt: inv.endedAt,
+      status: inv.status,
+      costUsd: inv.costUsd,
+      numTurns: inv.numTurns,
+      phase: inv.phase,
+    }));
+
+    return c.json({
+      tasksByStatus,
+      invocationsByStatus,
+      totalCostAllTime,
+      costByDay,
+      avgSessionDuration,
+      totalInvocations,
+      recentCompletions,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/errors
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/errors", (c) => {
+    const recentErrorsRaw = getRecentErrors(db, 50);
+
+    const recentErrors = recentErrorsRaw.map((inv) => ({
+      id: inv.id,
+      linearIssueId: inv.linearIssueId,
+      startedAt: inv.startedAt,
+      endedAt: inv.endedAt,
+      outputSummary: inv.outputSummary,
+      phase: inv.phase,
+      costUsd: inv.costUsd,
+    }));
+
+    const errorPatterns = getErrorPatterns(db, 20);
+    const failureRate = getFailureRate(db);
+
+    return c.json({ recentErrors, errorPatterns, failureRate });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/logs/search
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/logs/search", (c) => {
+    const q = c.req.query("q");
+    const taskId = c.req.query("taskId");
+
+    if (!q && !taskId) {
+      return c.json({ error: "at least one of 'q' or 'taskId' query params is required" }, 400);
+    }
+
+    const invocationsToSearch = getInvocationsForLogSearch(db, taskId);
+
+    const results: {
+      invocationId: number;
+      linearIssueId: string;
+      startedAt: string;
+      matches: { lineIndex: number; type: string; text: string }[];
+    }[] = [];
+    let totalMatches = 0;
+    const maxMatches = 100;
+
+    for (const inv of invocationsToSearch) {
+      if (totalMatches >= maxMatches) break;
+
+      let logFile: string;
+      if (inv.logPath) {
+        logFile = isAbsolute(inv.logPath)
+          ? inv.logPath
+          : join(process.cwd(), inv.logPath);
+      } else {
+        logFile = join(process.cwd(), "logs", `${inv.id}.ndjson`);
+      }
+
+      if (!existsSync(logFile)) continue;
+
+      let raw: string;
+      try {
+        raw = readFileSync(logFile, "utf-8");
+      } catch {
+        continue;
+      }
+
+      const lines = raw.split("\n");
+      const matches: { lineIndex: number; type: string; text: string }[] = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        if (totalMatches >= maxMatches) break;
+
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        let msg: Record<string, unknown>;
+        try {
+          msg = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+
+        const type = (msg.type as string) ?? "unknown";
+        let textContent = "";
+
+        if (type === "assistant" && msg.message && typeof msg.message === "object") {
+          const message = msg.message as Record<string, unknown>;
+          if (Array.isArray(message.content)) {
+            for (const block of message.content) {
+              if (typeof block === "object" && block !== null) {
+                const b = block as Record<string, unknown>;
+                if (b.type === "text" && typeof b.text === "string") {
+                  textContent += b.text + " ";
+                } else if (b.type === "thinking" && typeof b.thinking === "string") {
+                  textContent += b.thinking + " ";
+                } else if (b.type === "tool_use" && typeof b.name === "string") {
+                  textContent += b.name + " ";
+                  if (typeof b.input === "string") {
+                    textContent += b.input + " ";
+                  }
+                }
+              }
+            }
+          }
+        } else if (type === "result") {
+          if (typeof msg.result === "string") textContent = msg.result;
+          if (typeof msg.subtype === "string") textContent += " " + msg.subtype;
+        }
+
+        if (!q) {
+          if (textContent.trim()) {
+            matches.push({ lineIndex: i, type, text: textContent.trim().slice(0, 200) });
+            totalMatches++;
+          }
+          continue;
+        }
+
+        const lowerText = textContent.toLowerCase();
+        const lowerQ = q.toLowerCase();
+        const matchIdx = lowerText.indexOf(lowerQ);
+
+        if (matchIdx !== -1) {
+          const contextStart = Math.max(0, matchIdx - 80);
+          const contextEnd = Math.min(textContent.length, matchIdx + q.length + 120);
+          const snippet = textContent.slice(contextStart, contextEnd);
+
+          matches.push({
+            lineIndex: i,
+            type,
+            text: (contextStart > 0 ? "..." : "") + snippet + (contextEnd < textContent.length ? "..." : ""),
+          });
+          totalMatches++;
+        }
+      }
+
+      if (matches.length > 0) {
+        results.push({
+          invocationId: inv.id,
+          linearIssueId: inv.linearIssueId,
+          startedAt: inv.startedAt,
+          matches,
+        });
+      }
+    }
+
+    return c.json({ results, totalMatches });
   });
 
   // -----------------------------------------------------------------------

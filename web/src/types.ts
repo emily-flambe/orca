@@ -47,3 +47,58 @@ export interface OrcaStatus {
   budgetWindowHours: number;
   concurrencyCap: number;
 }
+
+export interface ObservabilityMetrics {
+  tasksByStatus: Record<string, number>;
+  invocationsByStatus: Record<string, number>;
+  totalCostAllTime: number;
+  costByDay: { date: string; cost: number }[];
+  avgSessionDuration: number;
+  totalInvocations: number;
+  recentCompletions: {
+    id: number;
+    linearIssueId: string;
+    startedAt: string;
+    endedAt: string | null;
+    status: string;
+    costUsd: number | null;
+    numTurns: number | null;
+    phase: string | null;
+  }[];
+}
+
+export interface ObservabilityErrors {
+  recentErrors: {
+    id: number;
+    linearIssueId: string;
+    startedAt: string;
+    endedAt: string | null;
+    outputSummary: string | null;
+    phase: string | null;
+    costUsd: number | null;
+  }[];
+  errorPatterns: {
+    pattern: string;
+    count: number;
+    lastSeen: string;
+  }[];
+  failureRate: {
+    total: number;
+    failed: number;
+    rate: number;
+  };
+}
+
+export interface LogSearchResult {
+  results: {
+    invocationId: number;
+    linearIssueId: string;
+    startedAt: string;
+    matches: {
+      lineIndex: number;
+      type: string;
+      text: string;
+    }[];
+  }[];
+  totalMatches: number;
+}

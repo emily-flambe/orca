@@ -5,12 +5,16 @@ import { useSSE } from "./hooks/useSSE";
 import OrchestratorBar from "./components/OrchestratorBar";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
+import ObservabilityDashboard from "./components/ObservabilityDashboard";
+
+type View = "tasks" | "observability";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [view, setView] = useState<View>("tasks");
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -59,24 +63,48 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
-          <TaskList
-            tasks={tasks}
-            selectedTaskId={selectedTaskId}
-            onSelect={setSelectedTaskId}
-          />
-        </div>
-        <div className="w-3/5 overflow-y-auto">
-          {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a task to view details
-            </div>
-          )}
-        </div>
+      <div className="flex gap-1 px-4 py-2 border-b border-gray-800 bg-gray-900/50 shrink-0">
+        <button
+          onClick={() => setView("tasks")}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            view === "tasks" ? "bg-gray-700 text-gray-100" : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          Tasks
+        </button>
+        <button
+          onClick={() => setView("observability")}
+          className={`px-3 py-1 text-xs rounded transition-colors ${
+            view === "observability" ? "bg-gray-700 text-gray-100" : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          Observability
+        </button>
       </div>
+      {view === "tasks" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+            <TaskList
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelect={setSelectedTaskId}
+            />
+          </div>
+          <div className="w-3/5 overflow-y-auto">
+            {selectedTaskId ? (
+              <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                Select a task to view details
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <ObservabilityDashboard />
+        </div>
+      )}
     </div>
   );
 }

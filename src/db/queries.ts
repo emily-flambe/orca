@@ -1,4 +1,4 @@
-import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull } from "drizzle-orm";
+import { eq, ne, gte, asc, desc, sql, count, sum, inArray, and, isNotNull } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
@@ -325,4 +325,190 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
     .where(gte(budgetEvents.recordedAt, windowStart))
     .get();
   return result?.total ? Number(result.total) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Observability queries
+// ---------------------------------------------------------------------------
+
+/** Count tasks grouped by orcaStatus. */
+export function getTasksByStatus(db: OrcaDb): Record<string, number> {
+  const rows = db
+    .select({ status: tasks.orcaStatus, cnt: count() })
+    .from(tasks)
+    .groupBy(tasks.orcaStatus)
+    .all();
+  const result: Record<string, number> = {};
+  for (const row of rows) {
+    result[row.status] = row.cnt;
+  }
+  return result;
+}
+
+/** Count invocations grouped by status. */
+export function getInvocationsByStatusGroup(db: OrcaDb): Record<string, number> {
+  const rows = db
+    .select({ status: invocations.status, cnt: count() })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all();
+  const result: Record<string, number> = {};
+  for (const row of rows) {
+    result[row.status] = row.cnt;
+  }
+  return result;
+}
+
+/** Sum all costUsd from invocations. */
+export function getTotalCostAllTime(db: OrcaDb): number {
+  const result = db
+    .select({ total: sum(invocations.costUsd) })
+    .from(invocations)
+    .get();
+  return result?.total ? Number(result.total) : 0;
+}
+
+/** Get cost per day from budget_events for the last 30 days. */
+export function getCostByDay(db: OrcaDb): { date: string; cost: number }[] {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db
+    .select({
+      date: sql<string>`substr(${budgetEvents.recordedAt}, 1, 10)`,
+      cost: sum(budgetEvents.costUsd),
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, thirtyDaysAgo))
+    .groupBy(sql`substr(${budgetEvents.recordedAt}, 1, 10)`)
+    .orderBy(asc(sql`substr(${budgetEvents.recordedAt}, 1, 10)`))
+    .all();
+  return rows.map((r) => ({ date: r.date, cost: r.cost ? Number(r.cost) : 0 }));
+}
+
+/** Average session duration in seconds for completed invocations. */
+export function getAvgSessionDuration(db: OrcaDb): number {
+  const result = db
+    .select({
+      avg: sql<number>`avg(
+        strftime('%s', ${invocations.endedAt}) - strftime('%s', ${invocations.startedAt})
+      )`,
+    })
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.status, "completed"),
+        isNotNull(invocations.endedAt),
+      ),
+    )
+    .get();
+  return result?.avg ? Math.round(result.avg) : 0;
+}
+
+/** Count all invocations. */
+export function getTotalInvocations(db: OrcaDb): number {
+  const result = db
+    .select({ cnt: count() })
+    .from(invocations)
+    .get();
+  return result?.cnt ?? 0;
+}
+
+/** Get last N non-running invocations ordered by startedAt desc. */
+export function getRecentCompletions(db: OrcaDb, limit = 20): Invocation[] {
+  return db
+    .select()
+    .from(invocations)
+    .where(ne(invocations.status, "running"))
+    .orderBy(desc(invocations.startedAt))
+    .limit(limit)
+    .all();
+}
+
+/** Get last N failed/timed_out invocations ordered by startedAt desc. */
+export function getRecentErrors(db: OrcaDb, limit = 50): Invocation[] {
+  return db
+    .select()
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .orderBy(desc(invocations.startedAt))
+    .limit(limit)
+    .all();
+}
+
+/** Group failed/timed_out invocations by outputSummary, return top N patterns. */
+export function getErrorPatterns(
+  db: OrcaDb,
+  limit = 20,
+): { pattern: string; count: number; lastSeen: string }[] {
+  const rows = db
+    .select({
+      pattern: invocations.outputSummary,
+      cnt: count(),
+      lastSeen: sql<string>`max(${invocations.startedAt})`,
+    })
+    .from(invocations)
+    .where(
+      and(
+        inArray(invocations.status, ["failed", "timed_out"]),
+        isNotNull(invocations.outputSummary),
+      ),
+    )
+    .groupBy(invocations.outputSummary)
+    .orderBy(desc(count()))
+    .limit(limit)
+    .all();
+  return rows.map((r) => ({
+    pattern: r.pattern ?? "unknown",
+    count: r.cnt,
+    lastSeen: r.lastSeen,
+  }));
+}
+
+/** Get failure rate: total non-running invocations vs failed/timed_out. */
+export function getFailureRate(db: OrcaDb): { total: number; failed: number; rate: number } {
+  const totalResult = db
+    .select({ cnt: count() })
+    .from(invocations)
+    .where(ne(invocations.status, "running"))
+    .get();
+  const total = totalResult?.cnt ?? 0;
+
+  const failedResult = db
+    .select({ cnt: count() })
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .get();
+  const failed = failedResult?.cnt ?? 0;
+
+  return { total, failed, rate: total > 0 ? Number((failed / total).toFixed(2)) : 0 };
+}
+
+/** Get invocations for log search, optionally filtered by taskId. */
+export function getInvocationsForLogSearch(
+  db: OrcaDb,
+  taskId?: string,
+): Pick<Invocation, "id" | "linearIssueId" | "startedAt" | "logPath">[] {
+  if (taskId) {
+    return db
+      .select({
+        id: invocations.id,
+        linearIssueId: invocations.linearIssueId,
+        startedAt: invocations.startedAt,
+        logPath: invocations.logPath,
+      })
+      .from(invocations)
+      .where(eq(invocations.linearIssueId, taskId))
+      .orderBy(desc(invocations.startedAt))
+      .all();
+  }
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      startedAt: invocations.startedAt,
+      logPath: invocations.logPath,
+    })
+    .from(invocations)
+    .orderBy(desc(invocations.startedAt))
+    .limit(100)
+    .all();
 }
