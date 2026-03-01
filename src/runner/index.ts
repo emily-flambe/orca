@@ -18,6 +18,8 @@ export interface SessionResult {
   numTurns: number | null;
   /** Process exit code (null if killed by signal). */
   exitCode: number | null;
+  /** Signal that killed the process (e.g. "SIGTERM"), or null if exited normally. */
+  exitSignal: string | null;
   /** Human-readable summary of the result or error. */
   outputSummary: string;
 }
@@ -72,6 +74,37 @@ function ensureLogsDir(projectRoot: string): string {
   const logsDir = join(projectRoot, "logs");
   mkdirSync(logsDir, { recursive: true });
   return logsDir;
+}
+
+/**
+ * Map of known Windows NTSTATUS exit codes to human-readable names.
+ * These appear as unsigned 32-bit values from Node's child_process.
+ */
+const WINDOWS_EXIT_CODES: Record<number, string> = {
+  3221225477: "STATUS_ACCESS_VIOLATION (0xC0000005)",
+  3221225725: "STATUS_CONTROL_C_EXIT (0xC000013A)",
+  3221225786: "STATUS_CONTROL_C_EXIT (0xC000013A)", // alternate
+  3221225794: "STATUS_DLL_INIT_FAILED (0xC0000142)",
+  3221225495: "STATUS_STACK_OVERFLOW (0xC00000FD)",
+  3221226505: "STATUS_STACK_BUFFER_OVERRUN (0xC0000409)",
+  3221225501: "STATUS_BAD_INITIAL_STACK (0xC0000103)",
+  3221225559: "STATUS_GDI_HANDLE_LEAK (0xC0000117)",
+};
+
+/** Signed 32-bit equivalents (Node sometimes reports signed values). */
+const WINDOWS_EXIT_CODES_SIGNED: Record<number, string> = {};
+for (const [code, name] of Object.entries(WINDOWS_EXIT_CODES)) {
+  const signed = (Number(code) | 0); // Convert to signed 32-bit
+  if (signed < 0) WINDOWS_EXIT_CODES_SIGNED[signed] = name;
+}
+
+/**
+ * Translate a process exit code to a human-readable description.
+ * Returns null if the code is not a recognized special value.
+ */
+function describeExitCode(code: number | null): string | null {
+  if (code === null) return null;
+  return WINDOWS_EXIT_CODES[code] ?? WINDOWS_EXIT_CODES_SIGNED[code] ?? null;
 }
 
 /**
@@ -226,6 +259,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
     // Track completion of both the readline close and process exit.
     let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
     let exitReceived = false;
     let rlClosed = false;
 
@@ -236,17 +270,31 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       logStream.end();
 
       if (resultReceived && handle.result) {
-        // Attach exit code to the already-parsed result.
+        // Attach exit code and signal to the already-parsed result.
         handle.result.exitCode = exitCode;
+        handle.result.exitSignal = exitSignal?.toString() ?? null;
         resolve(handle.result);
-      } else if (exitCode !== 0) {
-        // No result message and non-zero exit -> process error.
+      } else if (exitCode !== 0 || exitSignal) {
+        // No result message and non-zero exit or signal -> process error.
+        // Build a descriptive summary with as much info as possible.
+        const parts: string[] = ["process exited"];
+        if (exitSignal) {
+          parts.push(`by signal ${exitSignal}`);
+        }
+        if (exitCode !== null) {
+          const desc = describeExitCode(exitCode);
+          parts.push(`with code ${exitCode}${desc ? ` (${desc})` : ""}`);
+        } else if (!exitSignal) {
+          parts.push("with code unknown");
+        }
+
         const result: SessionResult = {
           subtype: "process_error",
           costUsd: null,
           numTurns: null,
           exitCode,
-          outputSummary: `process exited with code ${exitCode ?? "unknown"}`,
+          exitSignal: exitSignal?.toString() ?? null,
+          outputSummary: parts.join(" "),
         };
         handle.result = result;
         resolve(result);
@@ -259,6 +307,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           costUsd: null,
           numTurns: null,
           exitCode: 0,
+          exitSignal: null,
           outputSummary: "process exited cleanly with no result message",
         };
         handle.result = result;
@@ -342,6 +391,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           costUsd,
           numTurns,
           exitCode: null, // Will be filled in on exit.
+          exitSignal: null, // Will be filled in on exit.
           outputSummary,
         };
         return;
@@ -357,22 +407,43 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     });
 
     // ------------------------------------------------------------------
-    // stderr -- forward to parent stderr for visibility
+    // stderr -- forward to parent stderr AND write to log file
     // ------------------------------------------------------------------
     if (proc.stderr) {
       proc.stderr.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
         process.stderr.write(
-          `[orca/runner][stderr][inv-${options.invocationId}] ${chunk.toString()}`,
+          `[orca/runner][stderr][inv-${options.invocationId}] ${text}`,
         );
+        // Write stderr to the log file as a structured JSON line so it's
+        // preserved for post-mortem analysis.
+        const stderrEntry = JSON.stringify({
+          type: "stderr",
+          timestamp: new Date().toISOString(),
+          text: text.trimEnd(),
+        });
+        logStream.write(stderrEntry + "\n");
       });
     }
 
     // ------------------------------------------------------------------
     // Process exit handler
     // ------------------------------------------------------------------
-    proc.on("exit", (code: number | null, _signal: NodeJS.Signals | null) => {
+    proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
       exitCode = code;
+      exitSignal = signal;
       exitReceived = true;
+
+      // Log exit details to the log file for post-mortem analysis.
+      const exitEntry = JSON.stringify({
+        type: "process_exit",
+        timestamp: new Date().toISOString(),
+        code,
+        signal: signal?.toString() ?? null,
+        codeDescription: code !== null ? describeExitCode(code) : null,
+      });
+      logStream.write(exitEntry + "\n");
+
       tryResolve();
 
       // Safety timeout: if readline hasn't closed within 10 seconds of
@@ -404,6 +475,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         costUsd: null,
         numTurns: null,
         exitCode: null,
+        exitSignal: null,
         outputSummary: `spawn error: ${err.message}`,
       };
       handle.result = result;
