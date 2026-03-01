@@ -597,7 +597,7 @@ describe("10.3 - Conflict resolution", () => {
     expect(task!.orcaStatus).toBe("ready");
   });
 
-  test("Canceled with PR -> closePr is called with correct args", async () => {
+  test("Canceled -> resolveConflict does NOT close PRs (upsertTask owns that)", async () => {
     const { closePr } = await import("../src/github/index.js");
     const closePrMock = closePr as unknown as Mock;
     closePrMock.mockClear();
@@ -611,16 +611,13 @@ describe("10.3 - Conflict resolution", () => {
 
     resolveConflict(db, taskId, "Canceled", config);
 
-    expect(closePrMock).toHaveBeenCalledTimes(1);
-    expect(closePrMock).toHaveBeenCalledWith(
-      42,
-      "/tmp/test-repo",
-      expect.stringContaining("CONFLICT-PR-1"),
-    );
+    // resolveConflict should NOT call closePr — upsertTask is the sole owner
+    expect(closePrMock).not.toHaveBeenCalled();
+    // But the task should still transition to failed
     expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
   });
 
-  test("Canceled without PR -> closePr is not called", async () => {
+  test("Canceled without PR -> task transitions to failed", async () => {
     const { closePr } = await import("../src/github/index.js");
     const closePrMock = closePr as unknown as Mock;
     closePrMock.mockClear();
@@ -635,29 +632,6 @@ describe("10.3 - Conflict resolution", () => {
 
     expect(closePrMock).not.toHaveBeenCalled();
     expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
-  });
-
-  test("Canceled with PR close failure -> task still transitions to failed", async () => {
-    const { closePr } = await import("../src/github/index.js");
-    const closePrMock = closePr as unknown as Mock;
-    closePrMock.mockClear();
-    closePrMock.mockReturnValue({ closed: false, error: "PR already closed" });
-
-    const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-PR-3",
-      orcaStatus: "in_review",
-      repoPath: "/tmp/test-repo",
-    });
-    updateTaskDeployInfo(db, taskId, { prNumber: 99 });
-
-    resolveConflict(db, taskId, "Canceled", config);
-
-    // Even though closePr failed, task should still be failed
-    expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
-    expect(closePrMock).toHaveBeenCalledTimes(1);
-
-    // Reset mock for other tests
-    closePrMock.mockReturnValue({ closed: true });
   });
 });
 

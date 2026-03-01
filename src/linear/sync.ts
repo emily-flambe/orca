@@ -411,11 +411,13 @@ export function resolveConflict(
 
   // Canceled must be checked before the null guard because
   // mapLinearStateToOrcaStatus returns null for Canceled.
+  // Note: PR closing is NOT done here — upsertTask owns that responsibility
+  // to avoid double-closing when both resolveConflict and upsertTask run
+  // in the webhook path.
   if (linearStateName === "Canceled") {
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    closeTaskPrs(taskId, task.prNumber, task.repoPath);
     updateTaskStatus(db, taskId, "failed");
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     return;
