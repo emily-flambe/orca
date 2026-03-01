@@ -50,19 +50,16 @@ export function git(args: string[], options?: { cwd?: string }): string {
  * Returns true if the error is a transient OS/infrastructure failure
  * that is worth retrying (not a git-level error like bad ref).
  *
+ * NOTE: Windows STATUS_DLL_INIT_FAILED (0xC0000142) is NOT classified
+ * as transient — it indicates system-level resource exhaustion that
+ * won't resolve via retry and just wastes cycles spinning.
+ *
  * Currently detects:
- * - Windows exit code 3221225794 (STATUS_DLL_INIT_FAILED / 0xC0000142)
  * - Process killed by signal (e.g. SIGKILL, SIGTERM)
  */
 export function isTransientGitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const execErr = err as ExecError;
-
-  // Windows DLL init failure
-  if (execErr.status === WIN_DLL_INIT_FAILED) return true;
-
-  // Also check the message for the exit code (our git() formats it as "exit: <code>")
-  if (err.message.includes(`exit: ${WIN_DLL_INIT_FAILED}`)) return true;
 
   // Signal-killed process (OOM killer, etc.)
   if (execErr.signal) return true;

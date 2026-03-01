@@ -55,14 +55,14 @@ function retryWrapper(fn: () => string, maxAttempts: number): string {
 // ---------------------------------------------------------------------------
 
 describe("isTransientGitError", () => {
-  test("returns true for Windows DLL init failed exit code (status property)", () => {
+  test("returns false for Windows DLL init failed exit code (not transient)", () => {
     const err = makeGitError({ status: 3221225794 });
-    expect(isTransientGitError(err)).toBe(true);
+    expect(isTransientGitError(err)).toBe(false);
   });
 
-  test("returns true for Windows DLL init failed exit code (in message)", () => {
+  test("returns false for Windows DLL init failed exit code in message (not transient)", () => {
     const err = new Error("git command failed: git fetch origin\nexit: 3221225794");
-    expect(isTransientGitError(err)).toBe(true);
+    expect(isTransientGitError(err)).toBe(false);
   });
 
   test("returns true for signal-killed process (signal property)", () => {
@@ -105,7 +105,7 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
   });
 
   test("retries on transient error and succeeds on second attempt", () => {
-    const transientErr = makeGitError({ status: 3221225794 });
+    const transientErr = makeGitError({ signal: "SIGKILL" });
     const fn = vi.fn()
       .mockImplementationOnce(() => { throw transientErr; })
       .mockReturnValue("recovered");
@@ -132,7 +132,7 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
   });
 
   test("throws after exhausting all retries on transient errors", () => {
-    const transientErr = makeGitError({ status: 3221225794 });
+    const transientErr = makeGitError({ signal: "SIGTERM" });
     const fn = vi.fn().mockImplementation(() => { throw transientErr; });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
@@ -347,31 +347,23 @@ describe("isTransientGitError — edge cases", () => {
     expect(isTransientGitError(err)).toBe(true); // false positive
   });
 
-  test("message-based detection works for errors thrown by git() wrapper", () => {
-    // The git() function throws new Error() with formatted message.
-    // The status/signal properties are NOT preserved on the new Error.
-    // Only message-based detection works in production.
+  test("DLL init exit code in message is NOT transient", () => {
     const err = new Error(
       "git command failed: git fetch origin\n" +
       "exit: 3221225794\n" +
       "fatal: unable to access remote"
     );
-    // No .status property — just the message
-    expect((err as any).status).toBeUndefined();
-    expect(isTransientGitError(err)).toBe(true);
+    expect(isTransientGitError(err)).toBe(false);
   });
 
   test("returns false for exit code that is a substring of DLL init code", () => {
-    // 322122579 is a prefix of 3221225794 — should not match
     const err = new Error("git command failed\nexit: 322122579");
     expect(isTransientGitError(err)).toBe(false);
   });
 
   test("returns false for exit code that contains DLL init code as substring", () => {
-    // 32212257940 contains 3221225794 as substring — WILL match (bug?)
     const err = new Error("git command failed\nexit: 32212257940");
-    // String.includes matches substrings, so this is a false positive
-    expect(isTransientGitError(err)).toBe(true); // documents the substring match issue
+    expect(isTransientGitError(err)).toBe(false);
   });
 });
 
@@ -381,7 +373,7 @@ describe("isTransientGitError — edge cases", () => {
 
 describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
   test("maxAttempts = 1 never retries", () => {
-    const transientErr = makeGitError({ status: 3221225794 });
+    const transientErr = makeGitError({ signal: "SIGKILL" });
     const fn = vi.fn().mockImplementation(() => { throw transientErr; });
 
     expect(() => retryWrapper(fn, 1)).toThrow();
@@ -389,7 +381,7 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
   });
 
   test("alternating transient and non-transient errors: stops on non-transient", () => {
-    const transientErr = makeGitError({ status: 3221225794 });
+    const transientErr = makeGitError({ signal: "SIGKILL" });
     const normalErr = makeGitError({ status: 128 });
     const fn = vi.fn()
       .mockImplementationOnce(() => { throw transientErr; })
@@ -400,15 +392,23 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
   });
 
   test("throws the LAST error (not the first) after exhausting retries", () => {
-    const err1 = makeGitError({ status: 3221225794, message: "first failure" });
-    const err2 = makeGitError({ status: 3221225794, message: "second failure" });
-    const err3 = makeGitError({ status: 3221225794, message: "third failure" });
+    const err1 = makeGitError({ signal: "SIGKILL", message: "first failure" });
+    const err2 = makeGitError({ signal: "SIGKILL", message: "second failure" });
+    const err3 = makeGitError({ signal: "SIGKILL", message: "third failure" });
     const fn = vi.fn()
       .mockImplementationOnce(() => { throw err1; })
       .mockImplementationOnce(() => { throw err2; })
       .mockImplementationOnce(() => { throw err3; });
 
     expect(() => retryWrapper(fn, 3)).toThrow("third failure");
+  });
+
+  test("DLL init error is NOT retried (treated as non-transient)", () => {
+    const dllErr = makeGitError({ status: 3221225794 });
+    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+
+    expect(() => retryWrapper(fn, 3)).toThrow();
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
 
