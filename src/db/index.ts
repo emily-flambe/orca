@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   done_at TEXT,
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
+  project_name TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -194,6 +195,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "parent_identifier")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_identifier TEXT");
     sqlite.exec("ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 5 (project name):
+  //   - Add project_name column to tasks
+  //   Sentinel: project_name column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "project_name")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN project_name TEXT");
   }
 }
 

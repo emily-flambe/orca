@@ -26,6 +26,7 @@ export interface LinearIssue {
     issueId: string;
     issueIdentifier: string;
   }[];
+  projectName: string;
   parentId: string | null;
   parentTitle: string | null;
   parentDescription: string | null;
@@ -195,7 +196,7 @@ export class LinearClient {
             priority
             state { id name type }
             team { id }
-            project { id }
+            project { id name }
             relations { nodes { type relatedIssue { id identifier } } }
             inverseRelations { nodes { type issue { id identifier } } }
             parent { id identifier title description }
@@ -226,7 +227,7 @@ export class LinearClient {
             priority: number;
             state: { id: string; name: string; type: string };
             team: { id: string };
-            project: { id: string };
+            project: { id: string; name: string };
             relations: {
               nodes: Array<{
                 type: string;
@@ -262,6 +263,7 @@ export class LinearClient {
           state: node.state,
           teamId: node.team.id,
           projectId: node.project.id,
+          projectName: node.project.name,
           relations: node.relations.nodes.map((r) => ({
             type: r.type,
             issueId: r.relatedIssue.id,
