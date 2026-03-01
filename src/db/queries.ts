@@ -121,8 +121,16 @@ export function getAllTasks(db: OrcaDb): Task[] {
   return db.select().from(tasks).all();
 }
 
-/** Delete a task by its linear_issue_id. */
+/** Delete a task and its invocations/budget events by linear_issue_id. */
 export function deleteTask(db: OrcaDb, taskId: string): void {
+  // Delete budget events for this task's invocations first (FK chain)
+  const taskInvocations = db.select({ id: invocations.id }).from(invocations)
+    .where(eq(invocations.linearIssueId, taskId)).all();
+  if (taskInvocations.length > 0) {
+    const invIds = taskInvocations.map((i) => i.id);
+    db.delete(budgetEvents).where(inArray(budgetEvents.invocationId, invIds)).run();
+  }
+  db.delete(invocations).where(eq(invocations.linearIssueId, taskId)).run();
   db.delete(tasks).where(eq(tasks.linearIssueId, taskId)).run();
 }
 
