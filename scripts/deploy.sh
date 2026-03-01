@@ -19,9 +19,16 @@ echo "[deploy] rebuilding frontend..."
 (cd web && npm run build)
 
 echo "[deploy] killing existing Orca process (if any)..."
-# Find and kill any running orca process (node with orca in args)
-pkill -f "node.*orca.*start" 2>/dev/null || true
-sleep 1
+# Kill any running orca process — use taskkill on Windows, pkill on Unix
+if command -v taskkill &>/dev/null; then
+  # Windows: find node.exe PIDs running orca and kill them
+  wmic process where "name='node.exe' and CommandLine like '%orca%start%'" get ProcessId 2>/dev/null \
+    | grep -oE '[0-9]+' \
+    | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done
+else
+  pkill -f "node.*orca.*start" 2>/dev/null || true
+fi
+sleep 2
 
 echo "[deploy] starting Orca..."
 npx tsx src/cli/index.ts start &

@@ -141,7 +141,8 @@ async function dispatch(
     : [];
 
   if (phase === "review") {
-    agentPrompt = `${task.agentPrompt}\n\nReview the PR on this branch.`;
+    const prRef = task.prNumber ? `#${task.prNumber}` : "on this branch";
+    agentPrompt = `${task.agentPrompt}\n\nReview PR ${prRef}. The PR branch is checked out in your working directory.`;
     systemPrompt = config.reviewSystemPrompt || undefined;
     maxTurns = config.reviewMaxTurns;
   } else if (useExistingBranch) {
