@@ -2,6 +2,7 @@
 // Linear sync — full sync, webhook processing, conflict resolution, write-back
 // ---------------------------------------------------------------------------
 
+import { createLogger } from "../logger.js";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
@@ -84,9 +85,8 @@ export function isExpectedChange(
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/sync] ${message}`);
-}
+const logger = createLogger("sync");
+function log(message: string): void { logger.info(message); }
 
 // ---------------------------------------------------------------------------
 // 4.2 State mapping

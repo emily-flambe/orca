@@ -4,5 +4,6 @@ web/dist/
 *.db
 *.db-journal
 logs/
+*.log
 .env
 .env.local

@@ -1,4 +1,5 @@
 // PR lifecycle gates verified
+import { createLogger } from "../logger.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
@@ -88,9 +89,8 @@ const TRANSIENT_FAILURE_LIMIT = 3;
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/scheduler] ${message}`);
-}
+const logger = createLogger("scheduler");
+function log(message: string): void { logger.info(message); }
 
 // ---------------------------------------------------------------------------
 // Parent evaluation helper

@@ -2,6 +2,7 @@
 // Linear webhook HTTP endpoint — Hono route with HMAC-SHA256 verification
 // ---------------------------------------------------------------------------
 
+import { createLogger } from "../logger.js";
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { OrcaDb } from "../db/index.js";
@@ -26,9 +27,8 @@ export interface WebhookDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/webhook] ${message}`);
-}
+const logger = createLogger("webhook");
+function log(message: string): void { logger.info(message); }
 
 // ---------------------------------------------------------------------------
 // 5.2 HMAC-SHA256 verification

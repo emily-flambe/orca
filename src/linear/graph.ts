@@ -3,14 +3,14 @@
 // ---------------------------------------------------------------------------
 
 import type { LinearIssue } from "./client.js";
+import { createLogger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
-function warn(message: string): void {
-  console.log(`[orca/linear] warning: ${message}`);
-}
+const logger = createLogger("graph");
+function warn(message: string): void { logger.warn(message); }
 
 // ---------------------------------------------------------------------------
 // DependencyGraph

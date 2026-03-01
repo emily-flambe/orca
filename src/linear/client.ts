@@ -2,6 +2,8 @@
 // Linear GraphQL API client
 // ---------------------------------------------------------------------------
 
+import { createLogger } from "../logger.js";
+
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WARN_THRESHOLD = 500;
@@ -46,13 +48,9 @@ export interface ProjectMetadata {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/linear] ${message}`);
-}
-
-function warn(message: string): void {
-  console.log(`[orca/linear] warning: ${message}`);
-}
+const logger = createLogger("linear");
+function log(message: string): void { logger.info(message); }
+function warn(message: string): void { logger.warn(`warning: ${message}`); }
 
 // ---------------------------------------------------------------------------
 // Sleep helper

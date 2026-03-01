@@ -2,6 +2,7 @@
 // Linear poller — fallback polling when tunnel is down
 // ---------------------------------------------------------------------------
 
+import { createLogger } from "../logger.js";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, WorkflowStateMap } from "./client.js";
@@ -38,9 +39,8 @@ export interface PollerHandle {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/poller] ${message}`);
-}
+const logger = createLogger("poller");
+function log(message: string): void { logger.info(message); }
 
 // ---------------------------------------------------------------------------
 // Constants

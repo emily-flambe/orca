@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("git");
 
 /** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 as signed i32). */
 const WIN_DLL_INIT_FAILED = 3221225794;
@@ -114,8 +117,8 @@ export function gitWithRetry(
       const result = git(args, options);
       // Success — reset global failure counter
       if (globalTransientFailureCount > 0) {
-        console.warn(
-          `[orca/git] global transient failure counter reset (was ${globalTransientFailureCount})`,
+        logger.warn(
+          `global transient failure counter reset (was ${globalTransientFailureCount})`,
         );
         globalTransientFailureCount = 0;
       }
@@ -129,15 +132,15 @@ export function gitWithRetry(
 
       // If the system is in a persistent failure state, add a long cooldown
       if (globalTransientFailureCount >= GLOBAL_PAUSE_THRESHOLD) {
-        console.warn(
-          `[orca/git] ${globalTransientFailureCount} consecutive global transient failures — ` +
+        logger.warn(
+          `${globalTransientFailureCount} consecutive global transient failures — ` +
             `cooling down for ${GLOBAL_COOLDOWN_MS / 1000}s to reduce system pressure`,
         );
         sleepSync(GLOBAL_COOLDOWN_MS);
       } else {
         const waitMs = attempt * 2000;
-        console.warn(
-          `[orca/git] transient error on "git ${args.join(" ")}" ` +
+        logger.warn(
+          `transient error on "git ${args.join(" ")}" ` +
             `(attempt ${attempt}/${maxAttempts}, global: ${globalTransientFailureCount}), ` +
             `retrying in ${waitMs}ms`,
         );
@@ -162,9 +165,9 @@ export function cleanStaleLockFiles(repoPath: string, maxAgeMs = 60_000): void {
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age > maxAgeMs) {
       unlinkSync(lockPath);
-      console.warn(`[orca/git] removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`);
+      logger.warn(`removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`);
     }
   } catch (err) {
-    console.warn(`[orca/git] failed to clean lock file ${lockPath}: ${err}`);
+    logger.warn(`failed to clean lock file ${lockPath}: ${err}`);
   }
 }

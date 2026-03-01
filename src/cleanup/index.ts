@@ -1,3 +1,4 @@
+import { createLogger } from "../logger.js";
 import { rmSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git } from "../git.js";
@@ -20,9 +21,8 @@ export interface CleanupDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/cleanup] ${message}`);
-}
+const logger = createLogger("cleanup");
+function log(message: string): void { logger.info(message); }
 
 // ---------------------------------------------------------------------------
 // Helpers

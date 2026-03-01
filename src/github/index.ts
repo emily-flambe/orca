@@ -1,7 +1,9 @@
 import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createLogger } from "../logger.js";
 
 const execFileAsync = promisify(execFile);
+const logger = createLogger("github");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,8 +90,8 @@ export function findPrForBranch(
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[orca/github] findPrForBranch failed for ${branchName} ` +
+      logger.warn(
+        `findPrForBranch failed for ${branchName} ` +
           `(attempt ${attempt}/${maxAttempts}): ${msg}`,
       );
       if (attempt < maxAttempts) {
@@ -98,8 +100,8 @@ export function findPrForBranch(
     }
   }
   const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  console.error(
-    `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
+  logger.error(
+    `findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
   );
   return { exists: false };
 }
@@ -120,7 +122,7 @@ export function listOpenPrBranches(cwd: string): Set<string> {
     return new Set(prs.map((pr) => pr.headRefName));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[orca/github] listOpenPrBranches failed: ${msg}`);
+    logger.warn(`listOpenPrBranches failed: ${msg}`);
     return new Set();
   }
 }
