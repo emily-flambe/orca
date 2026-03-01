@@ -172,6 +172,35 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // POST /api/tasks/:id/retry
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks/:id/retry", (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "task not found" }, 404);
+    }
+
+    if (task.orcaStatus !== "failed") {
+      return c.json({ error: `task is "${task.orcaStatus}", not failed` }, 409);
+    }
+
+    // Reset to ready with fresh retry/review counters
+    updateTaskStatus(db, taskId, "ready");
+    updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0 });
+
+    emitTaskUpdated(getTask(db, taskId)!);
+
+    // Write back "Todo" to Linear
+    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+
+    // Post comment to Linear
+    client.createComment(taskId, "Manually retried from Orca dashboard").catch(() => {});
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/sync
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {

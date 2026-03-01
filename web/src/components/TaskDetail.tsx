@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation, retryTask } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -59,6 +59,20 @@ export default function TaskDetail({ taskId }: Props) {
         <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(detail.orcaStatus)}`}>
           {detail.orcaStatus}
         </span>
+        {detail.orcaStatus === "failed" && (
+          <button
+            onClick={() => {
+              if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
+              retryTask(detail.linearIssueId)
+                .then(() => fetchTaskDetail(taskId))
+                .then((d) => setDetail(d))
+                .catch(console.error);
+            }}
+            className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+          >
+            Retry
+          </button>
+        )}
       </div>
 
       {/* Agent prompt (read-only, synced from Linear) */}
