@@ -125,6 +125,55 @@ export function listOpenPrBranches(cwd: string): Set<string> {
   }
 }
 
+/**
+ * Close older open PRs for the same task that have been superseded by a new attempt.
+ *
+ * Searches for open PRs whose branch matches `orca/<taskId>-inv-*`, filters out
+ * the current PR, and closes the rest with a comment. Best-effort: never throws,
+ * always returns results (possibly partial on individual PR close failures).
+ */
+export function closeSupersededPrs(
+  taskId: string,
+  currentPrNumber: number,
+  cwd: string,
+): { number: number; branch: string }[] {
+  const closed: { number: number; branch: string }[] = [];
+  const branchPrefix = `orca/${taskId}-inv-`;
+
+  // Find all open PRs whose branch starts with orca/<taskId>-
+  let prs: { number: number; headRefName: string }[];
+  try {
+    const output = gh(
+      ["pr", "list", "--state", "open", "--search", `orca/${taskId}-`, "--json", "number,headRefName", "--limit", "50"],
+      { cwd },
+    );
+    prs = JSON.parse(output) as { number: number; headRefName: string }[];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] closeSupersededPrs: failed to list PRs for ${taskId}: ${msg}`);
+    return closed;
+  }
+
+  // Filter to only branches matching orca/<taskId>-inv-*, excluding current PR
+  const superseded = prs.filter(
+    (pr) => pr.headRefName?.startsWith(branchPrefix) && pr.number !== currentPrNumber,
+  );
+
+  for (const pr of superseded) {
+    try {
+      // Close first, then comment — avoids orphaned "Superseded" comments if close fails
+      gh(["pr", "close", String(pr.number), "--delete-branch"], { cwd });
+      gh(["pr", "comment", String(pr.number), "--body", `Superseded by #${currentPrNumber}`], { cwd });
+      closed.push({ number: pr.number, branch: pr.headRefName });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[orca/github] closeSupersededPrs: failed to close PR #${pr.number}: ${msg}`);
+    }
+  }
+
+  return closed;
+}
+
 // ---------------------------------------------------------------------------
 // Async helpers for deploy monitoring
 // ---------------------------------------------------------------------------

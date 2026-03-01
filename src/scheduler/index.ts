@@ -40,7 +40,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError } from "../git.js";
-import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr } from "../github/index.js";
+import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
@@ -498,6 +498,18 @@ function onImplementSuccess(
   updateTaskPrBranch(db, taskId, branchName);
   if (prInfo.number != null) {
     updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
+  }
+
+  // Close any older open PRs for this same task (superseded by new attempt)
+  if (prInfo.number != null) {
+    try {
+      const closed = closeSupersededPrs(taskId, prInfo.number, task.repoPath);
+      if (closed.length > 0) {
+        log(`task ${taskId}: closed ${closed.length} superseded PR(s): ${closed.map(c => `#${c.number}`).join(", ")}`);
+      }
+    } catch (err) {
+      log(`task ${taskId}: failed to close superseded PRs: ${err}`);
+    }
   }
 
   // Attach PR link to Linear issue (fire-and-forget)
