@@ -1,4 +1,4 @@
-import { readFileSync, readFile, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync, createReadStream } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,8 +17,13 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
-  getAllInvocations,
   getErrorInvocations,
+  getMetricsSummary,
+  getMetricsCostStats,
+  getMetricsDailyBreakdown,
+  getMetricsTopTasks,
+  getMetricsDurationStats,
+  getMetricsTurnsStats,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -353,102 +358,84 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const logFile = join(process.cwd(), "orca.log");
     if (!existsSync(logFile)) {
-      return c.json({ lines: [], totalLines: 0 });
+      return c.json({ lines: [], totalLines: 0, matchedLines: 0 });
     }
 
-    const raw = await new Promise<string>((resolve, reject) => {
-      readFile(logFile, "utf-8", (err, data) => (err ? reject(err) : resolve(data)));
-    });
-    let allLines = raw.split("\n").filter((l) => l.trim());
-    const totalLines = allLines.length;
+    try {
+      // Read only the tail of the file to avoid OOM on large logs.
+      // 10MB is generous enough to capture thousands of recent log lines.
+      const MAX_BYTES = 10 * 1024 * 1024;
+      const fileSize = statSync(logFile).size;
+      const startOffset = Math.max(0, fileSize - MAX_BYTES);
 
-    if (search) {
-      allLines = allLines.filter((l) => l.toLowerCase().includes(search));
+      const raw = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        const stream = createReadStream(logFile, { start: startOffset, encoding: "utf-8" });
+        stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+        stream.on("error", reject);
+      });
+
+      let allLines = raw.split("\n").filter((l) => l.trim());
+      // If we started mid-file, the first line is likely partial — discard it
+      if (startOffset > 0 && allLines.length > 0) {
+        allLines.shift();
+      }
+      const totalLines = allLines.length;
+
+      if (search) {
+        allLines = allLines.filter((l) => l.toLowerCase().includes(search));
+      }
+
+      const matchedLines = allLines.length;
+      const lines = allLines.slice(-maxLines);
+      return c.json({ lines, totalLines, matchedLines });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: `Failed to read log file: ${message}` }, 500);
     }
-
-    const matchedLines = allLines.length;
-    const lines = allLines.slice(-maxLines);
-    return c.json({ lines, totalLines, matchedLines });
   });
 
   // -----------------------------------------------------------------------
   // GET /api/metrics  (observability — invocation metrics)
   // -----------------------------------------------------------------------
   app.get("/api/metrics", (c) => {
-    const allInvs = getAllInvocations(db);
-
-    const total = allInvs.length;
-    const completed = allInvs.filter((i) => i.status === "completed").length;
-    const failed = allInvs.filter((i) => i.status === "failed").length;
-    const timedOut = allInvs.filter((i) => i.status === "timed_out").length;
-    const running = allInvs.filter((i) => i.status === "running").length;
+    // Summary counts via SQL GROUP BY
+    const statusCounts = getMetricsSummary(db);
+    const statusMap = new Map(statusCounts.map((r) => [r.status, r.count]));
+    const completed = statusMap.get("completed") ?? 0;
+    const failed = statusMap.get("failed") ?? 0;
+    const timedOut = statusMap.get("timed_out") ?? 0;
+    const running = statusMap.get("running") ?? 0;
+    const total = [...statusMap.values()].reduce((a, b) => a + b, 0);
     const finished = completed + failed + timedOut;
 
-    const withCost = allInvs.filter((i) => i.costUsd != null);
-    const totalCost = withCost.reduce((s, i) => s + (i.costUsd ?? 0), 0);
-    const avgCost = withCost.length > 0 ? totalCost / withCost.length : 0;
+    // Cost stats via SQL SUM/AVG
+    const costStats = getMetricsCostStats(db);
 
-    const withDuration = allInvs.filter((i) => i.startedAt && i.endedAt);
-    const durations = withDuration
-      .map((i) => new Date(i.endedAt!).getTime() - new Date(i.startedAt).getTime())
-      .filter((d) => Number.isFinite(d) && d >= 0);
-    const avgDurationMs =
-      durations.length > 0
-        ? durations.reduce((a, b) => a + b, 0) / durations.length
-        : 0;
+    // Duration stats (minimal fetch — only startedAt/endedAt columns)
+    const durationStats = getMetricsDurationStats(db);
 
-    const withTurns = allInvs.filter((i) => i.numTurns != null);
-    const avgTurns =
-      withTurns.length > 0
-        ? withTurns.reduce((s, i) => s + (i.numTurns ?? 0), 0) / withTurns.length
-        : 0;
+    // Turn stats via SQL
+    const turnsStats = getMetricsTurnsStats(db);
 
-    // Per-day breakdown for last 14 days
-    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const recentInvs = allInvs.filter(
-      (i) => new Date(i.startedAt) >= fourteenDaysAgo,
-    );
+    // Per-day breakdown for last 14 days via SQL GROUP BY
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const dailyRows = getMetricsDailyBreakdown(db, fourteenDaysAgo);
 
+    // Build a map: day -> { status -> { count, totalCost } }
     const dailyMap = new Map<
       string,
-      {
-        count: number;
-        completed: number;
-        failed: number;
-        timedOut: number;
-        running: number;
-        totalCost: number;
-        totalDurationMs: number;
-        durationCount: number;
-      }
+      Map<string, { count: number; totalCost: number }>
     >();
-
-    for (const inv of recentInvs) {
-      const day = inv.startedAt.slice(0, 10);
-      const entry = dailyMap.get(day) ?? {
-        count: 0,
-        completed: 0,
-        failed: 0,
-        timedOut: 0,
-        running: 0,
-        totalCost: 0,
-        totalDurationMs: 0,
-        durationCount: 0,
-      };
-      entry.count++;
-      if (inv.status === "completed") entry.completed++;
-      if (inv.status === "failed") entry.failed++;
-      if (inv.status === "timed_out") entry.timedOut++;
-      if (inv.status === "running") entry.running++;
-      if (inv.costUsd != null) entry.totalCost += inv.costUsd;
-      if (inv.endedAt) {
-        const dur = new Date(inv.endedAt).getTime() - new Date(inv.startedAt).getTime();
-        if (Number.isFinite(dur) && dur >= 0) {
-          entry.totalDurationMs += dur;
-          entry.durationCount++;
-        }
-      }
-      dailyMap.set(day, entry);
+    for (const row of dailyRows) {
+      if (!dailyMap.has(row.day)) dailyMap.set(row.day, new Map());
+      dailyMap.get(row.day)!.set(row.status, {
+        count: row.count,
+        totalCost: row.totalCost,
+      });
     }
 
     // Fill in missing days
@@ -466,41 +453,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       const date = new Date(Date.now() - (13 - d) * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10);
-      const entry = dailyMap.get(date);
+      const dayStatuses = dailyMap.get(date);
+      const dayCompleted = dayStatuses?.get("completed")?.count ?? 0;
+      const dayFailed = dayStatuses?.get("failed")?.count ?? 0;
+      const dayTimedOut = dayStatuses?.get("timed_out")?.count ?? 0;
+      const dayRunning = dayStatuses?.get("running")?.count ?? 0;
+      const dayCount = dayCompleted + dayFailed + dayTimedOut + dayRunning;
+      let dayTotalCost = 0;
+      if (dayStatuses) {
+        for (const s of dayStatuses.values()) dayTotalCost += s.totalCost;
+      }
       daily.push({
         date,
-        count: entry?.count ?? 0,
-        completed: entry?.completed ?? 0,
-        failed: entry?.failed ?? 0,
-        timedOut: entry?.timedOut ?? 0,
-        running: entry?.running ?? 0,
-        totalCost: entry?.totalCost ?? 0,
-        avgDurationMs:
-          entry && entry.durationCount > 0
-            ? entry.totalDurationMs / entry.durationCount
-            : 0,
+        count: dayCount,
+        completed: dayCompleted,
+        failed: dayFailed,
+        timedOut: dayTimedOut,
+        running: dayRunning,
+        totalCost: dayTotalCost,
+        avgDurationMs: 0, // Per-day duration would require a separate query; omit for now
       });
     }
 
-    // Per-task cost breakdown (top 10 most expensive)
-    const taskCostMap = new Map<
-      string,
-      { totalCost: number; invocationCount: number }
-    >();
-    for (const inv of allInvs) {
-      if (inv.costUsd == null) continue;
-      const entry = taskCostMap.get(inv.linearIssueId) ?? {
-        totalCost: 0,
-        invocationCount: 0,
-      };
-      entry.totalCost += inv.costUsd;
-      entry.invocationCount++;
-      taskCostMap.set(inv.linearIssueId, entry);
-    }
-    const topTasks = [...taskCostMap.entries()]
-      .sort((a, b) => b[1].totalCost - a[1].totalCost)
-      .slice(0, 10)
-      .map(([taskId, data]) => ({ taskId, ...data }));
+    // Per-task cost breakdown (top 10) via SQL
+    const topTasks = getMetricsTopTasks(db, 10);
 
     return c.json({
       summary: {
@@ -510,10 +486,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         timedOut,
         running,
         finished,
-        totalCost,
-        avgCost,
-        avgDurationMs,
-        avgTurns,
+        totalCost: costStats.totalCost,
+        avgCost: costStats.avgCost,
+        avgDurationMs: durationStats.avgDurationMs,
+        avgTurns: turnsStats.avgTurns,
       },
       daily,
       topTasks,

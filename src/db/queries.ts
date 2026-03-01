@@ -304,9 +304,124 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
 // Observability queries
 // ---------------------------------------------------------------------------
 
-/** Get all invocations (for metrics aggregation). */
-export function getAllInvocations(db: OrcaDb): Invocation[] {
-  return db.select().from(invocations).all();
+/** Get invocation status counts grouped by status. */
+export function getMetricsSummary(
+  db: OrcaDb,
+): Array<{ status: string; count: number }> {
+  return db
+    .select({
+      status: invocations.status,
+      count: count(),
+    })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all();
+}
+
+/** Get aggregate cost statistics across all invocations. */
+export function getMetricsCostStats(
+  db: OrcaDb,
+): { totalCost: number; avgCost: number; costCount: number } {
+  const result = db
+    .select({
+      totalCost: sum(invocations.costUsd),
+      costCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .get();
+  const totalCost = result?.totalCost ? Number(result.totalCost) : 0;
+  const costCount = result?.costCount ?? 0;
+  return { totalCost, avgCost: costCount > 0 ? totalCost / costCount : 0, costCount };
+}
+
+/** Get average duration and turn stats. */
+export function getMetricsDurationStats(
+  db: OrcaDb,
+): { avgDurationMs: number; durationCount: number } {
+  // SQLite doesn't have native datetime diff, so we compute in JS but only
+  // fetch the two columns we need (not the entire row).
+  const rows = db
+    .select({
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+    })
+    .from(invocations)
+    .where(and(isNotNull(invocations.endedAt), isNotNull(invocations.startedAt)))
+    .all();
+
+  let totalMs = 0;
+  let validCount = 0;
+  for (const row of rows) {
+    const dur = new Date(row.endedAt!).getTime() - new Date(row.startedAt).getTime();
+    if (Number.isFinite(dur) && dur >= 0) {
+      totalMs += dur;
+      validCount++;
+    }
+  }
+  return {
+    avgDurationMs: validCount > 0 ? totalMs / validCount : 0,
+    durationCount: validCount,
+  };
+}
+
+/** Get average turns across all invocations with numTurns set. */
+export function getMetricsTurnsStats(
+  db: OrcaDb,
+): { avgTurns: number } {
+  const result = db
+    .select({
+      totalTurns: sum(invocations.numTurns),
+      turnCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.numTurns))
+    .get();
+  const totalTurns = result?.totalTurns ? Number(result.totalTurns) : 0;
+  const turnCount = result?.turnCount ?? 0;
+  return { avgTurns: turnCount > 0 ? totalTurns / turnCount : 0 };
+}
+
+/** Get per-day invocation breakdown for the last N days. */
+export function getMetricsDailyBreakdown(
+  db: OrcaDb,
+  sinceDate: string,
+): Array<{
+  day: string;
+  status: string;
+  count: number;
+  totalCost: number;
+}> {
+  return db
+    .select({
+      day: sql<string>`substr(${invocations.startedAt}, 1, 10)`,
+      status: invocations.status,
+      count: count(),
+      totalCost: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, sinceDate))
+    .groupBy(sql`substr(${invocations.startedAt}, 1, 10)`, invocations.status)
+    .all();
+}
+
+/** Get top N tasks by total cost. */
+export function getMetricsTopTasks(
+  db: OrcaDb,
+  limit: number,
+): Array<{ taskId: string; totalCost: number; invocationCount: number }> {
+  return db
+    .select({
+      taskId: invocations.linearIssueId,
+      totalCost: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+      invocationCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .groupBy(invocations.linearIssueId)
+    .orderBy(sql`sum(${invocations.costUsd}) desc`)
+    .limit(limit)
+    .all();
 }
 
 /** Get recent failed/timed_out invocations. */
