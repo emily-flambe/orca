@@ -1,5 +1,6 @@
 export interface Task {
   linearIssueId: string;
+  title: string | null;
   agentPrompt: string;
   repoPath: string;
   orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed" | "in_review" | "changes_requested" | "deploying";

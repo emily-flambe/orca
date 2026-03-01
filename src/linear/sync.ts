@@ -138,6 +138,7 @@ function upsertTask(
     const now = new Date().toISOString();
     insertTask(db, {
       linearIssueId: issue.identifier,
+      title: issue.title,
       agentPrompt,
       repoPath,
       orcaStatus,
@@ -162,6 +163,7 @@ function upsertTask(
     const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
 
     updateTaskFields(db, issue.identifier, {
+      title: issue.title,
       agentPrompt,
       repoPath,
       priority: issue.priority,
