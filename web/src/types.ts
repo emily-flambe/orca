@@ -10,6 +10,7 @@ export interface Task {
   mergeCommitSha: string | null;
   prNumber: number | null;
   deployStartedAt: string | null;
+  doneAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,7 +1,10 @@
 // merge gate test
 // merge gate test
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Task } from "../types";
+
+/** Auto-hide done tasks after 15 minutes. */
+const DONE_HIDE_MS = 15 * 60 * 1000;
 
 interface Props {
   tasks: Task[];
@@ -46,10 +49,31 @@ const STATUS_ORDER: Record<string, number> = {
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortOption>("priority");
+  const [, tick] = useState(0);
 
-  const filtered = filter === "all"
-    ? tasks
-    : tasks.filter((t) => t.orcaStatus === filter);
+  // Re-render periodically so stale done tasks auto-hide
+  useEffect(() => {
+    const timer = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const now = Date.now();
+  const filtered = (() => {
+    const byStatus = filter === "all"
+      ? tasks
+      : tasks.filter((t) => t.orcaStatus === filter);
+
+    // Show all done tasks when explicitly filtering for "done"
+    if (filter === "done") return byStatus;
+
+    // Otherwise hide done tasks older than 15 min (keep selected task visible)
+    return byStatus.filter((t) =>
+      t.orcaStatus !== "done" ||
+      t.linearIssueId === selectedTaskId ||
+      !t.doneAt ||
+      now - new Date(t.doneAt).getTime() <= DONE_HIDE_MS,
+    );
+  })();
 
   const sorted = [...filtered].sort((a, b) => {
     if (sort === "priority") {

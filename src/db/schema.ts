@@ -32,6 +32,7 @@ export const tasks = sqliteTable("tasks", {
   mergeCommitSha: text("merge_commit_sha"),
   prNumber: integer("pr_number"),
   deployStartedAt: text("deploy_started_at"),
+  doneAt: text("done_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

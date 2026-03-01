@@ -30,7 +30,11 @@ export function updateTaskStatus(
   status: TaskStatus,
 ): void {
   db.update(tasks)
-    .set({ orcaStatus: status, updatedAt: new Date().toISOString() })
+    .set({
+      orcaStatus: status,
+      doneAt: status === "done" ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
 }
@@ -41,6 +45,7 @@ export function incrementRetryCount(db: OrcaDb, taskId: string): void {
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
       orcaStatus: "ready" as const,
+      doneAt: null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))
@@ -140,8 +145,15 @@ export function updateTaskFields(
   taskId: string,
   updates: Partial<Omit<NewTask, "linearIssueId" | "createdAt">>,
 ): void {
+  const setValues: Record<string, unknown> = { ...updates, updatedAt: new Date().toISOString() };
+
+  // Automatically manage doneAt when orcaStatus is being updated
+  if ("orcaStatus" in updates) {
+    setValues.doneAt = updates.orcaStatus === "done" ? new Date().toISOString() : null;
+  }
+
   db.update(tasks)
-    .set({ ...updates, updatedAt: new Date().toISOString() })
+    .set(setValues as typeof updates & { updatedAt: string })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
 }
