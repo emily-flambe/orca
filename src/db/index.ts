@@ -5,6 +5,7 @@ import * as schema from "./schema.js";
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
   linear_issue_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
   agent_prompt TEXT NOT NULL,
   repo_path TEXT NOT NULL,
   orca_status TEXT NOT NULL,
@@ -169,6 +170,24 @@ function migrateSchema(sqlite: DatabaseType): void {
     }
 
     sqlite.pragma("foreign_keys = ON");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 3 (title column):
+  //   - Add title column to tasks table
+  //   - Backfill from first line of agent_prompt
+  //   Sentinel: title column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "title")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN title TEXT NOT NULL DEFAULT ''");
+    // Backfill: extract first line of agent_prompt as title
+    sqlite.exec(`
+      UPDATE tasks SET title = CASE
+        WHEN INSTR(agent_prompt, CHAR(10)) > 0
+        THEN SUBSTR(agent_prompt, 1, INSTR(agent_prompt, CHAR(10)) - 1)
+        ELSE agent_prompt
+      END
+    `);
   }
 }
 

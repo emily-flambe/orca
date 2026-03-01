@@ -22,6 +22,7 @@ export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
 
 export const tasks = sqliteTable("tasks", {
   linearIssueId: text("linear_issue_id").primaryKey(),
+  title: text("title").notNull().default(""),
   agentPrompt: text("agent_prompt").notNull(),
   repoPath: text("repo_path").notNull(),
   orcaStatus: text("orca_status", { enum: TASK_STATUSES }).notNull(),
