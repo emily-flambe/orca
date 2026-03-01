@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchInvocationLogs } from "../hooks/useApi";
 
 interface Props {
@@ -108,128 +108,206 @@ export default function LogViewer({ invocationId, isRunning }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [stickToBottom, setStickToBottom] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevLineCountRef = useRef(0);
 
+  // -- Completed/failed: fetch all lines at once --
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
+    if (isRunning) return;
 
-    const load = () => {
+    fetchInvocationLogs(invocationId)
+      .then((data) => {
+        setLines(data.lines as LogLine[]);
+        setLoading(false);
+        setError(null);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
+  }, [invocationId, isRunning]);
+
+  // -- Running: connect to SSE stream --
+  useEffect(() => {
+    if (!isRunning) return;
+
+    setLoading(true);
+    setStreaming(true);
+    setLines([]);
+
+    const es = new EventSource(`/api/invocations/${invocationId}/logs`);
+
+    es.addEventListener("log", (e) => {
+      try {
+        const parsed = JSON.parse(e.data) as LogLine;
+        setLines((prev) => [...prev, parsed]);
+        setLoading(false);
+      } catch {
+        // skip malformed lines
+      }
+    });
+
+    es.addEventListener("done", () => {
+      setStreaming(false);
+      es.close();
+    });
+
+    es.addEventListener("error", () => {
+      // EventSource auto-reconnects, but if the invocation ended
+      // the endpoint will return JSON (not SSE), causing permanent errors.
+      // Close and fall back to a one-time fetch.
+      es.close();
+      setStreaming(false);
       fetchInvocationLogs(invocationId)
         .then((data) => {
-          if (cancelled) return;
           setLines(data.lines as LogLine[]);
           setLoading(false);
-          setError(null);
         })
         .catch((err) => {
-          if (cancelled) return;
           setError(err instanceof Error ? err.message : String(err));
           setLoading(false);
         });
+    });
+
+    // First log event means we're loaded
+    const onFirstMessage = () => {
+      setLoading(false);
+      es.removeEventListener("log", onFirstMessage);
     };
-
-    load();
-
-    if (isRunning) {
-      timer = setInterval(load, 3000);
-    }
+    es.addEventListener("log", onFirstMessage);
 
     return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
+      es.close();
+      setStreaming(false);
     };
   }, [invocationId, isRunning]);
 
-  // Auto-scroll when new lines arrive
+  // Auto-scroll when new lines arrive (if stickToBottom is on)
   useEffect(() => {
-    if (lines.length > prevLineCountRef.current && containerRef.current) {
+    if (
+      stickToBottom &&
+      lines.length > prevLineCountRef.current &&
+      containerRef.current
+    ) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
     prevLineCountRef.current = lines.length;
-  }, [lines]);
+  }, [lines, stickToBottom]);
 
-  if (loading) {
+  // Detect manual scroll to disable stick-to-bottom
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setStickToBottom(atBottom);
+  }, []);
+
+  if (loading && lines.length === 0) {
     return (
       <div className="p-4 text-sm text-gray-500">Loading logs...</div>
     );
   }
 
-  if (error) {
+  if (error && lines.length === 0) {
     return (
       <div className="p-4 text-sm text-red-400">Error: {error}</div>
     );
   }
 
-  if (lines.length === 0) {
+  if (!loading && lines.length === 0) {
     return (
       <div className="p-4 text-sm text-gray-500">No log entries</div>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
-    >
-      {lines.map((line, idx) => {
-        // Skip system messages
-        if (line.type === "system") return null;
-
-        // Result footer
-        if (line.type === "result") {
-          return <ResultFooter key={idx} line={line} />;
-        }
-
-        // Assistant messages
-        if (line.type === "assistant" && line.message?.content) {
-          const blocks = line.message.content;
-          // Skip empty assistant messages (no meaningful content)
-          const hasContent = blocks.some(
-            (b) =>
-              (b.type === "text" && b.text) ||
-              b.type === "tool_use" ||
-              (b.type === "thinking" && b.thinking)
-          );
-          if (!hasContent) return null;
-
-          return (
-            <div key={idx} className="space-y-1">
-              {blocks.map((block, bi) => {
-                if (block.type === "text" && block.text) {
-                  return <TextBlock key={bi} text={block.text} />;
-                }
-                if (block.type === "tool_use" && block.name) {
-                  return (
-                    <ToolUseBlock
-                      key={bi}
-                      name={block.name}
-                      input={block.input}
-                    />
-                  );
-                }
-                if (block.type === "thinking" && block.thinking) {
-                  return <ThinkingBlock key={bi} text={block.thinking} />;
-                }
-                return null;
-              })}
-            </div>
-          );
-        }
-
-        // Skip other message types (tool_progress, stream_event, etc.)
-        return null;
-      })}
-      {isRunning && (
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-          </span>
-          Session running... polling for updates
+    <div className="relative">
+      {/* Stick-to-bottom toggle (only while streaming) */}
+      {streaming && (
+        <div className="absolute top-2 right-2 z-10">
+          <button
+            onClick={() => {
+              setStickToBottom(!stickToBottom);
+              if (!stickToBottom && containerRef.current) {
+                containerRef.current.scrollTop = containerRef.current.scrollHeight;
+              }
+            }}
+            className={`text-xs px-2 py-1 rounded transition-colors ${
+              stickToBottom
+                ? "bg-gray-700 text-gray-300"
+                : "bg-gray-800 text-gray-500 hover:text-gray-300"
+            }`}
+            title={stickToBottom ? "Auto-scroll on" : "Auto-scroll off"}
+          >
+            {stickToBottom ? "\u2193 Following" : "\u2193 Follow"}
+          </button>
         </div>
       )}
+
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
+      >
+        {lines.map((line, idx) => {
+          // Skip system messages
+          if (line.type === "system") return null;
+
+          // Result footer
+          if (line.type === "result") {
+            return <ResultFooter key={idx} line={line} />;
+          }
+
+          // Assistant messages
+          if (line.type === "assistant" && line.message?.content) {
+            const blocks = line.message.content;
+            const hasContent = blocks.some(
+              (b) =>
+                (b.type === "text" && b.text) ||
+                b.type === "tool_use" ||
+                (b.type === "thinking" && b.thinking)
+            );
+            if (!hasContent) return null;
+
+            return (
+              <div key={idx} className="space-y-1">
+                {blocks.map((block, bi) => {
+                  if (block.type === "text" && block.text) {
+                    return <TextBlock key={bi} text={block.text} />;
+                  }
+                  if (block.type === "tool_use" && block.name) {
+                    return (
+                      <ToolUseBlock
+                        key={bi}
+                        name={block.name}
+                        input={block.input}
+                      />
+                    );
+                  }
+                  if (block.type === "thinking" && block.thinking) {
+                    return <ThinkingBlock key={bi} text={block.thinking} />;
+                  }
+                  return null;
+                })}
+              </div>
+            );
+          }
+
+          // Skip other message types
+          return null;
+        })}
+        {streaming && (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+            </span>
+            Streaming...
+          </div>
+        )}
+      </div>
     </div>
   );
 }

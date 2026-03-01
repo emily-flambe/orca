@@ -26,6 +26,17 @@ export interface ApiDeps {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveLogPath(logPath: string | null, invocationId: number): string {
+  if (logPath) {
+    return isAbsolute(logPath) ? logPath : join(process.cwd(), logPath);
+  }
+  return join(process.cwd(), "logs", `${invocationId}.ndjson`);
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
@@ -61,6 +72,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
   // -----------------------------------------------------------------------
   // GET /api/invocations/:id/logs
+  // For running invocations: SSE stream, tailing the file for new lines.
+  // For completed/failed: return full file as JSON array.
   // -----------------------------------------------------------------------
   app.get("/api/invocations/:id/logs", (c) => {
     const id = Number(c.req.param("id"));
@@ -74,32 +87,102 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Resolve log file path: stored as "logs/123.ndjson" (relative) or absolute
-    let logFile: string;
-    if (invocation.logPath) {
-      logFile = isAbsolute(invocation.logPath)
-        ? invocation.logPath
-        : join(process.cwd(), invocation.logPath);
-    } else {
-      // Fallback: derive from invocation id
-      logFile = join(process.cwd(), "logs", `${id}.ndjson`);
-    }
+    const logFile = resolveLogPath(invocation.logPath, id);
 
     if (!existsSync(logFile)) {
       return c.json({ error: "log file not found" }, 404);
     }
 
-    const raw = readFileSync(logFile, "utf-8");
-    const lines: unknown[] = [];
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        lines.push(JSON.parse(line));
-      } catch {
-        // skip non-JSON lines
+    // For completed invocations, return full file as JSON
+    if (invocation.status !== "running") {
+      const raw = readFileSync(logFile, "utf-8");
+      const lines: unknown[] = [];
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          lines.push(JSON.parse(line));
+        } catch {
+          // skip non-JSON lines
+        }
       }
+      return c.json({ lines });
     }
 
-    return c.json({ lines });
+    // For running invocations, stream via SSE
+    return streamSSE(c, async (stream) => {
+      let offset = 0;
+      let aborted = false;
+
+      // Send new lines from the file starting at byte offset
+      const sendNewLines = () => {
+        if (aborted) return;
+        let buf: Buffer;
+        try {
+          buf = readFileSync(logFile);
+        } catch {
+          return; // file may have been removed
+        }
+        if (buf.length <= offset) return;
+
+        const chunk = buf.subarray(offset).toString("utf-8");
+        offset = buf.length;
+
+        for (const line of chunk.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            JSON.parse(line); // validate JSON
+            stream.writeSSE({ event: "log", data: line });
+          } catch {
+            // skip non-JSON lines
+          }
+        }
+      };
+
+      // Initial send of existing content
+      sendNewLines();
+
+      // Poll for new lines every 500ms
+      const poll = setInterval(() => {
+        if (aborted) {
+          clearInterval(poll);
+          return;
+        }
+
+        // Check if invocation is still running
+        const current = getInvocation(db, id);
+        if (!current || current.status !== "running") {
+          // Send any final lines
+          sendNewLines();
+          try {
+            stream.writeSSE({ event: "done", data: "{}" });
+          } catch { /* connection closed */ }
+          clearInterval(poll);
+          return;
+        }
+
+        sendNewLines();
+      }, 500);
+
+      // Keep-alive ping every 15s
+      const keepAlive = setInterval(() => {
+        if (aborted) {
+          clearInterval(keepAlive);
+          return;
+        }
+        try {
+          stream.writeSSE({ event: "ping", data: "" });
+        } catch { /* connection closed */ }
+      }, 15_000);
+
+      stream.onAbort(() => {
+        aborted = true;
+        clearInterval(poll);
+        clearInterval(keepAlive);
+      });
+
+      // Block until aborted
+      await new Promise(() => {});
+    });
   });
 
   // -----------------------------------------------------------------------
