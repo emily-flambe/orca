@@ -11,6 +11,16 @@ export default function App() {
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
+
+  const handleSelectTask = (id: string) => {
+    setSelectedTaskId(id);
+    setMobileShowDetail(true);
+  };
+
+  const handleBackToList = () => {
+    setMobileShowDetail(false);
+  };
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -59,7 +69,8 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
-      <div className="flex flex-1 overflow-hidden">
+      {/* Desktop layout */}
+      <div className="hidden md:flex flex-1 overflow-hidden">
         <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
           <TaskList
             tasks={tasks}
@@ -76,6 +87,30 @@ export default function App() {
             </div>
           )}
         </div>
+      </div>
+      {/* Mobile layout */}
+      <div className="flex md:hidden flex-1 overflow-hidden">
+        {!mobileShowDetail || !selectedTaskId ? (
+          <div className="w-full overflow-y-auto">
+            <TaskList
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelect={handleSelectTask}
+            />
+          </div>
+        ) : (
+          <div className="w-full overflow-y-auto flex flex-col">
+            <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-3 py-2">
+              <button
+                onClick={handleBackToList}
+                className="text-sm text-gray-400 hover:text-gray-200 active:text-gray-100 transition-colors flex items-center gap-1.5 min-h-[44px]"
+              >
+                &larr; Back to list
+              </button>
+            </div>
+            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+          </div>
+        )}
       </div>
     </div>
   );
