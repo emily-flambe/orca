@@ -5,6 +5,7 @@ import LogViewer from "./LogViewer";
 
 interface Props {
   taskId: string;
+  onBack?: () => void;
 }
 
 function statusBadge(s: string): string {
@@ -39,7 +40,7 @@ const MANUAL_STATUSES = [
   { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
 ] as const;
 
-export default function TaskDetail({ taskId }: Props) {
+export default function TaskDetail({ taskId, onBack }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
@@ -71,6 +72,12 @@ export default function TaskDetail({ taskId }: Props) {
 
   return (
     <div className="p-4 space-y-6">
+      {/* Mobile back button */}
+      {onBack && (
+        <button onClick={onBack} className="md:hidden flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200">
+          &larr; Back to tasks
+        </button>
+      )}
       {/* Header */}
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
@@ -120,7 +127,7 @@ export default function TaskDetail({ taskId }: Props) {
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>
-        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap break-words">
           {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
         </pre>
       </div>
@@ -136,10 +143,10 @@ export default function TaskDetail({ taskId }: Props) {
               <thead>
                 <tr className="text-left text-gray-500 border-b border-gray-800">
                   <th className="pb-2 pr-4">Date</th>
-                  <th className="pb-2 pr-4">Duration</th>
+                  <th className="pb-2 pr-4 hidden sm:table-cell">Duration</th>
                   <th className="pb-2 pr-4">Status</th>
-                  <th className="pb-2 pr-4">Cost</th>
-                  <th className="pb-2 pr-4">Turns</th>
+                  <th className="pb-2 pr-4 hidden sm:table-cell">Cost</th>
+                  <th className="pb-2 pr-4 hidden sm:table-cell">Turns</th>
                   <th className="pb-2 pr-4">Summary</th>
                   <th className="pb-2"></th>
                 </tr>
@@ -152,17 +159,17 @@ export default function TaskDetail({ taskId }: Props) {
                       className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
                     >
                       <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums hidden sm:table-cell">{formatDuration(inv.startedAt, inv.endedAt)}</td>
                       <td className="py-2 pr-4">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
                           {inv.status}
                         </span>
                       </td>
-                      <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums hidden sm:table-cell">
                         {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
                       </td>
-                      <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                      <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums hidden sm:table-cell">{inv.numTurns ?? "\u2014"}</td>
+                      <td className="py-2 pr-4 text-gray-400 sm:truncate sm:max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
                       <td className="py-2">
                         {inv.status === "running" && (
                           <button

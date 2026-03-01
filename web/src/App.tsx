@@ -60,16 +60,18 @@ export default function App() {
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+        {/* Task list: full width on mobile, 2/5 on desktop. Hidden on mobile when task selected */}
+        <div className={`md:w-2/5 md:border-r border-gray-800 overflow-y-auto ${selectedTaskId ? 'hidden md:block' : 'w-full'}`}>
           <TaskList
             tasks={tasks}
             selectedTaskId={selectedTaskId}
             onSelect={setSelectedTaskId}
           />
         </div>
-        <div className="w-3/5 overflow-y-auto">
+        {/* Task detail: full width on mobile, 3/5 on desktop. Hidden on mobile when no task */}
+        <div className={`md:w-3/5 overflow-y-auto ${selectedTaskId ? 'w-full' : 'hidden md:block'}`}>
           {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} onBack={() => setSelectedTaskId(null)} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
               Select a task to view details

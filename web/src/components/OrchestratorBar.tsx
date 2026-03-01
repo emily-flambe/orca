@@ -14,7 +14,7 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
 
   if (!status) {
     return (
-      <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 text-sm text-gray-500">
+      <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex items-center px-2 md:px-4 text-sm text-gray-500">
         Loading...
       </div>
     );
@@ -58,10 +58,10 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
   };
 
   return (
-    <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-6 text-sm shrink-0">
+    <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-2 md:px-4 gap-2 md:gap-6 py-1 text-sm shrink-0">
       {/* Budget gauge */}
-      <div className="flex items-center gap-2 min-w-48">
-        <span className="text-gray-400">Budget</span>
+      <div className="flex items-center gap-2">
+        <span className="text-gray-400 hidden sm:inline">Budget</span>
         <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full ${barColor} rounded-full transition-all`}
@@ -104,13 +104,14 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
               {status.concurrencyCap}
             </button>
           )}
-          {" "}active
+          <span className="hidden sm:inline"> active</span>
         </span>
       </div>
 
       {/* Queued tasks */}
-      <div className="flex items-center gap-2">
-        <span className="text-gray-400">Queued</span>
+      <div className="flex items-center gap-1 sm:gap-2">
+        <span className="text-gray-400 hidden sm:inline">Queued</span>
+        <span className="text-gray-400 sm:hidden">Q</span>
         <span className="text-gray-300">{status.queuedTasks}</span>
       </div>
 
@@ -118,7 +119,7 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="ml-auto px-3 py-1 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="ml-auto px-2 md:px-3 py-1 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {syncing ? "Syncing..." : "Sync"}
       </button>
