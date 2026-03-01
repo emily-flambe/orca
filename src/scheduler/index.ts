@@ -186,7 +186,7 @@ async function dispatch(
     systemPrompt = config.fixSystemPrompt || undefined;
   } else {
     // Normal implement
-    systemPrompt = config.appendSystemPrompt || undefined;
+    systemPrompt = config.implementSystemPrompt || undefined;
   }
 
   // 6. Spawn session

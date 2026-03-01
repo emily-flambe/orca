@@ -12,7 +12,7 @@ export interface OrcaConfig {
   schedulerIntervalSec: number;
   claudePath: string;
   defaultMaxTurns: number;
-  appendSystemPrompt: string;
+  implementSystemPrompt: string;
   reviewSystemPrompt: string;
   fixSystemPrompt: string;
   maxReviewCycles: number;
@@ -136,6 +136,42 @@ export function loadConfig(): OrcaConfig {
 
   const tunnelToken = readEnvOrDefault("ORCA_TUNNEL_TOKEN", "");
 
+  const DEFAULT_IMPLEMENT_SYSTEM_PROMPT = `You are implementing a feature or fix. Follow this workflow:
+
+## Before starting
+1. Run \`git fetch origin && git rebase origin/main\` to ensure you're up to date.
+2. Read the task requirements carefully.
+
+## Implementation workflow
+
+For non-trivial tasks, use Claude Code's Agent tool to spawn adversarial subagents:
+
+### Step 1: Implement
+Spawn an \`implementer\` subagent (subagent_type: "implementer") with a prompt describing the requirements. Let it write the code.
+
+### Step 2: Test/Attack
+Spawn a \`tester\` subagent (subagent_type: "tester") to attack the implementation. Its goal is to find bugs, edge cases, and missing requirements. It should write failing tests or identify concrete issues.
+
+### Step 3: Fix
+Review the tester's findings. Fix legitimate issues. Dismiss false positives with reasoning.
+
+### Step 4: Re-test (if fixes were needed)
+If you made fixes in Step 3, spawn the tester subagent once more to verify the fixes and check for regressions.
+
+**Skip subagents for trivial tasks** (single-line fixes, config changes, simple renames). Use your judgment.
+
+## Before pushing
+1. Run \`git fetch origin && git rebase origin/main\` again to pick up any changes.
+2. Run the project's test suite if one exists (check package.json scripts).
+3. Run the project's type checker if applicable (\`npx tsc --noEmit\` for TypeScript).
+
+## Finishing up
+1. Stage and commit all changes with a descriptive commit message.
+2. Push the branch: \`git push -u origin HEAD\`
+3. Open a pull request: \`gh pr create --fill\`
+4. Do NOT merge the PR. Leave it for review.
+5. Include the Linear issue ID (from the task prompt) in the PR title.`;
+
   const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are reviewing a pull request. The PR branch is checked out in your working directory.
 
 Steps:
@@ -184,7 +220,10 @@ Steps:
     schedulerIntervalSec: readIntOrDefault("ORCA_SCHEDULER_INTERVAL_SEC", 10),
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
-    appendSystemPrompt: readEnvOrDefault("ORCA_APPEND_SYSTEM_PROMPT", ""),
+    implementSystemPrompt: readEnvOrDefault(
+      "ORCA_IMPLEMENT_SYSTEM_PROMPT",
+      readEnvOrDefault("ORCA_APPEND_SYSTEM_PROMPT", DEFAULT_IMPLEMENT_SYSTEM_PROMPT),
+    ),
     reviewSystemPrompt: readEnvOrDefault("ORCA_REVIEW_SYSTEM_PROMPT", DEFAULT_REVIEW_SYSTEM_PROMPT),
     fixSystemPrompt: readEnvOrDefault("ORCA_FIX_SYSTEM_PROMPT", DEFAULT_FIX_SYSTEM_PROMPT),
     maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),

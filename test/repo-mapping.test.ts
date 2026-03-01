@@ -37,7 +37,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
-    appendSystemPrompt: "",
+    implementSystemPrompt: "",
     reviewSystemPrompt: "",
     fixSystemPrompt: "",
     maxReviewCycles: 3,
