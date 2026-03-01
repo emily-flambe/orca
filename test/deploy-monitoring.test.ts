@@ -149,6 +149,7 @@ describe("Database migration - new columns and no CHECK constraint", () => {
 
   test("all TASK_STATUSES can be inserted without CHECK constraint violation", () => {
     const statuses: TaskStatus[] = [
+      "backlog",
       "ready",
       "dispatched",
       "running",
@@ -500,19 +501,19 @@ describe("Conflict resolution - deploying status", () => {
     }).not.toThrow();
   });
 
-  test("deploying + 'Backlog' (unknown state) -> no-op", () => {
+  test("deploying + 'Backlog' -> reset to backlog", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-6",
       orcaStatus: "deploying",
     });
 
-    // "Backlog" maps to null in mapLinearStateToOrcaStatus, so resolveConflict
-    // should return early.
+    // "Backlog" maps to "backlog" — moving to Backlog is a user override that
+    // resets the task.
     resolveConflict(db, taskId, "Backlog", config);
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("deploying");
+    expect(task!.orcaStatus).toBe("backlog");
   });
 });
 

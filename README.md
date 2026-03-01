@@ -53,7 +53,6 @@ Copy `.env.example` to `.env` and fill in the required values:
 
 | Variable | Description |
 |---|---|
-| `ORCA_DEFAULT_CWD` | Default working directory for sessions (must exist) |
 | `ORCA_LINEAR_API_KEY` | Linear API key (`lin_api_...`) |
 | `ORCA_LINEAR_WEBHOOK_SECRET` | Webhook signing secret for HMAC verification |
 | `ORCA_LINEAR_PROJECT_IDS` | JSON array of Linear project UUIDs, e.g. `["uuid-1"]` |
@@ -63,16 +62,28 @@ Copy `.env.example` to `.env` and fill in the required values:
 
 | Variable | Default | Description |
 |---|---|---|
+| `ORCA_DEFAULT_CWD` | *(none)* | Fallback working directory when a project's Linear description has no `repo:` line |
 | `ORCA_CONCURRENCY_CAP` | `3` | Max concurrent Claude Code sessions |
 | `ORCA_SESSION_TIMEOUT_MIN` | `45` | Hard timeout per session (minutes) |
 | `ORCA_MAX_RETRIES` | `3` | Max retries before permanent failure |
 | `ORCA_BUDGET_WINDOW_HOURS` | `4` | Rolling budget window (hours) |
-| `ORCA_BUDGET_MAX_COST_USD` | `10.00` | Max cost per budget window (USD) |
+| `ORCA_BUDGET_MAX_COST_USD` | `1000.00` | Max cost per budget window (USD) |
 | `ORCA_SCHEDULER_INTERVAL_SEC` | `10` | Scheduler tick interval (seconds) |
 | `ORCA_CLAUDE_PATH` | `claude` | Path to Claude CLI binary |
-| `ORCA_DEFAULT_MAX_TURNS` | `20` | Max agentic turns per session |
-| `ORCA_APPEND_SYSTEM_PROMPT` | `""` | Text appended to every session's system prompt |
+| `ORCA_CLOUDFLARED_PATH` | `cloudflared` | Path to cloudflared binary |
+| `ORCA_DEFAULT_MAX_TURNS` | `50` | Max agentic turns per session |
+| `ORCA_IMPLEMENT_SYSTEM_PROMPT` | *(built-in)* | System prompt for implementation agents |
+| `ORCA_REVIEW_SYSTEM_PROMPT` | *(built-in)* | System prompt for review agents |
+| `ORCA_FIX_SYSTEM_PROMPT` | *(built-in)* | System prompt for fix agents |
+| `ORCA_MAX_REVIEW_CYCLES` | `3` | Max review-fix cycles before human intervention |
+| `ORCA_REVIEW_MAX_TURNS` | `30` | Max turns for review agent sessions |
+| `ORCA_RESUME_ON_MAX_TURNS` | `true` | Resume sessions that hit max turns (preserves worktree) |
 | `ORCA_DISALLOWED_TOOLS` | `""` | Comma-separated list of blocked tools |
+| `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` or `"github_actions"` (poll CI after merge) |
+| `ORCA_DEPLOY_POLL_INTERVAL_SEC` | `30` | How often to poll GitHub Actions (seconds) |
+| `ORCA_DEPLOY_TIMEOUT_MIN` | `30` | Timeout before marking deploy as failed (minutes) |
+| `ORCA_CLEANUP_INTERVAL_MIN` | `10` | How often the cleanup loop runs (minutes) |
+| `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | `60` | Min age before stale `orca/*` branches are deleted (minutes) |
 | `ORCA_PORT` | `3000` | HTTP server port |
 | `ORCA_DB_PATH` | `./orca.db` | Path to SQLite database file |
 | `ORCA_TUNNEL_TOKEN` | `""` | Dashboard-managed tunnel token (skips local config) |
@@ -117,9 +128,6 @@ orca start
 # Add a task manually (bypasses Linear)
 orca add --prompt "Fix the login bug" --repo /path/to/repo --priority 2
 
-# Set/update an agent prompt for a Linear issue
-orca prompt PROJ-123 "Implement the feature described in the issue"
-
 # Check scheduler status
 orca status
 ```
@@ -146,7 +154,7 @@ Orca syncs issues on startup and keeps them updated via webhooks. If the tunnel 
 ## Testing
 
 ```bash
-npm test            # Run all 58 tests
+npm test            # Run all tests
 npm run test:watch  # Watch mode
 ```
 
@@ -154,12 +162,15 @@ npm run test:watch  # Watch mode
 
 ```
 src/
-  cli/index.ts          # Commander.js CLI (add, prompt, start, status)
+  cli/index.ts          # Commander.js CLI (add, start, status)
   config/index.ts       # Environment config loader
   db/                   # SQLite schema, queries, connection (Drizzle ORM)
-  scheduler/index.ts    # Dispatch loop, timeout/retry/budget logic
+  scheduler/index.ts    # Dispatch loop, timeout/retry/budget/deploy logic
   runner/index.ts       # Claude CLI session spawner + stream parser
   worktree/index.ts     # Git worktree lifecycle
+  cleanup/index.ts      # Stale branch + orphaned worktree cleanup
+  git.ts                # Safe git command wrapper (execFileSync)
+  github/index.ts       # GitHub CLI wrapper (PR lookup, deploy monitoring)
   linear/               # Linear API client, sync, webhook, dependency graph, poller
   tunnel/index.ts       # Cloudflared tunnel manager
   api/routes.ts         # REST API + SSE endpoints (Hono)
@@ -168,9 +179,13 @@ web/
   src/                  # React + Tailwind dashboard SPA
   vite.config.ts        # Vite config with API proxy
 test/
-  integration.test.ts   # Core scheduler tests
+  integration.test.ts         # Core scheduler tests
   linear-integration.test.ts  # Linear integration tests
-  api.test.ts           # REST API endpoint tests
+  api.test.ts                 # REST API endpoint tests
+  cleanup.test.ts             # Stale resource cleanup tests
+  deploy-monitoring.test.ts   # Deploy CI monitoring tests
+  parent-child.test.ts        # Parent/child issue tests
+  repo-mapping.test.ts        # Project-to-repo mapping tests
 ```
 
 ## License

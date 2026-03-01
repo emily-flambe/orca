@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
 export const TASK_STATUSES = [
+  "backlog",
   "ready",
   "dispatched",
   "running",
@@ -35,6 +36,7 @@ export const tasks = sqliteTable("tasks", {
   doneAt: text("done_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),
+  projectName: text("project_name"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

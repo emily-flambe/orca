@@ -49,11 +49,13 @@ When a Linear issue has sub-issues:
 The scheduler ticks every 10s (`ORCA_SCHEDULER_INTERVAL_SEC`). Each tick:
 
 1. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
-2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
-3. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
-4. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
-5. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
-6. **Dispatch the top task** with the appropriate phase.
+2. **Deploy check** — poll GitHub Actions for tasks in `deploying` status (throttled by `ORCA_DEPLOY_POLL_INTERVAL_SEC`).
+3. **Cleanup** — periodically (every `ORCA_CLEANUP_INTERVAL_MIN`) remove stale `orca/*` branches and orphaned worktrees. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN`. Worktrees preserved for session resume are also protected.
+4. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
+5. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
+6. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
+7. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
+8. **Dispatch the top task** with the appropriate phase.
 
 ## 3. Dispatch (Implementation Phase)
 
@@ -279,6 +281,44 @@ Todo → In Progress (implement dispatched)
      → Canceled (deploy CI fails or times out)
 ```
 
+## 9. Resume on max turns
+
+When `ORCA_RESUME_ON_MAX_TURNS` is `true` (default) and a fresh implementation session hits `error_max_turns`:
+
+1. The worktree is **preserved** (not removed).
+2. The task enters `failed` → retry logic sets it back to `ready`.
+3. On the next dispatch, the scheduler detects a previous max-turns invocation with a preserved worktree.
+4. Instead of creating a fresh worktree, it **reuses the existing one** and passes `--resume` with the previous session ID.
+5. The continuation prompt tells the agent: "You hit the maximum turn limit. Continue where you left off."
+
+Resume only applies to fresh implement phases — fix sessions (implement on `changes_requested`) are not resumed.
+
+## 10. Resource cleanup
+
+A periodic cleanup runs every `ORCA_CLEANUP_INTERVAL_MIN` (default 10min) during the scheduler tick:
+
+- **Stale branches**: Local `orca/*` branches older than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` (default 60min) with no running invocations, no active tasks, and no open PRs are deleted.
+- **Orphaned worktrees**: Registered and unregistered worktree directories matching the `<repo>-<taskId>` pattern are removed if not actively in use or preserved for resume.
+- **Safety**: Worktrees and branches used by running invocations, active tasks, or open PRs are never touched.
+
+## 11. Self-deploy
+
+When a task's `repoPath` matches the Orca project's own `process.cwd()` and the task's deploy succeeds, Orca spawns `scripts/deploy.sh` as a detached process and lets it pull, rebuild, and restart Orca with the new code.
+
+## 12. Linear comments
+
+Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
+
+- **Dispatch**: "Dispatched for implementation/review/fix (invocation #N)"
+- **Resume**: "Resuming session (invocation #N, session ...)"
+- **Implement success**: "Implementation complete — PR #N opened on branch ..."
+- **Review approved**: "Review approved — PR #N merged"
+- **Changes requested**: "Review requested changes (cycle N/M)"
+- **Retry**: "Invocation failed — retrying (attempt N/M): ..."
+- **Permanent failure**: "Task failed permanently after N retries: ..."
+- **Deploy started/success/failure**: deploy lifecycle updates
+- **Task complete**: "Task complete"
+
 ## Key files
 
 | File | Role |
@@ -290,7 +330,9 @@ Todo → In Progress (implement dispatched)
 | `src/scheduler/index.ts` | Multi-phase dispatch loop, session lifecycle, retry logic |
 | `src/runner/index.ts` | Spawns/kills Claude CLI child processes |
 | `src/worktree/index.ts` | Git worktree create/remove (supports baseRef for review/fix) |
-| `src/github/index.ts` | PR verification via `gh` CLI |
+| `src/github/index.ts` | PR verification, merge commit SHA, workflow run status via `gh` CLI |
+| `src/cleanup/index.ts` | Stale branch + orphaned worktree cleanup |
+| `src/git.ts` | Safe git command wrapper |
 | `src/config/index.ts` | Env var loading |
 
 ## Configuration
@@ -304,6 +346,11 @@ Todo → In Progress (implement dispatched)
 | `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
 | `ORCA_DEPLOY_POLL_INTERVAL_SEC` | 30 | How often to poll GitHub Actions |
 | `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed |
+| `ORCA_CLEANUP_INTERVAL_MIN` | 10 | How often the cleanup loop runs (minutes) |
+| `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | 60 | Min age before stale `orca/*` branches are deleted (minutes) |
+| `ORCA_RESUME_ON_MAX_TURNS` | true | Resume sessions that hit max turns (preserves worktree) |
+| `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents (replaces `ORCA_APPEND_SYSTEM_PROMPT`) |
+| `ORCA_CLOUDFLARED_PATH` | cloudflared | Path to cloudflared binary |
 
 ## Known gaps
 
