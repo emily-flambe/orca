@@ -1,3 +1,5 @@
+import { readFileSync, existsSync } from "node:fs";
+import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -5,6 +7,7 @@ import type { OrcaConfig } from "../config/index.js";
 import {
   getAllTasks,
   getTask,
+  getInvocation,
   getInvocationsByTask,
   getRunningInvocations,
   countActiveSessions,
@@ -54,6 +57,49 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const invocations = getInvocationsByTask(db, taskId);
     return c.json({ ...task, invocations });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/invocations/:id/logs
+  // -----------------------------------------------------------------------
+  app.get("/api/invocations/:id/logs", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      return c.json({ error: "invocation not found" }, 404);
+    }
+
+    // Resolve log file path: stored as "logs/123.ndjson" (relative) or absolute
+    let logFile: string;
+    if (invocation.logPath) {
+      logFile = isAbsolute(invocation.logPath)
+        ? invocation.logPath
+        : join(process.cwd(), invocation.logPath);
+    } else {
+      // Fallback: derive from invocation id
+      logFile = join(process.cwd(), "logs", `${id}.ndjson`);
+    }
+
+    if (!existsSync(logFile)) {
+      return c.json({ error: "log file not found" }, 404);
+    }
+
+    const raw = readFileSync(logFile, "utf-8");
+    const lines: unknown[] = [];
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        lines.push(JSON.parse(line));
+      } catch {
+        // skip non-JSON lines
+      }
+    }
+
+    return c.json({ lines });
   });
 
   // -----------------------------------------------------------------------

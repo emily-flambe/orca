@@ -153,6 +153,11 @@ type InvocationUpdate = Partial<
 // Invocation queries
 // ---------------------------------------------------------------------------
 
+/** Get a single invocation by its id. */
+export function getInvocation(db: OrcaDb, id: number): Invocation | undefined {
+  return db.select().from(invocations).where(eq(invocations.id, id)).get();
+}
+
 /** Count invocations with status="running". */
 export function countActiveSessions(db: OrcaDb): number {
   const result = db

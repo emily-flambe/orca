@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail } from "../hooks/useApi";
+import LogViewer from "./LogViewer";
 
 interface Props {
   taskId: string;
@@ -34,6 +35,7 @@ function formatDate(iso: string): string {
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
+  const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -87,20 +89,32 @@ export default function TaskDetail({ taskId }: Props) {
               </thead>
               <tbody>
                 {invocations.map((inv) => (
-                  <tr key={inv.id} className="border-b border-gray-800/50">
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                    <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                      {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                    <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                  </tr>
+                  <Fragment key={inv.id}>
+                    <tr
+                      onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
+                      className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
+                    >
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
+                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                      <td className="py-2 pr-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
+                          {inv.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                        {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
+                      <td className="py-2 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                    </tr>
+                    {selectedInvocationId === inv.id && (
+                      <tr>
+                        <td colSpan={6} className="py-2">
+                          <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
