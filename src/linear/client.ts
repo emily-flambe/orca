@@ -398,6 +398,22 @@ export class LinearClient {
   // 2.4 updateIssueState
   // -------------------------------------------------------------------------
 
+  async createComment(issueId: string, body: string): Promise<boolean> {
+    const graphql = `
+      mutation($issueId: String!, $body: String!) {
+        commentCreate(input: { issueId: $issueId, body: $body }) {
+          success
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      commentCreate: { success: boolean };
+    }>(graphql, { issueId, body });
+
+    return data.commentCreate.success;
+  }
+
   async createAttachment(issueId: string, url: string, title: string): Promise<boolean> {
     const graphql = `
       mutation($issueId: String!, $url: String!, $title: String!) {
