@@ -87,7 +87,6 @@ Completion: update invocation → insert budget event → emit SSE events → ma
 | `GET` | `/api/tasks` | All tasks, sorted by priority then createdAt |
 | `GET` | `/api/tasks/:id` | Task + invocation history |
 | `PUT` | `/api/tasks/:id/prompt` | Update agent prompt. Body: `{ "prompt": "..." }` |
-| `POST` | `/api/tasks/:id/dispatch` | Manual dispatch (bypasses scheduler) |
 | `GET` | `/api/status` | Active sessions, queued count, budget info |
 | `GET` | `/api/events` | SSE stream (task:updated, invocation:started/completed, status:updated) |
 | `POST` | `/api/webhooks/linear` | Linear webhook (HMAC-SHA256 verified) |

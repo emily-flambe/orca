@@ -9,7 +9,6 @@ import {
   insertTask,
   insertInvocation,
   insertBudgetEvent,
-  updateTaskStatus,
 } from "../src/db/queries.js";
 import { orcaEvents } from "../src/events.js";
 import type { OrcaDb } from "../src/db/index.js";
@@ -74,12 +73,10 @@ function now(): string {
 describe("GET /api/tasks", () => {
   let db: OrcaDb;
   let app: Hono;
-  const dispatchTask = vi.fn();
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
-    dispatchTask.mockReset();
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
   });
 
   it("returns empty array when no tasks exist", async () => {
@@ -152,12 +149,10 @@ describe("GET /api/tasks", () => {
 describe("GET /api/tasks/:id", () => {
   let db: OrcaDb;
   let app: Hono;
-  const dispatchTask = vi.fn();
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
-    dispatchTask.mockReset();
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
   });
 
   it("returns task with invocations array", async () => {
@@ -193,77 +188,17 @@ describe("GET /api/tasks/:id", () => {
   });
 });
 
-describe("POST /api/tasks/:id/dispatch", () => {
-  let db: OrcaDb;
-  let app: Hono;
-  let dispatchTask: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    db = createDb(":memory:");
-    dispatchTask = vi.fn();
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
-  });
-
-  it("dispatches successfully and returns invocationId", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "DISPATCH-OK",
-      agentPrompt: "Do something",
-      orcaStatus: "ready" as const,
-    }));
-
-    dispatchTask.mockResolvedValue(42);
-
-    const res = await app.request("/api/tasks/DISPATCH-OK/dispatch", {
-      method: "POST",
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.invocationId).toBe(42);
-    expect(dispatchTask).toHaveBeenCalledWith("DISPATCH-OK");
-  });
-
-  it("returns 404 for unknown task ID", async () => {
-    const res = await app.request("/api/tasks/MISSING/dispatch", {
-      method: "POST",
-    });
-
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(body.error).toBe("task not found");
-  });
-
-  it("returns 400 when task is already running", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "ALREADY-RUNNING",
-      agentPrompt: "Some prompt",
-      orcaStatus: "running" as const,
-    }));
-
-    const res = await app.request("/api/tasks/ALREADY-RUNNING/dispatch", {
-      method: "POST",
-    });
-
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("task is already running");
-  });
-});
-
 describe("GET /api/status", () => {
   let db: OrcaDb;
   let app: Hono;
-  const dispatchTask = vi.fn();
 
   beforeEach(() => {
     db = createDb(":memory:");
     app = createApiRoutes({
       db,
       config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
-      dispatchTask,
       syncTasks: vi.fn().mockResolvedValue(0),
     });
-    dispatchTask.mockReset();
   });
 
   it("returns correct status object with all fields", async () => {
@@ -316,12 +251,10 @@ describe("GET /api/status", () => {
 describe("GET /api/events (SSE)", () => {
   let db: OrcaDb;
   let app: Hono;
-  const dispatchTask = vi.fn();
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), dispatchTask, syncTasks: vi.fn().mockResolvedValue(0) });
-    dispatchTask.mockReset();
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
   });
 
   it("returns content-type text/event-stream and streams events", async () => {

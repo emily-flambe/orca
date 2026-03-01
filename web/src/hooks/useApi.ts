@@ -23,12 +23,6 @@ export function fetchStatus(): Promise<OrcaStatus> {
   return fetchJson<OrcaStatus>("/status");
 }
 
-export async function dispatchTask(id: string): Promise<{ invocationId: number }> {
-  return fetchJson<{ invocationId: number }>(`/tasks/${encodeURIComponent(id)}/dispatch`, {
-    method: "POST",
-  });
-}
-
 export async function triggerSync(): Promise<{ synced: number }> {
   return fetchJson<{ synced: number }>("/sync", { method: "POST" });
 }
