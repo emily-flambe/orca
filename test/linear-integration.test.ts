@@ -990,3 +990,103 @@ describe("10.6 - Polling fallback", () => {
     expect(fullSyncMock).toHaveBeenCalledTimes(1); // No more calls
   });
 });
+
+// ===========================================================================
+// EMI-93 - writeBackStatus "backlog" transition
+// ===========================================================================
+
+describe("EMI-93 - writeBackStatus backlog transition", () => {
+  let originalFetch: typeof globalThis.fetch;
+  let mockFetch: Mock;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  async function getClientAndWriteBack() {
+    const { LinearClient } = await import("../src/linear/client.js");
+    const { writeBackStatus } = await import("../src/linear/sync.js");
+    const client = new LinearClient("test-key");
+    return { client, writeBackStatus };
+  }
+
+  test("backlog transition maps to Linear 'Backlog' state", async () => {
+    const { client, writeBackStatus } = await getClientAndWriteBack();
+
+    // Mock successful state update
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: { issueUpdate: { success: true } },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const stateMap = new Map([
+      ["Backlog", { id: "state-backlog-id", type: "backlog" }],
+      ["Todo", { id: "state-todo-id", type: "unstarted" }],
+      ["Done", { id: "state-done-id", type: "completed" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-BL", "backlog", stateMap);
+
+    // Should have called updateIssueState with the Backlog state ID
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = mockFetch.mock.calls[0];
+    const body = JSON.parse(fetchInit.body);
+    // The GraphQL mutation should reference state-backlog-id
+    expect(body.variables.stateId).toBe("state-backlog-id");
+    expect(body.variables.issueId).toBe("TASK-BL");
+  });
+
+  test("backlog transition silently fails if Backlog state not in stateMap", async () => {
+    const { client, writeBackStatus } = await getClientAndWriteBack();
+
+    // State map WITHOUT Backlog
+    const stateMap = new Map([
+      ["Todo", { id: "state-todo-id", type: "unstarted" }],
+      ["Done", { id: "state-done-id", type: "completed" }],
+    ]);
+
+    // Should not throw, just log a warning
+    await writeBackStatus(client, "TASK-NO-BL", "backlog", stateMap);
+
+    // No fetch call should have been made
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("retry transition maps to Linear 'Todo' state (not 'Backlog')", async () => {
+    const { client, writeBackStatus } = await getClientAndWriteBack();
+
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: { issueUpdate: { success: true } },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const stateMap = new Map([
+      ["Backlog", { id: "state-backlog-id", type: "backlog" }],
+      ["Todo", { id: "state-todo-id", type: "unstarted" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-RETRY", "retry", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, fetchInit] = mockFetch.mock.calls[0];
+    const body = JSON.parse(fetchInit.body);
+    // retry -> "Todo", NOT "Backlog"
+    expect(body.variables.stateId).toBe("state-todo-id");
+  });
+});

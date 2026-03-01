@@ -177,6 +177,82 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // POST /api/tasks/:id/status
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks/:id/status", async (c) => {
+    const taskId = c.req.param("id");
+    let body: { status?: string };
+    try {
+      body = await c.req.json<{ status?: string }>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const newStatus = body.status;
+
+    if (newStatus !== "backlog" && newStatus !== "ready" && newStatus !== "done") {
+      return c.json({ error: "status must be one of: backlog, ready, done" }, 400);
+    }
+
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "task not found" }, 404);
+    }
+
+    if (task.orcaStatus === newStatus) {
+      return c.json({ error: `task is already "${newStatus}"` }, 409);
+    }
+
+    // Kill running session if task is active
+    if (task.orcaStatus === "running" || task.orcaStatus === "dispatched" || task.orcaStatus === "in_review") {
+      const runningInvocations = getRunningInvocations(db);
+      for (const [invId, handle] of activeHandles) {
+        const matchingInv = runningInvocations.find(
+          (inv) => inv.linearIssueId === taskId && inv.id === invId,
+        );
+        if (matchingInv) {
+          try {
+            await killSession(handle);
+          } catch {
+            // Process may already be dead
+          }
+          updateInvocation(db, invId, {
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            outputSummary: `aborted by status change to ${newStatus}`,
+          });
+          activeHandles.delete(invId);
+          emitInvocationCompleted({
+            taskId,
+            invocationId: invId,
+            status: "failed",
+            costUsd: 0,
+          });
+          break;
+        }
+      }
+    }
+
+    // Update DB
+    if (newStatus === "done") {
+      updateTaskStatus(db, taskId, "done");
+    } else {
+      updateTaskFields(db, taskId, {
+        orcaStatus: newStatus,
+        retryCount: 0,
+        reviewCycleCount: 0,
+      });
+    }
+
+    emitTaskUpdated(getTask(db, taskId)!);
+
+    // Write back to Linear
+    const linearTransition = newStatus === "ready" ? "retry" : newStatus;
+    writeBackStatus(client, taskId, linearTransition, stateMap).catch(() => {});
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/tasks/:id/retry
   // -----------------------------------------------------------------------
   app.post("/api/tasks/:id/retry", (c) => {

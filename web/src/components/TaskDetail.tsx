@@ -1,6 +1,6 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -33,15 +33,33 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
+const MANUAL_STATUSES = [
+  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
+  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
+  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
+] as const;
+
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
       .then((d) => setDetail(d))
       .catch(console.error);
   }, [taskId]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+        setShowStatusMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   if (!detail) {
     return <div className="p-4 text-gray-500">Loading...</div>;
@@ -56,9 +74,33 @@ export default function TaskDetail({ taskId }: Props) {
       {/* Header */}
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(detail.orcaStatus)}`}>
-          {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}
-        </span>
+        <div className="relative" ref={statusMenuRef}>
+          <button
+            onClick={() => setShowStatusMenu(!showStatusMenu)}
+            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${statusBadge(detail.orcaStatus)}`}
+          >
+            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
+          </button>
+          {showStatusMenu && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map((s) => (
+                <button
+                  key={s.value}
+                  onClick={() => {
+                    setShowStatusMenu(false);
+                    updateTaskStatus(detail.linearIssueId, s.value)
+                      .then(() => fetchTaskDetail(taskId))
+                      .then((d) => setDetail(d))
+                      .catch(console.error);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {detail.orcaStatus === "failed" && (
           <button
             onClick={() => {
