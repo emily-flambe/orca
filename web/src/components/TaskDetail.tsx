@@ -57,7 +57,7 @@ export default function TaskDetail({ taskId }: Props) {
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
         <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(detail.orcaStatus)}`}>
-          {detail.orcaStatus}
+          {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}
         </span>
         {detail.orcaStatus === "failed" && (
           <button
