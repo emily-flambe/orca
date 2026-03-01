@@ -1,8 +1,8 @@
 // merge gate test
 // merge gate test
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import type { Task } from "../types";
-import { updateTaskStatus } from "../hooks/useApi";
+import StatusMenuButton from "./StatusMenuButton";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -29,53 +29,19 @@ function priorityColor(p: number): string {
   }
 }
 
-function statusBadge(s: string): { bg: string; text: string } {
-  switch (s) {
-    case "done": return { bg: "bg-green-500/20 text-green-400", text: "done" };
-    case "running": return { bg: "bg-blue-500/20 text-blue-400", text: "running" };
-    case "ready": return { bg: "bg-cyan-500/20 text-cyan-400", text: "queued" };
-    case "failed": return { bg: "bg-red-500/20 text-red-400", text: "failed" };
-    case "dispatched": return { bg: "bg-gray-500/20 text-gray-400", text: "dispatched" };
-    case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
-    case "changes_requested": return { bg: "bg-orange-500/20 text-orange-400", text: "changes requested" };
-    case "awaiting_ci": return { bg: "bg-yellow-500/20 text-yellow-400", text: "awaiting CI" };
-    case "deploying": return { bg: "bg-teal-500/20 text-teal-400", text: "deploying" };
-    case "backlog": return { bg: "bg-gray-500/20 text-gray-500", text: "backlog" };
-    default: return { bg: "bg-gray-500/20 text-gray-400", text: s };
-  }
-}
-
 const STATUS_ORDER: Record<string, number> = {
   running: 0, dispatched: 1, in_review: 2, awaiting_ci: 3, deploying: 4, changes_requested: 5, ready: 6, failed: 7, done: 8, backlog: 9,
 };
-
-const MANUAL_STATUSES = [
-  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
-  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
-  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
-] as const;
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortOption>("priority");
   const [, tick] = useState(0);
-  const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
 
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
-        setStatusMenuTaskId(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const now = Date.now();
@@ -130,7 +96,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   : "text-gray-400 hover:text-gray-200"
               }`}
             >
-              {f === "ready" ? "queued" : f === "awaiting_ci" ? "CI" : f === "changes_requested" ? "changes" : f}
+              {f === "ready" ? "queued" : f === "awaiting_ci" ? (
+                <><span className="hidden md:inline">awaiting </span>CI</>
+              ) : f === "changes_requested" ? (
+                <><span className="md:hidden">changes</span><span className="hidden md:inline">{f}</span></>
+              ) : f}
             </button>
           ))}
         </div>
@@ -154,7 +124,6 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       {/* Task rows */}
       <div className="flex-1 overflow-y-auto">
         {sorted.map((task) => {
-          const badge = statusBadge(task.orcaStatus);
           const isSelected = task.linearIssueId === selectedTaskId;
           return (
             <div
@@ -181,39 +150,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                 <span className="text-sm text-gray-200 truncate flex-1">
                   {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
                 </span>
-                <div
-                  className="relative shrink-0"
-                  ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
-                >
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStatusMenuTaskId(
-                        statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
-                      );
-                    }}
-                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
-                  >
-                    {badge.text} &#9662;
-                  </button>
-                  {statusMenuTaskId === task.linearIssueId && (
-                    <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-                      {MANUAL_STATUSES.filter((s) => s.value !== task.orcaStatus).map((s) => (
-                        <button
-                          key={s.value}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setStatusMenuTaskId(null);
-                            updateTaskStatus(task.linearIssueId, s.value).catch(console.error);
-                          }}
-                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <StatusMenuButton status={task.orcaStatus} taskId={task.linearIssueId} />
               </div>
               {/* Mobile row */}
               <div className="flex md:hidden flex-col gap-1.5">
@@ -227,39 +164,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                       {task.projectName}
                     </span>
                   )}
-                  <div
-                    className="relative shrink-0 ml-auto"
-                    ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
-                  >
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setStatusMenuTaskId(
-                          statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
-                        );
-                      }}
-                      className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
-                    >
-                      {badge.text} &#9662;
-                    </button>
-                    {statusMenuTaskId === task.linearIssueId && (
-                      <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-                        {MANUAL_STATUSES.filter((s) => s.value !== task.orcaStatus).map((s) => (
-                          <button
-                            key={s.value}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setStatusMenuTaskId(null);
-                              updateTaskStatus(task.linearIssueId, s.value).catch(console.error);
-                            }}
-                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <StatusMenuButton status={task.orcaStatus} taskId={task.linearIssueId} mobile />
                 </div>
                 <span className="text-sm text-gray-200 leading-snug line-clamp-3">
                   {task.agentPrompt || <span className="text-gray-500 italic">No prompt</span>}
