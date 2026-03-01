@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync, openSync, readSync, closeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,6 +17,9 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getMetrics,
+  getErrorAggregation,
+  getRecentErrors,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -340,6 +343,75 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     return c.json({ ok: true, concurrencyCap: config.concurrencyCap });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/metrics", (c) => {
+    const metrics = getMetrics(db);
+    return c.json(metrics);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/errors
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/errors", (c) => {
+    const errors = getErrorAggregation(db);
+    return c.json({ errors });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/errors/recent?limit=50
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/errors/recent", (c) => {
+    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+    const errors = getRecentErrors(db, limit);
+    return c.json({ errors });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/observability/logs?lines=200&search=...
+  // -----------------------------------------------------------------------
+  app.get("/api/observability/logs", (c) => {
+    const maxLines = Math.min(Math.max(Number(c.req.query("lines")) || 200, 1), 2000);
+    const search = c.req.query("search") || "";
+
+    const logFile = join(process.cwd(), "orca.log");
+    if (!existsSync(logFile)) {
+      return c.json({ lines: [], totalLines: 0 });
+    }
+
+    // Guard against huge log files (>50MB) to avoid memory exhaustion
+    const fileStat = statSync(logFile);
+    if (fileStat.size > 50 * 1024 * 1024) {
+      // Read only the tail (~1MB) for large files
+      const tailSize = Math.min(fileStat.size, 1024 * 1024);
+      const buf = Buffer.alloc(tailSize);
+      const fd = openSync(logFile, "r");
+      readSync(fd, buf, 0, tailSize, fileStat.size - tailSize);
+      closeSync(fd);
+      const raw = buf.toString("utf-8");
+      const allLines = raw.split("\n").filter((l) => l.length > 0);
+      let filtered = allLines;
+      if (search) {
+        const lower = search.toLowerCase();
+        filtered = allLines.filter((line) => line.toLowerCase().includes(lower));
+      }
+      return c.json({ lines: filtered.slice(-maxLines), totalLines: -1 });
+    }
+
+    const raw = readFileSync(logFile, "utf-8");
+    const allLines = raw.split("\n").filter((l) => l.length > 0);
+    const totalLines = allLines.length;
+
+    let filtered = allLines;
+    if (search) {
+      const lower = search.toLowerCase();
+      filtered = allLines.filter((line) => line.toLowerCase().includes(lower));
+    }
+
+    return c.json({ lines: filtered.slice(-maxLines), totalLines });
   });
 
   // -----------------------------------------------------------------------

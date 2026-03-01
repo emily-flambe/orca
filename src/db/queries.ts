@@ -326,3 +326,138 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
     .get();
   return result?.total ? Number(result.total) : 0;
 }
+
+// ---------------------------------------------------------------------------
+// Observability queries
+// ---------------------------------------------------------------------------
+
+export interface ObservabilityMetrics {
+  totalInvocations: number;
+  completedInvocations: number;
+  failedInvocations: number;
+  timedOutInvocations: number;
+  totalCostUsd: number;
+  avgCostPerInvocation: number;
+  avgDurationSec: number;
+  avgTurnsPerInvocation: number;
+  costByDay: { date: string; cost: number }[];
+  invocationsByDay: { date: string; completed: number; failed: number; timedOut: number }[];
+}
+
+/** Get aggregated metrics from invocations. */
+export function getMetrics(db: OrcaDb): ObservabilityMetrics {
+  const summaryRows = db.all<{
+    total: number;
+    completed: number;
+    failed: number;
+    timed_out: number;
+    total_cost: number | null;
+    avg_cost: number | null;
+    avg_duration: number | null;
+    avg_turns: number | null;
+  }>(sql`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN status = 'timed_out' THEN 1 ELSE 0 END) AS timed_out,
+      SUM(cost_usd) AS total_cost,
+      AVG(cost_usd) AS avg_cost,
+      AVG(CASE WHEN ended_at IS NOT NULL THEN (julianday(ended_at) - julianday(started_at)) * 86400 END) AS avg_duration,
+      AVG(num_turns) AS avg_turns
+    FROM invocations
+  `);
+  const s = summaryRows[0] ?? {
+    total: 0, completed: 0, failed: 0, timed_out: 0,
+    total_cost: null, avg_cost: null, avg_duration: null, avg_turns: null,
+  };
+
+  const costByDayRows = db.all<{ date: string; cost: number }>(sql`
+    SELECT
+      substr(started_at, 1, 10) AS date,
+      SUM(cost_usd) AS cost
+    FROM invocations
+    WHERE cost_usd IS NOT NULL
+    GROUP BY substr(started_at, 1, 10)
+    ORDER BY date ASC
+  `);
+
+  const invByDayRows = db.all<{
+    date: string;
+    completed: number;
+    failed: number;
+    timed_out: number;
+  }>(sql`
+    SELECT
+      substr(started_at, 1, 10) AS date,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+      SUM(CASE WHEN status = 'timed_out' THEN 1 ELSE 0 END) AS timed_out
+    FROM invocations
+    GROUP BY substr(started_at, 1, 10)
+    ORDER BY date ASC
+  `);
+
+  return {
+    totalInvocations: s.total,
+    completedInvocations: s.completed,
+    failedInvocations: s.failed,
+    timedOutInvocations: s.timed_out,
+    totalCostUsd: s.total_cost ?? 0,
+    avgCostPerInvocation: s.avg_cost ?? 0,
+    avgDurationSec: s.avg_duration ?? 0,
+    avgTurnsPerInvocation: s.avg_turns ?? 0,
+    costByDay: costByDayRows.map((r) => ({ date: r.date, cost: r.cost ?? 0 })),
+    invocationsByDay: invByDayRows.map((r) => ({
+      date: r.date,
+      completed: r.completed,
+      failed: r.failed,
+      timedOut: r.timed_out,
+    })),
+  };
+}
+
+export interface ErrorAggregationItem {
+  summary: string;
+  count: number;
+  lastOccurrence: string;
+  taskIds: string[];
+}
+
+/** Get error aggregation — group failed invocations by outputSummary. */
+export function getErrorAggregation(db: OrcaDb): ErrorAggregationItem[] {
+  const rows = db.all<{
+    summary: string;
+    cnt: number;
+    last_occurrence: string;
+    task_ids: string;
+  }>(sql`
+    SELECT
+      COALESCE(output_summary, 'unknown error') AS summary,
+      COUNT(*) AS cnt,
+      MAX(started_at) AS last_occurrence,
+      GROUP_CONCAT(DISTINCT linear_issue_id) AS task_ids
+    FROM invocations
+    WHERE status IN ('failed', 'timed_out')
+    GROUP BY COALESCE(output_summary, 'unknown error')
+    ORDER BY cnt DESC
+  `);
+
+  return rows.map((r) => ({
+    summary: r.summary,
+    count: r.cnt,
+    lastOccurrence: r.last_occurrence,
+    taskIds: r.task_ids ? r.task_ids.split(",") : [],
+  }));
+}
+
+/** Get recent failed invocations for error drill-down. */
+export function getRecentErrors(db: OrcaDb, limit = 50): Invocation[] {
+  return db
+    .select()
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
+}
