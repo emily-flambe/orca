@@ -304,9 +304,120 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
 // Observability queries
 // ---------------------------------------------------------------------------
 
-/** Get all invocations (for metrics aggregation). */
-export function getAllInvocations(db: OrcaDb): Invocation[] {
-  return db.select().from(invocations).all();
+/** Get aggregated invocation metrics summary via SQL (no full-table load). */
+export function getMetricsSummary(db: OrcaDb) {
+  // Status counts
+  const statusRows = db
+    .select({ status: invocations.status, cnt: count() })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all();
+
+  const statusMap: Record<string, number> = {};
+  for (const row of statusRows) {
+    statusMap[row.status] = row.cnt;
+  }
+
+  const completed = statusMap["completed"] ?? 0;
+  const failed = statusMap["failed"] ?? 0;
+  const timedOut = statusMap["timed_out"] ?? 0;
+  const running = statusMap["running"] ?? 0;
+  const total = completed + failed + timedOut + running;
+  const finished = completed + failed + timedOut;
+
+  // Cost stats
+  const costRow = db
+    .select({
+      totalCost: sum(invocations.costUsd),
+      costCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .get();
+
+  const totalCost = costRow?.totalCost ? Number(costRow.totalCost) : 0;
+  const costCount = costRow?.costCount ?? 0;
+  const avgCost = costCount > 0 ? totalCost / costCount : 0;
+
+  // Duration stats
+  const durationRow = db
+    .select({
+      totalMs: sql<string>`sum((julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400000)`,
+      cnt: count(),
+    })
+    .from(invocations)
+    .where(
+      and(
+        isNotNull(invocations.endedAt),
+        isNotNull(invocations.startedAt),
+        sql`(julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) >= 0`,
+      ),
+    )
+    .get();
+
+  const totalDurMs = durationRow?.totalMs ? Number(durationRow.totalMs) : 0;
+  const durCount = durationRow?.cnt ?? 0;
+  const avgDurationMs = durCount > 0 ? totalDurMs / durCount : 0;
+
+  // Turn stats
+  const turnRow = db
+    .select({
+      totalTurns: sum(invocations.numTurns),
+      cnt: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.numTurns))
+    .get();
+
+  const totalTurns = turnRow?.totalTurns ? Number(turnRow.totalTurns) : 0;
+  const turnCount = turnRow?.cnt ?? 0;
+  const avgTurns = turnCount > 0 ? totalTurns / turnCount : 0;
+
+  return {
+    total,
+    completed,
+    failed,
+    timedOut,
+    running,
+    finished,
+    totalCost,
+    avgCost,
+    avgDurationMs,
+    avgTurns,
+  };
+}
+
+/** Get daily invocation metrics grouped by day and status (for last N days). */
+export function getDailyMetrics(db: OrcaDb, since: string) {
+  return db
+    .select({
+      day: sql<string>`substr(${invocations.startedAt}, 1, 10)`,
+      status: invocations.status,
+      cnt: count(),
+      totalCost: sql<string>`coalesce(sum(${invocations.costUsd}), 0)`,
+      totalDurationMs: sql<string>`coalesce(sum(case when ${invocations.endedAt} is not null and (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) >= 0 then (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400000 else 0 end), 0)`,
+      durationCount: sql<number>`sum(case when ${invocations.endedAt} is not null and (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) >= 0 then 1 else 0 end)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, since))
+    .groupBy(sql`substr(${invocations.startedAt}, 1, 10)`, invocations.status)
+    .all();
+}
+
+/** Get top N tasks by total cost. */
+export function getTopTasksByCost(db: OrcaDb, limit: number) {
+  return db
+    .select({
+      taskId: invocations.linearIssueId,
+      totalCost: sql<string>`sum(${invocations.costUsd})`,
+      invocationCount: count(),
+    })
+    .from(invocations)
+    .where(isNotNull(invocations.costUsd))
+    .groupBy(invocations.linearIssueId)
+    .orderBy(sql`sum(${invocations.costUsd}) desc`)
+    .limit(limit)
+    .all();
 }
 
 /** Get recent failed/timed_out invocations. */

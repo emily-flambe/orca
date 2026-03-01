@@ -3,6 +3,9 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDb } from "../src/db/index.js";
 import { createApiRoutes } from "../src/api/routes.js";
 import {
@@ -817,5 +820,323 @@ describe("POST /api/tasks/:id/status", () => {
 
     const res = await postStatus("T-EMPTY-STR", { status: "" });
     expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/logs  (observability — log viewer)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/logs", () => {
+  let db: OrcaDb;
+  let app: Hono;
+  let tmpDir: string;
+  let cwdSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+    tmpDir = mkdtempSync(join(tmpdir(), "orca-logs-test-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns empty when no log file exists", async () => {
+    const res = await app.request("/api/logs");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toEqual([]);
+    expect(body.totalLines).toBe(0);
+    expect(body.matchedLines).toBe(0);
+  });
+
+  it("returns log lines from file", async () => {
+    writeFileSync(join(tmpDir, "orca.log"), "line one\nline two\nline three\n");
+
+    const res = await app.request("/api/logs");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toEqual(["line one", "line two", "line three"]);
+    expect(body.totalLines).toBe(3);
+    expect(body.matchedLines).toBe(3);
+  });
+
+  it("search filtering works", async () => {
+    writeFileSync(join(tmpDir, "orca.log"), "INFO: hello\nERROR: bad thing\nINFO: world\n");
+
+    const res = await app.request("/api/logs?search=error");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toEqual(["ERROR: bad thing"]);
+    expect(body.matchedLines).toBe(1);
+    expect(body.totalLines).toBe(3);
+  });
+
+  it("lines param limits output", async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+    writeFileSync(join(tmpDir, "orca.log"), lines);
+
+    const res = await app.request("/api/logs?lines=5");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toHaveLength(5);
+    // Should return the last 5 lines
+    expect(body.lines[0]).toBe("line 46");
+    expect(body.lines[4]).toBe("line 50");
+    expect(body.totalLines).toBe(50);
+    expect(body.matchedLines).toBe(50);
+  });
+
+  it("handles empty log file", async () => {
+    writeFileSync(join(tmpDir, "orca.log"), "");
+
+    const res = await app.request("/api/logs");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toEqual([]);
+    expect(body.totalLines).toBe(0);
+    expect(body.matchedLines).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/metrics  (observability — invocation metrics)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/metrics", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+  });
+
+  it("returns zeroed summary with no invocations", async () => {
+    const res = await app.request("/api/metrics");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.summary.total).toBe(0);
+    expect(body.summary.completed).toBe(0);
+    expect(body.summary.failed).toBe(0);
+    expect(body.summary.timedOut).toBe(0);
+    expect(body.summary.running).toBe(0);
+    expect(body.summary.finished).toBe(0);
+    expect(body.summary.totalCost).toBe(0);
+    expect(body.summary.avgCost).toBe(0);
+    expect(body.summary.avgDurationMs).toBe(0);
+    expect(body.summary.avgTurns).toBe(0);
+  });
+
+  it("correctly aggregates mixed statuses", async () => {
+    insertTask(db, makeTask({ linearIssueId: "METRIC-1" }));
+
+    // 2 completed, 1 failed, 1 timed_out
+    insertInvocation(db, {
+      linearIssueId: "METRIC-1",
+      startedAt: "2026-02-28T10:00:00.000Z",
+      endedAt: "2026-02-28T10:30:00.000Z",
+      status: "completed",
+      costUsd: 0.50,
+      numTurns: 10,
+    });
+    insertInvocation(db, {
+      linearIssueId: "METRIC-1",
+      startedAt: "2026-02-28T11:00:00.000Z",
+      endedAt: "2026-02-28T11:15:00.000Z",
+      status: "completed",
+      costUsd: 0.30,
+      numTurns: 6,
+    });
+    insertInvocation(db, {
+      linearIssueId: "METRIC-1",
+      startedAt: "2026-02-28T12:00:00.000Z",
+      endedAt: "2026-02-28T12:05:00.000Z",
+      status: "failed",
+      costUsd: 0.10,
+      numTurns: 3,
+    });
+    insertInvocation(db, {
+      linearIssueId: "METRIC-1",
+      startedAt: "2026-02-28T13:00:00.000Z",
+      endedAt: "2026-02-28T13:45:00.000Z",
+      status: "timed_out",
+      costUsd: 1.00,
+      numTurns: 20,
+    });
+
+    const res = await app.request("/api/metrics");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.summary.total).toBe(4);
+    expect(body.summary.completed).toBe(2);
+    expect(body.summary.failed).toBe(1);
+    expect(body.summary.timedOut).toBe(1);
+    expect(body.summary.running).toBe(0);
+    expect(body.summary.finished).toBe(4);
+    expect(body.summary.totalCost).toBeCloseTo(1.90, 2);
+    expect(body.summary.avgCost).toBeCloseTo(0.475, 2);
+    expect(body.summary.avgTurns).toBeCloseTo(9.75, 2);
+    expect(body.summary.avgDurationMs).toBeGreaterThan(0);
+  });
+
+  it("daily array has 14 entries and fills missing days", async () => {
+    const res = await app.request("/api/metrics");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.daily).toHaveLength(14);
+    // All should have zero counts
+    for (const day of body.daily) {
+      expect(day.count).toBe(0);
+      expect(day.completed).toBe(0);
+      expect(day.failed).toBe(0);
+    }
+  });
+
+  it("top tasks ranked by cost descending", async () => {
+    insertTask(db, makeTask({ linearIssueId: "EXPENSIVE" }));
+    insertTask(db, makeTask({ linearIssueId: "CHEAP" }));
+
+    insertInvocation(db, {
+      linearIssueId: "EXPENSIVE",
+      startedAt: now(),
+      status: "completed",
+      costUsd: 5.00,
+    });
+    insertInvocation(db, {
+      linearIssueId: "EXPENSIVE",
+      startedAt: now(),
+      status: "completed",
+      costUsd: 3.00,
+    });
+    insertInvocation(db, {
+      linearIssueId: "CHEAP",
+      startedAt: now(),
+      status: "completed",
+      costUsd: 0.10,
+    });
+
+    const res = await app.request("/api/metrics");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.topTasks).toHaveLength(2);
+    expect(body.topTasks[0].taskId).toBe("EXPENSIVE");
+    expect(body.topTasks[0].totalCost).toBeCloseTo(8.00, 2);
+    expect(body.topTasks[0].invocationCount).toBe(2);
+    expect(body.topTasks[1].taskId).toBe("CHEAP");
+    expect(body.topTasks[1].totalCost).toBeCloseTo(0.10, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/errors  (observability — error aggregation)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/errors", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+  });
+
+  it("returns empty patterns and recentErrors when no errors", async () => {
+    const res = await app.request("/api/errors");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.patterns).toEqual([]);
+    expect(body.recentErrors).toEqual([]);
+  });
+
+  it("groups errors by outputSummary pattern", async () => {
+    insertTask(db, makeTask({ linearIssueId: "ERR-1" }));
+    insertTask(db, makeTask({ linearIssueId: "ERR-2" }));
+
+    insertInvocation(db, {
+      linearIssueId: "ERR-1",
+      startedAt: "2026-02-28T10:00:00.000Z",
+      status: "failed",
+      outputSummary: "max turns reached",
+    });
+    insertInvocation(db, {
+      linearIssueId: "ERR-2",
+      startedAt: "2026-02-28T11:00:00.000Z",
+      status: "failed",
+      outputSummary: "max turns reached",
+    });
+    insertInvocation(db, {
+      linearIssueId: "ERR-1",
+      startedAt: "2026-02-28T12:00:00.000Z",
+      status: "timed_out",
+      outputSummary: "session timeout",
+    });
+
+    const res = await app.request("/api/errors");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.patterns).toHaveLength(2);
+    // "max turns reached" should be first (count=2)
+    const maxTurns = body.patterns.find((p: { pattern: string }) => p.pattern === "max turns reached");
+    expect(maxTurns).toBeDefined();
+    expect(maxTurns.count).toBe(2);
+    expect(maxTurns.affectedTasks).toHaveLength(2);
+    expect(maxTurns.affectedTasks).toContain("ERR-1");
+    expect(maxTurns.affectedTasks).toContain("ERR-2");
+
+    const timeout = body.patterns.find((p: { pattern: string }) => p.pattern === "session timeout");
+    expect(timeout).toBeDefined();
+    expect(timeout.count).toBe(1);
+
+    expect(body.recentErrors).toHaveLength(3);
+  });
+
+  it("limit parameter restricts results", async () => {
+    insertTask(db, makeTask({ linearIssueId: "ERR-LIM" }));
+
+    for (let i = 0; i < 10; i++) {
+      insertInvocation(db, {
+        linearIssueId: "ERR-LIM",
+        startedAt: `2026-02-28T${String(i).padStart(2, "0")}:00:00.000Z`,
+        status: "failed",
+        outputSummary: `error ${i}`,
+      });
+    }
+
+    const res = await app.request("/api/errors?limit=3");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.recentErrors).toHaveLength(3);
+  });
+
+  it("excludes non-error invocations", async () => {
+    insertTask(db, makeTask({ linearIssueId: "MIX" }));
+
+    insertInvocation(db, {
+      linearIssueId: "MIX",
+      startedAt: now(),
+      status: "completed",
+      outputSummary: "all good",
+    });
+    insertInvocation(db, {
+      linearIssueId: "MIX",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const res = await app.request("/api/errors");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.patterns).toEqual([]);
+    expect(body.recentErrors).toEqual([]);
   });
 });
