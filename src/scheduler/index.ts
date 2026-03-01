@@ -277,19 +277,32 @@ function onImplementSuccess(
   const thisInv = invocations.find((inv) => inv.id === invocationId);
   const branchName = thisInv?.branchName ?? task.prBranchName;
 
-  // Check if a PR exists
-  if (branchName) {
-    const prInfo = findPrForBranch(branchName, task.repoPath);
-    if (!prInfo.exists) {
-      log(`task ${taskId}: implementation succeeded but no PR found for branch ${branchName} — treating as failure`);
-      onSessionFailure(deps, taskId, invocationId, worktreePath, result);
-      return;
-    }
+  // Hard gate: branch name is required
+  if (!branchName) {
+    log(`task ${taskId}: no branch name found on invocation or task — treating as failure`);
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+    return;
+  }
 
-    // Store the PR branch name on the task
-    updateTaskPrBranch(db, taskId, branchName);
-  } else {
-    log(`task ${taskId}: no branch name found on invocation or task — skipping PR check`);
+  // Hard gate: PR must exist
+  const prInfo = findPrForBranch(branchName, task.repoPath);
+  if (!prInfo.exists) {
+    log(`task ${taskId}: implementation succeeded but no PR found for branch ${branchName} — treating as failure`);
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+    return;
+  }
+
+  // Store the PR branch name and PR number on the task
+  updateTaskPrBranch(db, taskId, branchName);
+  if (prInfo.number != null) {
+    updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
+  }
+
+  // Attach PR link to Linear issue (fire-and-forget)
+  if (prInfo.url) {
+    client.createAttachment(task.linearIssueId, prInfo.url, "Pull Request").catch((err) => {
+      log(`failed to attach PR link to Linear issue ${taskId}: ${err}`);
+    });
   }
 
   // Transition to in_review
@@ -310,7 +323,7 @@ function onImplementSuccess(
 
   log(
     `task ${taskId} implementation complete → in_review (invocation ${invocationId}, ` +
-      `cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
+      `PR #${prInfo.number ?? "?"}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
   );
 }
 
@@ -336,8 +349,27 @@ async function onReviewSuccess(
   const changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
 
   if (approved) {
-    // PR was approved and merged by the review agent
-    // Clean up worktree first (review is done regardless of deploy strategy)
+    // Hard gate: verify PR is actually merged before proceeding
+    let prMerged = false;
+    if (task.prBranchName) {
+      const prInfo = findPrForBranch(task.prBranchName, task.repoPath);
+      prMerged = prInfo.merged === true;
+    }
+
+    if (!prMerged) {
+      log(`task ${taskId}: REVIEW_RESULT:APPROVED but PR is not merged — leaving as in_review`);
+      updateTaskStatus(db, taskId, "in_review");
+      emitTaskUpdated(getTask(db, taskId)!);
+
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+      }
+      return;
+    }
+
+    // PR is confirmed merged — clean up worktree and proceed
     try {
       removeWorktree(worktreePath);
     } catch (err) {
@@ -345,7 +377,7 @@ async function onReviewSuccess(
     }
 
     if (config.deployStrategy === "github_actions") {
-      // Look up PR number from branch name
+      // Look up PR number and merge commit SHA
       let prNumber: number | undefined;
       let mergeCommitSha: string | null = null;
 
@@ -372,7 +404,7 @@ async function onReviewSuccess(
           `(PR #${prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
       );
     } else {
-      // deploy_strategy = "none" — go straight to done (current behavior)
+      // deploy_strategy = "none" — go straight to done
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
 

@@ -398,6 +398,22 @@ export class LinearClient {
   // 2.4 updateIssueState
   // -------------------------------------------------------------------------
 
+  async createAttachment(issueId: string, url: string, title: string): Promise<boolean> {
+    const graphql = `
+      mutation($issueId: String!, $url: String!, $title: String!) {
+        attachmentCreate(input: { issueId: $issueId, url: $url, title: $title }) {
+          success
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      attachmentCreate: { success: boolean };
+    }>(graphql, { issueId, url, title });
+
+    return data.attachmentCreate.success;
+  }
+
   async updateIssueState(issueId: string, stateId: string): Promise<boolean> {
     const graphql = `
       mutation($issueId: String!, $stateId: String!) {

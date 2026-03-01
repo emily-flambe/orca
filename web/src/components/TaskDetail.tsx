@@ -10,7 +10,7 @@ function statusBadge(s: string): string {
   switch (s) {
     case "done": case "completed": return "bg-green-500/20 text-green-400";
     case "running": return "bg-blue-500/20 text-blue-400";
-    case "ready": return "bg-yellow-500/20 text-yellow-400";
+    case "ready": return "bg-cyan-500/20 text-cyan-400";
     case "failed": return "bg-red-500/20 text-red-400";
     case "dispatched": return "bg-gray-500/20 text-gray-400";
     case "timed_out": return "bg-orange-500/20 text-orange-400";

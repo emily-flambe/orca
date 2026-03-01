@@ -140,12 +140,21 @@ export function loadConfig(): OrcaConfig {
 
 Steps:
 1. Read the full diff: git diff origin/main...HEAD
-2. Review for correctness, bugs, and security issues
-3. Run tests if a test framework is configured (check package.json scripts)
-4. Verify the implementation matches the task requirements (shown above in the prompt)
-5. Decision:
-   - If the PR is good: run \`gh pr merge --squash --delete-branch\`, then output REVIEW_RESULT:APPROVED
-   - If changes are needed: run \`gh pr review --request-changes -b "detailed description"\`, then output REVIEW_RESULT:CHANGES_REQUESTED
+2. Extract requirements from the task description (shown above). List each requirement explicitly.
+3. For EACH requirement, verify:
+   a. The diff addresses it
+   b. Search the codebase (grep/glob) for related patterns the implementation may have missed — duplicate logic, similar functions, shared constants, other call sites, etc.
+   c. Mark it as covered or not covered
+4. Review the diff for correctness, bugs, and security issues
+5. Run tests if a test framework is configured (check package.json scripts)
+6. Decision:
+   - APPROVE only if ALL requirements are covered AND no issues found
+   - REQUEST CHANGES if any requirement is missing, any related pattern was not updated, or any issue was found
+
+IMPORTANT: A diff that looks correct for what it touches is NOT sufficient. You must verify completeness — check that ALL instances of the pattern were updated, not just the ones in the diff. Use grep to search for related code.
+
+If approving: run \`gh pr merge --squash --delete-branch\`, then output REVIEW_RESULT:APPROVED
+If requesting changes: run \`gh pr review --request-changes -b "detailed description"\`, then output REVIEW_RESULT:CHANGES_REQUESTED
 
 You MUST output exactly one of REVIEW_RESULT:APPROVED or REVIEW_RESULT:CHANGES_REQUESTED.`;
 
