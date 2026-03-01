@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_number INTEGER,
   deploy_started_at TEXT,
   done_at TEXT,
+  parent_identifier TEXT,
+  is_parent INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -181,6 +183,17 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "done_at")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN done_at TEXT");
     sqlite.exec("UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 4 (parent/child issue tracking):
+  //   - Add parent_identifier column to tasks (FK-like to parent task)
+  //   - Add is_parent column (1 = has children, skip dispatch)
+  //   Sentinel: parent_identifier column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "parent_identifier")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_identifier TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0");
   }
 }
 

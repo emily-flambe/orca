@@ -149,6 +149,10 @@ describe("Repo path resolution in upsertTask", () => {
       projectId: "proj-1",
       relations: [],
       inverseRelations: [],
+      parentId: null,
+      parentTitle: null,
+      parentDescription: null,
+      childIds: [],
       ...overrides,
     };
   }

@@ -4,7 +4,7 @@
 
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient } from "./client.js";
+import type { LinearClient, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
 import { fullSync } from "./sync.js";
 
@@ -17,6 +17,7 @@ export interface PollerDeps {
   client: LinearClient;
   graph: DependencyGraph;
   config: OrcaConfig;
+  stateMap: WorkflowStateMap;
   isTunnelConnected: () => boolean;
 }
 
@@ -109,7 +110,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       }
 
       // 7.3 Reuse fullSync for simplicity — it's idempotent
-      await fullSync(deps.db, deps.client, deps.graph, deps.config);
+      await fullSync(deps.db, deps.client, deps.graph, deps.config, deps.stateMap);
 
       // Success — reset backoff
       if (consecutiveFailures > 0) {

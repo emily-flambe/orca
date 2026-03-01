@@ -10,6 +10,8 @@ import type { TaskStatus } from "../db/schema.js";
 import {
   deleteTask,
   getTask,
+  getChildTasks,
+  getParentTasks,
   insertTask,
   updateTaskStatus,
   updateTaskFields,
@@ -107,8 +109,12 @@ function mapLinearStateToOrcaStatus(
 // 4.2 Upsert logic
 // ---------------------------------------------------------------------------
 
-function buildPrompt(issue: LinearIssue): string {
-  return `${issue.title}\n\n${issue.description}`.trim();
+export function buildPrompt(issue: LinearIssue): string {
+  const ownPrompt = `${issue.title}\n\n${issue.description}`.trim();
+  if (issue.parentTitle) {
+    return `## Parent Issue\n**${issue.parentTitle}**\n${issue.parentDescription ?? ""}\n\n---\n\n## This Issue\n${ownPrompt}`;
+  }
+  return ownPrompt;
 }
 
 function upsertTask(
@@ -144,6 +150,9 @@ function upsertTask(
   const agentPrompt = buildPrompt(issue);
   const existing = getTask(db, issue.identifier);
 
+  const parentIdentifier = issue.parentId ?? null;
+  const isParent = (issue.childIds?.length ?? 0) > 0 ? 1 : 0;
+
   if (!existing) {
     // On insert, intermediate Linear states ("In Progress", "In Review")
     // mean Orca previously dispatched this task but the DB was wiped or
@@ -160,6 +169,8 @@ function upsertTask(
       priority: issue.priority,
       retryCount: 0,
       doneAt: insertStatus === "done" ? now : null,
+      parentIdentifier,
+      isParent,
       createdAt: now,
       updatedAt: now,
     });
@@ -187,8 +198,61 @@ function upsertTask(
       repoPath,
       priority: issue.priority,
       orcaStatus: effectiveStatus,
+      parentIdentifier,
+      isParent,
       ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Parent status rollup
+// ---------------------------------------------------------------------------
+
+const ACTIVE_CHILD_STATUSES = new Set<string>([
+  "dispatched",
+  "running",
+  "in_review",
+  "changes_requested",
+  "deploying",
+]);
+
+/**
+ * Evaluate and update parent task statuses based on their children's progress.
+ * If `parentIds` is provided, only those parents are evaluated; otherwise all parents.
+ */
+export async function evaluateParentStatuses(
+  db: OrcaDb,
+  client: LinearClient,
+  stateMap: WorkflowStateMap,
+  parentIds?: string[],
+): Promise<void> {
+  const parents = parentIds
+    ? parentIds
+        .map((id) => getTask(db, id))
+        .filter((t): t is NonNullable<typeof t> => t != null && t.isParent === 1)
+    : getParentTasks(db);
+
+  for (const parent of parents) {
+    const children = getChildTasks(db, parent.linearIssueId);
+    if (children.length === 0) continue;
+
+    const allDone = children.every((c) => c.orcaStatus === "done");
+    const anyActive = children.some((c) => ACTIVE_CHILD_STATUSES.has(c.orcaStatus));
+
+    if (allDone && parent.orcaStatus !== "done") {
+      updateTaskStatus(db, parent.linearIssueId, "done");
+      writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch((err) => {
+        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
+      });
+      log(`parent ${parent.linearIssueId} → done (all children done)`);
+    } else if (anyActive && parent.orcaStatus === "ready") {
+      updateTaskStatus(db, parent.linearIssueId, "running");
+      writeBackStatus(client, parent.linearIssueId, "dispatched", stateMap).catch((err) => {
+        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
+      });
+      log(`parent ${parent.linearIssueId} → running (child activity detected)`);
+    }
   }
 }
 
@@ -201,6 +265,7 @@ export async function fullSync(
   client: LinearClient,
   graph: DependencyGraph,
   config: OrcaConfig,
+  stateMap?: WorkflowStateMap,
 ): Promise<number> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
@@ -209,6 +274,11 @@ export async function fullSync(
   }
 
   graph.rebuild(issues);
+
+  // Evaluate parent statuses after all upserts
+  if (stateMap) {
+    await evaluateParentStatuses(db, client, stateMap);
+  }
 
   log(`full sync complete: ${issues.length} issues`);
   return issues.length;
@@ -240,6 +310,11 @@ export async function processWebhookEvent(
 
   // create or update: build a LinearIssue-like object from webhook data
   // Webhook data may not include full relations, so we construct a minimal issue
+  // Webhook payloads don't include parent/children. For parentIdentifier and
+  // isParent, we preserve whatever the DB already has (set during fullSync).
+  // For prompt enrichment fields, we set null — the DB already has the correct
+  // agentPrompt from fullSync.
+  const existingTask = getTask(db, event.data.identifier);
   const issueFromEvent: LinearIssue = {
     id: event.data.id,
     identifier: event.data.identifier,
@@ -251,6 +326,10 @@ export async function processWebhookEvent(
     projectId: event.data.projectId ?? "",
     relations: [],
     inverseRelations: [],
+    parentId: existingTask?.parentIdentifier ?? null,
+    parentTitle: null,
+    parentDescription: null,
+    childIds: existingTask?.isParent ? ["_placeholder"] : [],
   };
 
   // Only upsert if we have state info
@@ -259,6 +338,16 @@ export async function processWebhookEvent(
     resolveConflict(db, event.data.identifier, event.data.state.name, config);
 
     upsertTask(db, issueFromEvent, config);
+
+    // If this is a child task, evaluate its parent's status
+    const updatedTask = getTask(db, event.data.identifier);
+    if (updatedTask?.parentIdentifier) {
+      evaluateParentStatuses(db, client, stateMap, [updatedTask.parentIdentifier]).catch(
+        (err) => {
+          log(`parent eval failed after webhook for ${event.data.identifier}: ${err}`);
+        },
+      );
+    }
   }
 }
 

@@ -26,6 +26,10 @@ export interface LinearIssue {
     issueId: string;
     issueIdentifier: string;
   }[];
+  parentId: string | null;
+  parentTitle: string | null;
+  parentDescription: string | null;
+  childIds: string[];
 }
 
 /** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
@@ -194,6 +198,8 @@ export class LinearClient {
             project { id }
             relations { nodes { type relatedIssue { id identifier } } }
             inverseRelations { nodes { type issue { id identifier } } }
+            parent { id identifier title description }
+            children { nodes { id identifier } }
           }
         }
       }
@@ -233,6 +239,15 @@ export class LinearClient {
                 issue: { id: string; identifier: string };
               }>;
             };
+            parent: {
+              id: string;
+              identifier: string;
+              title: string;
+              description: string | null;
+            } | null;
+            children: {
+              nodes: Array<{ id: string; identifier: string }>;
+            };
           }>;
         };
       }>(graphql, variables);
@@ -257,6 +272,10 @@ export class LinearClient {
             issueId: r.issue.id,
             issueIdentifier: r.issue.identifier,
           })),
+          parentId: node.parent?.identifier ?? null,
+          parentTitle: node.parent?.title ?? null,
+          parentDescription: node.parent?.description ?? null,
+          childIds: (node.children?.nodes ?? []).map((c) => c.identifier),
         });
       }
 

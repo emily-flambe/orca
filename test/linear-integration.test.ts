@@ -334,6 +334,10 @@ describe("10.2 - DependencyGraph", () => {
       projectId: "proj-1",
       relations,
       inverseRelations,
+      parentId: null,
+      parentTitle: null,
+      parentDescription: null,
+      childIds: [],
     };
   }
 

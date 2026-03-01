@@ -42,7 +42,7 @@ import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
 import type { WorkflowStateMap } from "../linear/client.js";
-import { writeBackStatus } from "../linear/sync.js";
+import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,6 +78,21 @@ export const activeHandles = new Map<number, SessionHandle>();
 
 function log(message: string): void {
   console.log(`[orca/scheduler] ${message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Parent evaluation helper
+// ---------------------------------------------------------------------------
+
+function triggerParentEval(deps: SchedulerDeps, taskId: string): void {
+  const task = getTask(deps.db, taskId);
+  if (task?.parentIdentifier) {
+    evaluateParentStatuses(deps.db, deps.client, deps.stateMap, [task.parentIdentifier]).catch(
+      (err) => {
+        log(`parent eval failed for ${taskId}: ${err}`);
+      },
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +400,9 @@ async function onSessionComplete(
   } else {
     onSessionFailure(deps, taskId, invocationId, worktreePath, result, phase, isFixPhase);
   }
+
+  // Evaluate parent status if this task is a child
+  triggerParentEval(deps, taskId);
 }
 
 // ---------------------------------------------------------------------------
@@ -945,6 +963,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       });
 
       log(`task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`);
+      triggerParentEval(deps, taskId);
       continue;
     }
 
@@ -966,6 +985,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       });
 
       log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
+      triggerParentEval(deps, taskId);
 
       // Self-deploy: if this task's repo is the Orca project, restart with new code
       if (isOrcaProjectTask(task.repoPath)) {
@@ -1054,6 +1074,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
 
   const dispatchable = candidates.filter((t) => {
     if (!t.agentPrompt) return false;
+    if (t.isParent) return false; // never dispatch parent issues
     if (tasksWithRunningInv.has(t.linearIssueId)) return false;
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {

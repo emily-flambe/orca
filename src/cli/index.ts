@@ -171,7 +171,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () => fullSync(db, client, graph, config),
+      syncTasks: () => fullSync(db, client, graph, config, stateMap),
       client,
       stateMap,
     });
@@ -199,6 +199,7 @@ program
       client,
       graph,
       config,
+      stateMap,
       isTunnelConnected: () => tunnel.isTunnelConnected(),
     });
     poller.start();
