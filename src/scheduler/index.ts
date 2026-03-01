@@ -32,6 +32,8 @@ import {
   type SessionHandle,
   type SessionResult,
 } from "../runner/index.js";
+import { spawn } from "node:child_process";
+import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { findPrForBranch, getMergeCommitSha, getWorkflowRunStatus } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
@@ -772,6 +774,39 @@ function checkTimeouts(deps: SchedulerDeps): void {
 }
 
 // ---------------------------------------------------------------------------
+// Self-deploy (Orca-project tasks)
+// ---------------------------------------------------------------------------
+
+/** Flag to prevent multiple simultaneous self-deploys. */
+let selfDeployTriggered = false;
+
+function isOrcaProjectTask(repoPath: string): boolean {
+  try {
+    return resolve(repoPath) === resolve(process.cwd());
+  } catch {
+    return false;
+  }
+}
+
+function triggerSelfDeploy(): void {
+  if (selfDeployTriggered) {
+    log("self-deploy: already triggered, skipping");
+    return;
+  }
+  selfDeployTriggered = true;
+
+  const deployScript = join(process.cwd(), "scripts", "deploy.sh");
+  log("self-deploy: spawning deploy.sh — Orca will pull, rebuild, and restart");
+
+  const child = spawn("bash", [deployScript], {
+    detached: true,
+    stdio: "ignore",
+    cwd: process.cwd(),
+  });
+  child.unref();
+}
+
+// ---------------------------------------------------------------------------
 // Deploy monitoring
 // ---------------------------------------------------------------------------
 
@@ -862,6 +897,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       });
 
       log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
+
+      // Self-deploy: if this task's repo is the Orca project, restart with new code
+      if (isOrcaProjectTask(task.repoPath)) {
+        triggerSelfDeploy();
+      }
     } else if (status === "failure") {
       updateTaskStatus(db, taskId, "failed");
       emitTaskUpdated(getTask(db, taskId)!);
