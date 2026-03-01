@@ -20,9 +20,29 @@ A Linear issue in a tracked project reaches Orca one of two ways:
 | Canceled | `failed` |
 | Backlog | *(skipped)* |
 
-The agent prompt is built from `{title}\n\n{description}`. If the issue has no description, the prompt is just the title.
+The agent prompt is built from `{title}\n\n{description}`. If the issue is a child of a parent issue, the prompt is prefixed with the parent's title and description under a `## Parent Issue` header.
+
+**Parent/child detection:** The GraphQL query fetches `parent` and `children` fields. Issues with children get `is_parent = 1` in the DB. Child issues store their parent's identifier in `parent_identifier`.
 
 **Result:** A row exists in the `tasks` table with `orca_status = 'ready'`.
+
+## 1b. Parent/child issue handling
+
+When a Linear issue has sub-issues:
+
+- **Parent issue** (`is_parent = 1`): Tracked in the DB but **never dispatched**. Its status is derived from its children.
+- **Child issue** (`parent_identifier` set): Dispatched normally. Its agent prompt includes parent context under a `## Parent Issue` header.
+
+**Parent status rollup** (`evaluateParentStatuses`):
+- Runs after `fullSync`, after webhook processing of child tasks, and after task completion/deploy success.
+- If any child is in an active state (`dispatched`, `running`, `in_review`, `changes_requested`, `deploying`) and the parent is `ready` → parent transitions to `running`, Linear write-back to "In Progress".
+- If all children are `done` and the parent is not `done` → parent transitions to `done`, Linear write-back to "Done".
+
+| Scenario | Behavior |
+|---|---|
+| Parent with no children | `is_parent = 0`, dispatched normally |
+| Last child removed from parent | Next `fullSync` sets `is_parent = 0`, parent becomes dispatchable |
+| Parent manually set to "Todo" in Linear | Conflict resolution resets to `ready`, but `is_parent = 1` prevents dispatch. Next child activity re-triggers "In Progress". |
 
 ## 2. Scheduler picks up the task
 
@@ -31,7 +51,7 @@ The scheduler ticks every 10s (`ORCA_SCHEDULER_INTERVAL_SEC`). Each tick:
 1. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
 2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($1000), skip.
 3. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
-4. **Filter** — exclude tasks with empty `agent_prompt`, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
+4. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
 5. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
 6. **Dispatch the top task** with the appropriate phase.
 

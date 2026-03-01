@@ -59,7 +59,9 @@ All backend modules use named exports. The frontend uses default exports for Rea
 Three tables, all in SQLite with Drizzle ORM:
 
 **tasks** — Primary key: `linear_issue_id` (text)
-- `agent_prompt`, `repo_path`, `orca_status` (ready/dispatched/running/done/failed), `priority` (0-4), `retry_count`, `created_at`, `updated_at`
+- `agent_prompt`, `repo_path`, `orca_status` (ready/dispatched/running/done/failed/in_review/changes_requested/deploying), `priority` (0-4), `retry_count`, `review_cycle_count`, `pr_branch_name`, `merge_commit_sha`, `pr_number`, `deploy_started_at`, `done_at`, `project_name`, `created_at`, `updated_at`
+- `parent_identifier` (text, nullable) — references parent task's `linear_issue_id`
+- `is_parent` (integer, default 0) — 1 if this issue has sub-issues in Linear; parent tasks are tracked but never dispatched
 
 **invocations** — Auto-increment `id`, FK to `tasks.linear_issue_id`
 - `started_at`, `ended_at`, `status` (running/completed/failed/timed_out), `session_id`, `branch_name`, `worktree_path`, `cost_usd`, `num_turns`, `output_summary`, `log_path`
@@ -73,12 +75,12 @@ Each tick (every `ORCA_SCHEDULER_INTERVAL_SEC` seconds):
 1. Check for timed-out invocations → kill session, mark failed, attempt retry
 2. Count active sessions → skip if at `ORCA_CONCURRENCY_CAP`
 3. Check budget in rolling window → skip if exhausted
-4. Get ready tasks → filter out empty prompts → filter out blocked tasks (dependency graph)
-5. Sort by effective priority (inherits from transitive dependents) → dispatch first
+4. Get ready tasks → filter out empty prompts → filter out parent issues (`is_parent = 1`) → filter out blocked tasks (dependency graph)
+5. Sort: review/fix phases first, then by effective priority (inherits from transitive dependents) → dispatch first
 
 Dispatch: mark dispatched → insert invocation → create worktree → spawn claude CLI → mark running → attach completion handler.
 
-Completion: update invocation → insert budget event → emit SSE events → mark done/failed → retry if applicable → write back to Linear.
+Completion: update invocation → insert budget event → emit SSE events → mark done/failed → retry if applicable → write back to Linear → evaluate parent status if child task.
 
 ## API Endpoints
 
