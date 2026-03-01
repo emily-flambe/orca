@@ -3,6 +3,9 @@ import { createInterface } from "node:readline";
 import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("runner");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,9 +129,7 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
     const projectsDir = join(homedir(), ".claude", "projects");
 
     if (!repoPath) {
-      process.stderr.write(
-        `[orca/runner] warning: no repoPath provided, skipping stale Claude project dir cleanup\n`,
-      );
+      logger.warn("no repoPath provided, skipping stale Claude project dir cleanup");
       return;
     }
 
@@ -151,14 +152,10 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
 
       const fullPath = join(projectsDir, entry.name);
       rmSync(fullPath, { recursive: true, force: true });
-      process.stderr.write(
-        `[orca/runner] cleaned stale Claude project dir: ${entry.name}\n`,
-      );
+      logger.info(`cleaned stale Claude project dir: ${entry.name}`);
     }
   } catch (err) {
-    process.stderr.write(
-      `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`,
-    );
+    logger.warn(`failed to clean stale Claude project dirs: ${err}`);
   }
 }
 
@@ -280,8 +277,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       try {
         msg = JSON.parse(line) as Record<string, unknown>;
       } catch {
-        process.stderr.write(
-          `[orca/runner] warning: non-JSON line from claude (invocation ${options.invocationId}): ${line.slice(0, 200)}\n`,
+        logger.warn(
+          `non-JSON line from claude (invocation ${options.invocationId}): ${line.slice(0, 200)}`,
         );
         return;
       }
@@ -361,8 +358,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // ------------------------------------------------------------------
     if (proc.stderr) {
       proc.stderr.on("data", (chunk: Buffer) => {
-        process.stderr.write(
-          `[orca/runner][stderr][inv-${options.invocationId}] ${chunk.toString()}`,
+        logger.warn(
+          `[stderr][inv-${options.invocationId}] ${chunk.toString().trimEnd()}`,
         );
       });
     }
@@ -382,9 +379,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       if (!rlClosed) {
         const safetyTimer = setTimeout(() => {
           if (!rlClosed) {
-            process.stderr.write(
-              `[orca/runner] warning: readline did not close within 10s of exit ` +
-                `for invocation ${options.invocationId}, forcing resolution\n`,
+            logger.warn(
+              `readline did not close within 10s of exit ` +
+                `for invocation ${options.invocationId}, forcing resolution`,
             );
             rlClosed = true;
             rl.close();

@@ -275,7 +275,7 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 
   test("rate limit warning when remaining requests are low", async () => {
     const client = await getClient();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     mockFetch.mockResolvedValueOnce(
       new Response(
@@ -448,7 +448,7 @@ describe("10.2 - DependencyGraph", () => {
 
   test("cycle detection: does not infinite loop, logs warning", () => {
     const graph = new DependencyGraph();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     // A blocks B, B blocks A (cycle)
     const issueA = makeIssue("A", [

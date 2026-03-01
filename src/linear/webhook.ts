@@ -26,9 +26,8 @@ export interface WebhookDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/webhook] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("webhook");
 
 // ---------------------------------------------------------------------------
 // 5.2 HMAC-SHA256 verification
@@ -63,14 +62,14 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
     // 5.2 Verify signature
     const signature = c.req.header("linear-signature");
     if (!signature) {
-      log("rejected: missing signature header");
+      logger.info("rejected: missing signature header");
       return c.json({ error: "invalid signature" }, 401);
     }
 
     const rawBody = await c.req.text();
 
     if (!verifySignature(rawBody, signature, deps.config.linearWebhookSecret)) {
-      log("rejected: invalid signature");
+      logger.info("rejected: invalid signature");
       return c.json({ error: "invalid signature" }, 401);
     }
 
@@ -79,7 +78,7 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
     try {
       event = JSON.parse(rawBody) as WebhookEvent;
     } catch {
-      log("rejected: invalid JSON body");
+      logger.info("rejected: invalid JSON body");
       return c.json({ error: "invalid signature" }, 401);
     }
 
@@ -107,7 +106,7 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
         event,
       );
     } catch (err) {
-      log(`error processing webhook event: ${err}`);
+      logger.info(`error processing webhook event: ${err}`);
       // Still return 200 to prevent Linear from retrying
     }
 

@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("git");
 
 /** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 as signed i32). */
 const WIN_DLL_INIT_FAILED = 3221225794;
@@ -91,8 +94,8 @@ export function gitWithRetry(
         throw err;
       }
       const waitMs = attempt * 2000;
-      console.warn(
-        `[orca/git] transient error on "git ${args.join(" ")}" ` +
+      logger.warn(
+        `transient error on "git ${args.join(" ")}" ` +
           `(attempt ${attempt}/${maxAttempts}), retrying in ${waitMs}ms`,
       );
       const end = Date.now() + waitMs;
@@ -118,9 +121,9 @@ export function cleanStaleLockFiles(repoPath: string, maxAgeMs = 60_000): void {
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age > maxAgeMs) {
       unlinkSync(lockPath);
-      console.warn(`[orca/git] removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`);
+      logger.warn(`removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`);
     }
   } catch (err) {
-    console.warn(`[orca/git] failed to clean lock file ${lockPath}: ${err}`);
+    logger.warn(`failed to clean lock file ${lockPath}: ${err}`);
   }
 }

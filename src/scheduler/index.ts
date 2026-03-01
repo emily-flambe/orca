@@ -88,9 +88,8 @@ const TRANSIENT_FAILURE_LIMIT = 10;
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/scheduler] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("scheduler");
 
 // ---------------------------------------------------------------------------
 // Parent evaluation helper
@@ -101,7 +100,7 @@ function triggerParentEval(deps: SchedulerDeps, taskId: string): void {
   if (task?.parentIdentifier) {
     evaluateParentStatuses(deps.db, deps.client, deps.stateMap, [task.parentIdentifier]).catch(
       (err) => {
-        log(`parent eval failed for ${taskId}: ${err}`);
+        logger.info(`parent eval failed for ${taskId}: ${err}`);
       },
     );
   }
@@ -124,12 +123,12 @@ async function dispatch(
   // webhook could have changed the task's status (e.g. to "done").
   const freshTask = getTask(db, taskId);
   if (!freshTask) {
-    log(`dispatch aborted: task ${taskId} no longer exists`);
+    logger.info(`dispatch aborted: task ${taskId} no longer exists`);
     return;
   }
   const dispatchableStatuses = new Set<TaskStatus>(["ready", "in_review", "changes_requested"]);
   if (!dispatchableStatuses.has(freshTask.orcaStatus)) {
-    log(`dispatch aborted: task ${taskId} is now "${freshTask.orcaStatus}" (no longer dispatchable)`);
+    logger.info(`dispatch aborted: task ${taskId} is now "${freshTask.orcaStatus}" (no longer dispatchable)`);
     return;
   }
 
@@ -137,7 +136,7 @@ async function dispatch(
   const runningInvs = getRunningInvocations(db);
   const alreadyRunning = runningInvs.some((inv) => inv.linearIssueId === taskId);
   if (alreadyRunning) {
-    log(`dispatch aborted: task ${taskId} already has a running invocation`);
+    logger.info(`dispatch aborted: task ${taskId} already has a running invocation`);
     return;
   }
 
@@ -148,7 +147,7 @@ async function dispatch(
   // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
   if (phase === "implement") {
     writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
-      log(`write-back failed on dispatch for task ${taskId}: ${err}`);
+      logger.info(`write-back failed on dispatch for task ${taskId}: ${err}`);
     });
   }
 
@@ -167,9 +166,9 @@ async function dispatch(
       resumeSessionId = prevInv.sessionId!;
       resumeWorktreePath = prevInv.worktreePath;
       resumeBranchName = prevInv.branchName ?? undefined;
-      log(`resume candidate found for task ${taskId}: session ${resumeSessionId}, worktree ${resumeWorktreePath}`);
+      logger.info(`resume candidate found for task ${taskId}: session ${resumeSessionId}, worktree ${resumeWorktreePath}`);
     } else if (prevInv) {
-      log(`resume candidate for task ${taskId} has missing worktree (${prevInv.worktreePath}) — fresh dispatch`);
+      logger.info(`resume candidate for task ${taskId} has missing worktree (${prevInv.worktreePath}) — fresh dispatch`);
     }
   }
 
@@ -196,7 +195,7 @@ async function dispatch(
           ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
           : `Dispatched for implementation (invocation #${invocationId})`;
   client.createComment(taskId, dispatchComment).catch((err) => {
-    log(`comment failed on dispatch for task ${taskId}: ${err}`);
+    logger.info(`comment failed on dispatch for task ${taskId}: ${err}`);
   });
 
   // 4. Determine worktree base ref
@@ -212,14 +211,14 @@ async function dispatch(
       worktreePath: resumeWorktreePath!,
       branchName: resumeBranchName ?? "unknown",
     };
-    log(`reusing preserved worktree for resume: ${worktreeResult.worktreePath}`);
+    logger.info(`reusing preserved worktree for resume: ${worktreeResult.worktreePath}`);
   } else {
     try {
       worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
       // Successful worktree creation — reset transient failure counter
       transientFailureCounts.delete(taskId);
     } catch (err) {
-      log(`worktree creation failed for task ${taskId}: ${err}`);
+      logger.info(`worktree creation failed for task ${taskId}: ${err}`);
 
       if (isTransientGitError(err)) {
         const count = (transientFailureCounts.get(taskId) ?? 0) + 1;
@@ -228,7 +227,7 @@ async function dispatch(
         if (count < TRANSIENT_FAILURE_LIMIT) {
           // Transient OS-level failure (e.g. Windows DLL init) — re-queue
           // without burning a retry. Task will be re-dispatched next tick.
-          log(`transient error detected for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing as ready`);
+          logger.info(`transient error detected for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing as ready`);
           updateTaskStatus(db, taskId, task.orcaStatus === "in_review" ? "in_review" : task.orcaStatus === "changes_requested" ? "changes_requested" : "ready");
           updateInvocation(db, invocationId, {
             status: "failed",
@@ -241,7 +240,7 @@ async function dispatch(
 
         // Circuit breaker tripped — persistent "transient" error.
         // Fall through to burn a real retry.
-        log(`transient error circuit breaker tripped for task ${taskId} after ${count} consecutive failures — burning retry`);
+        logger.info(`transient error circuit breaker tripped for task ${taskId} after ${count} consecutive failures — burning retry`);
         transientFailureCounts.delete(taskId);
       }
 
@@ -316,7 +315,7 @@ async function dispatch(
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
 
-  log(
+  logger.info(
     `${isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
       `(phase: ${phase}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
   );
@@ -346,7 +345,7 @@ export function attachCompletionHandler(
   handle.done.then((result) => {
     onSessionComplete(deps, taskId, invocationId, handle, result, worktreePath, phase, isFixPhase);
   }).catch((err) => {
-    log(`completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`);
+    logger.info(`completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`);
     activeHandles.delete(invocationId);
     try {
       updateInvocation(deps.db, invocationId, {
@@ -357,7 +356,7 @@ export function attachCompletionHandler(
       updateTaskStatus(deps.db, taskId, "failed");
       handleRetry(deps, taskId);
     } catch (cleanupErr) {
-      log(`cleanup also failed for invocation ${invocationId}: ${cleanupErr}`);
+      logger.info(`cleanup also failed for invocation ${invocationId}: ${cleanupErr}`);
     }
   });
 }
@@ -418,14 +417,14 @@ async function onSessionComplete(
   if (currentTask) {
     const terminalStatuses = new Set<TaskStatus>(["done", "failed", "deploying", "awaiting_ci"]);
     if (terminalStatuses.has(currentTask.orcaStatus)) {
-      log(
+      logger.info(
         `invocation ${invocationId}: task ${taskId} is already "${currentTask.orcaStatus}" — ` +
           `skipping ${phase} completion handler`,
       );
       try {
         removeWorktree(worktreePath);
       } catch (err) {
-        log(`worktree removal for orphaned invocation ${invocationId}: ${err}`);
+        logger.info(`worktree removal for orphaned invocation ${invocationId}: ${err}`);
       }
       return;
     }
@@ -438,7 +437,7 @@ async function onSessionComplete(
       try {
         await onReviewSuccess(deps, taskId, invocationId, worktreePath, result);
       } catch (err) {
-        log(`onReviewSuccess error for task ${taskId}: ${err}`);
+        logger.info(`onReviewSuccess error for task ${taskId}: ${err}`);
       }
     }
   } else {
@@ -472,7 +471,7 @@ function onImplementSuccess(
   // Hard gate: branch name is required
   if (!branchName) {
     const gateMsg = "no branch name found on invocation or task";
-    log(`task ${taskId}: ${gateMsg} — treating as failure`);
+    logger.info(`task ${taskId}: ${gateMsg} — treating as failure`);
     updateInvocation(db, invocationId, {
       status: "failed",
       outputSummary: `Post-implementation gate failed: ${gateMsg}`,
@@ -485,7 +484,7 @@ function onImplementSuccess(
   const prInfo = findPrForBranch(branchName, task.repoPath);
   if (!prInfo.exists) {
     const gateMsg = `no PR found for branch ${branchName}`;
-    log(`task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`);
+    logger.info(`task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`);
     updateInvocation(db, invocationId, {
       status: "failed",
       outputSummary: `Post-implementation gate failed: ${gateMsg}`,
@@ -503,7 +502,7 @@ function onImplementSuccess(
   // Attach PR link to Linear issue (fire-and-forget)
   if (prInfo.url) {
     client.createAttachment(task.linearIssueId, prInfo.url, "Pull Request").catch((err) => {
-      log(`failed to attach PR link to Linear issue ${taskId}: ${err}`);
+      logger.info(`failed to attach PR link to Linear issue ${taskId}: ${err}`);
     });
   }
 
@@ -513,7 +512,7 @@ function onImplementSuccess(
 
   // Write-back "In Review"
   writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-    log(`write-back failed on implement success for task ${taskId}: ${err}`);
+    logger.info(`write-back failed on implement success for task ${taskId}: ${err}`);
   });
 
   // Post implementation success comment (fire-and-forget)
@@ -521,17 +520,17 @@ function onImplementSuccess(
     taskId,
     `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${branchName}\``,
   ).catch((err) => {
-    log(`comment failed on implement success for task ${taskId}: ${err}`);
+    logger.info(`comment failed on implement success for task ${taskId}: ${err}`);
   });
 
   // Clean up worktree
   try {
     removeWorktree(worktreePath);
   } catch (err) {
-    log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+    logger.info(`worktree removal failed for invocation ${invocationId}: ${err}`);
   }
 
-  log(
+  logger.info(
     `task ${taskId} implementation complete → in_review (invocation ${invocationId}, ` +
       `PR #${prInfo.number ?? "?"}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
   );
@@ -563,7 +562,7 @@ async function onReviewSuccess(
     try {
       removeWorktree(worktreePath);
     } catch (err) {
-      log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+      logger.info(`worktree removal failed for invocation ${invocationId}: ${err}`);
     }
 
     // Transition to awaiting_ci — Orca will poll CI on the PR and merge when it passes
@@ -574,7 +573,7 @@ async function onReviewSuccess(
 
     // Write-back (no-op for awaiting_ci, Linear stays at "In Review")
     writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
-      log(`write-back failed on review approved for task ${taskId}: ${err}`);
+      logger.info(`write-back failed on review approved for task ${taskId}: ${err}`);
     });
 
     // Post comment (fire-and-forget)
@@ -582,10 +581,10 @@ async function onReviewSuccess(
       taskId,
       `Review approved — awaiting CI checks on PR #${task.prNumber ?? "?"} before merging`,
     ).catch((err) => {
-      log(`comment failed on review approved for task ${taskId}: ${err}`);
+      logger.info(`comment failed on review approved for task ${taskId}: ${err}`);
     });
 
-    log(
+    logger.info(
       `task ${taskId} review approved → awaiting_ci (invocation ${invocationId}, ` +
         `PR #${task.prNumber ?? "?"})`,
     );
@@ -597,7 +596,7 @@ async function onReviewSuccess(
       emitTaskUpdated(getTask(db, taskId)!);
 
       writeBackStatus(client, taskId, "changes_requested", stateMap).catch((err) => {
-        log(`write-back failed on changes requested for task ${taskId}: ${err}`);
+        logger.info(`write-back failed on changes requested for task ${taskId}: ${err}`);
       });
 
       // Post changes requested comment (fire-and-forget)
@@ -605,16 +604,16 @@ async function onReviewSuccess(
         taskId,
         `Review requested changes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
       ).catch((err) => {
-        log(`comment failed on changes requested for task ${taskId}: ${err}`);
+        logger.info(`comment failed on changes requested for task ${taskId}: ${err}`);
       });
 
       try {
         removeWorktree(worktreePath);
       } catch (err) {
-        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+        logger.info(`worktree removal failed for invocation ${invocationId}: ${err}`);
       }
 
-      log(
+      logger.info(
         `task ${taskId} review requested changes → changes_requested ` +
           `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
       );
@@ -626,24 +625,24 @@ async function onReviewSuccess(
       try {
         removeWorktree(worktreePath);
       } catch (err) {
-        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+        logger.info(`worktree removal failed for invocation ${invocationId}: ${err}`);
       }
 
-      log(
+      logger.info(
         `task ${taskId} review cycles exhausted (${config.maxReviewCycles}), ` +
           `leaving as in_review for human intervention`,
       );
     }
   } else {
     // No review result marker found — treat as review failure, retry review
-    log(`task ${taskId}: review completed but no REVIEW_RESULT marker found — retrying review`);
+    logger.info(`task ${taskId}: review completed but no REVIEW_RESULT marker found — retrying review`);
     updateTaskStatus(db, taskId, "in_review");
     emitTaskUpdated(getTask(db, taskId)!);
 
     try {
       removeWorktree(worktreePath);
     } catch (err) {
-      log(`worktree removal failed for invocation ${invocationId}: ${err}`);
+      logger.info(`worktree removal failed for invocation ${invocationId}: ${err}`);
     }
   }
 }
@@ -666,7 +665,7 @@ function onSessionFailure(
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
 
-  log(
+  logger.info(
     `task ${taskId} failed (invocation ${invocationId}, ` +
       `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
   );
@@ -680,13 +679,13 @@ function onSessionFailure(
     !isFixPhase;
 
   if (preserveForResume) {
-    log(`preserving worktree for resume: ${worktreePath}`);
+    logger.info(`preserving worktree for resume: ${worktreePath}`);
   } else {
     // Clean up worktree so retries start fresh
     try {
       removeWorktree(worktreePath);
     } catch (err) {
-      log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+      logger.info(`worktree removal on failure for invocation ${invocationId}: ${err}`);
     }
   }
 
@@ -730,7 +729,7 @@ function handleRetry(
   const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) {
-    log(`retry: task ${taskId} not found`);
+    logger.info(`retry: task ${taskId} not found`);
     return;
   }
 
@@ -741,14 +740,14 @@ function handleRetry(
     // not a fresh implementation.
     const retryStatus = phase === "review" ? "in_review" as const : "ready" as const;
     incrementRetryCount(db, taskId, retryStatus);
-    log(
+    logger.info(
       `task ${taskId} queued for retry as "${retryStatus}" (attempt ${task.retryCount + 1}/${config.maxRetries})`,
     );
 
     // Write-back on retry (fire-and-forget)
     const writeBackEvent = phase === "review" ? "in_review" as const : "retry" as const;
     writeBackStatus(client, taskId, writeBackEvent, stateMap).catch((err) => {
-      log(`write-back failed on retry for task ${taskId}: ${err}`);
+      logger.info(`write-back failed on retry for task ${taskId}: ${err}`);
     });
 
     // Post retry comments (fire-and-forget)
@@ -757,19 +756,19 @@ function handleRetry(
       ? `Max turns reached — will resume session (attempt ${task.retryCount + 1}/${config.maxRetries})`
       : `Invocation failed — retrying (attempt ${task.retryCount + 1}/${config.maxRetries}): ${briefSummary}`;
     client.createComment(taskId, retryComment).catch((err) => {
-      log(`comment failed on retry for task ${taskId}: ${err}`);
+      logger.info(`comment failed on retry for task ${taskId}: ${err}`);
     });
     client.createComment(taskId, "Queued for retry").catch((err) => {
-      log(`comment failed on queued for retry for task ${taskId}: ${err}`);
+      logger.info(`comment failed on queued for retry for task ${taskId}: ${err}`);
     });
   } else {
-    log(
+    logger.info(
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
     );
 
     // Write-back on permanent failure (fire-and-forget)
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-      log(`write-back failed on permanent failure for task ${taskId}: ${err}`);
+      logger.info(`write-back failed on permanent failure for task ${taskId}: ${err}`);
     });
 
     // Post permanent failure comment (fire-and-forget)
@@ -777,7 +776,7 @@ function handleRetry(
       taskId,
       `Task failed permanently after ${config.maxRetries} retries: ${briefSummary}`,
     ).catch((err) => {
-      log(`comment failed on permanent failure for task ${taskId}: ${err}`);
+      logger.info(`comment failed on permanent failure for task ${taskId}: ${err}`);
     });
   }
 }
@@ -800,7 +799,7 @@ function checkTimeouts(deps: SchedulerDeps): void {
     }
   }
   for (const { invId, exitCode } of deadHandles) {
-    log(`invocation ${invId}: process already exited (code ${exitCode}) but handle still active — forcing cleanup`);
+    logger.info(`invocation ${invId}: process already exited (code ${exitCode}) but handle still active — forcing cleanup`);
     activeHandles.delete(invId);
 
     // Look up the task ID before marking the invocation as failed
@@ -827,13 +826,13 @@ function checkTimeouts(deps: SchedulerDeps): void {
   for (const inv of running) {
     const startedAt = new Date(inv.startedAt).getTime();
     if (startedAt + timeoutMs < now) {
-      log(`invocation ${inv.id} timed out (task ${inv.linearIssueId})`);
+      logger.info(`invocation ${inv.id} timed out (task ${inv.linearIssueId})`);
 
       // Find and kill the matching session handle
       const handle = activeHandles.get(inv.id);
       if (handle) {
         killSession(handle).catch((err) => {
-          log(`error killing timed-out session ${inv.id}: ${err}`);
+          logger.info(`error killing timed-out session ${inv.id}: ${err}`);
         });
         activeHandles.delete(inv.id);
       }
@@ -870,13 +869,13 @@ function isOrcaProjectTask(repoPath: string): boolean {
 
 function triggerSelfDeploy(): void {
   if (selfDeployTriggered) {
-    log("self-deploy: already triggered, skipping");
+    logger.info("self-deploy: already triggered, skipping");
     return;
   }
   selfDeployTriggered = true;
 
   const deployScript = join(process.cwd(), "scripts", "deploy.sh");
-  log("self-deploy: spawning deploy.sh — Orca will pull, rebuild, and restart");
+  logger.info("self-deploy: spawning deploy.sh — Orca will pull, rebuild, and restart");
 
   const child = spawn("bash", [deployScript], {
     detached: true,
@@ -925,7 +924,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         deployPollTimes.delete(taskId);
 
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
+          logger.info(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
         });
 
         // Post deploy timeout comment (fire-and-forget)
@@ -933,10 +932,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           taskId,
           `Task failed permanently after ${config.maxRetries} retries: deploy timed out after ${config.deployTimeoutMin}min`,
         ).catch((err) => {
-          log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
+          logger.info(`comment failed on deploy timeout for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
+        logger.info(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
         continue;
       }
     }
@@ -948,14 +947,14 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
+        logger.info(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
       });
 
       client.createComment(taskId, "Task complete").catch((err) => {
-        log(`comment failed on done (no SHA) for task ${taskId}: ${err}`);
+        logger.info(`comment failed on done (no SHA) for task ${taskId}: ${err}`);
       });
 
-      log(`task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`);
+      logger.info(`task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`);
       triggerParentEval(deps, taskId);
       continue;
     }
@@ -969,15 +968,15 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy success for task ${taskId}: ${err}`);
+        logger.info(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
 
       // Post done comment (fire-and-forget)
       client.createComment(taskId, "Task complete").catch((err) => {
-        log(`comment failed on deploy success for task ${taskId}: ${err}`);
+        logger.info(`comment failed on deploy success for task ${taskId}: ${err}`);
       });
 
-      log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
+      logger.info(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
       triggerParentEval(deps, taskId);
 
       // Self-deploy: if this task's repo is the Orca project, restart with new code
@@ -990,7 +989,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-        log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
+        logger.info(`write-back failed on deploy failure for task ${taskId}: ${err}`);
       });
 
       // Post deploy failure comment (fire-and-forget)
@@ -998,10 +997,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         taskId,
         `Task failed permanently after ${config.maxRetries} retries: deploy CI failed for commit ${task.mergeCommitSha}`,
       ).catch((err) => {
-        log(`comment failed on deploy failure for task ${taskId}: ${err}`);
+        logger.info(`comment failed on deploy failure for task ${taskId}: ${err}`);
       });
 
-      log(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
+      logger.info(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
     }
     // "pending", "in_progress", "no_runs" → skip, poll again next interval
   }
@@ -1041,24 +1040,24 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         ciPollTimes.delete(taskId);
 
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on CI timeout for task ${taskId}: ${err}`);
+          logger.info(`write-back failed on CI timeout for task ${taskId}: ${err}`);
         });
 
         client.createComment(
           taskId,
           `CI timed out after ${config.deployTimeoutMin}min — task failed`,
         ).catch((err) => {
-          log(`comment failed on CI timeout for task ${taskId}: ${err}`);
+          logger.info(`comment failed on CI timeout for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} CI timed out after ${config.deployTimeoutMin}min`);
+        logger.info(`task ${taskId} CI timed out after ${config.deployTimeoutMin}min`);
         continue;
       }
     }
 
     // No PR number: can't check CI — merge immediately
     if (!task.prNumber) {
-      log(`task ${taskId} awaiting_ci but no PR number — skipping CI, marking done`);
+      logger.info(`task ${taskId} awaiting_ci but no PR number — skipping CI, marking done`);
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
       continue;
@@ -1081,17 +1080,17 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         writeBackStatus(client, taskId, "changes_requested", stateMap).catch((err) => {
-          log(`write-back failed on CI failure for task ${taskId}: ${err}`);
+          logger.info(`write-back failed on CI failure for task ${taskId}: ${err}`);
         });
 
         client.createComment(
           taskId,
           `CI failed on PR #${task.prNumber} — requesting fixes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
         ).catch((err) => {
-          log(`comment failed on CI failure for task ${taskId}: ${err}`);
+          logger.info(`comment failed on CI failure for task ${taskId}: ${err}`);
         });
 
-        log(
+        logger.info(
           `task ${taskId} CI failed → changes_requested ` +
             `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
         );
@@ -1101,17 +1100,17 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`);
+          logger.info(`write-back failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`);
         });
 
         client.createComment(
           taskId,
           `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
         ).catch((err) => {
-          log(`comment failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`);
+          logger.info(`comment failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} CI failed, cycles exhausted → failed`);
+        logger.info(`task ${taskId} CI failed, cycles exhausted → failed`);
       }
     }
     // "pending" → skip, poll again next interval
@@ -1143,21 +1142,21 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
         emitTaskUpdated(getTask(db, taskId)!);
 
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on merge failure for task ${taskId}: ${err}`);
+          logger.info(`write-back failed on merge failure for task ${taskId}: ${err}`);
         });
 
         client.createComment(
           taskId,
           `Failed to merge PR #${task.prNumber}: ${mergeResult.error}`,
         ).catch((err) => {
-          log(`comment failed on merge failure for task ${taskId}: ${err}`);
+          logger.info(`comment failed on merge failure for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} merge failed: ${mergeResult.error}`);
+        logger.info(`task ${taskId} merge failed: ${mergeResult.error}`);
         return;
       }
       // PR was already merged by someone else — continue normally
-      log(`task ${taskId} PR #${task.prNumber} already merged — proceeding`);
+      logger.info(`task ${taskId} PR #${task.prNumber} already merged — proceeding`);
     }
   }
 
@@ -1181,10 +1180,10 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
       taskId,
       `PR #${task.prNumber ?? "?"} merged — monitoring deploy CI for commit ${mergeCommitSha ?? "unknown"}`,
     ).catch((err) => {
-      log(`comment failed on merge+deploy for task ${taskId}: ${err}`);
+      logger.info(`comment failed on merge+deploy for task ${taskId}: ${err}`);
     });
 
-    log(
+    logger.info(
       `task ${taskId} merged → deploying (PR #${task.prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
     );
   } else {
@@ -1193,14 +1192,14 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
     emitTaskUpdated(getTask(db, taskId)!);
 
     writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on merge+done for task ${taskId}: ${err}`);
+      logger.info(`write-back failed on merge+done for task ${taskId}: ${err}`);
     });
 
     client.createComment(taskId, `PR #${task.prNumber ?? "?"} merged — task complete`).catch((err) => {
-      log(`comment failed on merge+done for task ${taskId}: ${err}`);
+      logger.info(`comment failed on merge+done for task ${taskId}: ${err}`);
     });
 
-    log(`task ${taskId} merged → done`);
+    logger.info(`task ${taskId} merged → done`);
 
     // Self-deploy: if this task's repo is the Orca project, restart with new code
     if (isOrcaProjectTask(task.repoPath)) {
@@ -1235,7 +1234,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     try {
       cleanupStaleResources({ db, config });
     } catch (err) {
-      log(`cleanup error: ${err}`);
+      logger.info(`cleanup error: ${err}`);
     }
   }
 
@@ -1251,7 +1250,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   ).toISOString();
   const cost = sumCostInWindow(db, windowStart);
   if (cost >= config.budgetMaxCostUsd) {
-    log("budget exhausted");
+    logger.info("budget exhausted");
     return;
   }
 
@@ -1346,7 +1345,7 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
     try {
       await tick(deps);
     } catch (err) {
-      log(`tick error: ${err}`);
+      logger.info(`tick error: ${err}`);
     } finally {
       ticking = false;
     }
@@ -1360,7 +1359,7 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
     config.schedulerIntervalSec * 1000,
   );
 
-  log(
+  logger.info(
     `started (interval: ${config.schedulerIntervalSec}s, ` +
       `concurrency: ${config.concurrencyCap}, ` +
       `budget: $${config.budgetMaxCostUsd}/${config.budgetWindowHours}h)`,
@@ -1369,15 +1368,15 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
   return {
     stop() {
       clearInterval(intervalId);
-      log("stopping scheduler, killing active sessions...");
+      logger.info("stopping scheduler, killing active sessions...");
 
       // Kill all active sessions
       const killPromises: Promise<SessionResult>[] = [];
       for (const [invId, handle] of activeHandles) {
-        log(`killing session for invocation ${invId}`);
+        logger.info(`killing session for invocation ${invId}`);
         killPromises.push(
           killSession(handle).catch((err) => {
-            log(`error killing session ${invId} during shutdown: ${err}`);
+            logger.info(`error killing session ${invId} during shutdown: ${err}`);
             return handle.done;
           }),
         );
@@ -1386,7 +1385,7 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
       // We cannot await in a sync function, but the kills are fire-and-forget
       // at shutdown. The process should wait for the promises if needed.
       Promise.all(killPromises).then(() => {
-        log("all sessions killed");
+        logger.info("all sessions killed");
       });
     },
   };

@@ -8,9 +8,8 @@ import type { LinearIssue } from "./client.js";
 // Logging
 // ---------------------------------------------------------------------------
 
-function warn(message: string): void {
-  console.log(`[orca/linear] warning: ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("graph");
 
 // ---------------------------------------------------------------------------
 // DependencyGraph
@@ -130,7 +129,7 @@ export class DependencyGraph {
 
     for (const blockedId of blocked) {
       if (visited.has(blockedId)) {
-        warn(`cycle detected in dependency graph: ${taskId} -> ${blockedId}`);
+        logger.warn(`cycle detected in dependency graph: ${taskId} -> ${blockedId}`);
         continue;
       }
 

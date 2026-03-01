@@ -38,9 +38,8 @@ export interface PollerHandle {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/poller] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("poller");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,7 +93,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (tunnelUp) {
         // 7.2 Tunnel recovered — log once and skip
         if (lastPollActive) {
-          log("tunnel recovered, stopping poll");
+          logger.info("tunnel recovered, stopping poll");
           lastPollActive = false;
         }
         // Tunnel up is not a failure — reset backoff
@@ -105,7 +104,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
 
       // 7.2 Tunnel is down — poll
       if (!lastPollActive) {
-        log("tunnel down, polling Linear...");
+        logger.info("tunnel down, polling Linear...");
         lastPollActive = true;
       }
 
@@ -114,7 +113,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
 
       // Success — reset backoff
       if (consecutiveFailures > 0) {
-        log(`recovered after ${consecutiveFailures} consecutive failure(s)`);
+        logger.info(`recovered after ${consecutiveFailures} consecutive failure(s)`);
       }
       consecutiveFailures = 0;
       lastError = null;
@@ -123,7 +122,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       consecutiveFailures++;
       lastError = String(err);
       const nextInterval = computeBackoffMs(consecutiveFailures);
-      log(
+      logger.info(
         `poll error (failure #${consecutiveFailures}, next retry in ${Math.round(nextInterval / 1000)}s): ${err}`,
       );
     } finally {
@@ -136,7 +135,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (timerId !== null) return; // Already started
       stopped = false;
       scheduleNext();
-      log("started (interval: 30s)");
+      logger.info("started (interval: 30s)");
     },
 
     stop(): void {
@@ -144,7 +143,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (timerId !== null) {
         clearTimeout(timerId);
         timerId = null;
-        log("stopped");
+        logger.info("stopped");
       }
     },
 

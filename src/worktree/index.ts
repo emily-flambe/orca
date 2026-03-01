@@ -2,6 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git, gitWithRetry, cleanStaleLockFiles } from "../git.js";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("worktree");
 
 /**
  * Run npm install synchronously in the given directory.
@@ -139,7 +142,7 @@ export function createWorktree(
     git(["worktree", "prune"], { cwd: repoPath });
   } catch (pruneErr) {
     // Log but don't throw — worktree add may still succeed
-    console.warn(`[orca/worktree] prune failed (non-fatal): ${pruneErr}`);
+    logger.warn(`prune failed (non-fatal): ${pruneErr}`);
   }
 
   // Clean stale lock files before fetch (best-effort)
@@ -246,8 +249,8 @@ export function removeWorktree(worktreePath: string): void {
     // Level 2: derive repo root from worktree path pattern
     repoRoot = deriveRepoRoot(worktreePath);
     if (repoRoot) {
-      console.warn(
-        `[orca/worktree] rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
+      logger.warn(
+        `rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
       );
     }
   }
@@ -258,15 +261,15 @@ export function removeWorktree(worktreePath: string): void {
       git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
       return;
     } catch (removeErr) {
-      console.warn(
-        `[orca/worktree] git worktree remove failed for ${worktreePath}: ${removeErr}`,
+      logger.warn(
+        `git worktree remove failed for ${worktreePath}: ${removeErr}`,
       );
       // Fall through to level 3
     }
   }
 
   // Level 3: brute-force removal + prune
-  console.warn(`[orca/worktree] falling back to rmSync + prune for ${worktreePath}`);
+  logger.warn(`falling back to rmSync + prune for ${worktreePath}`);
   if (existsSync(worktreePath)) {
     rmSyncWithRetry(worktreePath);
   }
@@ -274,7 +277,7 @@ export function removeWorktree(worktreePath: string): void {
     try {
       git(["worktree", "prune"], { cwd: repoRoot });
     } catch (pruneErr) {
-      console.warn(`[orca/worktree] prune after rmSync failed: ${pruneErr}`);
+      logger.warn(`prune after rmSync failed: ${pruneErr}`);
     }
   }
 }

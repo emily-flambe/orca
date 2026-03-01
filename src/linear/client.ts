@@ -46,13 +46,8 @@ export interface ProjectMetadata {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/linear] ${message}`);
-}
-
-function warn(message: string): void {
-  console.log(`[orca/linear] warning: ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("linear");
 
 // ---------------------------------------------------------------------------
 // Sleep helper
@@ -90,7 +85,7 @@ export class LinearClient {
       if (attempt > 0) {
         // Exponential backoff: 1s, 2s, 4s
         const delayMs = Math.pow(2, attempt - 1) * 1000;
-        log(`retrying request (attempt ${attempt}/${MAX_RETRIES}) after ${delayMs}ms`);
+        logger.info(`retrying request (attempt ${attempt}/${MAX_RETRIES}) after ${delayMs}ms`);
         await sleep(delayMs);
       }
 
@@ -120,7 +115,7 @@ export class LinearClient {
       if (remaining !== null) {
         const remainingNum = parseInt(remaining, 10);
         if (!Number.isNaN(remainingNum) && remainingNum < RATE_LIMIT_WARN_THRESHOLD) {
-          warn(`rate limit low (${remainingNum} remaining)`);
+          logger.warn(`rate limit low (${remainingNum} remaining)`);
         }
       }
 
@@ -285,7 +280,7 @@ export class LinearClient {
       cursor = data.issues.pageInfo.endCursor;
     }
 
-    log(`fetched ${allIssues.length} issues from ${projectIds.length} project(s)`);
+    logger.info(`fetched ${allIssues.length} issues from ${projectIds.length} project(s)`);
     return allIssues;
   }
 
@@ -327,7 +322,7 @@ export class LinearClient {
       teamIds: p.teams.nodes.map((t) => t.id),
     }));
 
-    log(
+    logger.info(
       `fetched metadata for ${results.length} project(s) ` +
         `(${new Set(results.flatMap((p) => p.teamIds)).size} team(s))`,
     );
@@ -365,7 +360,7 @@ export class LinearClient {
       }
     }
 
-    log(`resolved ${teamIds.size} team(s) from ${projectIds.length} project(s)`);
+    logger.info(`resolved ${teamIds.size} team(s) from ${projectIds.length} project(s)`);
     return [...teamIds];
   }
 
@@ -409,7 +404,7 @@ export class LinearClient {
       }
     }
 
-    log(
+    logger.info(
       `fetched workflow states from ${teamIds.length} team(s): ` +
         `${stateMap.size} state(s)`,
     );

@@ -34,6 +34,8 @@ export interface OrcaConfig {
   tunnelHostname: string;
   tunnelToken: string;
   cloudflaredPath: string;
+  logPath: string;
+  logMaxSizeMb: number;
 }
 
 function exitWithError(message: string): never {
@@ -290,6 +292,8 @@ Steps:
     tunnelHostname,
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
+    logPath: readEnvOrDefault("ORCA_LOG_PATH", "./logs/orca.log"),
+    logMaxSizeMb: readPositiveNumberOrDefault("ORCA_LOG_MAX_SIZE_MB", 10),
   };
 }
 

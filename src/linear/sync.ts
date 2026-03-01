@@ -84,9 +84,8 @@ export function isExpectedChange(
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/sync] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("sync");
 
 // ---------------------------------------------------------------------------
 // 4.2 State mapping
@@ -127,7 +126,7 @@ function upsertTask(
     const existing = getTask(db, issue.identifier);
     if (existing) {
       updateTaskStatus(db, issue.identifier, "failed");
-      log(`canceled task ${issue.identifier} → failed`);
+      logger.info(`canceled task ${issue.identifier} → failed`);
     }
     return;
   }
@@ -141,7 +140,7 @@ function upsertTask(
   const repoPath =
     config.projectRepoMap.get(issue.projectId) ?? config.defaultCwd;
   if (!repoPath) {
-    log(
+    logger.info(
       `skipping ${issue.identifier}: no repo path for project ${issue.projectId}`,
     );
     return;
@@ -246,15 +245,15 @@ export async function evaluateParentStatuses(
     if (allDone && parent.orcaStatus !== "done") {
       updateTaskStatus(db, parent.linearIssueId, "done");
       writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch((err) => {
-        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
+        logger.info(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
       });
-      log(`parent ${parent.linearIssueId} → done (all children done)`);
+      logger.info(`parent ${parent.linearIssueId} → done (all children done)`);
     } else if (anyActive && parent.orcaStatus === "ready") {
       updateTaskStatus(db, parent.linearIssueId, "running");
       writeBackStatus(client, parent.linearIssueId, "dispatched", stateMap).catch((err) => {
-        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
+        logger.info(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
       });
-      log(`parent ${parent.linearIssueId} → running (child activity detected)`);
+      logger.info(`parent ${parent.linearIssueId} → running (child activity detected)`);
     }
   }
 }
@@ -283,7 +282,7 @@ export async function fullSync(
     await evaluateParentStatuses(db, client, stateMap);
   }
 
-  log(`full sync complete: ${issues.length} issues`);
+  logger.info(`full sync complete: ${issues.length} issues`);
   return issues.length;
 }
 
@@ -302,7 +301,7 @@ export async function processWebhookEvent(
   // Check for write-back echo
   const stateName = event.data.state?.name;
   if (stateName && isExpectedChange(event.data.identifier, stateName)) {
-    log(`skipping echo webhook for ${event.data.identifier} (state: ${stateName})`);
+    logger.info(`skipping echo webhook for ${event.data.identifier} (state: ${stateName})`);
     return;
   }
 
@@ -348,7 +347,7 @@ export async function processWebhookEvent(
     if (updatedTask?.parentIdentifier) {
       evaluateParentStatuses(db, client, stateMap, [updatedTask.parentIdentifier]).catch(
         (err) => {
-          log(`parent eval failed after webhook for ${event.data.identifier}: ${err}`);
+          logger.info(`parent eval failed after webhook for ${event.data.identifier}: ${err}`);
         },
       );
     }
@@ -368,7 +367,7 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
     );
     if (matchingInv) {
       killSession(handle).catch((err) => {
-        log(`error killing session for task ${taskId}: ${err}`);
+        logger.info(`error killing session for task ${taskId}: ${err}`);
       });
       updateInvocation(db, invId, {
         status: "failed",
@@ -397,7 +396,7 @@ export function resolveConflict(
       killRunningSession(db, taskId);
     }
     updateTaskStatus(db, taskId, "failed");
-    log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
+    logger.info(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     return;
   }
 
@@ -413,7 +412,7 @@ export function resolveConflict(
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, { orcaStatus: "backlog", retryCount: 0, reviewCycleCount: 0 });
-    log(`conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`);
+    logger.info(`conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`);
     return;
   }
 
@@ -424,21 +423,21 @@ export function resolveConflict(
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, { orcaStatus: "ready", retryCount: 0, reviewCycleCount: 0 });
-    log(`conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`);
+    logger.info(`conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`);
     return;
   }
 
   // Conflict case 2: Orca ready, Linear Done → set done
   if (task.orcaStatus === "ready" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
+    logger.info(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
 
   // Conflict case 5: in_review, Linear Done → mark done (human override)
   if (task.orcaStatus === "in_review" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`);
+    logger.info(`conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`);
     return;
   }
 
@@ -455,14 +454,14 @@ export function resolveConflict(
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
   if (task.orcaStatus === "deploying" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`);
+    logger.info(`conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`);
     return;
   }
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
   if (task.orcaStatus === "awaiting_ci" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`);
+    logger.info(`conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`);
     return;
   }
 
@@ -493,13 +492,13 @@ export async function writeBackStatus(
 
   const targetStateName = transitionToStateName[orcaTransition];
   if (!targetStateName) {
-    log(`write-back: unknown transition "${orcaTransition}" for task ${taskId}`);
+    logger.info(`write-back: unknown transition "${orcaTransition}" for task ${taskId}`);
     return;
   }
 
   const stateEntry = stateMap.get(targetStateName);
   if (!stateEntry) {
-    log(`write-back: no state found for name "${targetStateName}"`);
+    logger.info(`write-back: no state found for name "${targetStateName}"`);
     return;
   }
 
@@ -508,9 +507,9 @@ export async function writeBackStatus(
 
   try {
     await client.updateIssueState(taskId, stateEntry.id);
-    log(`wrote back status: task ${taskId} -> Linear state "${targetStateName}"`);
+    logger.info(`wrote back status: task ${taskId} -> Linear state "${targetStateName}"`);
   } catch (err) {
     // Write-back failures are logged but do not block Orca's internal state transition
-    log(`write-back failed for task ${taskId}: ${err}`);
+    logger.info(`write-back failed for task ${taskId}: ${err}`);
   }
 }

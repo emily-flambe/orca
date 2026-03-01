@@ -4,6 +4,7 @@ import {
   parseRepoPath,
   validateProjectRepoPaths,
 } from "../config/index.js";
+import { initLogger, createLogger } from "../logger.js";
 import { createDb } from "../db/index.js";
 import {
   insertTask,
@@ -88,6 +89,8 @@ program
   .description("Start the Orca scheduler")
   .action(async () => {
     const config = loadConfig();
+    initLogger({ logPath: config.logPath, maxSizeMb: config.logMaxSizeMb });
+    const logger = createLogger("cli");
     const db = createDb(config.dbPath);
 
     // Initialize Linear dependencies
@@ -104,7 +107,7 @@ program
       const repoPath = parseRepoPath(pm.description);
       if (repoPath) {
         config.projectRepoMap.set(pm.id, repoPath);
-        console.log(`[orca] project ${pm.id} → repo: ${repoPath}`);
+        logger.info(`project ${pm.id} → repo: ${repoPath}`);
       }
     }
 
@@ -124,8 +127,8 @@ program
       });
     }
     if (orphanedInvocations.length > 0) {
-      console.log(
-        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
+      logger.info(
+        `marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
       );
     }
 
@@ -146,7 +149,7 @@ program
       }
     }
     if (recovered > 0) {
-      console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
+      logger.info(`recovered ${recovered} orphaned task(s) → ready`);
     }
 
     // Full sync: populate tasks table + dependency graph
@@ -185,7 +188,7 @@ program
     app.get("*", serveStatic({ root: "./web/dist", path: "index.html" }));
 
     serve({ fetch: app.fetch, port: config.port });
-    console.log(`Hono server listening on port ${config.port}`);
+    logger.info(`Hono server listening on port ${config.port}`);
 
     // Start cloudflared tunnel
     const tunnel: TunnelHandle = startTunnel({
@@ -207,13 +210,13 @@ program
     // Start scheduler
     const scheduler = startScheduler({ db, config, graph, client, stateMap });
 
-    console.log(
+    logger.info(
       `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
     );
 
     // Graceful shutdown
     const shutdown = () => {
-      console.log("Orca shutting down...");
+      logger.info("Orca shutting down...");
 
       // Stop scheduler (clears interval, kills active sessions)
       scheduler.stop();

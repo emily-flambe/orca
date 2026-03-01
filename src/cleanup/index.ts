@@ -20,9 +20,8 @@ export interface CleanupDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/cleanup] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("cleanup");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,7 +152,7 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
         maxAgeMs,
       });
     } catch (err) {
-      log(`error cleaning up repo ${repoPath}: ${err}`);
+      logger.info(`error cleaning up repo ${repoPath}: ${err}`);
     }
   }
 }
@@ -173,7 +172,7 @@ function cleanupRepo(
   try {
     git(["worktree", "prune"], { cwd: repoPath });
   } catch (err) {
-    log(`worktree prune failed for ${repoPath}: ${err}`);
+    logger.info(`worktree prune failed for ${repoPath}: ${err}`);
   }
 
   const repoDirname = basename(repoPath);
@@ -207,9 +206,9 @@ function cleanupRepo(
 
     try {
       removeWorktree(wtPath);
-      log(`removed worktree: ${wtPath}`);
+      logger.info(`removed worktree: ${wtPath}`);
     } catch (err) {
-      log(`failed to remove worktree ${wtPath}: ${err}`);
+      logger.info(`failed to remove worktree ${wtPath}: ${err}`);
     }
   }
 
@@ -242,9 +241,9 @@ function cleanupRepo(
 
       try {
         rmSync(fullPath, { recursive: true, force: true });
-        log(`removed orphaned worktree directory: ${fullPath}`);
+        logger.info(`removed orphaned worktree directory: ${fullPath}`);
       } catch (err) {
-        log(`failed to remove orphaned directory ${fullPath}: ${err}`);
+        logger.info(`failed to remove orphaned directory ${fullPath}: ${err}`);
       }
     }
   } catch {
@@ -275,9 +274,9 @@ function cleanupRepo(
     // Safe to delete
     try {
       git(["branch", "-D", branch], { cwd: repoPath });
-      log(`deleted stale branch: ${branch}`);
+      logger.info(`deleted stale branch: ${branch}`);
     } catch (err) {
-      log(`failed to delete branch ${branch}: ${err}`);
+      logger.info(`failed to delete branch ${branch}: ${err}`);
     }
   }
 }

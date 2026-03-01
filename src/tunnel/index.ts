@@ -16,13 +16,8 @@ export interface TunnelHandle {
 // Logging
 // ---------------------------------------------------------------------------
 
-function log(message: string): void {
-  console.log(`[orca/tunnel] ${message}`);
-}
-
-function logError(message: string): void {
-  console.error(`[orca/tunnel] ${message}`);
-}
+import { createLogger } from "../logger.js";
+const logger = createLogger("tunnel");
 
 // ---------------------------------------------------------------------------
 // Output pattern matching
@@ -88,7 +83,7 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
     ? ["tunnel", "run", "--token", token]
     : ["tunnel", "run"];
 
-  log(`spawning: ${bin} ${args.join(" ").replace(token ?? "", "<redacted>")}`);
+  logger.info(`spawning: ${bin} ${args.join(" ").replace(token ?? "", "<redacted>")}`);
 
   proc = spawn(bin, args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -102,16 +97,16 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   function handleLine(line: string): void {
     if (!line) return;
 
-    log(line);
+    logger.info(line);
 
     if (matchesAny(line, CONNECTED_PATTERNS)) {
       if (!connected) {
-        log("tunnel connected");
+        logger.info("tunnel connected");
       }
       connected = true;
     } else if (matchesAny(line, DISCONNECTED_PATTERNS)) {
       if (connected) {
-        log("tunnel disconnected");
+        logger.info("tunnel disconnected");
       }
       connected = false;
     }
@@ -149,7 +144,7 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   // -----------------------------------------------------------------------
 
   proc.on("error", (err: Error) => {
-    logError(`spawn error: ${err.message}`);
+    logger.error(`spawn error: ${err.message}`);
     connected = false;
     proc = null;
   });
@@ -157,11 +152,11 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
     if (!stopped) {
       // Unexpected exit
-      logError(
+      logger.error(
         `process exited unexpectedly (code: ${code ?? "null"}, signal: ${signal ?? "none"})`,
       );
     } else {
-      log(
+      logger.info(
         `process exited (code: ${code ?? "null"}, signal: ${signal ?? "none"})`,
       );
     }
@@ -183,11 +178,11 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
       stopped = true;
 
       if (!proc || proc.exitCode !== null || proc.killed) {
-        log("process already exited, nothing to stop");
+        logger.info("process already exited, nothing to stop");
         return;
       }
 
-      log("sending SIGTERM to cloudflared");
+      logger.info("sending SIGTERM to cloudflared");
       proc.kill("SIGTERM");
 
       // Escalate to SIGKILL after 5 seconds if still alive.
@@ -195,7 +190,7 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
       const ref = proc;
       const killTimer = setTimeout(() => {
         if (ref.exitCode === null && !ref.killed) {
-          log("cloudflared did not exit within 5 s, sending SIGKILL");
+          logger.info("cloudflared did not exit within 5 s, sending SIGKILL");
           ref.kill("SIGKILL");
         }
       }, 5_000);
