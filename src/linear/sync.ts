@@ -297,11 +297,14 @@ export function resolveConflict(
   // If statuses match, no conflict
   if (task.orcaStatus === expectedOrcaStatus) return;
 
-  // Conflict case 1: Orca running, Linear Todo → kill session, reset to ready
-  if (task.orcaStatus === "running" && linearStateName === "Todo") {
-    killRunningSession(db, taskId);
-    updateTaskStatus(db, taskId, "ready");
-    log(`conflict resolved: task ${taskId} reset to ready (Linear moved to Todo)`);
+  // Any state → Linear Todo: reset to ready with fresh retry/review counts.
+  // This covers: running, done, in_review, changes_requested, deploying, failed.
+  if (linearStateName === "Todo") {
+    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+      killRunningSession(db, taskId);
+    }
+    updateTaskFields(db, taskId, { orcaStatus: "ready", retryCount: 0, reviewCycleCount: 0 });
+    log(`conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`);
     return;
   }
 
@@ -312,21 +315,6 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 3: Orca done, Linear Todo → reset to ready
-  if (task.orcaStatus === "done" && linearStateName === "Todo") {
-    updateTaskStatus(db, taskId, "ready");
-    log(`conflict resolved: task ${taskId} reset to ready (Linear moved to Todo)`);
-    return;
-  }
-
-  // Conflict case 4: in_review, Linear Todo → kill review session if running, reset to ready
-  if (task.orcaStatus === "in_review" && linearStateName === "Todo") {
-    killRunningSession(db, taskId);
-    updateTaskStatus(db, taskId, "ready");
-    log(`conflict resolved: task ${taskId} reset to ready from in_review (Linear moved to Todo)`);
-    return;
-  }
-
   // Conflict case 5: in_review, Linear Done → mark done (human override)
   if (task.orcaStatus === "in_review" && linearStateName === "Done") {
     updateTaskStatus(db, taskId, "done");
@@ -334,22 +322,8 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 6: changes_requested, Linear Todo → reset to ready
-  if (task.orcaStatus === "changes_requested" && linearStateName === "Todo") {
-    updateTaskStatus(db, taskId, "ready");
-    log(`conflict resolved: task ${taskId} reset to ready from changes_requested (Linear moved to Todo)`);
-    return;
-  }
-
   // Conflict case 8: deploying, Linear "In Review" → no-op (expected state, don't overwrite)
   if (task.orcaStatus === "deploying" && linearStateName === "In Review") {
-    return;
-  }
-
-  // Conflict case 9: deploying, Linear Todo → reset to ready (user reset)
-  if (task.orcaStatus === "deploying" && linearStateName === "Todo") {
-    updateTaskStatus(db, taskId, "ready");
-    log(`conflict resolved: task ${taskId} reset to ready from deploying (Linear moved to Todo)`);
     return;
   }
 
