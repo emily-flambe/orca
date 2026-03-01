@@ -121,7 +121,10 @@ async function dispatch(
     });
   }
 
-  // 2. Insert invocation record with phase
+  // 2. Determine worktree base ref (needed before invocation insert for comment)
+  const useExistingBranch = phase === "review" || (phase === "implement" && task.orcaStatus === "changes_requested");
+
+  // 3. Insert invocation record with phase
   const now = new Date().toISOString();
   const invocationId = insertInvocation(db, {
     linearIssueId: taskId,
@@ -132,8 +135,22 @@ async function dispatch(
 
   const logPath = `logs/${invocationId}.ndjson`;
 
-  // 3. Determine worktree base ref
-  const useExistingBranch = phase === "review" || (phase === "implement" && task.orcaStatus === "changes_requested");
+  // Post lifecycle comment (fire-and-forget)
+  if (phase === "review") {
+    const cycle = (task.reviewCycleCount ?? 0) + 1;
+    client.createComment(taskId, `Dispatched for code review (invocation #${invocationId}, cycle ${cycle}/${config.maxReviewCycles})`).catch((err) => {
+      log(`comment failed on dispatch for task ${taskId}: ${err}`);
+    });
+  } else if (useExistingBranch) {
+    const cycle = task.reviewCycleCount ?? 0;
+    client.createComment(taskId, `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${cycle}/${config.maxReviewCycles})`).catch((err) => {
+      log(`comment failed on dispatch for task ${taskId}: ${err}`);
+    });
+  } else {
+    client.createComment(taskId, `Dispatched for implementation (invocation #${invocationId})`).catch((err) => {
+      log(`comment failed on dispatch for task ${taskId}: ${err}`);
+    });
+  }
   const baseRef = useExistingBranch && task.prBranchName ? task.prBranchName : undefined;
 
   // 4. Create worktree
@@ -396,6 +413,12 @@ function onImplementSuccess(
     log(`write-back failed on implement success for task ${taskId}: ${err}`);
   });
 
+  // Post lifecycle comment (fire-and-forget)
+  const prLabel = prInfo.number ? `#${prInfo.number}` : branchName;
+  client.createComment(taskId, `Implementation complete — PR ${prLabel} opened on branch \`${branchName}\``).catch((err) => {
+    log(`comment failed on implement success for task ${taskId}: ${err}`);
+  });
+
   // Clean up worktree
   try {
     removeWorktree(worktreePath);
@@ -481,6 +504,15 @@ async function onReviewSuccess(
       updateTaskStatus(db, taskId, "deploying");
       emitTaskUpdated(getTask(db, taskId)!);
 
+      // Post lifecycle comments (fire-and-forget)
+      const prLabel = prNumber ? `#${prNumber}` : "unknown";
+      client.createComment(taskId, `Review approved — PR ${prLabel} merged`).catch((err) => {
+        log(`comment failed on review approved for task ${taskId}: ${err}`);
+      });
+      client.createComment(taskId, `Deploy started — monitoring CI for commit ${mergeCommitSha ?? "unknown"}`).catch((err) => {
+        log(`comment failed on deploying for task ${taskId}: ${err}`);
+      });
+
       log(
         `task ${taskId} review approved → deploying ` +
           `(PR #${prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
@@ -494,6 +526,15 @@ async function onReviewSuccess(
         log(`write-back failed on review approved for task ${taskId}: ${err}`);
       });
 
+      // Post lifecycle comments (fire-and-forget)
+      const prLabel = task.prNumber ? `#${task.prNumber}` : "unknown";
+      client.createComment(taskId, `Review approved — PR ${prLabel} merged`).catch((err) => {
+        log(`comment failed on review approved for task ${taskId}: ${err}`);
+      });
+      client.createComment(taskId, "Task complete").catch((err) => {
+        log(`comment failed on done for task ${taskId}: ${err}`);
+      });
+
       log(`task ${taskId} review approved → done (invocation ${invocationId})`);
     }
   } else if (changesRequested) {
@@ -505,6 +546,11 @@ async function onReviewSuccess(
 
       writeBackStatus(client, taskId, "changes_requested", stateMap).catch((err) => {
         log(`write-back failed on changes requested for task ${taskId}: ${err}`);
+      });
+
+      // Post lifecycle comment (fire-and-forget)
+      client.createComment(taskId, `Review requested changes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`).catch((err) => {
+        log(`comment failed on changes requested for task ${taskId}: ${err}`);
       });
 
       try {
@@ -558,7 +604,7 @@ function onSessionFailure(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db } = deps;
+  const { db, client } = deps;
 
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
@@ -624,6 +670,11 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
       log(`write-back failed on retry for task ${taskId}: ${err}`);
     });
+
+    // Post lifecycle comment (fire-and-forget)
+    client.createComment(taskId, `Queued for retry (attempt ${task.retryCount + 1}/${config.maxRetries})`).catch((err) => {
+      log(`comment failed on retry for task ${taskId}: ${err}`);
+    });
   } else {
     log(
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
@@ -632,6 +683,11 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
     // Write-back on permanent failure (fire-and-forget)
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
       log(`write-back failed on permanent failure for task ${taskId}: ${err}`);
+    });
+
+    // Post lifecycle comment (fire-and-forget)
+    client.createComment(taskId, `Task failed permanently after ${config.maxRetries} retries`).catch((err) => {
+      log(`comment failed on permanent failure for task ${taskId}: ${err}`);
     });
   }
 }
@@ -749,6 +805,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           log(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
         });
 
+        client.createComment(taskId, `Task failed permanently — deploy timed out after ${config.deployTimeoutMin}min`).catch((err) => {
+          log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
+        });
+
         log(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
         continue;
       }
@@ -780,6 +840,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         log(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
 
+      client.createComment(taskId, "Task complete").catch((err) => {
+        log(`comment failed on deploy success for task ${taskId}: ${err}`);
+      });
+
       log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
     } else if (status === "failure") {
       updateTaskStatus(db, taskId, "failed");
@@ -788,6 +852,10 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 
       writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
         log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
+      });
+
+      client.createComment(taskId, `Task failed permanently — deploy failed for commit ${task.mergeCommitSha}`).catch((err) => {
+        log(`comment failed on deploy failure for task ${taskId}: ${err}`);
       });
 
       log(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
