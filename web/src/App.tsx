@@ -5,12 +5,16 @@ import { useSSE } from "./hooks/useSSE";
 import OrchestratorBar from "./components/OrchestratorBar";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
+import ObservabilityDashboard from "./components/ObservabilityDashboard";
+
+type View = "tasks" | "observability";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [view, setView] = useState<View>("tasks");
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -44,6 +48,11 @@ export default function App() {
     setStatus(newStatus);
   }, []);
 
+  const handleSelectTaskFromDashboard = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setView("tasks");
+  }, []);
+
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
@@ -52,25 +61,31 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
-      <OrchestratorBar status={status} onSync={handleSync} />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
-          <TaskList
-            tasks={tasks}
-            selectedTaskId={selectedTaskId}
-            onSelect={setSelectedTaskId}
-          />
+      <OrchestratorBar status={status} onSync={handleSync} view={view} onViewChange={setView} />
+      {view === "tasks" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+            <TaskList
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelect={setSelectedTaskId}
+            />
+          </div>
+          <div className="w-3/5 overflow-y-auto">
+            {selectedTaskId ? (
+              <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                Select a task to view details
+              </div>
+            )}
+          </div>
         </div>
-        <div className="w-3/5 overflow-y-auto">
-          {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a task to view details
-            </div>
-          )}
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <ObservabilityDashboard onSelectTask={handleSelectTaskFromDashboard} />
         </div>
-      </div>
+      )}
     </div>
   );
 }

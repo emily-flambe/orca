@@ -326,3 +326,142 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
     .get();
   return result?.total ? Number(result.total) : 0;
 }
+
+// ---------------------------------------------------------------------------
+// Metrics queries
+// ---------------------------------------------------------------------------
+
+/** Get aggregate metrics: total tasks by status, total invocations by status, total cost, avg duration. */
+export function getMetricsSummary(db: OrcaDb): {
+  tasksByStatus: Record<string, number>;
+  invocationsByStatus: Record<string, number>;
+  totalCostUsd: number;
+  avgDurationSec: number | null;
+  totalInvocations: number;
+  successRate: number;
+} {
+  // Tasks by status
+  const taskRows = db.select({ status: tasks.orcaStatus, cnt: count() })
+    .from(tasks).groupBy(tasks.orcaStatus).all();
+  const tasksByStatus: Record<string, number> = {};
+  for (const r of taskRows) tasksByStatus[r.status] = r.cnt;
+
+  // Invocations by status
+  const invRows = db.select({ status: invocations.status, cnt: count() })
+    .from(invocations).groupBy(invocations.status).all();
+  const invocationsByStatus: Record<string, number> = {};
+  for (const r of invRows) invocationsByStatus[r.status] = r.cnt;
+
+  // Total cost
+  const costRow = db.select({ total: sum(invocations.costUsd) })
+    .from(invocations).get();
+  const totalCostUsd = costRow?.total != null ? Number(costRow.total) : 0;
+
+  // Average duration (all finished invocations, regardless of status)
+  // SQLite: (julianday(ended_at) - julianday(started_at)) * 86400
+  const avgRow = db.select({
+    avg: sql<number>`avg((julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400)`,
+  }).from(invocations)
+    .where(isNotNull(invocations.endedAt))
+    .get();
+  const avgDurationSec = avgRow?.avg ?? null;
+
+  // Totals and rates
+  const totalInvocations = Object.values(invocationsByStatus).reduce((a, b) => a + b, 0);
+  const completedCount = invocationsByStatus["completed"] ?? 0;
+  const successRate = totalInvocations > 0 ? completedCount / totalInvocations : 0;
+
+  return { tasksByStatus, invocationsByStatus, totalCostUsd, avgDurationSec, totalInvocations, successRate };
+}
+
+/** Get cost timeline data — bucketed by day. Returns array of { date, costUsd, completedCount, failedCount }. */
+export function getMetricsTimeline(db: OrcaDb, days: number = 30): Array<{
+  date: string;
+  costUsd: number;
+  completedCount: number;
+  failedCount: number;
+}> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const rows = db.select({
+    date: sql<string>`date(${invocations.startedAt})`,
+    costUsd: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+    completedCount: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
+    failedCount: sql<number>`sum(case when ${invocations.status} in ('failed', 'timed_out') then 1 else 0 end)`,
+  })
+    .from(invocations)
+    .where(gte(sql`date(${invocations.startedAt})`, since))
+    .groupBy(sql`date(${invocations.startedAt})`)
+    .orderBy(asc(sql`date(${invocations.startedAt})`))
+    .all();
+
+  return rows.map((r) => ({
+    date: r.date,
+    costUsd: Number(r.costUsd),
+    completedCount: Number(r.completedCount),
+    failedCount: Number(r.failedCount),
+  }));
+}
+
+/** Get error aggregation — group failed invocations by outputSummary. */
+export function getMetricsErrors(db: OrcaDb, limit: number = 20): Array<{
+  outputSummary: string;
+  count: number;
+  lastSeen: string;
+  taskIds: string;
+}> {
+  const rows = db.select({
+    outputSummary: invocations.outputSummary,
+    cnt: count(),
+    lastSeen: sql<string>`max(${invocations.startedAt})`,
+    taskIds: sql<string>`group_concat(distinct ${invocations.linearIssueId})`,
+  })
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .groupBy(invocations.outputSummary)
+    .orderBy(desc(sql`count(*)`))
+    .limit(limit)
+    .all();
+
+  return rows.map((r) => ({
+    outputSummary: r.outputSummary ?? "unknown",
+    count: r.cnt,
+    lastSeen: r.lastSeen,
+    taskIds: r.taskIds,
+  }));
+}
+
+/** Get per-task metrics — duration, cost, retry stats for each task. */
+export function getTaskMetrics(db: OrcaDb): Array<{
+  linearIssueId: string;
+  totalCostUsd: number;
+  totalInvocations: number;
+  completedCount: number;
+  failedCount: number;
+  avgDurationSec: number | null;
+  totalDurationSec: number | null;
+}> {
+  const rows = db.select({
+    linearIssueId: invocations.linearIssueId,
+    totalCostUsd: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+    totalInvocations: count(),
+    completedCount: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
+    failedCount: sql<number>`sum(case when ${invocations.status} in ('failed', 'timed_out') then 1 else 0 end)`,
+    avgDurationSec: sql<number>`avg(case when ${invocations.endedAt} is not null then (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400 end)`,
+    totalDurationSec: sql<number>`sum(case when ${invocations.endedAt} is not null then (julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400 end)`,
+  })
+    .from(invocations)
+    .groupBy(invocations.linearIssueId)
+    .orderBy(desc(sql`coalesce(sum(${invocations.costUsd}), 0)`))
+    .all();
+
+  return rows.map((r) => ({
+    linearIssueId: r.linearIssueId,
+    totalCostUsd: Number(r.totalCostUsd),
+    totalInvocations: r.totalInvocations,
+    completedCount: Number(r.completedCount),
+    failedCount: Number(r.failedCount),
+    avgDurationSec: r.avgDurationSec != null ? Number(r.avgDurationSec) : null,
+    totalDurationSec: r.totalDurationSec != null ? Number(r.totalDurationSec) : null,
+  }));
+}

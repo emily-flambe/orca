@@ -17,6 +17,10 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getMetricsSummary,
+  getMetricsTimeline,
+  getMetricsErrors,
+  getTaskMetrics,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -306,6 +310,33 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       // Block until aborted
       await new Promise(() => {});
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const summary = getMetricsSummary(db);
+    const taskMetrics = getTaskMetrics(db);
+    return c.json({ ...summary, taskMetrics });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics/timeline?days=30
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics/timeline", (c) => {
+    const days = Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 365);
+    const timeline = getMetricsTimeline(db, days);
+    return c.json({ timeline });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics/errors?limit=20
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics/errors", (c) => {
+    const limit = Math.min(Math.max(Number(c.req.query("limit")) || 20, 1), 100);
+    const errors = getMetricsErrors(db, limit);
+    return c.json({ errors });
   });
 
   return app;

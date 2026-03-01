@@ -46,3 +46,37 @@ export interface OrcaStatus {
   budgetLimit: number;
   budgetWindowHours: number;
 }
+
+export interface MetricsSummary {
+  tasksByStatus: Record<string, number>;
+  invocationsByStatus: Record<string, number>;
+  totalCostUsd: number;
+  avgDurationSec: number | null;
+  totalInvocations: number;
+  successRate: number;
+  taskMetrics: TaskMetric[];
+}
+
+export interface TaskMetric {
+  linearIssueId: string;
+  totalCostUsd: number;
+  totalInvocations: number;
+  completedCount: number;
+  failedCount: number;
+  avgDurationSec: number | null;
+  totalDurationSec: number | null;
+}
+
+export interface TimelineEntry {
+  date: string;
+  costUsd: number;
+  completedCount: number;
+  failedCount: number;
+}
+
+export interface ErrorEntry {
+  outputSummary: string;
+  count: number;
+  lastSeen: string;
+  taskIds: string;
+}

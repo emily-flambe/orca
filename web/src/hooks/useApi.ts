@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, MetricsSummary, TimelineEntry, ErrorEntry } from "../types";
 
 const BASE = "/api";
 
@@ -37,4 +37,16 @@ export function abortInvocation(id: number): Promise<{ ok: boolean }> {
 
 export function retryTask(id: string): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
+}
+
+export function fetchMetrics(): Promise<MetricsSummary> {
+  return fetchJson<MetricsSummary>("/metrics");
+}
+
+export function fetchMetricsTimeline(days: number = 30): Promise<{ timeline: TimelineEntry[] }> {
+  return fetchJson<{ timeline: TimelineEntry[] }>(`/metrics/timeline?days=${days}`);
+}
+
+export function fetchMetricsErrors(limit: number = 20): Promise<{ errors: ErrorEntry[] }> {
+  return fetchJson<{ errors: ErrorEntry[] }>(`/metrics/errors?limit=${limit}`);
 }

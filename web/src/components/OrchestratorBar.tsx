@@ -4,9 +4,11 @@ import type { OrcaStatus } from "../types";
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
+  view: "tasks" | "observability";
+  onViewChange: (view: "tasks" | "observability") => void;
 }
 
-export default function OrchestratorBar({ status, onSync }: Props) {
+export default function OrchestratorBar({ status, onSync, view, onViewChange }: Props) {
   const [syncing, setSyncing] = useState(false);
 
   if (!status) {
@@ -35,6 +37,30 @@ export default function OrchestratorBar({ status, onSync }: Props) {
 
   return (
     <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-6 text-sm shrink-0">
+      {/* View tabs */}
+      <div className="flex gap-1 mr-4 border-r border-gray-700 pr-4">
+        <button
+          onClick={() => onViewChange("tasks")}
+          className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            view === "tasks"
+              ? "bg-gray-700 text-gray-100"
+              : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          Tasks
+        </button>
+        <button
+          onClick={() => onViewChange("observability")}
+          className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            view === "observability"
+              ? "bg-gray-700 text-gray-100"
+              : "text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          Observability
+        </button>
+      </div>
+
       {/* Budget gauge */}
       <div className="flex items-center gap-2 min-w-48">
         <span className="text-gray-400">Budget</span>
