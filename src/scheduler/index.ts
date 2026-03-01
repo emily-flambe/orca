@@ -77,6 +77,16 @@ function log(message: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Linear comment helper (fire-and-forget)
+// ---------------------------------------------------------------------------
+
+function comment(client: LinearClient, issueId: string, body: string): void {
+  client.createComment(issueId, body).catch((err) => {
+    log(`comment failed for ${issueId}: ${err}`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Phase-aware dispatch
 // ---------------------------------------------------------------------------
 
@@ -201,6 +211,17 @@ async function dispatch(
   // 9. Store handle
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
+
+  // Post dispatch comment
+  if (phase === "implement" && task.orcaStatus !== "changes_requested") {
+    comment(client, taskId, `Dispatched for implementation (invocation #${invocationId})`);
+  } else if (phase === "implement" && task.orcaStatus === "changes_requested") {
+    const cycle = (task.reviewCycleCount ?? 0);
+    comment(client, taskId, `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${cycle}/${config.maxReviewCycles})`);
+  } else if (phase === "review") {
+    const cycle = (task.reviewCycleCount ?? 0) + 1;
+    comment(client, taskId, `Dispatched for code review (invocation #${invocationId}, cycle ${cycle}/${config.maxReviewCycles})`);
+  }
 
   log(
     `dispatched task ${taskId} as invocation ${invocationId} ` +
@@ -403,6 +424,9 @@ function onImplementSuccess(
     log(`worktree removal failed for invocation ${invocationId}: ${err}`);
   }
 
+  // Post implement-success comment
+  comment(client, taskId, `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${branchName}\``);
+
   log(
     `task ${taskId} implementation complete → in_review (invocation ${invocationId}, ` +
       `PR #${prInfo.number ?? "?"}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
@@ -481,6 +505,9 @@ async function onReviewSuccess(
       updateTaskStatus(db, taskId, "deploying");
       emitTaskUpdated(getTask(db, taskId)!);
 
+      comment(client, taskId, `Review approved — PR #${prNumber ?? "?"} merged`);
+      comment(client, taskId, `Deploy started — monitoring CI for commit ${mergeCommitSha ?? "unknown"}`);
+
       log(
         `task ${taskId} review approved → deploying ` +
           `(PR #${prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
@@ -493,6 +520,9 @@ async function onReviewSuccess(
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
         log(`write-back failed on review approved for task ${taskId}: ${err}`);
       });
+
+      comment(client, taskId, `Review approved — PR #${task.prNumber ?? "?"} merged`);
+      comment(client, taskId, "Task complete");
 
       log(`task ${taskId} review approved → done (invocation ${invocationId})`);
     }
@@ -512,6 +542,8 @@ async function onReviewSuccess(
       } catch (err) {
         log(`worktree removal failed for invocation ${invocationId}: ${err}`);
       }
+
+      comment(client, taskId, `Review requested changes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`);
 
       log(
         `task ${taskId} review requested changes → changes_requested ` +
@@ -558,7 +590,7 @@ function onSessionFailure(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db } = deps;
+  const { db, client } = deps;
 
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
@@ -620,6 +652,8 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
       `task ${taskId} queued for retry (attempt ${task.retryCount + 1}/${config.maxRetries})`,
     );
 
+    comment(client, taskId, `Invocation failed — retrying (attempt ${task.retryCount + 1}/${config.maxRetries})`);
+
     // Write-back on retry (fire-and-forget)
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) => {
       log(`write-back failed on retry for task ${taskId}: ${err}`);
@@ -628,6 +662,8 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
     log(
       `task ${taskId} exhausted all retries (${config.maxRetries}), leaving as failed`,
     );
+
+    comment(client, taskId, `Task failed permanently after ${config.maxRetries} retries`);
 
     // Write-back on permanent failure (fire-and-forget)
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
@@ -749,6 +785,8 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           log(`write-back failed on deploy timeout for task ${taskId}: ${err}`);
         });
 
+        comment(client, taskId, `Deploy timed out after ${config.deployTimeoutMin}min`);
+
         log(`task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`);
         continue;
       }
@@ -780,6 +818,8 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         log(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
 
+      comment(client, taskId, "Task complete");
+
       log(`task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`);
     } else if (status === "failure") {
       updateTaskStatus(db, taskId, "failed");
@@ -789,6 +829,8 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
         log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
       });
+
+      comment(client, taskId, `Deploy failed for commit ${task.mergeCommitSha}`);
 
       log(`task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`);
     }
