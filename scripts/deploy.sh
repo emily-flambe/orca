@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # deploy.sh — Pull latest main, rebuild frontend, restart Orca
-# Run after merging agent PRs on GitHub.
+# Single deployment path — always use this script to deploy Orca.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -22,9 +22,11 @@ echo "[deploy] killing existing Orca process (if any)..."
 # Kill any running orca process — use taskkill on Windows, pkill on Unix
 if command -v taskkill &>/dev/null; then
   # Windows: find node.exe PIDs running orca and kill them
+  # The || true ensures we don't fail if no process is running
   wmic process where "name='node.exe' and CommandLine like '%orca%start%'" get ProcessId 2>/dev/null \
     | grep -oE '[0-9]+' \
-    | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done
+    | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done \
+    || true
 else
   pkill -f "node.*orca.*start" 2>/dev/null || true
 fi
@@ -34,4 +36,4 @@ echo "[deploy] starting Orca..."
 npx tsx src/cli/index.ts start >> "$ORCA_DIR/orca.log" 2>&1 &
 disown
 
-echo "[deploy] done. Orca is running in the background."
+echo "[deploy] done. Orca is running in the background (logging to orca.log)."

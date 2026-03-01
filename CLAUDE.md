@@ -2,27 +2,19 @@
 
 ## Deploying Changes
 
-After committing and pushing changes to main, **always restart Orca yourself**. Never ask the user to do it.
+After committing and pushing changes to main, **always deploy using the single deploy script**. Never ask the user to do it.
 
-### How to restart
+### How to deploy
 
 ```bash
-# Kill existing Orca process
-wmic process where "name='node.exe' and CommandLine like '%orca%start%'" get ProcessId 2>/dev/null \
-  | grep -oE '[0-9]+' \
-  | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done
-
-sleep 2
-
-# Start Orca in background (redirect stdout/stderr to orca.log)
-cd /c/Users/emily/Documents/Github/orca
-npx tsx src/cli/index.ts start >> orca.log 2>&1 &
-disown
+bash /c/Users/emily/Documents/Github/orca/scripts/deploy.sh
 ```
 
-Or use `scripts/deploy.sh` if you also need to pull and rebuild.
+This script handles everything: pull, install, frontend rebuild, kill old process, start new process with log redirection to `orca.log`.
 
-### When to restart
+**Do NOT start Orca manually** — always use `scripts/deploy.sh` to ensure consistent behavior.
+
+### When to deploy
 
 - After any backend change (`src/**/*.ts`)
 - After rebuilding the frontend (`web/dist/` changed)
