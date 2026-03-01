@@ -177,11 +177,16 @@ function upsertTask(
       orcaStatus === "ready" || orcaStatus === "done" || orcaStatus === "failed";
     const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
 
+    // When Linear "Todo" overrides a non-ready state, reset retry/review counts
+    // so the task gets a completely fresh start.
+    const resetCounters = orcaStatus === "ready" && existing.orcaStatus !== "ready";
+
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
       repoPath,
       priority: issue.priority,
       orcaStatus: effectiveStatus,
+      ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
     });
   }
 }
