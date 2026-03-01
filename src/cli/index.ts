@@ -11,6 +11,7 @@ import {
   getRunningInvocations,
   sumCostInWindow,
   updateInvocation,
+  updateTaskFields,
   updateTaskStatus,
 } from "../db/queries.js";
 import { startScheduler } from "../scheduler/index.js";
