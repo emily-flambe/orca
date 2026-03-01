@@ -138,7 +138,7 @@ The web dashboard (http://localhost:3000) provides:
 
 - **Orchestrator bar** — budget gauge, active session count, queued task count
 - **Task list** — filterable by status, sortable by priority/status/date
-- **Task detail** — edit agent prompts, manually dispatch tasks, view invocation history
+- **Task detail** — view agent prompts, abort running invocations, retry failed tasks, view invocation history with logs
 
 ### Linear Integration
 
@@ -175,9 +175,14 @@ src/
   tunnel/index.ts       # Cloudflared tunnel manager
   api/routes.ts         # REST API + SSE endpoints (Hono)
   events.ts             # EventEmitter-based event bus
+scripts/
+  deploy.sh               # Pull, rebuild, and restart Orca
 web/
   src/                  # React + Tailwind dashboard SPA
   vite.config.ts        # Vite config with API proxy
+docs/
+  cloudflared-setup.md  # Cloudflare tunnel setup guide
+  ticket-lifecycle.md   # End-to-end ticket lifecycle documentation
 test/
   integration.test.ts         # Core scheduler tests
   linear-integration.test.ts  # Linear integration tests
@@ -186,6 +191,7 @@ test/
   deploy-monitoring.test.ts   # Deploy CI monitoring tests
   parent-child.test.ts        # Parent/child issue tests
   repo-mapping.test.ts        # Project-to-repo mapping tests
+  worktree.test.ts            # Worktree creation resilience tests
 ```
 
 ## License

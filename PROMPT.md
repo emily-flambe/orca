@@ -62,9 +62,10 @@ All backend modules use named exports. The frontend uses default exports for Rea
 Three tables, all in SQLite with Drizzle ORM:
 
 **tasks** — Primary key: `linear_issue_id` (text)
-- `agent_prompt`, `repo_path`, `orca_status` (ready/dispatched/running/done/failed/in_review/changes_requested/deploying), `priority` (0-4), `retry_count`, `review_cycle_count`, `pr_branch_name`, `merge_commit_sha`, `pr_number`, `deploy_started_at`, `done_at`, `created_at`, `updated_at`
+- `agent_prompt`, `repo_path`, `orca_status` (backlog/ready/dispatched/running/done/failed/in_review/changes_requested/deploying), `priority` (0-4), `retry_count`, `review_cycle_count`, `pr_branch_name`, `merge_commit_sha`, `pr_number`, `deploy_started_at`, `done_at`, `created_at`, `updated_at`
 - `parent_identifier` (text, nullable) — references parent task's `linear_issue_id`
 - `is_parent` (integer, default 0) — 1 if this issue has sub-issues in Linear; parent tasks are tracked but never dispatched
+- `project_name` (text, nullable) — Linear project name, fetched during sync
 
 **invocations** — Auto-increment `id`, FK to `tasks.linear_issue_id`
 - `started_at`, `ended_at`, `status` (running/completed/failed/timed_out), `session_id`, `branch_name`, `worktree_path`, `cost_usd`, `num_turns`, `output_summary`, `log_path`, `phase` (implement/review)
@@ -92,10 +93,11 @@ Completion: update invocation → insert budget event → emit SSE events → ma
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/tasks` | All tasks, sorted by priority then createdAt |
+| `GET` | `/api/tasks` | All tasks (with `invocationCount`), sorted by priority then createdAt |
 | `GET` | `/api/tasks/:id` | Task + invocation history |
 | `GET` | `/api/invocations/:id/logs` | Invocation log file (parsed NDJSON) |
 | `POST` | `/api/invocations/:id/abort` | Abort a running invocation (kills session, resets task to ready) |
+| `POST` | `/api/tasks/:id/retry` | Retry a failed task (resets to ready, zeroes counters, writes back "Todo" to Linear) |
 | `POST` | `/api/sync` | Trigger a full Linear sync |
 | `GET` | `/api/status` | Active sessions, queued count, budget info |
 | `GET` | `/api/events` | SSE stream (task:updated, invocation:started/completed, status:updated) |
