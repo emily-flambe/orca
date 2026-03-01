@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
+import type { SyncResult } from "../linear/sync.js";
 import {
   getAllTasks,
   getTask,
@@ -20,7 +21,7 @@ export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
   dispatchTask: (taskId: string) => Promise<number>;
-  syncTasks: () => Promise<number>;
+  syncTasks: () => Promise<SyncResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +85,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {
     try {
-      const synced = await syncTasks();
-      return c.json({ synced });
+      const result = await syncTasks();
+      return c.json({ synced: result.total, upsertFailures: result.upsertFailures });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: message }, 500);
