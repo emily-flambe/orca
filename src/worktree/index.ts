@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { git } from "../git.js";
+import { git, gitWithRetry, cleanStaleLockFiles } from "../git.js";
 
 /**
  * Run npm install synchronously in the given directory.
@@ -142,14 +142,17 @@ export function createWorktree(
     console.warn(`[orca/worktree] prune failed (non-fatal): ${pruneErr}`);
   }
 
-  // Fetch origin
-  git(["fetch", "origin"], { cwd: repoPath });
+  // Clean stale lock files before fetch (best-effort)
+  cleanStaleLockFiles(repoPath);
+
+  // Fetch origin (with retry for transient OS errors)
+  gitWithRetry(["fetch", "origin"], { cwd: repoPath });
 
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
     if (baseRef) {
       // For review/fix phases, reset to the remote tracking branch
-      git(["fetch", "origin"], { cwd: worktreePath });
+      gitWithRetry(["fetch", "origin"], { cwd: worktreePath });
       git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
     } else {
       resetWorktree(worktreePath);
@@ -192,29 +195,88 @@ export function createWorktree(
 }
 
 /**
+ * Derive the base repo root from a worktree path by stripping the task-ID
+ * suffix. Worktree dirs are named `<repoDirname>-<taskId>`, e.g.
+ * `orca-EMI-29`. We test progressively shorter hyphen-separated prefixes
+ * against existing directories.
+ *
+ * Returns `undefined` if no candidate directory exists.
+ */
+export function deriveRepoRoot(worktreePath: string): string | undefined {
+  const parentDir = dirname(worktreePath);
+  const dirName = basename(worktreePath);
+  const parts = dirName.split("-");
+
+  // Try progressively shorter prefixes (at least 1 part)
+  for (let len = parts.length - 1; len >= 1; len--) {
+    const candidate = join(parentDir, parts.slice(0, len).join("-"));
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Remove a git worktree at the given path.
  *
- * Runs `git worktree remove <path>`. The associated branch is preserved
- * in the repository for future reference.
+ * Uses a three-level fallback chain:
+ * 1. Resolve repo root via `git rev-parse --git-common-dir`, then `git worktree remove`
+ * 2. If rev-parse fails (corrupt worktree), derive repo root from path pattern,
+ *    then `git worktree remove`
+ * 3. If git worktree remove also fails, fall back to rmSync + git worktree prune
  *
- * The cwd for the git command is set to the main repository (resolved via
- * `git rev-parse --show-toplevel` from the worktree) to avoid holding a
- * file handle on the worktree directory during removal (Windows issue).
+ * The associated branch is preserved in the repository for future reference.
  *
  * @param worktreePath - Absolute path to the worktree directory to remove
- * @throws Error if the git worktree remove command fails
  */
 export function removeWorktree(worktreePath: string): void {
-  // Resolve the main worktree (repo root) so we don't use the
-  // worktree-being-removed as cwd (problematic on Windows).
-  const mainWorktree = git(
-    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { cwd: worktreePath },
-  );
-  // --git-common-dir returns the .git directory (e.g. /repo/.git).
-  // We need the repo root, which is its parent.
-  const repoRoot = dirname(mainWorktree);
-  git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
+  let repoRoot: string | undefined;
+
+  // Level 1: resolve repo root via git
+  try {
+    const mainWorktree = git(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: worktreePath },
+    );
+    // --git-common-dir returns the .git directory (e.g. /repo/.git).
+    // We need the repo root, which is its parent.
+    repoRoot = dirname(mainWorktree);
+  } catch {
+    // Level 2: derive repo root from worktree path pattern
+    repoRoot = deriveRepoRoot(worktreePath);
+    if (repoRoot) {
+      console.warn(
+        `[orca/worktree] rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
+      );
+    }
+  }
+
+  // Try git worktree remove if we have a repo root
+  if (repoRoot) {
+    try {
+      git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
+      return;
+    } catch (removeErr) {
+      console.warn(
+        `[orca/worktree] git worktree remove failed for ${worktreePath}: ${removeErr}`,
+      );
+      // Fall through to level 3
+    }
+  }
+
+  // Level 3: brute-force removal + prune
+  console.warn(`[orca/worktree] falling back to rmSync + prune for ${worktreePath}`);
+  if (existsSync(worktreePath)) {
+    rmSyncWithRetry(worktreePath);
+  }
+  if (repoRoot) {
+    try {
+      git(["worktree", "prune"], { cwd: repoRoot });
+    } catch (pruneErr) {
+      console.warn(`[orca/worktree] prune after rmSync failed: ${pruneErr}`);
+    }
+  }
 }
 
 /**
@@ -228,6 +290,6 @@ export function removeWorktree(worktreePath: string): void {
  * @throws Error if the git fetch or reset commands fail
  */
 export function resetWorktree(worktreePath: string): void {
-  git(["fetch", "origin"], { cwd: worktreePath });
+  gitWithRetry(["fetch", "origin"], { cwd: worktreePath });
   git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
 }

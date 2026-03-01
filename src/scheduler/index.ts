@@ -37,6 +37,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
+import { isTransientGitError } from "../git.js";
 import { findPrForBranch, getMergeCommitSha, getWorkflowRunStatus } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
@@ -71,6 +72,15 @@ export interface SchedulerHandle {
  * Exported so the CLI shutdown handler can iterate and kill them.
  */
 export const activeHandles = new Map<number, SessionHandle>();
+
+/**
+ * Consecutive transient worktree-creation failure count per task ID.
+ * After TRANSIENT_FAILURE_LIMIT consecutive transient failures, the task
+ * falls through to the normal retry path (burns a real retry) so the
+ * scheduler doesn't spin forever on a persistent "transient" error.
+ */
+const transientFailureCounts = new Map<string, number>();
+const TRANSIENT_FAILURE_LIMIT = 10;
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -204,8 +214,36 @@ async function dispatch(
   } else {
     try {
       worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
+      // Successful worktree creation — reset transient failure counter
+      transientFailureCounts.delete(taskId);
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
+
+      if (isTransientGitError(err)) {
+        const count = (transientFailureCounts.get(taskId) ?? 0) + 1;
+        transientFailureCounts.set(taskId, count);
+
+        if (count < TRANSIENT_FAILURE_LIMIT) {
+          // Transient OS-level failure (e.g. Windows DLL init) — re-queue
+          // without burning a retry. Task will be re-dispatched next tick.
+          log(`transient error detected for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing as ready`);
+          updateTaskStatus(db, taskId, task.orcaStatus === "in_review" ? "in_review" : task.orcaStatus === "changes_requested" ? "changes_requested" : "ready");
+          updateInvocation(db, invocationId, {
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            outputSummary: `worktree creation failed (transient ${count}/${TRANSIENT_FAILURE_LIMIT}, re-queued): ${err}`,
+          });
+          emitTaskUpdated(getTask(db, taskId)!);
+          return;
+        }
+
+        // Circuit breaker tripped — persistent "transient" error.
+        // Fall through to burn a real retry.
+        log(`transient error circuit breaker tripped for task ${taskId} after ${count} consecutive failures — burning retry`);
+        transientFailureCounts.delete(taskId);
+      }
+
+      // Non-transient error — existing behavior: mark failed, burn retry
       updateTaskStatus(db, taskId, "failed");
       updateInvocation(db, invocationId, {
         status: "failed",
