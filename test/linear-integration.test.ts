@@ -17,6 +17,7 @@ import {
   insertTask,
   getTask,
   updateTaskStatus,
+  updateTaskDeployInfo,
 } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
@@ -496,7 +497,7 @@ describe("10.2 - DependencyGraph", () => {
 // 10.3 Conflict resolution
 // ===========================================================================
 
-// Mock the scheduler and runner modules that resolveConflict imports
+// Mock the scheduler, runner, and github modules that resolveConflict/sync imports
 vi.mock("../src/scheduler/index.js", () => ({
   activeHandles: new Map(),
 }));
@@ -504,6 +505,12 @@ vi.mock("../src/scheduler/index.js", () => ({
 vi.mock("../src/runner/index.js", () => ({
   killSession: vi.fn().mockResolvedValue({}),
   spawnSession: vi.fn(),
+}));
+
+vi.mock("../src/github/index.js", () => ({
+  closePr: vi.fn().mockReturnValue({ closed: true }),
+  findPrForBranch: vi.fn().mockReturnValue({ exists: false }),
+  listOpenPrBranches: vi.fn().mockReturnValue(new Set()),
 }));
 
 describe("10.3 - Conflict resolution", () => {
@@ -588,6 +595,177 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
+  });
+
+  test("Canceled with PR -> closePr is called with correct args", async () => {
+    const { closePr } = await import("../src/github/index.js");
+    const closePrMock = closePr as unknown as Mock;
+    closePrMock.mockClear();
+
+    const taskId = seedTask(db, {
+      linearIssueId: "CONFLICT-PR-1",
+      orcaStatus: "in_review",
+      repoPath: "/tmp/test-repo",
+    });
+    updateTaskDeployInfo(db, taskId, { prNumber: 42 });
+
+    resolveConflict(db, taskId, "Canceled", config);
+
+    expect(closePrMock).toHaveBeenCalledTimes(1);
+    expect(closePrMock).toHaveBeenCalledWith(
+      42,
+      "/tmp/test-repo",
+      expect.stringContaining("CONFLICT-PR-1"),
+    );
+    expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
+  });
+
+  test("Canceled without PR -> closePr is not called", async () => {
+    const { closePr } = await import("../src/github/index.js");
+    const closePrMock = closePr as unknown as Mock;
+    closePrMock.mockClear();
+
+    const taskId = seedTask(db, {
+      linearIssueId: "CONFLICT-PR-2",
+      orcaStatus: "running",
+    });
+    // No prNumber set
+
+    resolveConflict(db, taskId, "Canceled", config);
+
+    expect(closePrMock).not.toHaveBeenCalled();
+    expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
+  });
+
+  test("Canceled with PR close failure -> task still transitions to failed", async () => {
+    const { closePr } = await import("../src/github/index.js");
+    const closePrMock = closePr as unknown as Mock;
+    closePrMock.mockClear();
+    closePrMock.mockReturnValue({ closed: false, error: "PR already closed" });
+
+    const taskId = seedTask(db, {
+      linearIssueId: "CONFLICT-PR-3",
+      orcaStatus: "in_review",
+      repoPath: "/tmp/test-repo",
+    });
+    updateTaskDeployInfo(db, taskId, { prNumber: 99 });
+
+    resolveConflict(db, taskId, "Canceled", config);
+
+    // Even though closePr failed, task should still be failed
+    expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
+    expect(closePrMock).toHaveBeenCalledTimes(1);
+
+    // Reset mock for other tests
+    closePrMock.mockReturnValue({ closed: true });
+  });
+});
+
+// ===========================================================================
+// EMI-95 - Auto-close PRs on fullSync Canceled
+// ===========================================================================
+
+describe("EMI-95 - fullSync closes PRs for canceled issues", () => {
+  let db: OrcaDb;
+  let config: OrcaConfig;
+  let fullSync: typeof import("../src/linear/sync.js").fullSync;
+  let closePrMock: Mock;
+
+  beforeEach(async () => {
+    db = freshDb();
+    config = testConfig({ defaultCwd: "/tmp/test-repo" });
+    // Use importActual to bypass the vi.mock that replaces fullSync with a no-op
+    // (the poller tests mock fullSync, and vi.mock is hoisted globally)
+    const actualSync = await vi.importActual<typeof import("../src/linear/sync.js")>("../src/linear/sync.js");
+    fullSync = actualSync.fullSync;
+
+    const githubMod = await import("../src/github/index.js");
+    closePrMock = githubMod.closePr as unknown as Mock;
+    closePrMock.mockClear();
+    closePrMock.mockReturnValue({ closed: true });
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("fullSync: canceled issue with PR -> closePr is called", async () => {
+    // Seed an existing task with a PR
+    const taskId = seedTask(db, {
+      linearIssueId: "SYNC-CANCEL-1",
+      orcaStatus: "in_review",
+      repoPath: "/tmp/test-repo",
+    });
+    updateTaskDeployInfo(db, taskId, { prNumber: 55 });
+
+    // Mock client that returns a canceled issue
+    const mockClient = {
+      fetchProjectIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-sync-1",
+          identifier: "SYNC-CANCEL-1",
+          title: "Canceled task",
+          description: "",
+          priority: 2,
+          state: { id: "state-canceled", name: "Canceled", type: "canceled" },
+          teamId: "team-1",
+          projectId: "proj-1",
+          projectName: "Test Project",
+          relations: [],
+          inverseRelations: [],
+          parentId: null,
+          parentTitle: null,
+          parentDescription: null,
+          childIds: [],
+        },
+      ]),
+    };
+
+    const mockGraph = { rebuild: vi.fn() };
+
+    await fullSync(db, mockClient as any, mockGraph as any, config);
+
+    expect(closePrMock).toHaveBeenCalledTimes(1);
+    expect(closePrMock).toHaveBeenCalledWith(
+      55,
+      "/tmp/test-repo",
+      expect.stringContaining("SYNC-CANCEL-1"),
+    );
+    expect(getTask(db, taskId)!.orcaStatus).toBe("failed");
+  });
+
+  test("fullSync: canceled issue without existing task -> no closePr call", async () => {
+    const mockClient = {
+      fetchProjectIssues: vi.fn().mockResolvedValue([
+        {
+          id: "issue-sync-2",
+          identifier: "SYNC-CANCEL-2",
+          title: "New canceled task",
+          description: "",
+          priority: 2,
+          state: { id: "state-canceled", name: "Canceled", type: "canceled" },
+          teamId: "team-1",
+          projectId: "proj-1",
+          projectName: "Test Project",
+          relations: [],
+          inverseRelations: [],
+          parentId: null,
+          parentTitle: null,
+          parentDescription: null,
+          childIds: [],
+        },
+      ]),
+    };
+
+    const mockGraph = { rebuild: vi.fn() };
+
+    await fullSync(db, mockClient as any, mockGraph as any, config);
+
+    expect(closePrMock).not.toHaveBeenCalled();
+    // Task should not have been created
+    expect(getTask(db, "SYNC-CANCEL-2")).toBeUndefined();
   });
 });
 

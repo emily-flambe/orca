@@ -232,6 +232,33 @@ export async function mergePr(
   }
 }
 
+/**
+ * Close a PR by number and optionally delete the remote branch.
+ * Posts a comment explaining why the PR was closed before closing it.
+ * Returns structured success/failure. Best-effort: errors are logged but not thrown.
+ */
+export function closePr(
+  prNumber: number,
+  cwd: string,
+  comment?: string,
+): { closed: true } | { closed: false; error: string } {
+  try {
+    if (comment) {
+      try {
+        gh(["pr", "comment", String(prNumber), "--body", comment], { cwd });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[orca/github] failed to comment on PR #${prNumber}: ${msg}`);
+      }
+    }
+    gh(["pr", "close", String(prNumber), "--delete-branch"], { cwd });
+    return { closed: true };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { closed: false, error: message };
+  }
+}
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"

@@ -19,6 +19,7 @@ import {
 } from "../db/queries.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
+import { closePr } from "../github/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,10 +123,11 @@ function upsertTask(
   issue: LinearIssue,
   config: OrcaConfig,
 ): void {
-  // Canceled → transition existing tasks to failed; skip creating new ones.
+  // Canceled → close open PRs, transition existing tasks to failed; skip creating new ones.
   if (issue.state.name === "Canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
+      closeTaskPrs(issue.identifier, existing.prNumber, existing.repoPath);
       updateTaskStatus(db, issue.identifier, "failed");
       log(`canceled task ${issue.identifier} → failed`);
     }
@@ -381,6 +383,23 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
   }
 }
 
+/**
+ * Close any open GitHub PRs associated with a task.
+ * Best-effort: logs failures but does not throw.
+ */
+function closeTaskPrs(taskId: string, prNumber: number | null, repoPath: string): void {
+  if (!prNumber) return;
+
+  const comment =
+    `Closing this PR automatically — the Linear issue **${taskId}** was moved to **Canceled**.`;
+  const result = closePr(prNumber, repoPath, comment);
+  if (result.closed) {
+    log(`closed PR #${prNumber} for canceled task ${taskId}`);
+  } else {
+    log(`failed to close PR #${prNumber} for task ${taskId}: ${result.error}`);
+  }
+}
+
 export function resolveConflict(
   db: OrcaDb,
   taskId: string,
@@ -396,6 +415,7 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
+    closeTaskPrs(taskId, task.prNumber, task.repoPath);
     updateTaskStatus(db, taskId, "failed");
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     return;
