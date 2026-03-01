@@ -88,6 +88,28 @@ async function dispatch(
   const { db, config, client, stateMap } = deps;
   const taskId = task.linearIssueId;
 
+  // Guard: re-read task from DB and verify it's still in a dispatchable state.
+  // Between the tick() query and this dispatch() call, a completion handler or
+  // webhook could have changed the task's status (e.g. to "done").
+  const freshTask = getTask(db, taskId);
+  if (!freshTask) {
+    log(`dispatch aborted: task ${taskId} no longer exists`);
+    return;
+  }
+  const dispatchableStatuses = new Set<TaskStatus>(["ready", "in_review", "changes_requested"]);
+  if (!dispatchableStatuses.has(freshTask.orcaStatus)) {
+    log(`dispatch aborted: task ${taskId} is now "${freshTask.orcaStatus}" (no longer dispatchable)`);
+    return;
+  }
+
+  // Guard: ensure no running invocation already exists for this task.
+  const runningInvs = getRunningInvocations(db);
+  const alreadyRunning = runningInvs.some((inv) => inv.linearIssueId === taskId);
+  if (alreadyRunning) {
+    log(`dispatch aborted: task ${taskId} already has a running invocation`);
+    return;
+  }
+
   // 1. Mark task as dispatched
   updateTaskStatus(db, taskId, "dispatched");
   emitTaskUpdated(getTask(db, taskId)!);
@@ -224,7 +246,7 @@ export function attachCompletionHandler(
   });
 }
 
-function onSessionComplete(
+async function onSessionComplete(
   deps: SchedulerDeps,
   taskId: string,
   invocationId: number,
@@ -232,7 +254,7 @@ function onSessionComplete(
   result: SessionResult,
   worktreePath: string,
   phase: DispatchPhase,
-): void {
+): Promise<void> {
   const { db, config, client, stateMap } = deps;
 
   // Remove from active handles
@@ -272,13 +294,35 @@ function onSessionComplete(
   // Emit current status
   emitCurrentStatus(db, config);
 
+  // Guard: if the task is already in a terminal state (done, failed, deploying),
+  // skip phase handlers. This catches orphaned invocations that complete after
+  // another invocation already moved the task forward.
+  const currentTask = getTask(db, taskId);
+  if (currentTask) {
+    const terminalStatuses = new Set<TaskStatus>(["done", "failed", "deploying"]);
+    if (terminalStatuses.has(currentTask.orcaStatus)) {
+      log(
+        `invocation ${invocationId}: task ${taskId} is already "${currentTask.orcaStatus}" — ` +
+          `skipping ${phase} completion handler`,
+      );
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal for orphaned invocation ${invocationId}: ${err}`);
+      }
+      return;
+    }
+  }
+
   if (isSuccess) {
     if (phase === "implement") {
       onImplementSuccess(deps, taskId, invocationId, worktreePath, result);
     } else {
-      onReviewSuccess(deps, taskId, invocationId, worktreePath, result).catch((err) => {
+      try {
+        await onReviewSuccess(deps, taskId, invocationId, worktreePath, result);
+      } catch (err) {
         log(`onReviewSuccess error for task ${taskId}: ${err}`);
-      });
+      }
     }
   } else {
     onSessionFailure(deps, taskId, invocationId, worktreePath, result);
@@ -790,12 +834,19 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 4. Filter: skip empty prompts and blocked tasks (only for ready tasks)
+  // 4. Filter: skip empty prompts, blocked tasks, and tasks with running invocations
   const getStatus = (id: string): string | undefined =>
     getTask(db, id)?.orcaStatus;
 
+  // Build a set of task IDs that already have a running invocation.
+  // This prevents dispatching a duplicate session for a task whose prior
+  // completion handler hasn't finished updating its status yet.
+  const runningInvs = getRunningInvocations(db);
+  const tasksWithRunningInv = new Set(runningInvs.map((inv) => inv.linearIssueId));
+
   const dispatchable = candidates.filter((t) => {
     if (!t.agentPrompt) return false;
+    if (tasksWithRunningInv.has(t.linearIssueId)) return false;
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
       return graph.isDispatchable(t.linearIssueId, getStatus);
