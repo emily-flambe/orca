@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-/** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 as signed i32). */
+/** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 unsigned). */
 const WIN_DLL_INIT_FAILED = 3221225794;
+/** Signed 32-bit representation of the same exit code. */
+const WIN_DLL_INIT_FAILED_SIGNED = -1073741502;
 
 /**
  * Type for the error shape thrown by execFileSync.
@@ -50,22 +52,35 @@ export function git(args: string[], options?: { cwd?: string }): string {
  * Returns true if the error is a transient OS/infrastructure failure
  * that is worth retrying (not a git-level error like bad ref).
  *
- * NOTE: Windows STATUS_DLL_INIT_FAILED (0xC0000142) is NOT classified
- * as transient — it indicates system-level resource exhaustion that
- * won't resolve via retry and just wastes cycles spinning.
- *
- * Currently detects:
+ * Detects:
  * - Process killed by signal (e.g. SIGKILL, SIGTERM)
+ * - Windows STATUS_DLL_INIT_FAILED (0xC0000142) — resource exhaustion
+ *   when too many processes spawn concurrently. Transient: resolves
+ *   once system resources are freed.
  */
 export function isTransientGitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const execErr = err as ExecError;
+
+  // Windows DLL init failure — transient resource exhaustion
+  // Check both unsigned and signed representations of 0xC0000142
+  if (execErr.status === WIN_DLL_INIT_FAILED || execErr.status === WIN_DLL_INIT_FAILED_SIGNED) return true;
 
   // Signal-killed process (OOM killer, etc.)
   if (execErr.signal) return true;
   if (err.message.includes("signal: SIG")) return true;
 
   return false;
+}
+
+/**
+ * Returns true if the error is specifically a Windows DLL init failure.
+ * Used to apply longer backoffs than other transient errors.
+ */
+export function isDllInitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const status = (err as ExecError).status;
+  return status === WIN_DLL_INIT_FAILED || status === WIN_DLL_INIT_FAILED_SIGNED;
 }
 
 /**
@@ -96,13 +111,15 @@ function sleepSync(ms: number): void {
 /**
  * Wraps git() with retry logic for transient errors.
  *
- * Retries up to `maxAttempts` times with backoff (2s, 4s) for errors
- * classified as transient by isTransientGitError().
- * Non-transient errors are thrown immediately.
+ * Retries up to `maxAttempts` times with backoff for errors classified
+ * as transient by isTransientGitError(). Non-transient errors throw immediately.
+ *
+ * DLL init failures (0xC0000142) get longer backoffs (5s, 10s, 15s) because
+ * the system needs time to reclaim resources. Other transient errors use
+ * shorter backoffs (2s, 4s).
  *
  * Tracks global transient failure count — if the system is in a persistent
- * failure state (e.g. Windows DLL init exhaustion), adds a longer cooldown
- * to reduce pressure instead of hammering the OS.
+ * failure state, adds a longer cooldown to reduce pressure.
  */
 export function gitWithRetry(
   args: string[],
@@ -126,6 +143,7 @@ export function gitWithRetry(
       }
 
       globalTransientFailureCount++;
+      const dllInit = isDllInitError(err);
 
       // If the system is in a persistent failure state, add a long cooldown
       if (globalTransientFailureCount >= GLOBAL_PAUSE_THRESHOLD) {
@@ -135,10 +153,12 @@ export function gitWithRetry(
         );
         sleepSync(GLOBAL_COOLDOWN_MS);
       } else {
-        const waitMs = attempt * 2000;
+        // DLL init errors need longer backoff — system must reclaim resources
+        const waitMs = dllInit ? attempt * 5000 : attempt * 2000;
         console.warn(
           `[orca/git] transient error on "git ${args.join(" ")}" ` +
-            `(attempt ${attempt}/${maxAttempts}, global: ${globalTransientFailureCount}), ` +
+            `(attempt ${attempt}/${maxAttempts}, global: ${globalTransientFailureCount}` +
+            `${dllInit ? ", DLL_INIT" : ""}), ` +
             `retrying in ${waitMs}ms`,
         );
         sleepSync(waitMs);

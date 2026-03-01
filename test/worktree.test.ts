@@ -55,14 +55,9 @@ function retryWrapper(fn: () => string, maxAttempts: number): string {
 // ---------------------------------------------------------------------------
 
 describe("isTransientGitError", () => {
-  test("returns false for Windows DLL init failed exit code (not transient)", () => {
+  test("returns true for Windows DLL init failed exit code (transient resource exhaustion)", () => {
     const err = makeGitError({ status: 3221225794 });
-    expect(isTransientGitError(err)).toBe(false);
-  });
-
-  test("returns false for Windows DLL init failed exit code in message (not transient)", () => {
-    const err = new Error("git command failed: git fetch origin\nexit: 3221225794");
-    expect(isTransientGitError(err)).toBe(false);
+    expect(isTransientGitError(err)).toBe(true);
   });
 
   test("returns true for signal-killed process (signal property)", () => {
@@ -403,12 +398,13 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
     expect(() => retryWrapper(fn, 3)).toThrow("third failure");
   });
 
-  test("DLL init error is NOT retried (treated as non-transient)", () => {
+  test("DLL init error IS retried (transient resource exhaustion)", () => {
     const dllErr = makeGitError({ status: 3221225794 });
     const fn = vi.fn().mockImplementation(() => { throw dllErr; });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
-    expect(fn).toHaveBeenCalledTimes(1);
+    // Should retry all 3 attempts before giving up
+    expect(fn).toHaveBeenCalledTimes(3);
   });
 });
 

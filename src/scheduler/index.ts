@@ -39,7 +39,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
-import { isTransientGitError } from "../git.js";
+import { isTransientGitError, isDllInitError } from "../git.js";
 import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
@@ -82,7 +82,16 @@ export const activeHandles = new Map<number, SessionHandle>();
  * scheduler doesn't spin forever on a persistent "transient" error.
  */
 const transientFailureCounts = new Map<string, number>();
-const TRANSIENT_FAILURE_LIMIT = 3;
+const TRANSIENT_FAILURE_LIMIT = 5;
+
+/**
+ * Per-repo cooldown timestamps. When worktree creation fails with a
+ * DLL init error (0xC0000142), the repo is put on cooldown so the
+ * scheduler doesn't immediately re-dispatch to it on the next tick.
+ * This gives the system time to reclaim resources.
+ */
+const repoCooldowns = new Map<string, number>();
+const REPO_COOLDOWN_MS = 30_000; // 30 seconds
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -216,8 +225,9 @@ async function dispatch(
   } else {
     try {
       worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
-      // Successful worktree creation — reset transient failure counter
+      // Successful worktree creation — reset transient failure counter and repo cooldown
       transientFailureCounts.delete(taskId);
+      repoCooldowns.delete(task.repoPath);
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
 
@@ -225,9 +235,16 @@ async function dispatch(
         const count = (transientFailureCounts.get(taskId) ?? 0) + 1;
         transientFailureCounts.set(taskId, count);
 
+        // DLL init errors: put the repo on cooldown so the scheduler
+        // doesn't immediately re-dispatch to it on the next tick
+        if (isDllInitError(err)) {
+          repoCooldowns.set(task.repoPath, Date.now() + REPO_COOLDOWN_MS);
+          log(`repo ${task.repoPath} on cooldown for ${REPO_COOLDOWN_MS / 1000}s (DLL_INIT)`);
+        }
+
         if (count < TRANSIENT_FAILURE_LIMIT) {
           // Transient OS-level failure (e.g. Windows DLL init) — re-queue
-          // without burning a retry. Task will be re-dispatched next tick.
+          // without burning a retry. Task will be re-dispatched after cooldown.
           log(`transient error detected for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing as ready`);
           updateTaskStatus(db, taskId, task.orcaStatus === "in_review" ? "in_review" : task.orcaStatus === "changes_requested" ? "changes_requested" : "ready");
           updateInvocation(db, invocationId, {
@@ -1272,10 +1289,18 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   const runningInvs = getRunningInvocations(db);
   const tasksWithRunningInv = new Set(runningInvs.map((inv) => inv.linearIssueId));
 
+  // Expire stale repo cooldowns
+  const tickNow = Date.now();
+  for (const [repo, expiresAt] of repoCooldowns) {
+    if (tickNow >= expiresAt) repoCooldowns.delete(repo);
+  }
+
   const dispatchable = candidates.filter((t) => {
     if (!t.agentPrompt) return false;
     if (t.isParent) return false; // never dispatch parent issues
     if (tasksWithRunningInv.has(t.linearIssueId)) return false;
+    // Skip tasks whose repo is on cooldown (DLL init recovery)
+    if (repoCooldowns.has(t.repoPath)) return false;
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
       return graph.isDispatchable(t.linearIssueId, getStatus);
