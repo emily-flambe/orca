@@ -301,6 +301,26 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       exitCode = code;
       exitReceived = true;
       tryResolve();
+
+      // Safety timeout: if readline hasn't closed within 10 seconds of
+      // process exit, force it closed. This prevents handle.done from
+      // hanging forever on Windows edge cases where the readline "close"
+      // event never fires after the child process exits.
+      if (!rlClosed) {
+        const safetyTimer = setTimeout(() => {
+          if (!rlClosed) {
+            process.stderr.write(
+              `[orca/runner] warning: readline did not close within 10s of exit ` +
+                `for invocation ${options.invocationId}, forcing resolution\n`,
+            );
+            rlClosed = true;
+            rl.close();
+            tryResolve();
+          }
+        }, 10_000);
+        // Don't let this timer keep the process alive.
+        safetyTimer.unref();
+      }
     });
 
     // Handle spawn errors (e.g. executable not found).

@@ -184,17 +184,43 @@ async function dispatch(
   );
 
   // 10. Attach completion handler
-  handle.done.then((result) => {
-    onSessionComplete(
-      deps, taskId, invocationId, handle, result,
-      worktreeResult.worktreePath, phase,
-    );
-  });
+  attachCompletionHandler(deps, taskId, invocationId, handle, worktreeResult.worktreePath, phase);
 }
 
 // ---------------------------------------------------------------------------
 // Session completion handler
 // ---------------------------------------------------------------------------
+
+/**
+ * Attach the standard completion/error handler to a session handle.
+ * Used by both the scheduler's `dispatch()` and the CLI's manual dispatch.
+ */
+export function attachCompletionHandler(
+  deps: SchedulerDeps,
+  taskId: string,
+  invocationId: number,
+  handle: SessionHandle,
+  worktreePath: string,
+  phase: DispatchPhase,
+): void {
+  handle.done.then((result) => {
+    onSessionComplete(deps, taskId, invocationId, handle, result, worktreePath, phase);
+  }).catch((err) => {
+    log(`completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`);
+    activeHandles.delete(invocationId);
+    try {
+      updateInvocation(deps.db, invocationId, {
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        outputSummary: `completion handler error: ${err}`,
+      });
+      updateTaskStatus(deps.db, taskId, "failed");
+      handleRetry(deps, taskId);
+    } catch (cleanupErr) {
+      log(`cleanup also failed for invocation ${invocationId}: ${cleanupErr}`);
+    }
+  });
+}
 
 function onSessionComplete(
   deps: SchedulerDeps,
@@ -560,6 +586,38 @@ function handleRetry(deps: SchedulerDeps, taskId: string): void {
 
 function checkTimeouts(deps: SchedulerDeps): void {
   const { db, config } = deps;
+
+  // Liveness check: detect handles whose process already exited but whose
+  // done promise silently failed to resolve. Mark them as failed immediately
+  // rather than waiting for the clock-based timeout.
+  // Collect IDs first to avoid mutating the map during iteration.
+  const deadHandles: Array<{ invId: number; exitCode: number }> = [];
+  for (const [invId, handle] of activeHandles) {
+    if (handle.process.exitCode !== null) {
+      deadHandles.push({ invId, exitCode: handle.process.exitCode });
+    }
+  }
+  for (const { invId, exitCode } of deadHandles) {
+    log(`invocation ${invId}: process already exited (code ${exitCode}) but handle still active — forcing cleanup`);
+    activeHandles.delete(invId);
+
+    // Look up the task ID before marking the invocation as failed
+    // (getRunningInvocations won't return it after the update).
+    const runningBefore = getRunningInvocations(db);
+    const inv = runningBefore.find((r) => r.id === invId);
+
+    updateInvocation(db, invId, {
+      status: "failed",
+      endedAt: new Date().toISOString(),
+      outputSummary: `process exited (code ${exitCode}) but completion handler did not fire`,
+    });
+
+    if (inv) {
+      updateTaskStatus(db, inv.linearIssueId, "failed");
+      handleRetry(deps, inv.linearIssueId);
+    }
+  }
+
   const running = getRunningInvocations(db);
   const now = Date.now();
   const timeoutMs = config.sessionTimeoutMin * 60 * 1000;

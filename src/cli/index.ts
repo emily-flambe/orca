@@ -16,7 +16,7 @@ import {
   updateTaskFields,
   updateTaskStatus,
 } from "../db/queries.js";
-import { startScheduler, activeHandles } from "../scheduler/index.js";
+import { startScheduler, activeHandles, attachCompletionHandler, type SchedulerDeps } from "../scheduler/index.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync } from "../linear/sync.js";
@@ -136,6 +136,24 @@ program
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
     }
 
+    // Second pass: mark orphaned invocations as failed.
+    // At startup activeHandles is empty, so ALL "running" invocations are
+    // orphans from a previous crash/restart. Without this, they count
+    // against countActiveSessions() and block new dispatches.
+    const orphanedInvocations = getRunningInvocations(db);
+    for (const inv of orphanedInvocations) {
+      updateInvocation(db, inv.id, {
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        outputSummary: "orphaned by crash/restart",
+      });
+    }
+    if (orphanedInvocations.length > 0) {
+      console.log(
+        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
+      );
+    }
+
     // Full sync: populate tasks table + dependency graph
     await fullSync(db, client, graph, config);
 
@@ -153,6 +171,9 @@ program
       config,
       stateMap,
     });
+
+    // Build scheduler deps for use by manual dispatch completion handler
+    const schedulerDeps: SchedulerDeps = { db, config, graph, client, stateMap };
 
     // Create API routes with manual dispatch callback
     const apiApp = createApiRoutes({
@@ -196,6 +217,13 @@ program
         });
         activeHandles.set(invocationId, handle);
         emitInvocationStarted({ taskId, invocationId });
+
+        // Attach completion handler so manual dispatches get the same
+        // lifecycle management (cleanup, retry, write-back) as scheduler dispatches
+        attachCompletionHandler(
+          schedulerDeps, taskId, invocationId, handle,
+          worktreeResult.worktreePath, "implement",
+        );
 
         return invocationId;
       },
