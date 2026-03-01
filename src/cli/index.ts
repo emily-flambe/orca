@@ -154,6 +154,10 @@ program
       );
     }
 
+    // Fetch Linear workspace slug for building issue URLs
+    const linearWorkspaceSlug = await client.fetchOrganizationUrlKey();
+    console.log(`[orca] Linear workspace: ${linearWorkspaceSlug}`);
+
     // Full sync: populate tasks table + dependency graph
     await fullSync(db, client, graph, config);
 
@@ -179,6 +183,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
+      linearWorkspaceSlug,
       syncTasks: () => fullSync(db, client, graph, config),
       dispatchTask: async (taskId: string): Promise<number> => {
         const task = getTask(db, taskId)!;

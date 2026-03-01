@@ -59,11 +59,12 @@ export default function App() {
             tasks={tasks}
             selectedTaskId={selectedTaskId}
             onSelect={setSelectedTaskId}
+            linearWorkspaceSlug={status?.linearWorkspaceSlug}
           />
         </div>
         <div className="w-3/5 overflow-y-auto">
           {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} linearWorkspaceSlug={status?.linearWorkspaceSlug} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500">
               Select a task to view details

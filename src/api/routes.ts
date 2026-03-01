@@ -19,6 +19,7 @@ import { orcaEvents } from "../events.js";
 export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
+  linearWorkspaceSlug: string;
   dispatchTask: (taskId: string) => Promise<number>;
   syncTasks: () => Promise<number>;
 }
@@ -28,7 +29,7 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, dispatchTask, syncTasks } = deps;
+  const { db, config, linearWorkspaceSlug, dispatchTask, syncTasks } = deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -114,6 +115,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       costInWindow,
       budgetLimit: config.budgetMaxCostUsd,
       budgetWindowHours: config.budgetWindowHours,
+      linearWorkspaceSlug,
     });
   });
 
