@@ -5,7 +5,7 @@ import { removeWorktree } from "../worktree/index.js";
 import { listOpenPrBranches } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
-import { getAllTasks, getRunningInvocations } from "../db/queries.js";
+import { getAllTasks, getLastMaxTurnsInvocation, getRunningInvocations } from "../db/queries.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +129,16 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
       .filter((b): b is string => b != null),
   );
 
+  // Build set of worktree paths preserved for resume (max-turns on "ready" tasks)
+  const preservedWorktreePaths = new Set<string>();
+  const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
+  for (const t of readyTasks) {
+    const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
+    if (inv?.worktreePath) {
+      preservedWorktreePaths.add(inv.worktreePath);
+    }
+  }
+
   const now = Date.now();
   const maxAgeMs = config.cleanupBranchMaxAgeMin * 60 * 1000;
 
@@ -137,6 +147,7 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
       cleanupRepo(repoPath, {
         runningBranches,
         runningWorktreePaths,
+        preservedWorktreePaths,
         activeBranches,
         now,
         maxAgeMs,
@@ -152,6 +163,7 @@ function cleanupRepo(
   ctx: {
     runningBranches: Set<string>;
     runningWorktreePaths: Set<string>;
+    preservedWorktreePaths: Set<string>;
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
@@ -175,6 +187,9 @@ function cleanupRepo(
   const normalizedRunningWtPaths = new Set(
     [...ctx.runningWorktreePaths].map(normalizePath),
   );
+  const normalizedPreservedWtPaths = new Set(
+    [...ctx.preservedWorktreePaths].map(normalizePath),
+  );
 
   for (const wtPath of worktreePaths) {
     // Skip the main worktree (the repo itself)
@@ -186,6 +201,9 @@ function cleanupRepo(
 
     // Never remove worktrees with running invocations
     if (normalizedRunningWtPaths.has(wtPath)) continue;
+
+    // Never remove worktrees preserved for session resume
+    if (normalizedPreservedWtPaths.has(wtPath)) continue;
 
     try {
       removeWorktree(wtPath);
@@ -211,6 +229,9 @@ function cleanupRepo(
 
       // Skip if running
       if (normalizedRunningWtPaths.has(normalizePath(fullPath))) continue;
+
+      // Skip if preserved for session resume
+      if (normalizedPreservedWtPaths.has(normalizePath(fullPath))) continue;
 
       // Check it's a directory
       try {

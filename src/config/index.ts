@@ -23,6 +23,7 @@ export interface OrcaConfig {
   deployTimeoutMin: number;
   cleanupIntervalMin: number;
   cleanupBranchMaxAgeMin: number;
+  resumeOnMaxTurns: boolean;
   port: number;
   dbPath: string;
   // Linear integration
@@ -77,6 +78,15 @@ function readPositiveNumberOrDefault(
   const raw = readEnv(name);
   if (raw === undefined) return defaultValue;
   return parsePositiveNumber(name, raw);
+}
+
+function readBoolOrDefault(name: string, defaultValue: boolean): boolean {
+  const raw = readEnv(name);
+  if (raw === undefined) return defaultValue;
+  const lower = raw.toLowerCase();
+  if (lower === "true" || lower === "1") return true;
+  if (lower === "false" || lower === "0") return false;
+  exitWithError(`${name} must be "true", "false", "1", or "0"`);
 }
 
 export function loadConfig(): OrcaConfig {
@@ -240,6 +250,7 @@ Steps:
     deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
     cleanupIntervalMin: readIntOrDefault("ORCA_CLEANUP_INTERVAL_MIN", 10),
     cleanupBranchMaxAgeMin: readIntOrDefault("ORCA_CLEANUP_BRANCH_MAX_AGE_MIN", 60),
+    resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     // Linear integration

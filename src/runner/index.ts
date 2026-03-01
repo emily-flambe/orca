@@ -53,6 +53,8 @@ export interface SpawnSessionOptions {
   appendSystemPrompt?: string;
   /** Optional list of disallowed tool names via `--disallowedTools`. */
   disallowedTools?: string[];
+  /** Session ID from a previous invocation to resume via `--resume`. */
+  resumeSessionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +75,13 @@ function ensureLogsDir(projectRoot: string): string {
  * Build the argument array for the `claude` CLI invocation.
  */
 function buildArgs(opts: SpawnSessionOptions): string[] {
-  const args: string[] = [
+  const args: string[] = [];
+
+  if (opts.resumeSessionId) {
+    args.push("--resume", opts.resumeSessionId);
+  }
+
+  args.push(
     "-p",
     opts.agentPrompt,
     "--output-format",
@@ -82,7 +90,7 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
     "--max-turns",
     String(opts.maxTurns),
     "--dangerously-skip-permissions",
-  ];
+  );
 
   if (opts.appendSystemPrompt) {
     args.push("--append-system-prompt", opts.appendSystemPrompt);

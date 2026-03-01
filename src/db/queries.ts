@@ -1,4 +1,4 @@
-import { eq, gte, asc, sql, count, sum, inArray } from "drizzle-orm";
+import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
@@ -220,6 +220,32 @@ export function getInvocationsByTask(
     .from(invocations)
     .where(eq(invocations.linearIssueId, taskId))
     .all();
+}
+
+/**
+ * Find the most recent invocation for a task where the agent hit max turns
+ * during the implement phase and has a valid session ID and worktree path.
+ * Used to determine if a retry can resume the previous session.
+ */
+export function getLastMaxTurnsInvocation(
+  db: OrcaDb,
+  taskId: string,
+): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        eq(invocations.outputSummary, "max turns reached"),
+        eq(invocations.phase, "implement"),
+        isNotNull(invocations.sessionId),
+        isNotNull(invocations.worktreePath),
+      ),
+    )
+    .orderBy(desc(invocations.id))
+    .limit(1)
+    .get();
 }
 
 /** Get all invocations with status="running". */

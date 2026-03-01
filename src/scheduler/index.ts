@@ -7,6 +7,7 @@ import {
   getDeployingTasks,
   getDispatchableTasks,
   getInvocationsByTask,
+  getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
   incrementRetryCount,
@@ -33,6 +34,7 @@ import {
   type SessionResult,
 } from "../runner/index.js";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { findPrForBranch, getMergeCommitSha, getWorkflowRunStatus } from "../github/index.js";
@@ -123,7 +125,30 @@ async function dispatch(
     });
   }
 
-  // 2. Insert invocation record with phase
+  // 2. Detect resume scenario (max-turns retry on implement phase)
+  let resumeSessionId: string | undefined;
+  let resumeWorktreePath: string | undefined;
+  let resumeBranchName: string | undefined;
+
+  if (
+    phase === "implement" &&
+    task.orcaStatus !== "changes_requested" &&
+    config.resumeOnMaxTurns
+  ) {
+    const prevInv = getLastMaxTurnsInvocation(db, taskId);
+    if (prevInv && prevInv.worktreePath && existsSync(prevInv.worktreePath)) {
+      resumeSessionId = prevInv.sessionId!;
+      resumeWorktreePath = prevInv.worktreePath;
+      resumeBranchName = prevInv.branchName ?? undefined;
+      log(`resume candidate found for task ${taskId}: session ${resumeSessionId}, worktree ${resumeWorktreePath}`);
+    } else if (prevInv) {
+      log(`resume candidate for task ${taskId} has missing worktree (${prevInv.worktreePath}) — fresh dispatch`);
+    }
+  }
+
+  const isResume = resumeSessionId != null;
+
+  // 3. Insert invocation record with phase
   const now = new Date().toISOString();
   const invocationId = insertInvocation(db, {
     linearIssueId: taskId,
@@ -140,33 +165,45 @@ async function dispatch(
       ? `Dispatched for code review (invocation #${invocationId}, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`
       : task.orcaStatus === "changes_requested"
         ? `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
-        : `Dispatched for implementation (invocation #${invocationId})`;
+        : isResume
+          ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
+          : `Dispatched for implementation (invocation #${invocationId})`;
   client.createComment(taskId, dispatchComment).catch((err) => {
     log(`comment failed on dispatch for task ${taskId}: ${err}`);
   });
 
-  // 3. Determine worktree base ref
+  // 4. Determine worktree base ref
   const useExistingBranch = phase === "review" || (phase === "implement" && task.orcaStatus === "changes_requested");
   const baseRef = useExistingBranch && task.prBranchName ? task.prBranchName : undefined;
 
-  // 4. Create worktree
+  // 5. Create or reuse worktree
   let worktreeResult: { worktreePath: string; branchName: string };
-  try {
-    worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
-  } catch (err) {
-    log(`worktree creation failed for task ${taskId}: ${err}`);
-    updateTaskStatus(db, taskId, "failed");
-    updateInvocation(db, invocationId, {
-      status: "failed",
-      endedAt: new Date().toISOString(),
-      outputSummary: `worktree creation failed: ${err}`,
-    });
-    emitTaskUpdated(getTask(db, taskId)!);
-    handleRetry(deps, taskId);
-    return;
+
+  if (isResume) {
+    // Reuse preserved worktree from previous max-turns invocation
+    worktreeResult = {
+      worktreePath: resumeWorktreePath!,
+      branchName: resumeBranchName ?? "unknown",
+    };
+    log(`reusing preserved worktree for resume: ${worktreeResult.worktreePath}`);
+  } else {
+    try {
+      worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
+    } catch (err) {
+      log(`worktree creation failed for task ${taskId}: ${err}`);
+      updateTaskStatus(db, taskId, "failed");
+      updateInvocation(db, invocationId, {
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        outputSummary: `worktree creation failed: ${err}`,
+      });
+      emitTaskUpdated(getTask(db, taskId)!);
+      handleRetry(deps, taskId);
+      return;
+    }
   }
 
-  // 5. Build agent prompt and system prompt based on phase
+  // 6. Build agent prompt and system prompt based on phase
   let agentPrompt = task.agentPrompt;
   let systemPrompt: string | undefined;
   let maxTurns = config.defaultMaxTurns;
@@ -184,12 +221,16 @@ async function dispatch(
     // Fix phase (implement on changes_requested)
     agentPrompt = `${task.agentPrompt}\n\nFix issues from code review.`;
     systemPrompt = config.fixSystemPrompt || undefined;
+  } else if (isResume) {
+    // Resume: continuation prompt instead of full task prompt
+    agentPrompt = "You hit the maximum turn limit. Continue where you left off — complete the implementation, commit, push, and open a PR.";
+    systemPrompt = config.implementSystemPrompt || undefined;
   } else {
     // Normal implement
     systemPrompt = config.implementSystemPrompt || undefined;
   }
 
-  // 6. Spawn session
+  // 7. Spawn session
   const handle = spawnSession({
     agentPrompt,
     worktreePath: worktreeResult.worktreePath,
@@ -199,29 +240,31 @@ async function dispatch(
     claudePath: config.claudePath,
     appendSystemPrompt: systemPrompt,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
+    resumeSessionId,
   });
 
-  // 7. Update task to running
+  // 8. Update task to running
   updateTaskStatus(db, taskId, "running");
 
-  // 8. Update invocation with worktree details
+  // 9. Update invocation with worktree details
   updateInvocation(db, invocationId, {
     branchName: worktreeResult.branchName,
     worktreePath: worktreeResult.worktreePath,
     logPath,
   });
 
-  // 9. Store handle
+  // 10. Store handle
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
 
   log(
-    `dispatched task ${taskId} as invocation ${invocationId} ` +
-      `(phase: ${phase}, branch: ${worktreeResult.branchName})`,
+    `${isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
+      `(phase: ${phase}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
   );
 
-  // 10. Attach completion handler
-  attachCompletionHandler(deps, taskId, invocationId, handle, worktreeResult.worktreePath, phase);
+  // 11. Attach completion handler
+  const fixPhase = useExistingBranch && phase === "implement";
+  attachCompletionHandler(deps, taskId, invocationId, handle, worktreeResult.worktreePath, phase, fixPhase);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,9 +282,10 @@ export function attachCompletionHandler(
   handle: SessionHandle,
   worktreePath: string,
   phase: DispatchPhase,
+  isFixPhase = false,
 ): void {
   handle.done.then((result) => {
-    onSessionComplete(deps, taskId, invocationId, handle, result, worktreePath, phase);
+    onSessionComplete(deps, taskId, invocationId, handle, result, worktreePath, phase, isFixPhase);
   }).catch((err) => {
     log(`completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`);
     activeHandles.delete(invocationId);
@@ -267,6 +311,7 @@ async function onSessionComplete(
   result: SessionResult,
   worktreePath: string,
   phase: DispatchPhase,
+  isFixPhase: boolean,
 ): Promise<void> {
   const { db, config, client, stateMap } = deps;
 
@@ -338,7 +383,7 @@ async function onSessionComplete(
       }
     }
   } else {
-    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result, phase, isFixPhase);
   }
 }
 
@@ -370,7 +415,7 @@ function onImplementSuccess(
       status: "failed",
       outputSummary: `Post-implementation gate failed: ${gateMsg}`,
     });
-    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result, "implement");
     return;
   }
 
@@ -383,7 +428,7 @@ function onImplementSuccess(
       status: "failed",
       outputSummary: `Post-implementation gate failed: ${gateMsg}`,
     });
-    onSessionFailure(deps, taskId, invocationId, worktreePath, result);
+    onSessionFailure(deps, taskId, invocationId, worktreePath, result, "implement");
     return;
   }
 
@@ -602,8 +647,10 @@ function onSessionFailure(
   invocationId: number,
   worktreePath: string,
   result: SessionResult,
+  phase: DispatchPhase,
+  isFixPhase = false,
 ): void {
-  const { db, client } = deps;
+  const { db, config, client } = deps;
 
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
@@ -613,11 +660,23 @@ function onSessionFailure(
       `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
   );
 
-  // Clean up worktree so retries start fresh
-  try {
-    removeWorktree(worktreePath);
-  } catch (err) {
-    log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+  // Preserve worktree for resume when max turns hit on fresh implement phase.
+  // Fix sessions (implement on changes_requested) are not resumed — only fresh implements.
+  const preserveForResume =
+    result.subtype === "error_max_turns" &&
+    config.resumeOnMaxTurns &&
+    phase === "implement" &&
+    !isFixPhase;
+
+  if (preserveForResume) {
+    log(`preserving worktree for resume: ${worktreePath}`);
+  } else {
+    // Clean up worktree so retries start fresh
+    try {
+      removeWorktree(worktreePath);
+    } catch (err) {
+      log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
+    }
   }
 
   // Retry logic
@@ -673,10 +732,11 @@ function handleRetry(deps: SchedulerDeps, taskId: string, summary?: string): voi
     });
 
     // Post retry comments (fire-and-forget)
-    client.createComment(
-      taskId,
-      `Invocation failed — retrying (attempt ${task.retryCount + 1}/${config.maxRetries}): ${briefSummary}`,
-    ).catch((err) => {
+    const isMaxTurnsResumable = briefSummary === "max turns reached" && config.resumeOnMaxTurns;
+    const retryComment = isMaxTurnsResumable
+      ? `Max turns reached — will resume session (attempt ${task.retryCount + 1}/${config.maxRetries})`
+      : `Invocation failed — retrying (attempt ${task.retryCount + 1}/${config.maxRetries}): ${briefSummary}`;
+    client.createComment(taskId, retryComment).catch((err) => {
       log(`comment failed on retry for task ${taskId}: ${err}`);
     });
     client.createComment(taskId, "Queued for retry").catch((err) => {
