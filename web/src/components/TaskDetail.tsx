@@ -110,7 +110,7 @@ export default function TaskDetail({ taskId }: Props) {
                     {selectedInvocationId === inv.id && (
                       <tr>
                         <td colSpan={6} className="py-2">
-                          <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} />
+                          <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
                         </td>
                       </tr>
                     )}

@@ -4,6 +4,7 @@ import { fetchInvocationLogs } from "../hooks/useApi";
 interface Props {
   invocationId: number;
   isRunning?: boolean;
+  outputSummary?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +105,7 @@ function ResultFooter({ line }: { line: LogLine }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LogViewer({ invocationId, isRunning }: Props) {
+export default function LogViewer({ invocationId, isRunning, outputSummary }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,12 +158,32 @@ export default function LogViewer({ invocationId, isRunning }: Props) {
   }
 
   if (error) {
+    if (outputSummary) {
+      return (
+        <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
+          <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+            {outputSummary}
+          </pre>
+        </div>
+      );
+    }
     return (
       <div className="p-4 text-sm text-red-400">Error: {error}</div>
     );
   }
 
   if (lines.length === 0) {
+    if (outputSummary) {
+      return (
+        <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
+          <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+            {outputSummary}
+          </pre>
+        </div>
+      );
+    }
     return (
       <div className="p-4 text-sm text-gray-500">No log entries</div>
     );
