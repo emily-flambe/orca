@@ -1,5 +1,3 @@
-// merge gate test
-// merge gate test
 import { useState, useEffect, useRef } from "react";
 import type { Task } from "../types";
 import { updateTaskStatus } from "../hooks/useApi";
@@ -106,13 +104,17 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const now = Date.now();
   const filtered = (() => {
     const byStatus = tasks.filter((t) =>
-      selectedStatuses.has(t.orcaStatus as FilterStatus),
+      (selectedStatuses as ReadonlySet<string>).has(t.orcaStatus),
     );
 
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
     const withHistory = byStatus.filter((t) =>
       t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
     );
+
+    // When only "done" is selected, show all done tasks regardless of age
+    // (equivalent to the old explicit "done" filter behavior)
+    if (selectedStatuses.size === 1 && selectedStatuses.has("done")) return withHistory;
 
     // Hide done tasks older than 15 min (keep selected task visible)
     return withHistory.filter((t) =>
@@ -150,7 +152,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                 <button
                   key={f.value}
                   onClick={() => toggleStatus(f.value)}
-                  className={`px-2.5 py-1 text-xs rounded whitespace-nowrap transition-opacity ${
+                  className={`px-2.5 py-1 text-xs rounded whitespace-nowrap transition-colors ${
                     active
                       ? "bg-gray-700 text-gray-100"
                       : "text-gray-600 hover:text-gray-400 line-through"
