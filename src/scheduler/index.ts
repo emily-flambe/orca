@@ -1399,6 +1399,9 @@ async function tick(deps: SchedulerDeps): Promise<void> {
  *
  * Runs a tick immediately, then on an interval defined by
  * `config.schedulerIntervalSec`. A mutex flag prevents overlapping ticks.
+ * If a tick is requested while one is already running, a pending flag is set
+ * so the next tick runs immediately after the current one completes rather
+ * than being silently dropped.
  *
  * @returns A handle with a `stop()` method that clears the interval and
  *          kills all active sessions.
@@ -1406,9 +1409,13 @@ async function tick(deps: SchedulerDeps): Promise<void> {
 export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
   const { config } = deps;
   let ticking = false;
+  let pendingTick = false;
 
   async function guardedTick(): Promise<void> {
-    if (ticking) return;
+    if (ticking) {
+      pendingTick = true;
+      return;
+    }
     ticking = true;
     try {
       await tick(deps);
@@ -1416,6 +1423,10 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
       log(`tick error: ${err}`);
     } finally {
       ticking = false;
+      if (pendingTick) {
+        pendingTick = false;
+        guardedTick();
+      }
     }
   }
 
