@@ -250,8 +250,8 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                 </div>
               </div>
               {/* Title row */}
-              <span className="text-sm text-gray-200 leading-snug line-clamp-2 pl-[18px]">
-                {task.agentPrompt ? task.agentPrompt.slice(0, 120) : "No prompt"}
+              <span className="text-sm text-gray-200 leading-snug line-clamp-3 md:line-clamp-2 md:pl-[18px]">
+                {task.agentPrompt ?? "No prompt"}
               </span>
             </div>
           );
