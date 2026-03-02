@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,6 +17,8 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getAllInvocations,
+  getAllBudgetEvents,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -404,6 +406,160 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       // Block until aborted
       await new Promise(() => {});
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/logs/system
+  // -----------------------------------------------------------------------
+  app.get("/api/logs/system", (c) => {
+    const linesParam = c.req.query("lines");
+    const search = c.req.query("search");
+    const level = c.req.query("level");
+
+    const maxLines = linesParam ? parseInt(linesParam, 10) : 200;
+    if (Number.isNaN(maxLines) || maxLines < 1) {
+      return c.json({ error: "lines must be a positive integer" }, 400);
+    }
+
+    const logPath = join(process.cwd(), "orca.log");
+    if (!existsSync(logPath)) {
+      return c.json({ lines: [], totalLines: 0 });
+    }
+
+    const raw = readFileSync(logPath, "utf-8");
+    const allLines = raw.split("\n").filter((l) => l.length > 0);
+
+    let filtered = allLines;
+
+    if (level) {
+      const tag = `[orca/${level}]`;
+      filtered = filtered.filter((l) => l.includes(tag));
+    }
+
+    if (search) {
+      filtered = filtered.filter((l) => l.includes(search));
+    }
+
+    const totalLines = filtered.length;
+    const sliced = filtered.slice(-maxLines);
+
+    return c.json({ lines: sliced, totalLines });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const allTasks = getAllTasks(db);
+    const allInvocs = getAllInvocations(db);
+    const allBudget = getAllBudgetEvents(db);
+
+    // tasksByStatus: count tasks grouped by orcaStatus
+    const tasksByStatus: Record<string, number> = {};
+    for (const t of allTasks) {
+      tasksByStatus[t.orcaStatus] = (tasksByStatus[t.orcaStatus] ?? 0) + 1;
+    }
+
+    // Invocation counts
+    const totalInvocations = allInvocs.length;
+    const completedInvocations = allInvocs.filter((i) => i.status === "completed").length;
+    const failedInvocations = allInvocs.filter((i) => i.status === "failed").length;
+    const timedOutInvocations = allInvocs.filter((i) => i.status === "timed_out").length;
+
+    // Average session duration (completed invocations with both timestamps)
+    const completedWithTimes = allInvocs.filter(
+      (i) => i.status === "completed" && i.startedAt && i.endedAt,
+    );
+    let avgSessionDurationSec = 0;
+    if (completedWithTimes.length > 0) {
+      const totalSec = completedWithTimes.reduce((acc, i) => {
+        const start = new Date(i.startedAt).getTime();
+        const end = new Date(i.endedAt!).getTime();
+        return acc + (end - start) / 1000;
+      }, 0);
+      avgSessionDurationSec = totalSec / completedWithTimes.length;
+    }
+
+    // Cost metrics from budget events
+    const totalCost = allBudget.reduce((acc, e) => acc + e.costUsd, 0);
+
+    // Average cost per session (invocations that have a cost)
+    const invocationsWithCost = allInvocs.filter((i) => i.costUsd != null && i.costUsd > 0);
+    const avgCostPerSession =
+      invocationsWithCost.length > 0
+        ? invocationsWithCost.reduce((acc, i) => acc + (i.costUsd ?? 0), 0) /
+          invocationsWithCost.length
+        : 0;
+
+    // costTimeSeries: daily cost aggregation from budget_events
+    const costByDate: Record<string, number> = {};
+    for (const e of allBudget) {
+      const date = e.recordedAt.slice(0, 10); // YYYY-MM-DD
+      costByDate[date] = (costByDate[date] ?? 0) + e.costUsd;
+    }
+    const costTimeSeries = Object.entries(costByDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, cost]) => ({ date, cost }));
+
+    // recentErrors: group failed/timed_out invocations by outputSummary
+    const errorInvocs = allInvocs.filter(
+      (i) => (i.status === "failed" || i.status === "timed_out") && i.outputSummary,
+    );
+    const errorMap: Record<
+      string,
+      { taskId: string; summary: string; count: number; lastSeen: string }
+    > = {};
+    for (const inv of errorInvocs) {
+      const key = inv.outputSummary!;
+      if (!errorMap[key]) {
+        errorMap[key] = {
+          taskId: inv.linearIssueId,
+          summary: key,
+          count: 0,
+          lastSeen: inv.endedAt ?? inv.startedAt,
+        };
+      }
+      errorMap[key].count += 1;
+      const ts = inv.endedAt ?? inv.startedAt;
+      if (ts > errorMap[key].lastSeen) {
+        errorMap[key].lastSeen = ts;
+      }
+    }
+    const recentErrors = Object.values(errorMap).sort((a, b) =>
+      b.lastSeen.localeCompare(a.lastSeen),
+    );
+
+    // throughput: daily completion counts from invocations by endedAt
+    const throughputMap: Record<string, { completed: number; failed: number }> = {};
+    for (const inv of allInvocs) {
+      if (!inv.endedAt) continue;
+      const date = inv.endedAt.slice(0, 10);
+      if (!throughputMap[date]) {
+        throughputMap[date] = { completed: 0, failed: 0 };
+      }
+      if (inv.status === "completed") {
+        throughputMap[date].completed += 1;
+      } else if (inv.status === "failed" || inv.status === "timed_out") {
+        throughputMap[date].failed += 1;
+      }
+    }
+    const throughput = Object.entries(throughputMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, counts]) => ({ date, ...counts }));
+
+    return c.json({
+      tasksByStatus,
+      totalInvocations,
+      completedInvocations,
+      failedInvocations,
+      timedOutInvocations,
+      avgSessionDurationSec,
+      avgCostPerSession,
+      totalCost,
+      costTimeSeries,
+      recentErrors,
+      throughput,
     });
   });
 

@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, OrcaMetrics, SystemLogs } from "../types";
 
 const BASE = "/api";
 
@@ -53,4 +53,21 @@ export function updateConfig(config: { concurrencyCap?: number }): Promise<{ ok:
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
   });
+}
+
+export function fetchMetrics(): Promise<OrcaMetrics> {
+  return fetchJson<OrcaMetrics>("/metrics");
+}
+
+export function fetchSystemLogs(params?: {
+  lines?: number;
+  search?: string;
+  level?: string;
+}): Promise<SystemLogs> {
+  const query = new URLSearchParams();
+  if (params?.lines) query.set("lines", String(params.lines));
+  if (params?.search) query.set("search", params.search);
+  if (params?.level) query.set("level", params.level);
+  const qs = query.toString();
+  return fetchJson<SystemLogs>(`/logs/system${qs ? `?${qs}` : ""}`);
 }
