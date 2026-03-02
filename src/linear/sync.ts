@@ -19,6 +19,7 @@ import {
 } from "../db/queries.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
+import { closePrsForCanceledTask } from "../github/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,6 +129,7 @@ function upsertTask(
     if (existing) {
       updateTaskStatus(db, issue.identifier, "failed");
       log(`canceled task ${issue.identifier} → failed`);
+      closePrsForCanceledTask(issue.identifier, existing.repoPath);
     }
     return;
   }
@@ -398,6 +400,7 @@ export function resolveConflict(
     }
     updateTaskStatus(db, taskId, "failed");
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
+    closePrsForCanceledTask(taskId, task.repoPath);
     return;
   }
 

@@ -197,6 +197,57 @@ export function closePr(prNumber: number, cwd: string): boolean {
 }
 
 /**
+ * Close all open PRs for a canceled Linear issue.
+ *
+ * Finds all open PRs on branches matching `orca/<taskId>-*` and closes each
+ * with a comment explaining the Linear issue was canceled. Also deletes the
+ * remote branch. Returns the number of PRs closed.
+ */
+export function closePrsForCanceledTask(taskId: string, cwd: string): number {
+  let prs: { headRefName: string; number: number }[];
+  try {
+    const output = gh(
+      ["pr", "list", "--state", "open", "--json", "headRefName,number", "--limit", "200"],
+      { cwd },
+    );
+    prs = JSON.parse(output) as { headRefName: string; number: number }[];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[orca/github] closePrsForCanceledTask: failed to list PRs for ${taskId}: ${msg}`,
+    );
+    return 0;
+  }
+
+  const prefix = `orca/${taskId}-`;
+  let closed = 0;
+  for (const pr of prs) {
+    if (!pr.headRefName.startsWith(prefix)) continue;
+    try {
+      gh(
+        [
+          "pr", "close", String(pr.number),
+          "--delete-branch",
+          "--comment",
+          `Closed automatically: Linear issue ${taskId} was canceled.`,
+        ],
+        { cwd },
+      );
+      console.log(
+        `[orca/github] closed PR #${pr.number} (branch: ${pr.headRefName}) — Linear issue ${taskId} canceled`,
+      );
+      closed++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[orca/github] closePrsForCanceledTask: failed to close PR #${pr.number}: ${msg}`,
+      );
+    }
+  }
+  return closed;
+}
+
+/**
  * Close orphaned open PRs on `orca/*` branches.
  *
  * An orphan is an open PR whose head branch:
