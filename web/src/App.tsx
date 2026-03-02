@@ -5,12 +5,14 @@ import { useSSE } from "./hooks/useSSE";
 import OrchestratorBar from "./components/OrchestratorBar";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
+import MetricsView from "./components/MetricsView";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<"tasks" | "metrics">("tasks");
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -59,24 +61,47 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
-      <div className="flex flex-1 overflow-hidden">
-        <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
-          <TaskList
-            tasks={tasks}
-            selectedTaskId={selectedTaskId}
-            onSelect={setSelectedTaskId}
-          />
-        </div>
-        <div className="w-3/5 overflow-y-auto">
-          {selectedTaskId ? (
-            <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              Select a task to view details
-            </div>
-          )}
-        </div>
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-800 bg-gray-900 shrink-0">
+        {(["tasks", "metrics"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-sm capitalize transition-colors ${
+              activeTab === tab
+                ? "text-white border-b-2 border-purple-500"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
+      {/* Tab content */}
+      {activeTab === "tasks" ? (
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+            <TaskList
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              onSelect={setSelectedTaskId}
+            />
+          </div>
+          <div className="w-3/5 overflow-y-auto">
+            {selectedTaskId ? (
+              <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                Select a task to view details
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <MetricsView />
+        </div>
+      )}
     </div>
   );
 }

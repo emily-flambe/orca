@@ -326,3 +326,146 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
     .get();
   return result?.total ? Number(result.total) : 0;
 }
+
+/** Aggregate counts of invocations by status. */
+export function getInvocationStats(db: OrcaDb): {
+  total: number;
+  completed: number;
+  failed: number;
+  timedOut: number;
+  running: number;
+} {
+  const rows = db
+    .select({ status: invocations.status, cnt: count() })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all();
+
+  const byStatus: Record<string, number> = {};
+  for (const row of rows) {
+    byStatus[row.status] = row.cnt;
+  }
+
+  const total = rows.reduce((acc, r) => acc + r.cnt, 0);
+  return {
+    total,
+    completed: byStatus["completed"] ?? 0,
+    failed: byStatus["failed"] ?? 0,
+    timedOut: byStatus["timed_out"] ?? 0,
+    running: byStatus["running"] ?? 0,
+  };
+}
+
+/** Aggregate counts of tasks by orcaStatus. */
+export function getTaskStats(db: OrcaDb): {
+  total: number;
+  byStatus: Record<string, number>;
+} {
+  const rows = db
+    .select({ status: tasks.orcaStatus, cnt: count() })
+    .from(tasks)
+    .groupBy(tasks.orcaStatus)
+    .all();
+
+  const byStatus: Record<string, number> = {};
+  for (const row of rows) {
+    byStatus[row.status] = row.cnt;
+  }
+
+  const total = rows.reduce((acc, r) => acc + r.cnt, 0);
+  return { total, byStatus };
+}
+
+export interface CostStats {
+  totalUsd: number;
+  last7DaysUsd: number;
+  last24HoursUsd: number;
+}
+
+/** Aggregate cost stats from budget_events. */
+export function getCostStats(db: OrcaDb): CostStats {
+  const now = Date.now();
+  const last24h = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const last7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const totalResult = db
+    .select({ total: sum(budgetEvents.costUsd) })
+    .from(budgetEvents)
+    .get();
+
+  const last7dResult = db
+    .select({ total: sum(budgetEvents.costUsd) })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, last7d))
+    .get();
+
+  const last24hResult = db
+    .select({ total: sum(budgetEvents.costUsd) })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, last24h))
+    .get();
+
+  return {
+    totalUsd: totalResult?.total ? Number(totalResult.total) : 0,
+    last7DaysUsd: last7dResult?.total ? Number(last7dResult.total) : 0,
+    last24HoursUsd: last24hResult?.total ? Number(last24hResult.total) : 0,
+  };
+}
+
+export interface ErrorSummaryRow {
+  outputSummary: string;
+  count: number;
+}
+
+/** Top recurring failure reasons from invocations with status failed or timed_out. */
+export function getErrorSummary(db: OrcaDb): ErrorSummaryRow[] {
+  const rows = db
+    .select({ outputSummary: invocations.outputSummary, cnt: count() })
+    .from(invocations)
+    .where(
+      and(
+        inArray(invocations.status, ["failed", "timed_out"]),
+        isNotNull(invocations.outputSummary),
+      ),
+    )
+    .groupBy(invocations.outputSummary)
+    .orderBy(desc(sql`count(*)`))
+    .limit(10)
+    .all();
+
+  return rows
+    .filter((r) => r.outputSummary !== null)
+    .map((r) => ({ outputSummary: r.outputSummary as string, count: r.cnt }));
+}
+
+export interface RecentInvocationRow {
+  id: number;
+  linearIssueId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  costUsd: number | null;
+  numTurns: number | null;
+  outputSummary: string | null;
+  phase: string | null;
+}
+
+/** Last 20 invocations ordered by id descending. */
+export function getRecentInvocations(db: OrcaDb): RecentInvocationRow[] {
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+      status: invocations.status,
+      costUsd: invocations.costUsd,
+      numTurns: invocations.numTurns,
+      outputSummary: invocations.outputSummary,
+      phase: invocations.phase,
+    })
+    .from(invocations)
+    .orderBy(desc(invocations.id))
+    .limit(20)
+    .all();
+}

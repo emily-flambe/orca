@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,6 +18,11 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getInvocationStats,
+  getTaskStats,
+  getCostStats,
+  getErrorSummary,
+  getRecentInvocations,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -363,6 +369,43 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const invocationStats = getInvocationStats(db);
+    const taskStats = getTaskStats(db);
+    const costStats = getCostStats(db);
+    const errorSummary = getErrorSummary(db);
+    const recentInvocations = getRecentInvocations(db);
+    return c.json({
+      invocationStats,
+      taskStats,
+      costStats,
+      errorSummary,
+      recentInvocations,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/logs
+  // -----------------------------------------------------------------------
+  app.get("/api/logs", async (c) => {
+    const tailParam = c.req.query("tail");
+    const tail = Math.min(tailParam ? Math.max(1, parseInt(tailParam, 10) || 500) : 500, 2000);
+    const logPath = config.logPath;
+
+    if (!existsSync(logPath)) {
+      return c.json({ lines: [], logPath });
+    }
+
+    const content = await readFile(logPath, "utf-8");
+    const allLines = content.split("\n").filter((l) => l.length > 0);
+    const lines = allLines.slice(-tail);
+
+    return c.json({ lines, logPath });
   });
 
   // -----------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, Metrics, GlobalLogs } from "../types";
 
 const BASE = "/api";
 
@@ -58,4 +58,13 @@ export function updateConfig(config: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
   });
+}
+
+export function fetchMetrics(): Promise<Metrics> {
+  return fetchJson<Metrics>("/metrics");
+}
+
+export function fetchGlobalLogs(tail?: number): Promise<GlobalLogs> {
+  const qs = tail ? `?tail=${tail}` : "";
+  return fetchJson<GlobalLogs>(`/logs${qs}`);
 }

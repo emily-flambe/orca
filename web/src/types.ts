@@ -51,3 +51,39 @@ export interface OrcaStatus {
   reviewModel: string;
   fixModel: string;
 }
+
+export interface Metrics {
+  invocationStats: {
+    total: number;
+    completed: number;
+    failed: number;
+    timedOut: number;
+    running: number;
+  };
+  taskStats: {
+    total: number;
+    byStatus: Record<string, number>;
+  };
+  costStats: {
+    totalUsd: number;
+    last7DaysUsd: number;
+    last24HoursUsd: number;
+  };
+  errorSummary: Array<{ outputSummary: string; count: number }>;
+  recentInvocations: Array<{
+    id: number;
+    linearIssueId: string;
+    startedAt: string;
+    endedAt: string | null;
+    status: string;
+    costUsd: number | null;
+    numTurns: number | null;
+    outputSummary: string | null;
+    phase: string | null;
+  }>;
+}
+
+export interface GlobalLogs {
+  lines: string[];
+  logPath: string;
+}
