@@ -32,6 +32,7 @@ export interface Invocation {
   outputSummary: string | null;
   logPath: string | null;
   phase: string | null;
+  model: string | null;
 }
 
 export interface TaskWithInvocations extends Task {
@@ -46,4 +47,7 @@ export interface OrcaStatus {
   budgetLimit: number;
   budgetWindowHours: number;
   concurrencyCap: number;
+  implementModel: string;
+  reviewModel: string;
+  fixModel: string;
 }

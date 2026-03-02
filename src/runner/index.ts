@@ -62,6 +62,8 @@ export interface SpawnSessionOptions {
   resumeSessionId?: string;
   /** Absolute path to the base git repository (used to clean stale Claude project dirs). */
   repoPath?: string;
+  /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
+  model?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +138,10 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
 
   if (opts.disallowedTools && opts.disallowedTools.length > 0) {
     args.push("--disallowedTools", ...opts.disallowedTools);
+  }
+
+  if (opts.model) {
+    args.push("--model", opts.model);
   }
 
   return args;

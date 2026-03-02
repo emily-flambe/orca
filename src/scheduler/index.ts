@@ -192,13 +192,22 @@ async function dispatch(
 
   const isResume = resumeSessionId != null;
 
-  // 3. Insert invocation record with phase
+  // 3. Determine model for this phase (needed for invocation record)
+  const model =
+    phase === "review"
+      ? config.reviewModel
+      : task.orcaStatus === "changes_requested"
+        ? config.fixModel
+        : config.implementModel;
+
+  // 4. Insert invocation record with phase and model
   const now = new Date().toISOString();
   const invocationId = insertInvocation(db, {
     linearIssueId: taskId,
     startedAt: now,
     status: "running",
     phase,
+    model,
   });
 
   const logPath = `logs/${invocationId}.ndjson`;
@@ -313,7 +322,7 @@ async function dispatch(
     systemPrompt = config.implementSystemPrompt || undefined;
   }
 
-  // 7. Spawn session
+  // 8. Spawn session
   const handle = spawnSession({
     agentPrompt,
     worktreePath: worktreeResult.worktreePath,
@@ -325,28 +334,29 @@ async function dispatch(
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
     resumeSessionId,
     repoPath: task.repoPath,
+    model,
   });
 
-  // 8. Update task to running
+  // 9. Update task to running
   updateTaskStatus(db, taskId, "running");
 
-  // 9. Update invocation with worktree details
+  // 10. Update invocation with worktree details
   updateInvocation(db, invocationId, {
     branchName: worktreeResult.branchName,
     worktreePath: worktreeResult.worktreePath,
     logPath,
   });
 
-  // 10. Store handle
+  // 11. Store handle
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
 
   log(
     `${isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
-      `(phase: ${phase}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
+      `(phase: ${phase}, model: ${model}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
   );
 
-  // 11. Attach completion handler
+  // 12. Attach completion handler
   const fixPhase = useExistingBranch && phase === "implement";
   attachCompletionHandler(deps, taskId, invocationId, handle, worktreeResult.worktreePath, phase, fixPhase);
 }

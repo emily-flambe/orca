@@ -44,7 +44,7 @@ export default function App() {
     setStatus(newStatus);
   }, []);
 
-  const handleConfigUpdate = useCallback(async (config: { concurrencyCap: number }) => {
+  const handleConfigUpdate = useCallback(async (config: { concurrencyCap?: number; implementModel?: string; reviewModel?: string; fixModel?: string }) => {
     await updateConfig(config);
     const newStatus = await fetchStatus();
     setStatus(newStatus);

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import type { OrcaStatus } from "../types";
 
+const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
+
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
-  onConfigUpdate: (config: { concurrencyCap: number }) => Promise<void>;
+  onConfigUpdate: (config: { concurrencyCap?: number; implementModel?: string; reviewModel?: string; fixModel?: string }) => Promise<void>;
 }
 
 export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Props) {
@@ -112,6 +114,27 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
       <div className="flex items-center gap-2">
         <span className="text-gray-400">Queued</span>
         <span className="text-gray-300">{status.queuedTasks}</span>
+      </div>
+
+      {/* Model selectors */}
+      <div className="flex items-center gap-3">
+        {(["implement", "review", "fix"] as const).map((phase) => {
+          const field = `${phase}Model` as "implementModel" | "reviewModel" | "fixModel";
+          return (
+            <label key={phase} className="flex items-center gap-1">
+              <span className="text-gray-500 text-xs">{phase}</span>
+              <select
+                value={status[field]}
+                onChange={(e) => onConfigUpdate({ [field]: e.target.value })}
+                className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
       </div>
 
       {/* Sync button */}

@@ -317,6 +317,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       budgetLimit: config.budgetMaxCostUsd,
       budgetWindowHours: config.budgetWindowHours,
       concurrencyCap: config.concurrencyCap,
+      implementModel: config.implementModel,
+      reviewModel: config.reviewModel,
+      fixModel: config.fixModel,
     });
   });
 
@@ -339,7 +342,27 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       config.concurrencyCap = val;
     }
 
-    return c.json({ ok: true, concurrencyCap: config.concurrencyCap });
+    const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
+    for (const field of ["implementModel", "reviewModel", "fixModel"] as const) {
+      if (field in body) {
+        const val = body[field];
+        if (typeof val !== "string" || val.length === 0) {
+          return c.json({ error: `${field} must be a non-empty string` }, 400);
+        }
+        if (!MODEL_SHORTCUTS.has(val) && !val.startsWith("claude-")) {
+          return c.json({ error: `${field} must be one of opus/sonnet/haiku or a full model ID (claude-...)` }, 400);
+        }
+        config[field] = val;
+      }
+    }
+
+    return c.json({
+      ok: true,
+      concurrencyCap: config.concurrencyCap,
+      implementModel: config.implementModel,
+      reviewModel: config.reviewModel,
+      fixModel: config.fixModel,
+    });
   });
 
   // -----------------------------------------------------------------------

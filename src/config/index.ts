@@ -18,6 +18,9 @@ export interface OrcaConfig {
   maxReviewCycles: number;
   reviewMaxTurns: number;
   disallowedTools: string;
+  implementModel: string;
+  reviewModel: string;
+  fixModel: string;
   deployStrategy: "none" | "github_actions";
   deployPollIntervalSec: number;
   deployTimeoutMin: number;
@@ -242,7 +245,7 @@ Steps:
   return {
     defaultCwd,
     projectRepoMap: new Map(),
-    concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 3),
+    concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 1),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
     budgetWindowHours: readPositiveNumberOrDefault(
@@ -264,6 +267,9 @@ Steps:
     fixSystemPrompt: readEnvOrDefault("ORCA_FIX_SYSTEM_PROMPT", DEFAULT_FIX_SYSTEM_PROMPT),
     maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),
     reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
+    implementModel: readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
+    reviewModel: readEnvOrDefault("ORCA_REVIEW_MODEL", "haiku"),
+    fixModel: readEnvOrDefault("ORCA_FIX_MODEL", "sonnet"),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     deployStrategy: (() => {
       const val = readEnvOrDefault("ORCA_DEPLOY_STRATEGY", "none");

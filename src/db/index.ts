@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS invocations (
   num_turns INTEGER,
   output_summary TEXT,
   log_path TEXT,
-  phase TEXT
+  phase TEXT,
+  model TEXT
 )`;
 
 const CREATE_BUDGET_EVENTS = `
@@ -214,6 +215,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "ci_started_at")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN ci_started_at TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 7 (model tracking):
+  //   - Add model column to invocations (records which Claude model was used)
+  //   Sentinel: model column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "model")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN model TEXT");
   }
 }
 

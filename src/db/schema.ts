@@ -59,6 +59,7 @@ export const invocations = sqliteTable("invocations", {
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
   phase: text("phase"),
+  model: text("model"),
 });
 
 export const budgetEvents = sqliteTable("budget_events", {

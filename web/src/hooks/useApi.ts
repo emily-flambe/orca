@@ -47,8 +47,13 @@ export function updateTaskStatus(id: string, status: string): Promise<{ ok: bool
   });
 }
 
-export function updateConfig(config: { concurrencyCap?: number }): Promise<{ ok: boolean; concurrencyCap: number }> {
-  return fetchJson<{ ok: boolean; concurrencyCap: number }>("/config", {
+export function updateConfig(config: {
+  concurrencyCap?: number;
+  implementModel?: string;
+  reviewModel?: string;
+  fixModel?: string;
+}): Promise<{ ok: boolean; concurrencyCap: number; implementModel: string; reviewModel: string; fixModel: string }> {
+  return fetchJson<{ ok: boolean; concurrencyCap: number; implementModel: string; reviewModel: string; fixModel: string }>("/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
