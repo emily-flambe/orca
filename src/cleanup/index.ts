@@ -2,7 +2,7 @@ import { rmSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git } from "../git.js";
 import { removeWorktree } from "../worktree/index.js";
-import { listOpenPrBranches } from "../github/index.js";
+import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import { getAllTasks, getLastMaxTurnsInvocation, getRunningInvocations } from "../db/queries.js";
@@ -252,10 +252,29 @@ function cleanupRepo(
   }
 
   // --- Branch cleanup ---
+
+  // Close orphaned PRs first — this removes the open-PR protection so the
+  // branch cleanup loop below can delete those branches on the same cycle.
+  // Also run before listOrcaBranches so that any local branches deleted by
+  // `gh pr close --delete-branch` are already gone.
+  try {
+    const closedCount = closeOrphanedPrs(repoPath, {
+      runningBranches: ctx.runningBranches,
+      activeBranches: ctx.activeBranches,
+      maxAgeMs: ctx.maxAgeMs,
+      now: ctx.now,
+    });
+    if (closedCount > 0) {
+      log(`closed ${closedCount} orphaned PR(s) in ${repoPath}`);
+    }
+  } catch (err) {
+    log(`failed to close orphaned PRs in ${repoPath}: ${err}`);
+  }
+
   const orcaBranches = listOrcaBranches(repoPath);
   if (orcaBranches.length === 0) return;
 
-  // Fetch open PR branches once per repo
+  // Fetch open PR branches once per repo (after closing orphans)
   const openPrBranches = listOpenPrBranches(repoPath);
 
   for (const branch of orcaBranches) {

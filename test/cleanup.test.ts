@@ -36,6 +36,7 @@ vi.mock("../src/worktree/index.js", () => ({
 vi.mock("../src/github/index.js", () => ({
   listOpenPrBranches: vi.fn(),
   findPrForBranch: vi.fn(),
+  closeOrphanedPrs: vi.fn().mockReturnValue(0),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1448,6 +1449,194 @@ describe("Cleanup - protection set construction from DB", () => {
     // The branch "orca/UNRELATED-BRANCH" is not in runningBranches (invocation
     // has null branchName) and not in activeBranches.
     // It should be deleted (it's old, no PR, etc.)
+    const deleteCalls = gitMock.mock.calls.filter(
+      (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
+    );
+    expect(deleteCalls).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// Integration: closeOrphanedPrs called from cleanupRepo
+// ===========================================================================
+
+describe("Cleanup - closeOrphanedPrs integration", () => {
+  let db: OrcaDb;
+  let gitMock: ReturnType<typeof vi.fn>;
+  let listOpenPrBranchesMock: ReturnType<typeof vi.fn>;
+  let closeOrphanedPrsMock: ReturnType<typeof vi.fn>;
+  let removeWorktreeMock: ReturnType<typeof vi.fn>;
+  let cleanupStaleResources: typeof import("../src/cleanup/index.js").cleanupStaleResources;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const gitMod = await import("../src/git.js");
+    gitMock = gitMod.git as unknown as ReturnType<typeof vi.fn>;
+    gitMock.mockReset();
+
+    const ghMod = await import("../src/github/index.js");
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock.mockReset();
+    closeOrphanedPrsMock = (ghMod as any).closeOrphanedPrs as unknown as ReturnType<typeof vi.fn>;
+    closeOrphanedPrsMock.mockReset();
+    closeOrphanedPrsMock.mockReturnValue(0);
+
+    const wtMod = await import("../src/worktree/index.js");
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock.mockReset();
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupStaleResources = cleanupMod.cleanupStaleResources;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("closeOrphanedPrs is called before listOpenPrBranches", () => {
+    seedTask(db, {
+      linearIssueId: "T-ORDER",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "done",
+    });
+
+    const callOrder: string[] = [];
+    closeOrphanedPrsMock.mockImplementation(() => {
+      callOrder.push("closeOrphanedPrs");
+      return 0;
+    });
+    listOpenPrBranchesMock.mockImplementation(() => {
+      callOrder.push("listOpenPrBranches");
+      return new Set();
+    });
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "for-each-ref") return "orca/T-ORDER-inv-1";
+      if (args[0] === "log") return new Date(Date.now() - 120 * 60 * 1000).toISOString();
+      if (args[0] === "branch" && args[1] === "-D") return "";
+      return "";
+    });
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    const closeIdx = callOrder.indexOf("closeOrphanedPrs");
+    const listIdx = callOrder.indexOf("listOpenPrBranches");
+    expect(closeIdx).toBeGreaterThanOrEqual(0);
+    expect(listIdx).toBeGreaterThanOrEqual(0);
+    expect(closeIdx).toBeLessThan(listIdx);
+  });
+
+  test("after orphan PRs are closed, their branches are no longer in the open PR set", () => {
+    seedTask(db, {
+      linearIssueId: "T-ORPHAN-FLOW",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "done",
+    });
+
+    const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
+
+    // Simulate: closeOrphanedPrs closes 1 PR. After that, listOpenPrBranches
+    // returns an empty set (the orphan PR is no longer open).
+    closeOrphanedPrsMock.mockReturnValue(1);
+    listOpenPrBranchesMock.mockReturnValue(new Set()); // orphan branch gone
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "for-each-ref") return "orca/T-ORPHAN-FLOW-inv-1";
+      if (args[0] === "log") return oldDate;
+      if (args[0] === "branch" && args[1] === "-D") return "";
+      return "";
+    });
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // The branch should be deleted because:
+    // 1. closeOrphanedPrs closed the orphan PR
+    // 2. listOpenPrBranches now returns empty (no open PR protection)
+    // 3. Branch is old enough and in terminal task state
+    const deleteCalls = gitMock.mock.calls.filter(
+      (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0][0]).toEqual(["branch", "-D", "orca/T-ORPHAN-FLOW-inv-1"]);
+  });
+
+  test("closeOrphanedPrs receives correct protection sets from DB", () => {
+    // Running task -- its branch should be in runningBranches
+    const taskId = seedTask(db, {
+      linearIssueId: "T-RUNNING",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "running",
+      prBranchName: "orca/T-RUNNING-inv-1",
+    });
+    seedRunningInvocation(db, taskId, {
+      branchName: "orca/T-RUNNING-inv-1",
+      worktreePath: "/tmp/fake-repo-T-RUNNING",
+    });
+
+    // Active (non-terminal) task -- its branch should be in activeBranches
+    seedTask(db, {
+      linearIssueId: "T-REVIEW",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "in_review",
+      prBranchName: "orca/T-REVIEW-inv-1",
+    });
+
+    closeOrphanedPrsMock.mockReturnValue(0);
+    listOpenPrBranchesMock.mockReturnValue(new Set());
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "for-each-ref") return "";
+      return "";
+    });
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    expect(closeOrphanedPrsMock).toHaveBeenCalledTimes(1);
+    const [cwd, opts] = closeOrphanedPrsMock.mock.calls[0];
+    expect(cwd).toBe("/tmp/fake-repo");
+    expect(opts.runningBranches).toBeInstanceOf(Set);
+    expect(opts.runningBranches.has("orca/T-RUNNING-inv-1")).toBe(true);
+    expect(opts.activeBranches).toBeInstanceOf(Set);
+    expect(opts.activeBranches.has("orca/T-REVIEW-inv-1")).toBe(true);
+    expect(opts.maxAgeMs).toBeGreaterThan(0);
+    expect(opts.now).toBeGreaterThan(0);
+  });
+
+  test("closeOrphanedPrs failure does not prevent branch cleanup", () => {
+    seedTask(db, {
+      linearIssueId: "T-CLOSE-FAIL",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "done",
+    });
+
+    const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
+
+    closeOrphanedPrsMock.mockImplementation(() => {
+      throw new Error("gh not found");
+    });
+    listOpenPrBranchesMock.mockReturnValue(new Set());
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "for-each-ref") return "orca/T-CLOSE-FAIL-inv-1";
+      if (args[0] === "log") return oldDate;
+      if (args[0] === "branch" && args[1] === "-D") return "";
+      return "";
+    });
+
+    // Should not throw
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // Branch cleanup should still proceed
     const deleteCalls = gitMock.mock.calls.filter(
       (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
     );

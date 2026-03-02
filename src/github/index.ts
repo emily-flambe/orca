@@ -174,6 +174,77 @@ export async function getMergeCommitSha(
   return null;
 }
 
+/**
+ * Close a PR by number, adding a comment and deleting the remote branch.
+ * Returns true on success, false on failure.
+ */
+export function closePr(prNumber: number, cwd: string): boolean {
+  try {
+    gh(
+      [
+        "pr", "close", String(prNumber),
+        "--delete-branch",
+        "--comment", "Closed by Orca cleanup: orphaned PR with no running invocation or active task.",
+      ],
+      { cwd },
+    );
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] closePr(#${prNumber}) failed: ${msg}`);
+    return false;
+  }
+}
+
+/**
+ * Close orphaned open PRs on `orca/*` branches.
+ *
+ * An orphan is an open PR whose head branch:
+ * - Starts with `orca/`
+ * - Is not in `runningBranches` or `activeBranches`
+ * - Was last updated more than `maxAgeMs` ago
+ *
+ * Returns the number of PRs closed.
+ */
+export function closeOrphanedPrs(
+  cwd: string,
+  opts: {
+    runningBranches: Set<string>;
+    activeBranches: Set<string>;
+    maxAgeMs: number;
+    now: number;
+  },
+): number {
+  let prs: { headRefName: string; number: number; updatedAt: string }[];
+  try {
+    const output = gh(
+      ["pr", "list", "--state", "open", "--json", "headRefName,number,updatedAt", "--limit", "200"],
+      { cwd },
+    );
+    prs = JSON.parse(output);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] closeOrphanedPrs: failed to list PRs: ${msg}`);
+    return 0;
+  }
+
+  let closed = 0;
+  for (const pr of prs) {
+    if (!pr.headRefName.startsWith("orca/")) continue;
+    if (opts.runningBranches.has(pr.headRefName)) continue;
+    if (opts.activeBranches.has(pr.headRefName)) continue;
+
+    const updatedMs = new Date(pr.updatedAt).getTime();
+    if (Number.isNaN(updatedMs) || opts.now - updatedMs < opts.maxAgeMs) continue;
+
+    if (closePr(pr.number, cwd)) {
+      console.log(`[orca/github] closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`);
+      closed++;
+    }
+  }
+  return closed;
+}
+
 export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
 
 /**
