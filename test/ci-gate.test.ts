@@ -107,6 +107,8 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
     projectRepoMap: new Map(),
+    logPath: "./orca.log",
+    logMaxSizeMb: 10,
     ...overrides,
   };
 }
