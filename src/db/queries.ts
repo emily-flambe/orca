@@ -314,6 +314,16 @@ export function insertBudgetEvent(db: OrcaDb, event: NewBudgetEvent): void {
   db.insert(budgetEvents).values(event).run();
 }
 
+/** Get all invocations, ordered by startedAt DESC. */
+export function getAllInvocations(db: OrcaDb): Invocation[] {
+  return db.select().from(invocations).orderBy(desc(invocations.startedAt)).all();
+}
+
+/** Get all budget events, ordered by recordedAt DESC. */
+export function getAllBudgetEvents(db: OrcaDb) {
+  return db.select().from(budgetEvents).orderBy(desc(budgetEvents.recordedAt)).all();
+}
+
 /**
  * Sum cost_usd from budget_events where recorded_at >= windowStart.
  * Returns 0 if no events match.

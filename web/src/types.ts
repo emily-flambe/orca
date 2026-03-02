@@ -47,3 +47,22 @@ export interface OrcaStatus {
   budgetWindowHours: number;
   concurrencyCap: number;
 }
+
+export interface OrcaMetrics {
+  tasksByStatus: Record<string, number>;
+  totalInvocations: number;
+  completedInvocations: number;
+  failedInvocations: number;
+  timedOutInvocations: number;
+  avgSessionDurationSec: number;
+  avgCostPerSession: number;
+  totalCost: number;
+  costTimeSeries: Array<{ date: string; cost: number }>;
+  recentErrors: Array<{ taskId: string; summary: string; count: number; lastSeen: string }>;
+  throughput: Array<{ date: string; completed: number; failed: number }>;
+}
+
+export interface SystemLogs {
+  lines: string[];
+  totalLines: number;
+}
