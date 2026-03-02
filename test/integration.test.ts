@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, existsSync, unlinkSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDb, type OrcaDb } from "../src/db/index.js";
@@ -145,32 +145,25 @@ describe("9.1 - Add task via DB and verify", () => {
 // 9.2  Runner: spawnSession with mock claude script
 // ---------------------------------------------------------------------------
 
-// These tests create bash scripts as mock claude executables. On Windows,
-// spawn() without shell:true cannot execute shebang scripts, so we skip them.
-// Production is unaffected because the real `claude` CLI is a proper executable.
-const isWindows = process.platform === "win32";
-
-describe.skipIf(isWindows)("9.2 - Runner spawns mock claude session through full lifecycle", () => {
+describe("9.2 - Runner spawns mock claude session through full lifecycle", () => {
   let tmpDir: string;
   let mockScript: string;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "orca-test-"));
 
-    // Create a mock "claude" bash script that emits stream-json lines
-    mockScript = join(tmpDir, "mock-claude");
+    // Create a mock "claude" Node.js script that emits stream-json lines.
+    // Uses Node.js instead of bash so tests work cross-platform (including Windows).
+    // Does NOT call process.exit() — letting Node drain stdout naturally avoids
+    // the buffering race where exit kills the process before the pipe flushes.
+    mockScript = join(tmpDir, "mock-claude.js");
     writeFileSync(
       mockScript,
       [
-        "#!/usr/bin/env bash",
-        // Emit init message
-        'echo \'{"type":"system","subtype":"init","session_id":"test-123"}\'',
-        // Emit result message
-        'echo \'{"type":"result","subtype":"success","total_cost_usd":0.05,"num_turns":3,"result":"done"}\'',
-        "exit 0",
+        'process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"test-123"}) + "\\n");',
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0.05,num_turns:3,result:"done"}) + "\\n");',
       ].join("\n"),
     );
-    chmodSync(mockScript, 0o755);
   });
 
   afterEach(() => {
@@ -184,7 +177,8 @@ describe.skipIf(isWindows)("9.2 - Runner spawns mock claude session through full
       maxTurns: 10,
       invocationId: 42,
       projectRoot: tmpDir,
-      claudePath: mockScript,
+      claudePath: process.execPath,
+      claudeArgs: [mockScript],
     });
 
     const result = await handle.done;
@@ -206,7 +200,8 @@ describe.skipIf(isWindows)("9.2 - Runner spawns mock claude session through full
       maxTurns: 5,
       invocationId: 99,
       projectRoot: tmpDir,
-      claudePath: mockScript,
+      claudePath: process.execPath,
+      claudeArgs: [mockScript],
     });
 
     await handle.done;
@@ -220,28 +215,23 @@ describe.skipIf(isWindows)("9.2 - Runner spawns mock claude session through full
 // 9.3  Timeout enforcement / killSession
 // ---------------------------------------------------------------------------
 
-describe.skipIf(isWindows)("9.3 - Timeout enforcement via killSession", () => {
+describe("9.3 - Timeout enforcement via killSession", () => {
   let tmpDir: string;
   let sleepScript: string;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "orca-test-kill-"));
 
-    // A mock claude script that sleeps forever.
-    // Use "exec sleep" so bash replaces itself with the sleep process,
-    // ensuring SIGTERM is delivered directly to it (no orphan child).
-    sleepScript = join(tmpDir, "mock-claude-sleep");
+    // A mock claude Node.js script that stays alive for 60 s.
+    // Uses setTimeout to keep the event loop open (cross-platform).
+    sleepScript = join(tmpDir, "mock-claude-sleep.js");
     writeFileSync(
       sleepScript,
       [
-        "#!/usr/bin/env bash",
-        // Emit init so we know it started
-        'echo \'{"type":"system","subtype":"init","session_id":"sleepy"}\'',
-        // Replace shell with sleep so signals reach it directly
-        "exec sleep 60",
+        'process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"sleepy"}) + "\\n");',
+        "setTimeout(() => {}, 60000);",
       ].join("\n"),
     );
-    chmodSync(sleepScript, 0o755);
   });
 
   afterEach(() => {
@@ -255,7 +245,8 @@ describe.skipIf(isWindows)("9.3 - Timeout enforcement via killSession", () => {
       maxTurns: 5,
       invocationId: 200,
       projectRoot: tmpDir,
-      claudePath: sleepScript,
+      claudePath: process.execPath,
+      claudeArgs: [sleepScript],
     });
 
     // Give the script a moment to start and emit the init line
