@@ -195,11 +195,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               tabIndex={0}
               onClick={() => onSelect(task.linearIssueId)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(task.linearIssueId); } }}
-              className={`w-full text-left px-3 py-3 flex flex-col gap-1 border-b border-gray-800/50 hover:bg-gray-800/50 active:bg-gray-800 transition-colors cursor-pointer min-h-[60px] ${
+              className={`w-full text-left px-3 py-3 flex flex-col gap-1 border-b border-gray-800/50 hover:bg-gray-800/50 active:bg-gray-800 transition-colors cursor-pointer ${
                 isSelected ? "bg-gray-800" : ""
               }`}
             >
-              {/* Top row: priority + ID + project + status */}
+              {/* Top row: priority + ID + status */}
               <div className="flex items-center gap-2">
                 <span
                   title={priorityDot(task.priority).title}
@@ -249,9 +249,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   )}
                 </div>
               </div>
-              {/* Title row */}
-              <span className="text-sm text-gray-200 leading-snug line-clamp-2 pl-[18px]">
-                {task.agentPrompt ? task.agentPrompt.slice(0, 120) : "No prompt"}
+              {/* Title row — full on mobile, clamped on desktop */}
+              <span className="text-sm text-gray-200 leading-snug line-clamp-4 md:line-clamp-2 pl-[18px]">
+                {task.agentPrompt ? task.agentPrompt.slice(0, 300) : "No prompt"}
               </span>
             </div>
           );
