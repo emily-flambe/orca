@@ -131,68 +131,120 @@ export default function TaskDetail({ taskId }: Props) {
         {invocations.length === 0 ? (
           <div className="text-sm text-gray-500">No invocations yet</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-800">
-                  <th className="pb-2 pr-4">Date</th>
-                  <th className="pb-2 pr-4">Duration</th>
-                  <th className="pb-2 pr-4">Status</th>
-                  <th className="pb-2 pr-4">Cost</th>
-                  <th className="pb-2 pr-4">Turns</th>
-                  <th className="pb-2 pr-4">Summary</th>
-                  <th className="pb-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invocations.map((inv) => (
-                  <Fragment key={inv.id}>
-                    <tr
-                      onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
-                      className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
-                    >
-                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                      <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                      <td className="py-2 pr-4">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
-                          {inv.status}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                        {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                      </td>
-                      <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                      <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                      <td className="py-2">
-                        {inv.status === "running" && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                              abortInvocation(inv.id)
-                                .then(() => fetchTaskDetail(taskId))
-                                .then((d) => setDetail(d))
-                                .catch(console.error);
-                            }}
-                            className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                          >
-                            Abort
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {selectedInvocationId === inv.id && (
-                      <tr>
-                        <td colSpan={7} className="py-2">
-                          <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+          <>
+            {/* Mobile: card layout */}
+            <div className="md:hidden space-y-2">
+              {invocations.map((inv) => (
+                <div key={inv.id} className="border border-gray-800 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
+                    className="w-full text-left px-3 py-2.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-xs text-gray-400">{formatDate(inv.startedAt)}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${statusBadge(inv.status)}`}>
+                        {inv.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-400">
+                      <span className="tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</span>
+                      {inv.costUsd != null && <span className="tabular-nums">${inv.costUsd.toFixed(2)}</span>}
+                      {inv.numTurns != null && <span className="tabular-nums">{inv.numTurns} turns</span>}
+                    </div>
+                    {inv.outputSummary && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{inv.outputSummary}</p>
+                    )}
+                  </button>
+                  {inv.status === "running" && (
+                    <div className="px-3 pb-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                          abortInvocation(inv.id)
+                            .then(() => fetchTaskDetail(taskId))
+                            .then((d) => setDetail(d))
+                            .catch(console.error);
+                        }}
+                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                      >
+                        Abort
+                      </button>
+                    </div>
+                  )}
+                  {selectedInvocationId === inv.id && (
+                    <div className="border-t border-gray-800">
+                      <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table layout */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-800">
+                    <th className="pb-2 pr-4">Date</th>
+                    <th className="pb-2 pr-4">Duration</th>
+                    <th className="pb-2 pr-4">Status</th>
+                    <th className="pb-2 pr-4">Cost</th>
+                    <th className="pb-2 pr-4">Turns</th>
+                    <th className="pb-2 pr-4">Summary</th>
+                    <th className="pb-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invocations.map((inv) => (
+                    <Fragment key={inv.id}>
+                      <tr
+                        onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
+                        className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
+                      >
+                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
+                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                        <td className="py-2 pr-4">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
+                            {inv.status}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                          {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
+                        </td>
+                        <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
+                        <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                        <td className="py-2">
+                          {inv.status === "running" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                                abortInvocation(inv.id)
+                                  .then(() => fetchTaskDetail(taskId))
+                                  .then((d) => setDetail(d))
+                                  .catch(console.error);
+                              }}
+                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                            >
+                              Abort
+                            </button>
+                          )}
                         </td>
                       </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      {selectedInvocationId === inv.id && (
+                        <tr>
+                          <td colSpan={7} className="py-2">
+                            <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
