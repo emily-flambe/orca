@@ -40,7 +40,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError } from "../git.js";
-import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr } from "../github/index.js";
+import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient } from "../linear/client.js";
@@ -533,6 +533,16 @@ function onImplementSuccess(
   updateTaskPrBranch(db, taskId, branchName);
   if (prInfo.number != null) {
     updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
+  }
+
+  // Close any superseded PRs for this task
+  if (prInfo.number != null) {
+    const supersededCount = closeSupersededPrs(taskId, prInfo.number, invocationId, branchName, task.repoPath);
+    if (supersededCount > 0) {
+      log(`closed ${supersededCount} superseded PR(s) for task ${taskId}`);
+    }
+  } else {
+    log(`skipping superseded PR closure for task ${taskId}: no PR number available`);
   }
 
   // Attach PR link to Linear issue (fire-and-forget)
