@@ -16,6 +16,7 @@ export default function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("tasks");
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -61,6 +62,11 @@ export default function App() {
     onInvocationCompleted: handleInvocationCompleted,
   });
 
+  const handleSelectTask = useCallback((id: string) => {
+    setSelectedTaskId(id);
+    setMobileView("detail");
+  }, []);
+
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
@@ -70,7 +76,10 @@ export default function App() {
         {(["tasks", "metrics", "logs"] as Tab[]).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => {
+              setActiveTab(tab);
+              if (tab === "tasks") setMobileView("list");
+            }}
             className={`px-4 py-1.5 text-sm rounded-t transition-colors ${
               activeTab === tab
                 ? "bg-gray-800 text-gray-100 border border-b-gray-800 border-gray-700"
@@ -85,14 +94,23 @@ export default function App() {
       {/* Tab content */}
       {activeTab === "tasks" && (
         <div className="flex flex-1 overflow-hidden">
-          <div className="w-2/5 border-r border-gray-800 overflow-y-auto">
+          {/* Task list: full-screen on mobile (hidden when viewing detail), 2/5 on desktop */}
+          <div className={`flex-col border-r border-gray-800 overflow-y-auto ${mobileView === "detail" ? "hidden md:flex" : "flex"} w-full md:w-2/5`}>
             <TaskList
               tasks={tasks}
               selectedTaskId={selectedTaskId}
-              onSelect={setSelectedTaskId}
+              onSelect={handleSelectTask}
             />
           </div>
-          <div className="w-3/5 overflow-y-auto">
+          {/* Task detail: full-screen on mobile (hidden in list view), 3/5 on desktop */}
+          <div className={`flex-col overflow-y-auto ${mobileView === "list" ? "hidden md:flex" : "flex"} w-full md:w-3/5`}>
+            {/* Mobile back button */}
+            <button
+              onClick={() => setMobileView("list")}
+              className="md:hidden flex items-center gap-2 px-4 py-3 text-sm text-gray-400 hover:text-gray-200 border-b border-gray-800 shrink-0 active:bg-gray-800"
+            >
+              ← Tasks
+            </button>
             {selectedTaskId ? (
               <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
             ) : (

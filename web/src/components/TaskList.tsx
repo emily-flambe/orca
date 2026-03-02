@@ -118,28 +118,33 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
-      <div className="p-3 border-b border-gray-800 flex gap-2 flex-wrap items-center">
-        <div className="flex gap-1">
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-2 py-1 text-xs rounded ${
-                filter === f
-                  ? "bg-gray-700 text-gray-100"
-                  : "text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              {f === "ready" ? "queued" : f === "awaiting_ci" ? "awaiting CI" : f}
-            </button>
-          ))}
+      <div className="px-3 pt-3 pb-2 border-b border-gray-800 space-y-2">
+        {/* Status filters - horizontally scrollable */}
+        <div className="overflow-x-auto">
+          <div className="flex gap-1 flex-nowrap min-w-max pb-1">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-2.5 py-1 text-xs rounded whitespace-nowrap ${
+                  filter === f
+                    ? "bg-gray-700 text-gray-100"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {f === "ready" ? "queued" : f === "awaiting_ci" ? "awaiting CI" : f}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="ml-auto flex gap-1">
+        {/* Sort options */}
+        <div className="flex gap-1 overflow-x-auto">
+          <span className="text-xs text-gray-600 self-center shrink-0">sort:</span>
           {SORT_OPTIONS.map((s) => (
             <button
               key={s}
               onClick={() => setSort(s)}
-              className={`px-2 py-1 text-xs rounded ${
+              className={`px-2 py-0.5 text-xs rounded whitespace-nowrap ${
                 sort === s
                   ? "bg-gray-700 text-gray-100"
                   : "text-gray-400 hover:text-gray-200"
@@ -163,55 +168,59 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               tabIndex={0}
               onClick={() => onSelect(task.linearIssueId)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(task.linearIssueId); } }}
-              className={`w-full text-left px-3 py-2.5 flex items-center gap-3 border-b border-gray-800/50 hover:bg-gray-800/50 transition-colors cursor-pointer ${
+              className={`w-full text-left px-3 py-3 flex flex-col gap-1 border-b border-gray-800/50 hover:bg-gray-800/50 active:bg-gray-800 transition-colors cursor-pointer min-h-[60px] ${
                 isSelected ? "bg-gray-800" : ""
               }`}
             >
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${priorityColor(task.priority)}`} />
-              <span className="text-sm font-mono text-gray-400 shrink-0">
-                {task.linearIssueId}
-              </span>
-              {task.projectName && (
-                <span className="text-xs text-gray-500 shrink-0">
-                  {task.projectName}
+              {/* Top row: priority + ID + project + status */}
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${priorityColor(task.priority)}`} />
+                <span className="text-xs font-mono text-gray-400 shrink-0">
+                  {task.linearIssueId}
                 </span>
-              )}
-              <span className="text-sm text-gray-200 truncate flex-1">
-                {task.agentPrompt ? task.agentPrompt.slice(0, 60) : "No prompt"}
-              </span>
-              <div
-                className="relative shrink-0"
-                ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setStatusMenuTaskId(
-                      statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
-                    );
-                  }}
-                  className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
-                >
-                  {badge.text} &#9662;
-                </button>
-                {statusMenuTaskId === task.linearIssueId && (
-                  <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-                    {MANUAL_STATUSES.filter((s) => s.value !== task.orcaStatus).map((s) => (
-                      <button
-                        key={s.value}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setStatusMenuTaskId(null);
-                          updateTaskStatus(task.linearIssueId, s.value).catch(console.error);
-                        }}
-                        className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
+                {task.projectName && (
+                  <span className="text-xs text-gray-500 truncate">
+                    {task.projectName}
+                  </span>
                 )}
+                <div
+                  className="relative shrink-0 ml-auto"
+                  ref={statusMenuTaskId === task.linearIssueId ? statusMenuRef : undefined}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStatusMenuTaskId(
+                        statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
+                      );
+                    }}
+                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
+                  >
+                    {badge.text} &#9662;
+                  </button>
+                  {statusMenuTaskId === task.linearIssueId && (
+                    <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+                      {MANUAL_STATUSES.filter((s) => s.value !== task.orcaStatus).map((s) => (
+                        <button
+                          key={s.value}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setStatusMenuTaskId(null);
+                            updateTaskStatus(task.linearIssueId, s.value).catch(console.error);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+              {/* Title row */}
+              <span className="text-sm text-gray-200 leading-snug line-clamp-2 pl-[18px]">
+                {task.agentPrompt ? task.agentPrompt.slice(0, 120) : "No prompt"}
+              </span>
             </div>
           );
         })}

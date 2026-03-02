@@ -60,18 +60,18 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
   };
 
   return (
-    <div className="h-12 bg-gray-900 border-b border-gray-800 flex items-center px-4 gap-6 text-sm shrink-0">
+    <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0">
       {/* Budget gauge */}
-      <div className="flex items-center gap-2 min-w-48">
-        <span className="text-gray-400">Budget</span>
-        <div className="w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
+      <div className="flex items-center gap-2">
+        <span className="text-gray-400 hidden sm:inline">Budget</span>
+        <div className="w-20 md:w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full ${barColor} rounded-full transition-all`}
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="text-gray-300 tabular-nums">
-          ${status.costInWindow.toFixed(2)} / ${status.budgetLimit.toFixed(2)}
+        <span className="text-gray-300 tabular-nums text-xs sm:text-sm">
+          ${status.costInWindow.toFixed(2)}<span className="text-gray-500"> / </span>${status.budgetLimit.toFixed(2)}
         </span>
       </div>
 
@@ -110,14 +110,14 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
         </span>
       </div>
 
-      {/* Queued tasks */}
-      <div className="flex items-center gap-2">
+      {/* Queued tasks - hidden on small screens */}
+      <div className="hidden sm:flex items-center gap-2">
         <span className="text-gray-400">Queued</span>
         <span className="text-gray-300">{status.queuedTasks}</span>
       </div>
 
-      {/* Model selectors */}
-      <div className="flex items-center gap-3">
+      {/* Model selectors - hidden on mobile */}
+      <div className="hidden md:flex items-center gap-3">
         {(["implement", "review", "fix"] as const).map((phase) => {
           const field = `${phase}Model` as "implementModel" | "reviewModel" | "fixModel";
           return (
@@ -141,7 +141,7 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="ml-auto px-3 py-1 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="ml-auto px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {syncing ? "Syncing..." : "Sync"}
       </button>
