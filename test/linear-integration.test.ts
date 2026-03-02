@@ -81,7 +81,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),
     ...overrides,
@@ -275,7 +274,7 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 
   test("rate limit warning when remaining requests are low", async () => {
     const client = await getClient();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     mockFetch.mockResolvedValueOnce(
       new Response(
@@ -448,7 +447,7 @@ describe("10.2 - DependencyGraph", () => {
 
   test("cycle detection: does not infinite loop, logs warning", () => {
     const graph = new DependencyGraph();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     // A blocks B, B blocks A (cycle)
     const issueA = makeIssue("A", [
@@ -475,21 +474,6 @@ describe("10.2 - DependencyGraph", () => {
     );
   });
 
-  test("addRelation / removeRelation: incremental updates", () => {
-    const graph = new DependencyGraph();
-    graph.rebuild([makeIssue("A"), makeIssue("B")]);
-
-    // Initially B is dispatchable
-    expect(graph.isDispatchable("B", () => "ready")).toBe(true);
-
-    // Add: A blocks B
-    graph.addRelation("A", "B");
-    expect(graph.isDispatchable("B", (id) => (id === "A" ? "ready" : "ready"))).toBe(false);
-
-    // Remove: A no longer blocks B
-    graph.removeRelation("A", "B");
-    expect(graph.isDispatchable("B", () => "ready")).toBe(true);
-  });
 });
 
 // ===========================================================================

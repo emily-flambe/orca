@@ -94,7 +94,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
@@ -558,7 +557,6 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       updateIssueState: vi.fn().mockResolvedValue(true),
       fetchProjectIssues: vi.fn().mockResolvedValue([]),
       fetchWorkflowStates: vi.fn().mockResolvedValue(new Map()),
-      fetchTeamIdsForProjects: vi.fn().mockResolvedValue([]),
     } as any;
 
     const mockGraph = {
@@ -607,7 +605,6 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       updateIssueState: vi.fn().mockResolvedValue(true),
       fetchProjectIssues: vi.fn().mockResolvedValue([]),
       fetchWorkflowStates: vi.fn().mockResolvedValue(new Map()),
-      fetchTeamIdsForProjects: vi.fn().mockResolvedValue([]),
     } as any;
 
     const mockGraph = { rebuild: vi.fn() } as any;
@@ -651,7 +648,6 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       updateIssueState: vi.fn().mockResolvedValue(true),
       fetchProjectIssues: vi.fn().mockResolvedValue([]),
       fetchWorkflowStates: vi.fn().mockResolvedValue(new Map()),
-      fetchTeamIdsForProjects: vi.fn().mockResolvedValue([]),
     } as any;
 
     const mockGraph = { rebuild: vi.fn() } as any;
@@ -694,7 +690,6 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       updateIssueState: vi.fn().mockResolvedValue(true),
       fetchProjectIssues: vi.fn().mockResolvedValue([]),
       fetchWorkflowStates: vi.fn().mockResolvedValue(new Map()),
-      fetchTeamIdsForProjects: vi.fn().mockResolvedValue([]),
     } as any;
 
     const mockGraph = { rebuild: vi.fn() } as any;
@@ -977,7 +972,6 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
       updateIssueState: vi.fn().mockResolvedValue(true),
       fetchProjectIssues: vi.fn().mockResolvedValue([]),
       fetchWorkflowStates: vi.fn().mockResolvedValue(new Map()),
-      fetchTeamIdsForProjects: vi.fn().mockResolvedValue([]),
     } as any;
 
     const mockGraph = { rebuild: vi.fn() } as any;

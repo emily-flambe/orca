@@ -21,6 +21,7 @@ import {
   updateTaskDeployInfo,
   updateTaskPrBranch,
   updateTaskStatus,
+  budgetWindowStart,
 } from "../db/queries.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
@@ -40,11 +41,10 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError } from "../git.js";
-import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
+import { findPrForBranch, checkPrMerged, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
-import type { LinearClient } from "../linear/client.js";
-import type { WorkflowStateMap } from "../linear/client.js";
+import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
@@ -763,10 +763,7 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
   const queuedTasks = allTasks.filter(
     (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
   ).length;
-  const windowStart = new Date(
-    Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-  ).toISOString();
-  const costInWindow = sumCostInWindow(db, windowStart);
+  const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   emitStatusUpdated({
     activeSessions,
     queuedTasks,
@@ -990,7 +987,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         // Post deploy timeout comment (fire-and-forget)
         client.createComment(
           taskId,
-          `Task failed permanently after ${config.maxRetries} retries: deploy timed out after ${config.deployTimeoutMin}min`,
+          `Deploy timed out after ${config.deployTimeoutMin}min — task failed`,
         ).catch((err) => {
           log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
         });
@@ -1055,7 +1052,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       // Post deploy failure comment (fire-and-forget)
       client.createComment(
         taskId,
-        `Task failed permanently after ${config.maxRetries} retries: deploy CI failed for commit ${task.mergeCommitSha}`,
+        `Deploy CI failed for commit ${task.mergeCommitSha} — task failed`,
       ).catch((err) => {
         log(`comment failed on deploy failure for task ${taskId}: ${err}`);
       });
@@ -1190,11 +1187,9 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
 
     if (!mergeResult.merged) {
       // Check if PR was already merged (race condition fallback)
-      let alreadyMerged = false;
-      if (task.prBranchName) {
-        const prInfo = findPrForBranch(task.prBranchName, task.repoPath);
-        alreadyMerged = prInfo.merged === true;
-      }
+      const alreadyMerged = task.prNumber
+        ? await checkPrMerged(task.prNumber, task.repoPath)
+        : false;
 
       if (!alreadyMerged) {
         // Genuine merge failure
@@ -1305,10 +1300,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   }
 
   // 2. Check budget
-  const windowStart = new Date(
-    Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-  ).toISOString();
-  const cost = sumCostInWindow(db, windowStart);
+  const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   if (cost >= config.budgetMaxCostUsd) {
     log("budget exhausted");
     return;

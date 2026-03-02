@@ -412,6 +412,23 @@ export async function mergePr(
   }
 }
 
+/**
+ * Check whether a PR by number has been merged.
+ * Returns true if the PR state is "MERGED", false otherwise (including on error).
+ */
+export async function checkPrMerged(prNumber: number, cwd: string): Promise<boolean> {
+  try {
+    const output = await ghAsync(
+      ["pr", "view", String(prNumber), "--json", "state"],
+      { cwd },
+    );
+    const data = JSON.parse(output) as { state: string };
+    return data.state === "MERGED";
+  } catch {
+    return false;
+  }
+}
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"

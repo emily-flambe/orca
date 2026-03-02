@@ -22,6 +22,9 @@ export const INVOCATION_STATUSES = [
 ] as const;
 export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
 
+export const INVOCATION_PHASES = ["implement", "review", "fix"] as const;
+export type InvocationPhase = (typeof INVOCATION_PHASES)[number];
+
 export const tasks = sqliteTable("tasks", {
   linearIssueId: text("linear_issue_id").primaryKey(),
   agentPrompt: text("agent_prompt").notNull(),
@@ -58,7 +61,7 @@ export const invocations = sqliteTable("invocations", {
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
-  phase: text("phase"),
+  phase: text("phase", { enum: INVOCATION_PHASES }),
   model: text("model"),
 });
 

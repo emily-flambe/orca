@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { Task } from "./db/queries.js";
 
 // ---------------------------------------------------------------------------
 // Singleton event bus
@@ -34,7 +35,7 @@ export interface StatusPayload {
 // Typed emit helpers
 // ---------------------------------------------------------------------------
 
-export function emitTaskUpdated(task: unknown): void {
+export function emitTaskUpdated(task: Task): void {
   orcaEvents.emit("task:updated", task);
 }
 
