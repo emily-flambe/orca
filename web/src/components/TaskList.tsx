@@ -28,13 +28,13 @@ const ALL_FILTER_VALUES = STATUS_FILTERS.map((f) => f.value) as FilterStatus[];
 const SORT_OPTIONS = ["priority", "status", "date", "project"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
 
-function priorityColor(p: number): string {
+function priorityDot(p: number): { color: string; label: string; title: string } {
   switch (p) {
-    case 1: return "bg-red-500";
-    case 2: return "bg-orange-500";
-    case 3: return "bg-blue-500";
-    case 4: return "bg-gray-500";
-    default: return "bg-transparent border border-gray-600";
+    case 1: return { color: "bg-red-500 text-white", label: "P0", title: "P0 (urgent)" };
+    case 2: return { color: "bg-orange-500 text-white", label: "P1", title: "P1 (high)" };
+    case 3: return { color: "bg-blue-500 text-white", label: "P2", title: "P2 (medium)" };
+    case 4: return { color: "bg-gray-500 text-white", label: "P3", title: "P3 (low)" };
+    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4", title: "P4 (no urgency set)" };
   }
 }
 
@@ -201,7 +201,12 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
             >
               {/* Top row: priority + ID + project + status */}
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${priorityColor(task.priority)}`} />
+                <span
+                  title={priorityDot(task.priority).title}
+                  className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold ${priorityDot(task.priority).color}`}
+                >
+                  {priorityDot(task.priority).label}
+                </span>
                 <span className="text-xs font-mono text-gray-400 shrink-0">
                   {task.linearIssueId}
                 </span>
