@@ -30,11 +30,11 @@ type SortOption = (typeof SORT_OPTIONS)[number];
 
 function priorityDot(p: number): { color: string; label: string; title: string } {
   switch (p) {
-    case 1: return { color: "bg-red-500 text-white", label: "P0", title: "P0 (urgent)" };
-    case 2: return { color: "bg-orange-500 text-white", label: "P1", title: "P1 (high)" };
-    case 3: return { color: "bg-blue-500 text-white", label: "P2", title: "P2 (medium)" };
-    case 4: return { color: "bg-gray-500 text-white", label: "P3", title: "P3 (low)" };
-    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4", title: "P4 (no urgency set)" };
+    case 1: return { color: "bg-red-500 text-white", label: "P0 (urgent)", title: "P0 (urgent)" };
+    case 2: return { color: "bg-orange-500 text-white", label: "P1 (high)", title: "P1 (high)" };
+    case 3: return { color: "bg-blue-500 text-white", label: "P2 (medium)", title: "P2 (medium)" };
+    case 4: return { color: "bg-gray-500 text-white", label: "P3 (low)", title: "P3 (low)" };
+    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4 (no urgency set)", title: "P4 (no urgency set)" };
   }
 }
 
@@ -203,7 +203,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               <div className="flex items-center gap-2">
                 <span
                   title={priorityDot(task.priority).title}
-                  className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold ${priorityDot(task.priority).color}`}
+                  className={`rounded-full shrink-0 flex items-center justify-center px-2 py-0.5 text-xs font-bold whitespace-nowrap ${priorityDot(task.priority).color}`}
                 >
                   {priorityDot(task.priority).label}
                 </span>
