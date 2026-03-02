@@ -13,8 +13,19 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-const STATUS_FILTERS = ["all", "ready", "running", "in_review", "awaiting_ci", "deploying", "changes_requested", "done", "failed"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+const STATUS_FILTERS = [
+  { value: "ready", label: "queued" },
+  { value: "running", label: "running" },
+  { value: "dispatched", label: "dispatched" },
+  { value: "in_review", label: "in review" },
+  { value: "awaiting_ci", label: "awaiting CI" },
+  { value: "deploying", label: "deploying" },
+  { value: "changes_requested", label: "changes requested" },
+  { value: "done", label: "done" },
+  { value: "failed", label: "failed" },
+] as const;
+type FilterStatus = (typeof STATUS_FILTERS)[number]["value"];
+const ALL_FILTER_VALUES = STATUS_FILTERS.map((f) => f.value) as FilterStatus[];
 
 const SORT_OPTIONS = ["priority", "status", "date", "project"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
@@ -56,8 +67,22 @@ const MANUAL_STATUSES = [
 ] as const;
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
+    () => new Set(ALL_FILTER_VALUES),
+  );
   const [sort, setSort] = useState<SortOption>("priority");
+
+  function toggleStatus(status: FilterStatus) {
+    setSelectedStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      return next;
+    });
+  }
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -80,19 +105,16 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
 
   const now = Date.now();
   const filtered = (() => {
-    const byStatus = filter === "all"
-      ? tasks
-      : tasks.filter((t) => t.orcaStatus === filter);
+    const byStatus = tasks.filter((t) =>
+      selectedStatuses.has(t.orcaStatus as FilterStatus),
+    );
 
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
     const withHistory = byStatus.filter((t) =>
       t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
     );
 
-    // Show all done tasks when explicitly filtering for "done"
-    if (filter === "done") return withHistory;
-
-    // Otherwise hide done tasks older than 15 min (keep selected task visible)
+    // Hide done tasks older than 15 min (keep selected task visible)
     return withHistory.filter((t) =>
       t.orcaStatus !== "done" ||
       t.linearIssueId === selectedTaskId ||
@@ -122,19 +144,22 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
         {/* Status filters - horizontally scrollable */}
         <div className="overflow-x-auto">
           <div className="flex gap-1 flex-nowrap min-w-max pb-1">
-            {STATUS_FILTERS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-2.5 py-1 text-xs rounded whitespace-nowrap ${
-                  filter === f
-                    ? "bg-gray-700 text-gray-100"
-                    : "text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                {f === "ready" ? "queued" : f === "awaiting_ci" ? "awaiting CI" : f}
-              </button>
-            ))}
+            {STATUS_FILTERS.map((f) => {
+              const active = selectedStatuses.has(f.value);
+              return (
+                <button
+                  key={f.value}
+                  onClick={() => toggleStatus(f.value)}
+                  className={`px-2.5 py-1 text-xs rounded whitespace-nowrap transition-opacity ${
+                    active
+                      ? "bg-gray-700 text-gray-100"
+                      : "text-gray-600 hover:text-gray-400 line-through"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
           </div>
         </div>
         {/* Sort options */}
