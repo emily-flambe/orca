@@ -59,3 +59,50 @@ export function updateConfig(config: {
     body: JSON.stringify(config),
   });
 }
+
+export interface InvocationStat {
+  status: string;
+  count: number;
+}
+
+export interface RecentError {
+  id: number;
+  linearIssueId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  outputSummary: string | null;
+  phase: string | null;
+  costUsd: number | null;
+}
+
+export interface MetricsData {
+  tasksByStatus: Record<string, number>;
+  invocationStats: {
+    byStatus: InvocationStat[];
+    avgDurationSecs: number | null;
+    avgCostUsd: number | null;
+    totalCostUsd: number | null;
+  };
+  recentErrors: RecentError[];
+  costLast24h: number;
+  costLast7d: number;
+}
+
+export function fetchMetrics(): Promise<MetricsData> {
+  return fetchJson<MetricsData>("/metrics");
+}
+
+export interface SystemLogsData {
+  lines: string[];
+  total: number;
+  sizeBytes: number;
+}
+
+export function fetchSystemLogs(params?: { tail?: number; filter?: string }): Promise<SystemLogsData> {
+  const qs = new URLSearchParams();
+  if (params?.tail != null) qs.set("tail", String(params.tail));
+  if (params?.filter) qs.set("filter", params.filter);
+  const query = qs.toString();
+  return fetchJson<SystemLogsData>(`/logs${query ? `?${query}` : ""}`);
+}
