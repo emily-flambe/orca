@@ -40,12 +40,8 @@ function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
       if (code !== "EPERM" || attempt === maxAttempts) {
         throw err;
       }
-      // Synchronous busy-wait — acceptable here (see createWorktree jsdoc)
-      const waitMs = 2000;
-      const end = Date.now() + waitMs;
-      while (Date.now() < end) {
-        /* spin */
-      }
+      // Synchronous sleep via Atomics.wait — avoids spinning the CPU
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
     }
   }
 }

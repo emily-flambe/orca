@@ -10,6 +10,7 @@ import {
   getAllTasks,
   getRunningInvocations,
   sumCostInWindow,
+  budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
 } from "../db/queries.js";
@@ -284,10 +285,7 @@ program
     ).length;
 
     // Budget
-    const windowStart = new Date(
-      Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-    ).toISOString();
-    const costInWindow = sumCostInWindow(db, windowStart);
+    const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
 
     console.log("=== Orca Status ===");
     console.log();

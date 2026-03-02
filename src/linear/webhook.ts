@@ -80,7 +80,7 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
       event = JSON.parse(rawBody) as WebhookEvent;
     } catch {
       log("rejected: invalid JSON body");
-      return c.json({ error: "invalid signature" }, 401);
+      return c.json({ error: "invalid body" }, 400);
     }
 
     // Only process Issue events

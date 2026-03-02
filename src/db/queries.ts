@@ -12,7 +12,7 @@ import type { OrcaDb } from "./index.js";
 // Task types
 // ---------------------------------------------------------------------------
 type NewTask = InferInsertModel<typeof tasks>;
-type Task = typeof tasks.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Task queries
@@ -54,16 +54,6 @@ export function incrementRetryCount(
     })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
-}
-
-/** Get all tasks with orca_status="ready", ordered by priority ASC then created_at ASC. */
-export function getReadyTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.orcaStatus, "ready"))
-    .orderBy(asc(tasks.priority), asc(tasks.createdAt))
-    .all();
 }
 
 /** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */
@@ -312,6 +302,11 @@ type NewBudgetEvent = InferInsertModel<typeof budgetEvents>;
 /** Insert a budget event. */
 export function insertBudgetEvent(db: OrcaDb, event: NewBudgetEvent): void {
   db.insert(budgetEvents).values(event).run();
+}
+
+/** Returns an ISO timestamp for the start of a budget window `hours` hours ago. */
+export function budgetWindowStart(hours: number): string {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
 /**

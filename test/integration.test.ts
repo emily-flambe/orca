@@ -13,7 +13,7 @@ import {
   insertBudgetEvent,
   sumCostInWindow,
   countActiveSessions,
-  getReadyTasks,
+  getDispatchableTasks,
 } from "../src/db/queries.js";
 import { spawnSession, killSession, type SessionHandle } from "../src/runner/index.js";
 
@@ -324,16 +324,16 @@ describe("9.4 - Retry logic", () => {
     expect(afterCheck.retryCount).toBe(maxRetries);
   });
 
-  test("getReadyTasks returns tasks reset by incrementRetryCount", () => {
+  test("getDispatchableTasks returns tasks reset by incrementRetryCount", () => {
     const taskId = seedTask(db, { linearIssueId: "RETRY-QUEUE" });
     updateTaskStatus(db, taskId, "failed");
 
     // No ready tasks (it's failed)
-    expect(getReadyTasks(db)).toHaveLength(0);
+    expect(getDispatchableTasks(db, ["ready"])).toHaveLength(0);
 
     // Retry resets to ready
     incrementRetryCount(db, taskId);
-    const ready = getReadyTasks(db);
+    const ready = getDispatchableTasks(db, ["ready"]);
     expect(ready).toHaveLength(1);
     expect(ready[0]!.linearIssueId).toBe("RETRY-QUEUE");
   });
@@ -437,7 +437,7 @@ describe("9.5 - Budget enforcement", () => {
     expect(cost).toBeGreaterThanOrEqual(budgetMaxCostUsd);
 
     // Ready tasks exist but should NOT be dispatched
-    const readyTasks = getReadyTasks(db);
+    const readyTasks = getDispatchableTasks(db, ["ready"]);
     expect(readyTasks.length).toBeGreaterThan(0);
 
     // The tick would return early here -- this is the guard condition

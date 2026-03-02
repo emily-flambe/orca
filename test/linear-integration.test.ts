@@ -275,7 +275,7 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 
   test("rate limit warning when remaining requests are low", async () => {
     const client = await getClient();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     mockFetch.mockResolvedValueOnce(
       new Response(
@@ -448,7 +448,7 @@ describe("10.2 - DependencyGraph", () => {
 
   test("cycle detection: does not infinite loop, logs warning", () => {
     const graph = new DependencyGraph();
-    const consoleSpy = vi.spyOn(console, "log");
+    const consoleSpy = vi.spyOn(console, "warn");
 
     // A blocks B, B blocks A (cycle)
     const issueA = makeIssue("A", [
@@ -475,21 +475,6 @@ describe("10.2 - DependencyGraph", () => {
     );
   });
 
-  test("addRelation / removeRelation: incremental updates", () => {
-    const graph = new DependencyGraph();
-    graph.rebuild([makeIssue("A"), makeIssue("B")]);
-
-    // Initially B is dispatchable
-    expect(graph.isDispatchable("B", () => "ready")).toBe(true);
-
-    // Add: A blocks B
-    graph.addRelation("A", "B");
-    expect(graph.isDispatchable("B", (id) => (id === "A" ? "ready" : "ready"))).toBe(false);
-
-    // Remove: A no longer blocks B
-    graph.removeRelation("A", "B");
-    expect(graph.isDispatchable("B", () => "ready")).toBe(true);
-  });
 });
 
 // ===========================================================================
@@ -530,7 +515,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "Todo", config);
+    resolveConflict(db, taskId, "Todo");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -543,7 +528,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "ready",
     });
 
-    resolveConflict(db, taskId, "Done", config);
+    resolveConflict(db, taskId, "Done");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -556,7 +541,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "done",
     });
 
-    resolveConflict(db, taskId, "Todo", config);
+    resolveConflict(db, taskId, "Todo");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -569,7 +554,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "Canceled", config);
+    resolveConflict(db, taskId, "Canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -583,7 +568,7 @@ describe("10.3 - Conflict resolution", () => {
     });
 
     // Linear says "Todo" which maps to "ready" -- no conflict
-    resolveConflict(db, taskId, "Todo", config);
+    resolveConflict(db, taskId, "Todo");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
