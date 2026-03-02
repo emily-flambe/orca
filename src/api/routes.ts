@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -17,6 +17,8 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
+  getInvocationStats,
+  getRecentErrors,
 } from "../db/queries.js";
 import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
@@ -363,6 +365,64 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const allTasks = getAllTasks(db);
+    const tasksByStatus: Record<string, number> = {};
+    for (const task of allTasks) {
+      tasksByStatus[task.orcaStatus] = (tasksByStatus[task.orcaStatus] ?? 0) + 1;
+    }
+
+    const invocationStats = getInvocationStats(db);
+    const recentErrors = getRecentErrors(db, 20);
+
+    const windowStart24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const windowStart7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const costLast24h = sumCostInWindow(db, windowStart24h);
+    const costLast7d = sumCostInWindow(db, windowStart7d);
+
+    return c.json({
+      tasksByStatus,
+      invocationStats,
+      recentErrors,
+      costLast24h,
+      costLast7d,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/logs
+  // -----------------------------------------------------------------------
+  app.get("/api/logs", (c) => {
+    const tailParam = c.req.query("tail");
+    const filterParam = c.req.query("filter");
+    const tail = tailParam ? Math.min(Math.max(parseInt(tailParam, 10) || 200, 1), 5000) : 200;
+
+    const logFile = isAbsolute(config.logPath)
+      ? config.logPath
+      : join(process.cwd(), config.logPath);
+
+    if (!existsSync(logFile)) {
+      return c.json({ lines: [], total: 0, sizeBytes: 0 });
+    }
+
+    const sizeBytes = statSync(logFile).size;
+    const raw = readFileSync(logFile, "utf-8");
+    let lines = raw.split("\n").filter((l) => l.length > 0);
+
+    if (filterParam) {
+      const lower = filterParam.toLowerCase();
+      lines = lines.filter((l) => l.toLowerCase().includes(lower));
+    }
+
+    const total = lines.length;
+    const sliced = lines.slice(-tail);
+
+    return c.json({ lines: sliced, total, sizeBytes });
   });
 
   // -----------------------------------------------------------------------

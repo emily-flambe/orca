@@ -1,4 +1,4 @@
-import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull } from "drizzle-orm";
+import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull, avg } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
@@ -325,4 +325,84 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
     .where(gte(budgetEvents.recordedAt, windowStart))
     .get();
   return result?.total ? Number(result.total) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Metrics queries
+// ---------------------------------------------------------------------------
+
+export interface InvocationStats {
+  /** Counts of invocations by status. */
+  byStatus: { status: string; count: number }[];
+  /** Average session duration in seconds for completed invocations. */
+  avgDurationSecs: number | null;
+  /** Average cost in USD for completed invocations. */
+  avgCostUsd: number | null;
+  /** Total cost in USD across all completed invocations. */
+  totalCostUsd: number | null;
+}
+
+/** Aggregate invocation statistics for the metrics dashboard. */
+export function getInvocationStats(db: OrcaDb): InvocationStats {
+  const byStatus = db
+    .select({ status: invocations.status, count: count() })
+    .from(invocations)
+    .groupBy(invocations.status)
+    .all()
+    .map((r) => ({ status: r.status, count: r.count }));
+
+  const durationResult = db
+    .select({
+      avgDuration: sql<number>`avg((julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400)`,
+    })
+    .from(invocations)
+    .where(eq(invocations.status, "completed"))
+    .get();
+
+  const costResult = db
+    .select({
+      avgCost: avg(invocations.costUsd),
+      totalCost: sum(invocations.costUsd),
+    })
+    .from(invocations)
+    .where(eq(invocations.status, "completed"))
+    .get();
+
+  return {
+    byStatus,
+    avgDurationSecs: durationResult?.avgDuration ?? null,
+    avgCostUsd: costResult?.avgCost ? Number(costResult.avgCost) : null,
+    totalCostUsd: costResult?.totalCost ? Number(costResult.totalCost) : null,
+  };
+}
+
+export interface RecentError {
+  id: number;
+  linearIssueId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  outputSummary: string | null;
+  phase: string | null;
+  costUsd: number | null;
+}
+
+/** Get the most recent failed or timed-out invocations. */
+export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+      status: invocations.status,
+      outputSummary: invocations.outputSummary,
+      phase: invocations.phase,
+      costUsd: invocations.costUsd,
+    })
+    .from(invocations)
+    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
 }
