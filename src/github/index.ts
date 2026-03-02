@@ -197,6 +197,64 @@ export function closePr(prNumber: number, cwd: string): boolean {
 }
 
 /**
+ * Close all open PRs for a Linear issue that are superseded by a newer PR.
+ *
+ * Finds all open PRs whose branch matches `orca/<taskId>-*`, excluding the
+ * new PR's own branch. Closes each with a comment linking to the new PR and
+ * deletes the remote branch. Returns the number of PRs closed.
+ */
+export function closeSupersededPrs(
+  taskId: string,
+  newPrNumber: number,
+  newInvocationId: number,
+  newBranchName: string,
+  cwd: string,
+): number {
+  let prs: { headRefName: string; number: number }[];
+  try {
+    const output = gh(
+      ["pr", "list", "--state", "open", "--json", "headRefName,number", "--limit", "200"],
+      { cwd },
+    );
+    prs = JSON.parse(output) as { headRefName: string; number: number }[];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[orca/github] closeSupersededPrs: failed to list PRs for ${taskId}: ${msg}`,
+    );
+    return 0;
+  }
+
+  const prefix = `orca/${taskId}-`;
+  let closed = 0;
+  for (const pr of prs) {
+    if (!pr.headRefName.startsWith(prefix)) continue;
+    if (pr.headRefName === newBranchName) continue;
+    try {
+      gh(
+        [
+          "pr", "close", String(pr.number),
+          "--delete-branch",
+          "--comment",
+          `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
+        ],
+        { cwd },
+      );
+      console.log(
+        `[orca/github] closed superseded PR #${pr.number} (branch: ${pr.headRefName}) for task ${taskId}`,
+      );
+      closed++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[orca/github] closeSupersededPrs: failed to close PR #${pr.number}: ${msg}`,
+      );
+    }
+  }
+  return closed;
+}
+
+/**
  * Close all open PRs for a canceled Linear issue.
  *
  * Finds all open PRs on branches matching `orca/<taskId>-*` and closes each
