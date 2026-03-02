@@ -22,6 +22,7 @@ import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
+import { initFileLogger } from "../logger.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -88,6 +89,10 @@ program
   .description("Start the Orca scheduler")
   .action(async () => {
     const config = loadConfig();
+    initFileLogger({
+      logPath: config.logPath,
+      maxSizeBytes: config.logMaxSizeMb * 1024 * 1024,
+    });
     const db = createDb(config.dbPath);
 
     // Initialize Linear dependencies

@@ -29,6 +29,8 @@ export interface OrcaConfig {
   resumeOnMaxTurns: boolean;
   port: number;
   dbPath: string;
+  logPath: string;
+  logMaxSizeMb: number;
   // Linear integration
   linearApiKey: string;
   linearWebhookSecret: string;
@@ -285,6 +287,8 @@ Steps:
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
+    logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),
+    logMaxSizeMb: readPositiveNumberOrDefault("ORCA_LOG_MAX_SIZE_MB", 10),
     // Linear integration
     linearApiKey,
     linearWebhookSecret,

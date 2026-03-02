@@ -4,5 +4,7 @@ web/dist/
 *.db
 *.db-journal
 logs/
+orca.log
+orca.log.1
 .env
 .env.local
