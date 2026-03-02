@@ -9,7 +9,7 @@ import type { LinearIssue } from "./client.js";
 // ---------------------------------------------------------------------------
 
 function warn(message: string): void {
-  console.log(`[orca/linear] warning: ${message}`);
+  console.warn(`[orca/linear] warning: ${message}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,34 +144,6 @@ export class DependencyGraph {
     }
 
     return min;
-  }
-
-  // -------------------------------------------------------------------------
-  // 3.5 Incremental updates
-  // -------------------------------------------------------------------------
-
-  /** Add a blocking relation: blockerId blocks blockedId. */
-  addRelation(blockerId: string, blockedId: string): void {
-    this.addEdge(blockerId, blockedId);
-  }
-
-  /** Remove a blocking relation: blockerId no longer blocks blockedId. */
-  removeRelation(blockerId: string, blockedId: string): void {
-    const blockedSet = this.blocks.get(blockerId);
-    if (blockedSet) {
-      blockedSet.delete(blockedId);
-      if (blockedSet.size === 0) {
-        this.blocks.delete(blockerId);
-      }
-    }
-
-    const blockerSet = this.blockedBy.get(blockedId);
-    if (blockerSet) {
-      blockerSet.delete(blockerId);
-      if (blockerSet.size === 0) {
-        this.blockedBy.delete(blockedId);
-      }
-    }
   }
 
   // -------------------------------------------------------------------------

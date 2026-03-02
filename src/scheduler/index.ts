@@ -16,6 +16,7 @@ import {
   insertBudgetEvent,
   insertInvocation,
   sumCostInWindow,
+  budgetWindowStart,
   updateInvocation,
   updateTaskCiInfo,
   updateTaskDeployInfo,
@@ -43,8 +44,7 @@ import { isTransientGitError, isDllInitError } from "../git.js";
 import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
-import type { LinearClient } from "../linear/client.js";
-import type { WorkflowStateMap } from "../linear/client.js";
+import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
@@ -763,10 +763,7 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
   const queuedTasks = allTasks.filter(
     (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
   ).length;
-  const windowStart = new Date(
-    Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-  ).toISOString();
-  const costInWindow = sumCostInWindow(db, windowStart);
+  const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   emitStatusUpdated({
     activeSessions,
     queuedTasks,
@@ -1055,7 +1052,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       // Post deploy failure comment (fire-and-forget)
       client.createComment(
         taskId,
-        `Task failed permanently after ${config.maxRetries} retries: deploy CI failed for commit ${task.mergeCommitSha}`,
+        `Deploy CI failed for commit ${task.mergeCommitSha} — task failed permanently`,
       ).catch((err) => {
         log(`comment failed on deploy failure for task ${taskId}: ${err}`);
       });
@@ -1305,10 +1302,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   }
 
   // 2. Check budget
-  const windowStart = new Date(
-    Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-  ).toISOString();
-  const cost = sumCostInWindow(db, windowStart);
+  const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   if (cost >= config.budgetMaxCostUsd) {
     log("budget exhausted");
     return;

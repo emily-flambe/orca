@@ -35,7 +35,6 @@ export interface OrcaConfig {
   linearApiKey: string;
   linearWebhookSecret: string;
   linearProjectIds: string[];
-  linearReadyStateType: string;
   tunnelHostname: string;
   tunnelToken: string;
   cloudflaredPath: string;
@@ -293,10 +292,6 @@ Steps:
     linearApiKey,
     linearWebhookSecret,
     linearProjectIds,
-    linearReadyStateType: readEnvOrDefault(
-      "ORCA_LINEAR_READY_STATE_TYPE",
-      "unstarted",
-    ),
     tunnelHostname,
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),

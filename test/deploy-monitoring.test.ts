@@ -429,7 +429,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "In Review", config);
+    resolveConflict(db, taskId, "In Review");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -442,7 +442,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Todo", config);
+    resolveConflict(db, taskId, "Todo");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -455,7 +455,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Done", config);
+    resolveConflict(db, taskId, "Done");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -468,7 +468,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Canceled", config);
+    resolveConflict(db, taskId, "Canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -484,7 +484,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "In Progress", config);
+    resolveConflict(db, taskId, "In Progress");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -497,7 +497,7 @@ describe("Conflict resolution - deploying status", () => {
   test("non-existent task -> no-op (no crash)", () => {
     // resolveConflict should handle missing tasks gracefully
     expect(() => {
-      resolveConflict(db, "NONEXISTENT-TASK", "Todo", config);
+      resolveConflict(db, "NONEXISTENT-TASK", "Todo");
     }).not.toThrow();
   });
 
@@ -509,7 +509,7 @@ describe("Conflict resolution - deploying status", () => {
 
     // "Backlog" maps to "backlog" — moving to Backlog is a user override that
     // resets the task.
-    resolveConflict(db, taskId, "Backlog", config);
+    resolveConflict(db, taskId, "Backlog");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();

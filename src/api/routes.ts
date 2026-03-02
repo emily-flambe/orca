@@ -4,9 +4,9 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient } from "../linear/client.js";
-import type { WorkflowStateMap } from "../linear/client.js";
+import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import {
+  type Task,
   getAllTasks,
   getTask,
   getInvocation,
@@ -14,13 +14,21 @@ import {
   getRunningInvocations,
   countActiveSessions,
   sumCostInWindow,
+  budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
   getInvocationStats,
   getRecentErrors,
 } from "../db/queries.js";
-import { orcaEvents, emitTaskUpdated, emitInvocationCompleted } from "../events.js";
+import {
+  orcaEvents,
+  emitTaskUpdated,
+  emitInvocationCompleted,
+  type InvocationStartedPayload,
+  type InvocationCompletedPayload,
+  type StatusPayload,
+} from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
@@ -304,12 +312,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
-    const queuedTasks = allTasks.filter((t) => t.orcaStatus === "ready").length;
-
-    const windowStart = new Date(
-      Date.now() - config.budgetWindowHours * 60 * 60 * 1000,
-    ).toISOString();
-    const costInWindow = sumCostInWindow(db, windowStart);
+    const queuedTasks = allTasks.filter(
+      (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
+    ).length;
+    const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
 
     return c.json({
       activeSessions,
@@ -380,10 +386,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const invocationStats = getInvocationStats(db);
     const recentErrors = getRecentErrors(db, 20);
 
-    const windowStart24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const windowStart7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const costLast24h = sumCostInWindow(db, windowStart24h);
-    const costLast7d = sumCostInWindow(db, windowStart7d);
+    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
+    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
 
     return c.json({
       tasksByStatus,
@@ -430,7 +434,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.get("/api/events", (c) => {
     return streamSSE(c, async (stream) => {
-      const onTaskUpdated = (data: unknown) => {
+      const onTaskUpdated = (data: Task) => {
         try {
           stream.writeSSE({ event: "task:updated", data: JSON.stringify(data) });
         } catch {
@@ -438,7 +442,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
-      const onInvocationStarted = (data: unknown) => {
+      const onInvocationStarted = (data: InvocationStartedPayload) => {
         try {
           stream.writeSSE({ event: "invocation:started", data: JSON.stringify(data) });
         } catch {
@@ -446,7 +450,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
-      const onInvocationCompleted = (data: unknown) => {
+      const onInvocationCompleted = (data: InvocationCompletedPayload) => {
         try {
           stream.writeSSE({ event: "invocation:completed", data: JSON.stringify(data) });
         } catch {
@@ -454,7 +458,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
-      const onStatusUpdated = (data: unknown) => {
+      const onStatusUpdated = (data: StatusPayload) => {
         try {
           stream.writeSSE({ event: "status:updated", data: JSON.stringify(data) });
         } catch {

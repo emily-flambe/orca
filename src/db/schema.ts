@@ -58,7 +58,7 @@ export const invocations = sqliteTable("invocations", {
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
-  phase: text("phase"),
+  phase: text("phase", { enum: ["implement", "review"] as const }),
   model: text("model"),
 });
 

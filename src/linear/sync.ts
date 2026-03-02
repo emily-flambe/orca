@@ -341,7 +341,7 @@ export async function processWebhookEvent(
   // Only upsert if we have state info
   if (event.data.state) {
     // Resolve conflicts BEFORE upsert overwrites the Orca status
-    resolveConflict(db, event.data.identifier, event.data.state.name, config);
+    resolveConflict(db, event.data.identifier, event.data.state.name);
 
     upsertTask(db, issueFromEvent, config);
 
@@ -387,7 +387,6 @@ export function resolveConflict(
   db: OrcaDb,
   taskId: string,
   linearStateName: string,
-  _config: OrcaConfig,
 ): void {
   const task = getTask(db, taskId);
   if (!task) return;
