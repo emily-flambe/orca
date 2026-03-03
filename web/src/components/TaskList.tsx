@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task } from "../types";
 import { updateTaskStatus } from "../hooks/useApi";
 
@@ -19,7 +19,7 @@ const STATUS_FILTERS = [
   { value: "in_review", label: "in review" },
   { value: "awaiting_ci", label: "awaiting CI" },
   { value: "deploying", label: "deploying" },
-  { value: "changes_requested", label: "changes requested" },
+  { value: "changes_requested", label: "changes req." },
   { value: "done", label: "done" },
   { value: "failed", label: "failed" },
 ] as const;
@@ -55,6 +55,22 @@ function statusBadge(s: string): { bg: string; text: string } {
   }
 }
 
+function statusFilterActiveStyle(value: FilterStatus): string {
+  switch (value) {
+    case "done": return "bg-green-500/20 text-green-400 border border-green-500/30";
+    case "running": return "bg-blue-500/20 text-blue-400 border border-blue-500/30";
+    case "ready": return "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
+    case "failed": return "bg-red-500/20 text-red-400 border border-red-500/30";
+    case "dispatched": return "bg-gray-500/20 text-gray-400 border border-gray-600";
+    case "in_review": return "bg-purple-500/20 text-purple-400 border border-purple-500/30";
+    case "changes_requested": return "bg-orange-500/20 text-orange-400 border border-orange-500/30";
+    case "awaiting_ci": return "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30";
+    case "deploying": return "bg-teal-500/20 text-teal-400 border border-teal-500/30";
+    case "backlog": return "bg-gray-500/20 text-gray-500 border border-gray-700";
+    default: return "bg-gray-700 text-gray-100 border border-gray-600";
+  }
+}
+
 const STATUS_ORDER: Record<string, number> = {
   running: 0, dispatched: 1, in_review: 2, awaiting_ci: 3, deploying: 4, changes_requested: 5, ready: 6, failed: 7, done: 8, backlog: 9,
 };
@@ -70,6 +86,14 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
   const [sort, setSort] = useState<SortOption>("priority");
+  // hiddenProjects: empty = show all, otherwise hide listed project names
+  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
+
+  const allProjects = useMemo(() => {
+    const ps = new Set<string>();
+    for (const t of tasks) if (t.projectName) ps.add(t.projectName);
+    return [...ps].sort();
+  }, [tasks]);
 
   function toggleStatus(status: FilterStatus) {
     setSelectedStatuses((prev) => {
@@ -82,6 +106,19 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       return next;
     });
   }
+
+  function toggleProject(p: string) {
+    setHiddenProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) {
+        next.delete(p);
+      } else {
+        next.add(p);
+      }
+      return next;
+    });
+  }
+
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -108,13 +145,16 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       (selectedStatuses as ReadonlySet<string>).has(t.orcaStatus),
     );
 
+    const byProject = hiddenProjects.size === 0
+      ? byStatus
+      : byStatus.filter((t) => !hiddenProjects.has(t.projectName ?? ""));
+
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
-    const withHistory = byStatus.filter((t) =>
+    const withHistory = byProject.filter((t) =>
       t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
     );
 
     // When only "done" is selected, show all done tasks regardless of age
-    // (equivalent to the old explicit "done" filter behavior)
     if (selectedStatuses.size === 1 && selectedStatuses.has("done")) return withHistory;
 
     // Hide done tasks older than 15 min (keep selected task visible)
@@ -140,47 +180,134 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
   });
 
+  // Count tasks per status (from all tasks, ignoring filters)
+  const statusCounts = useMemo(() => {
+    const counts: Partial<Record<FilterStatus, number>> = {};
+    for (const t of tasks) {
+      const s = t.orcaStatus as FilterStatus;
+      counts[s] = (counts[s] ?? 0) + 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  // Count tasks per project (from all tasks)
+  const projectCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const t of tasks) {
+      if (t.projectName) counts[t.projectName] = (counts[t.projectName] ?? 0) + 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  const allStatusesSelected = ALL_FILTER_VALUES.every((v) => selectedStatuses.has(v));
+
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
-      <div className="px-3 pt-3 pb-2 border-b border-gray-800 space-y-2">
-        {/* Status filters - horizontally scrollable */}
-        <div className="overflow-x-auto">
-          <div className="flex gap-1 flex-nowrap min-w-max pb-1">
-            {STATUS_FILTERS.map((f) => {
-              const active = selectedStatuses.has(f.value);
-              return (
-                <button
-                  key={f.value}
-                  onClick={() => toggleStatus(f.value)}
-                  className={`px-2.5 py-1 text-xs rounded whitespace-nowrap transition-colors ${
-                    active
-                      ? "bg-gray-700 text-gray-100"
-                      : "text-gray-600 hover:text-gray-400 line-through"
-                  }`}
-                >
-                  {f.label}
-                </button>
-              );
-            })}
+      <div className="px-3 pt-3 pb-2 border-b border-gray-800 space-y-3">
+
+        {/* Status filter */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</span>
+            <button
+              onClick={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
+              className={`text-[11px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+              disabled={allStatusesSelected}
+            >
+              all
+            </button>
+          </div>
+          <div className="overflow-x-auto scrollbar-none">
+            <div className="flex gap-1 flex-nowrap min-w-max">
+              {STATUS_FILTERS.map((f) => {
+                const active = selectedStatuses.has(f.value);
+                const count = statusCounts[f.value] ?? 0;
+                return (
+                  <button
+                    key={f.value}
+                    onClick={() => toggleStatus(f.value)}
+                    title={active ? `Hide ${f.label}` : `Show ${f.label}`}
+                    className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
+                      active
+                        ? statusFilterActiveStyle(f.value)
+                        : "text-gray-700 hover:text-gray-500 line-through"
+                    }`}
+                  >
+                    {f.label}
+                    {count > 0 && (
+                      <span className={`text-[10px] tabular-nums leading-none ${active ? "opacity-60" : "opacity-40"}`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-        {/* Sort options */}
-        <div className="flex gap-1 overflow-x-auto">
-          <span className="text-xs text-gray-600 self-center shrink-0">sort:</span>
-          {SORT_OPTIONS.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSort(s)}
-              className={`px-2 py-0.5 text-xs rounded whitespace-nowrap ${
-                sort === s
-                  ? "bg-gray-700 text-gray-100"
-                  : "text-gray-400 hover:text-gray-200"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
+
+        {/* Project filter — only shown when multiple projects exist */}
+        {allProjects.length > 1 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Project</span>
+              <button
+                onClick={() => setHiddenProjects(new Set())}
+                className={`text-[11px] transition-colors ${hiddenProjects.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                disabled={hiddenProjects.size === 0}
+              >
+                all
+              </button>
+            </div>
+            <div className="overflow-x-auto scrollbar-none">
+              <div className="flex gap-1 flex-nowrap min-w-max">
+                {allProjects.map((p) => {
+                  const active = !hiddenProjects.has(p);
+                  const count = projectCounts[p] ?? 0;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => toggleProject(p)}
+                      title={active ? `Hide ${p}` : `Show ${p}`}
+                      className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
+                        active
+                          ? "bg-gray-700/60 text-gray-300 border border-gray-600"
+                          : "text-gray-700 hover:text-gray-500 line-through"
+                      }`}
+                    >
+                      {p}
+                      {count > 0 && (
+                        <span className={`text-[10px] tabular-nums leading-none ${active ? "opacity-60" : "opacity-40"}`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sort */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">Sort</span>
+          <div className="flex gap-1 overflow-x-auto scrollbar-none">
+            {SORT_OPTIONS.map((s) => (
+              <button
+                key={s}
+                onClick={() => setSort(s)}
+                className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
+                  sort === s
+                    ? "bg-gray-700 text-gray-100 border border-gray-600"
+                    : "text-gray-600 hover:text-gray-400"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
