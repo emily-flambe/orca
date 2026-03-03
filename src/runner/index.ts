@@ -1,8 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -200,6 +200,31 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
     process.stderr.write(
       `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`,
     );
+  }
+}
+
+/**
+ * Kill a process and its entire child tree.
+ *
+ * On Windows, `proc.kill("SIGTERM")` only kills the direct Claude Code process.
+ * Grandchild processes (e.g. wrangler dev spawning miniflare workers) survive
+ * and can hold open file handles in the worktree directory, causing EPERM on
+ * subsequent rmSync / git worktree remove attempts.
+ *
+ * `taskkill /PID <pid> /T /F` kills the entire process tree atomically.
+ * On Unix, falls back to a direct SIGKILL on the child process (process group
+ * kill requires detached:true which we don't use).
+ */
+function killProcessTree(pid: number, proc: ChildProcess): void {
+  if (platform() === "win32") {
+    try {
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+    } catch {
+      // taskkill may fail if process already exited; fall back to direct kill
+      proc.kill("SIGKILL");
+    }
+  } else {
+    proc.kill("SIGKILL");
   }
 }
 
@@ -524,7 +549,20 @@ export async function killSession(handle: SessionHandle): Promise<SessionResult>
     return handle.done;
   }
 
-  // Send SIGTERM.
+  if (platform() === "win32") {
+    // On Windows, kill the entire process tree immediately using taskkill /T /F.
+    // proc.kill("SIGTERM") only kills the direct Claude Code process; grandchild
+    // processes (e.g. wrangler dev spawning miniflare workers) survive and hold
+    // open file handles in the worktree directory, causing EPERM on cleanup.
+    if (proc.pid !== undefined) {
+      killProcessTree(proc.pid, proc);
+    } else {
+      proc.kill("SIGKILL");
+    }
+    return handle.done;
+  }
+
+  // On Unix: send SIGTERM first, then escalate to SIGKILL after 5 seconds.
   proc.kill("SIGTERM");
 
   // Race: either the process exits within 5 s, or we escalate to SIGKILL.

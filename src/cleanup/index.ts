@@ -180,10 +180,22 @@ function cleanupRepo(
   const parentDir = dirname(repoPath);
 
   // Remove registered worktrees matching the <repo>-<taskId> pattern.
-  // Normalize path separators to handle Windows vs git path format mismatches.
-  const normalizePath = (p: string) => p.replace(/\\/g, "/");
-  const worktreePaths = listWorktreePaths(repoPath).map(normalizePath);
+  //
+  // Two normalization levels:
+  //   normalizePath  — slashes + lowercase, used ONLY for comparisons/set lookups.
+  //                    Handles Windows vs git path format mismatches (git returns
+  //                    forward slashes; paths may differ in case, e.g. "GitHub"
+  //                    vs "Github").
+  //   normalizeSlashes — slashes only, used for the worktreePaths array so that
+  //                    the original casing is preserved when passed to removeWorktree()
+  //                    and to fs/git commands (which may be case-sensitive).
+  const normalizePath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const normalizeSlashes = (p: string) => p.replace(/\\/g, "/");
+  const worktreePaths = listWorktreePaths(repoPath).map(normalizeSlashes);
+  // Pre-built set for O(1) membership tests — lowercase for case-insensitive matching.
+  const normalizedWorktreePathSet = new Set(worktreePaths.map(normalizePath));
   const normalizedRepoPath = normalizePath(repoPath);
+  const normalizedRepoDirname = normalizePath(repoDirname);
   const normalizedRunningWtPaths = new Set(
     [...ctx.runningWorktreePaths].map(normalizePath),
   );
@@ -193,17 +205,17 @@ function cleanupRepo(
 
   for (const wtPath of worktreePaths) {
     // Skip the main worktree (the repo itself)
-    if (wtPath === normalizedRepoPath) continue;
+    if (normalizePath(wtPath) === normalizedRepoPath) continue;
 
     // Only clean up worktrees that match our naming pattern
-    const wtBasename = basename(wtPath);
-    if (!wtBasename.startsWith(`${repoDirname}-`)) continue;
+    const normalizedBasename = basename(normalizePath(wtPath));
+    if (!normalizedBasename.startsWith(`${normalizedRepoDirname}-`)) continue;
 
     // Never remove worktrees with running invocations
-    if (normalizedRunningWtPaths.has(wtPath)) continue;
+    if (normalizedRunningWtPaths.has(normalizePath(wtPath))) continue;
 
     // Never remove worktrees preserved for session resume
-    if (normalizedPreservedWtPaths.has(wtPath)) continue;
+    if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
 
     try {
       removeWorktree(wtPath);
@@ -218,14 +230,14 @@ function cleanupRepo(
   try {
     const siblings = readdirSync(parentDir);
     for (const entry of siblings) {
-      if (!entry.startsWith(`${repoDirname}-`)) continue;
+      if (!normalizePath(entry).startsWith(`${normalizedRepoDirname}-`)) continue;
       // Skip the base repo itself
-      if (entry === repoDirname) continue;
+      if (normalizePath(entry) === normalizedRepoDirname) continue;
 
       const fullPath = join(parentDir, entry);
 
       // Skip if this is a registered worktree (already handled above)
-      if (worktreePaths.includes(normalizePath(fullPath))) continue;
+      if (normalizedWorktreePathSet.has(normalizePath(fullPath))) continue;
 
       // Skip if running
       if (normalizedRunningWtPaths.has(normalizePath(fullPath))) continue;
