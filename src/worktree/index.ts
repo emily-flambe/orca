@@ -1,6 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
+import { platform } from "node:os";
 import { git, gitWithRetry, cleanStaleLockFiles } from "../git.js";
 
 /**
@@ -47,14 +48,59 @@ function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
 }
 
 /**
+ * Normalize a path for case-insensitive, slash-direction-agnostic comparison.
+ *
+ * On Windows, git returns paths with forward slashes and may differ in drive
+ * letter casing (e.g. "C:/Users/emily/Documents/GitHub/..." vs
+ * "C:\Users\emily\Documents\Github\..."). Normalizing both sides before
+ * comparison ensures the "reuse existing worktree" path in createWorktree()
+ * actually matches and avoids the delete-and-recreate path that triggers EPERM.
+ */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/").toLowerCase();
+}
+
+/**
+ * Kill any processes that may hold file handles inside `dirPath`.
+ *
+ * On Windows, grandchild processes (e.g. wrangler dev spawning miniflare)
+ * can survive a session kill and hold open handles in the worktree directory,
+ * causing EPERM on subsequent rmSync / git worktree remove attempts.
+ *
+ * Uses PowerShell to find processes whose command line references the directory
+ * and forcefully terminates them. Best-effort: errors are silently ignored.
+ */
+function killProcessesInDirectory(dirPath: string): void {
+  if (platform() !== "win32") return;
+  try {
+    // Normalize to backslashes for matching against Windows command lines.
+    // Escape single quotes for use in a PowerShell single-quoted string.
+    const winPath = dirPath.replace(/\//g, "\\").replace(/'/g, "''");
+    execSync(
+      `powershell.exe -NoProfile -NonInteractive -Command ` +
+        `"Get-CimInstance Win32_Process | ` +
+        `Where-Object { $_.CommandLine -ne $null -and $_.CommandLine.Contains('${winPath}') } | ` +
+        `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
+      { stdio: "ignore", timeout: 10_000 },
+    );
+  } catch {
+    // Best-effort: ignore errors (process may have already exited)
+  }
+}
+
+/**
  * Check whether a git worktree is already registered at the given path.
  */
 function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
   const output = git(["worktree", "list", "--porcelain"], { cwd: repoPath });
+  const normalizedTarget = normalizePath(worktreePath);
   // Each worktree block starts with "worktree <absolute-path>"
   for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ") && line.slice("worktree ".length) === worktreePath) {
-      return true;
+    if (line.startsWith("worktree ")) {
+      // Normalize both sides: git may return forward slashes with different
+      // drive-letter casing than the path we constructed.
+      const gitPath = normalizePath(line.slice("worktree ".length));
+      if (gitPath === normalizedTarget) return true;
     }
   }
   return false;
@@ -226,6 +272,23 @@ export function deriveRepoRoot(worktreePath: string): string | undefined {
  * @param worktreePath - Absolute path to the worktree directory to remove
  */
 export function removeWorktree(worktreePath: string): void {
+  // Pre-deletion: kill processes that may hold file handles in the worktree.
+  // On Windows, grandchild processes (wrangler, miniflare, etc.) can survive
+  // after the parent session is killed and hold open handles, causing EPERM.
+  killProcessesInDirectory(worktreePath);
+
+  // Capture branch name before the directory is removed (needed for Bug 3
+  // ghost-ref cleanup below). Detached HEAD or missing worktree returns null.
+  let worktreeBranchName: string | null = null;
+  try {
+    const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath }).trim();
+    if (branchRef && branchRef !== "HEAD") {
+      worktreeBranchName = branchRef;
+    }
+  } catch {
+    // Worktree may already be in a broken state; proceed without branch name
+  }
+
   let repoRoot: string | undefined;
 
   // Level 1: resolve repo root via git
@@ -270,6 +333,18 @@ export function removeWorktree(worktreePath: string): void {
       git(["worktree", "prune"], { cwd: repoRoot });
     } catch (pruneErr) {
       console.warn(`[orca/worktree] prune after rmSync failed: ${pruneErr}`);
+    }
+
+    // Bug 3: After prune, force-delete any ghost branch reference.
+    // When rmSyncWithRetry removes the directory but git still has the branch
+    // ref pointing there (as "checked out"), git branch -D fails with "branch
+    // is checked out in worktree". git update-ref -d bypasses that check.
+    if (worktreeBranchName) {
+      try {
+        git(["update-ref", "-d", `refs/heads/${worktreeBranchName}`], { cwd: repoRoot });
+      } catch {
+        // Branch may not exist or was already cleaned up by worktree prune
+      }
     }
   }
 }
