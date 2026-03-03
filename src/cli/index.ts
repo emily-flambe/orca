@@ -180,6 +180,7 @@ program
       syncTasks: () => fullSync(db, client, graph, config, stateMap),
       client,
       stateMap,
+      projectMeta,
     });
 
     const app = new Hono();

@@ -38,6 +38,7 @@ export type WorkflowStateMap = Map<string, { id: string; type: string }>;
 
 export interface ProjectMetadata {
   id: string;
+  name: string;
   description: string;
   teamIds: string[];
 }
@@ -305,7 +306,7 @@ export class LinearClient {
     const graphql = `
       query($projectIds: [ID!]!) {
         projects(filter: { id: { in: $projectIds } }, first: 50) {
-          nodes { id description content teams { nodes { id } } }
+          nodes { id name description content teams { nodes { id } } }
         }
       }
     `;
@@ -314,6 +315,7 @@ export class LinearClient {
       projects: {
         nodes: Array<{
           id: string;
+          name: string | null;
           description: string | null;
           content: string | null;
           teams: { nodes: Array<{ id: string }> };
@@ -323,6 +325,7 @@ export class LinearClient {
 
     const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
       id: p.id,
+      name: p.name ?? "",
       description: p.content || p.description || "",
       teamIds: p.teams.nodes.map((t) => t.id),
     }));
@@ -431,5 +434,30 @@ export class LinearClient {
     }>(graphql, { issueId, stateId });
 
     return data.issueUpdate.success;
+  }
+
+  async createIssue(input: {
+    title: string;
+    teamId: string;
+    description?: string;
+    priority?: number;
+    stateId?: string;
+    projectId?: string;
+  }): Promise<{ id: string; identifier: string }> {
+    const graphql = `
+      mutation($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue { id identifier }
+        }
+      }
+    `;
+    const data = await this.query<{
+      issueCreate: { success: boolean; issue: { id: string; identifier: string } };
+    }>(graphql, { input });
+    if (!data.issueCreate.success || !data.issueCreate.issue) {
+      throw new Error("LinearClient: issueCreate returned success=false");
+    }
+    return data.issueCreate.issue;
   }
 }

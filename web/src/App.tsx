@@ -56,6 +56,10 @@ export default function App() {
     setStatus(newStatus);
   }, []);
 
+  const handleNewTicket = useCallback(async (_identifier: string) => {
+    await handleSync();
+  }, [handleSync]);
+
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
@@ -69,7 +73,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
-      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
+      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} onNewTicket={handleNewTicket} />
 
       {/* Tab bar */}
       <div className="flex gap-1 px-4 pt-2 border-b border-gray-800 bg-gray-950 shrink-0">

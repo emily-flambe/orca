@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { OrcaStatus } from "../types";
+import CreateTicketModal from "./CreateTicketModal";
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
@@ -7,12 +8,14 @@ interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
   onConfigUpdate: (config: { concurrencyCap?: number; implementModel?: string; reviewModel?: string; fixModel?: string }) => Promise<void>;
+  onNewTicket: (identifier: string) => void;
 }
 
-export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Props) {
+export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewTicket }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
+  const [showModal, setShowModal] = useState(false);
 
   if (!status) {
     return (
@@ -60,6 +63,7 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
   };
 
   return (
+    <>
     <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0">
       {/* Budget gauge */}
       <div className="flex items-center gap-2">
@@ -137,14 +141,32 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
         })}
       </div>
 
-      {/* Sync button */}
-      <button
-        onClick={handleSync}
-        disabled={syncing}
-        className="ml-auto px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {syncing ? "Syncing..." : "Sync"}
-      </button>
+      {/* Action buttons */}
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-3 py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
+        >
+          + New ticket
+        </button>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {syncing ? "Syncing..." : "Sync"}
+        </button>
+      </div>
     </div>
+    {showModal && (
+      <CreateTicketModal
+        onClose={() => setShowModal(false)}
+        onCreated={(identifier) => {
+          setShowModal(false);
+          onNewTicket(identifier);
+        }}
+      />
+    )}
+    </>
   );
 }

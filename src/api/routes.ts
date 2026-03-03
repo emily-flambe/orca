@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
+import type { LinearClient, WorkflowStateMap, ProjectMetadata } from "../linear/client.js";
 import {
   type Task,
   getAllTasks,
@@ -43,6 +43,7 @@ export interface ApiDeps {
   syncTasks: () => Promise<number>;
   client: LinearClient;
   stateMap: WorkflowStateMap;
+  projectMeta: ProjectMetadata[];
 }
 
 // ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, syncTasks, client, stateMap } = deps;
+  const { db, config, syncTasks, client, stateMap, projectMeta } = deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -427,6 +428,74 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const sliced = lines.slice(-tail);
 
     return c.json({ lines: sliced, total, sizeBytes });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/projects
+  // -----------------------------------------------------------------------
+  app.get("/api/projects", (c) => {
+    return c.json(projectMeta.map((p) => ({ id: p.id, name: p.name })));
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/tasks
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks", async (c) => {
+    let body: { title?: string; description?: string; projectId?: string; priority?: number; status?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    if (!body.title || typeof body.title !== "string" || body.title.trim() === "") {
+      return c.json({ error: "title is required" }, 400);
+    }
+
+    // Find team for the given project (or first configured project)
+    const targetProjectId = body.projectId ?? config.linearProjectIds[0];
+    const project = projectMeta.find((p) => p.id === targetProjectId);
+    if (!project || project.teamIds.length === 0) {
+      return c.json({ error: "project not found or has no team" }, 400);
+    }
+    const teamId = project.teamIds[0]!;
+
+    // Resolve state ID from stateMap
+    let stateId: string | undefined;
+    if (body.status === "backlog") {
+      stateId = stateMap.get("Backlog")?.id;
+    } else {
+      // Default to "Todo"
+      stateId = stateMap.get("Todo")?.id;
+    }
+
+    // Priority: 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low; validate
+    let priority: number | undefined;
+    if (body.priority !== undefined) {
+      const p = Number(body.priority);
+      if (Number.isInteger(p) && p >= 0 && p <= 4) {
+        priority = p;
+      }
+    }
+
+    try {
+      const issue = await client.createIssue({
+        title: body.title.trim(),
+        teamId,
+        description: body.description || undefined,
+        priority,
+        stateId,
+        projectId: targetProjectId,
+      });
+
+      // Trigger sync so the new ticket appears immediately
+      syncTasks().catch(() => {});
+
+      return c.json({ identifier: issue.identifier, id: issue.id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
   });
 
   // -----------------------------------------------------------------------
