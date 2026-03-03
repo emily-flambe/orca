@@ -31,11 +31,11 @@ type SortOption = (typeof SORT_OPTIONS)[number];
 
 function priorityDot(p: number): { color: string; label: string; title: string } {
   switch (p) {
-    case 1: return { color: "bg-red-500 text-white", label: "P0 (urgent)", title: "P0 (urgent)" };
-    case 2: return { color: "bg-orange-500 text-white", label: "P1 (high)", title: "P1 (high)" };
-    case 3: return { color: "bg-blue-500 text-white", label: "P2 (medium)", title: "P2 (medium)" };
-    case 4: return { color: "bg-gray-500 text-white", label: "P3 (low)", title: "P3 (low)" };
-    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4 (no urgency set)", title: "P4 (no urgency set)" };
+    case 1: return { color: "bg-red-500 text-white", label: "P0", title: "P0" };
+    case 2: return { color: "bg-orange-500 text-white", label: "P1", title: "P1" };
+    case 3: return { color: "bg-blue-500 text-white", label: "P2", title: "P2" };
+    case 4: return { color: "bg-gray-500 text-white", label: "P3", title: "P3" };
+    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4", title: "P4" };
   }
 }
 
