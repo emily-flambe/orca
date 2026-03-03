@@ -251,7 +251,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // Ensure logs directory exists and open the log file for writing.
   const logsDir = ensureLogsDir(options.projectRoot);
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
-  const logStream = createWriteStream(logPath, { flags: "a" });
+  const logStream = createWriteStream(logPath, { flags: "w" });
 
   // Clean stale Claude Code project dirs for other worktrees of the same repo.
   // Claude Code identifies projects by path, but resolves git worktrees to the
