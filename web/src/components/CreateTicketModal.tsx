@@ -7,19 +7,18 @@ interface Props {
 }
 
 const PRIORITY_OPTIONS = [
-  { label: "No priority", value: undefined },
-  { label: "P0 Urgent", value: 1 },
-  { label: "P1 High", value: 2 },
-  { label: "P2 Normal", value: 3 },
-  { label: "P3 Low", value: 4 },
-  { label: "P4 Minimal", value: 0 },
+  { label: "P4 – No priority", value: 0 },
+  { label: "P0 – Urgent", value: 1 },
+  { label: "P1 – High", value: 2 },
+  { label: "P2 – Normal", value: 3 },
+  { label: "P3 – Low", value: 4 },
 ] as const;
 
 export default function CreateTicketModal({ onClose, onCreated }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [priority, setPriority] = useState<number | undefined>(undefined);
+  const [priority, setPriority] = useState<number>(0);
   const [status, setStatus] = useState<"todo" | "backlog">("todo");
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +60,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
       onCreated(result.identifier);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create ticket");
+    } finally {
       setSubmitting(false);
     }
   };
@@ -128,12 +128,12 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
             <div className="w-36">
               <label className="block text-xs text-gray-400 mb-1">Priority</label>
               <select
-                value={priority ?? ""}
-                onChange={(e) => setPriority(e.target.value === "" ? undefined : Number(e.target.value))}
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
               >
                 {PRIORITY_OPTIONS.map((opt) => (
-                  <option key={String(opt.value)} value={opt.value ?? ""}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>

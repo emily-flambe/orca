@@ -452,6 +452,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "title is required" }, 400);
     }
 
+    if (body.status !== undefined && body.status !== "todo" && body.status !== "backlog") {
+      return c.json({ error: "status must be 'todo' or 'backlog'" }, 400);
+    }
+
     // Find team for the given project (or first configured project)
     const targetProjectId = body.projectId ?? config.linearProjectIds[0];
     const project = projectMeta.find((p) => p.id === targetProjectId);
