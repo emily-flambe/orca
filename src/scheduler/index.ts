@@ -93,13 +93,16 @@ const noMarkerRetryCounts = new Map<string, number>();
 const NO_MARKER_RETRY_LIMIT = 3;
 
 /**
- * Per-repo cooldown timestamps. When worktree creation fails with a
- * DLL init error (0xC0000142), the repo is put on cooldown so the
- * scheduler doesn't immediately re-dispatch to it on the next tick.
- * This gives the system time to reclaim resources.
+ * Global cooldown timestamp. When ANY git command hits DLL_INIT
+ * (0xC0000142 — Windows resource exhaustion), ALL git-based operations
+ * (dispatch AND cleanup) pause until the cooldown expires.
+ *
+ * DLL_INIT is a system-wide condition, not per-repo. Pausing everything
+ * prevents the death spiral where retries spawn more processes into an
+ * already-exhausted system.
  */
-const repoCooldowns = new Map<string, number>();
-const REPO_COOLDOWN_MS = 30_000; // 30 seconds
+let globalDllCooldownUntil = 0;
+const GLOBAL_DLL_COOLDOWN_MS = 120_000; // 2 minutes
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -242,27 +245,29 @@ async function dispatch(
   } else {
     try {
       worktreeResult = createWorktree(task.repoPath, taskId, invocationId, { baseRef });
-      // Successful worktree creation — reset transient failure counter and repo cooldown
+      // Successful worktree creation — reset transient failure counter and global cooldown
       transientFailureCounts.delete(taskId);
-      repoCooldowns.delete(task.repoPath);
+      if (globalDllCooldownUntil > 0) {
+        log("worktree creation succeeded — clearing DLL_INIT cooldown");
+        globalDllCooldownUntil = 0;
+      }
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
+
+      if (isDllInitError(err)) {
+        // DLL_INIT is system-wide resource exhaustion. Activate global
+        // cooldown to stop ALL git operations (dispatch + cleanup).
+        globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
+        log(`DLL_INIT detected — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s (all git ops paused)`);
+      }
 
       if (isTransientGitError(err)) {
         const count = (transientFailureCounts.get(taskId) ?? 0) + 1;
         transientFailureCounts.set(taskId, count);
 
-        // DLL init errors: put the repo on cooldown so the scheduler
-        // doesn't immediately re-dispatch to it on the next tick
-        if (isDllInitError(err)) {
-          repoCooldowns.set(task.repoPath, Date.now() + REPO_COOLDOWN_MS);
-          log(`repo ${task.repoPath} on cooldown for ${REPO_COOLDOWN_MS / 1000}s (DLL_INIT)`);
-        }
-
         if (count < TRANSIENT_FAILURE_LIMIT) {
-          // Transient OS-level failure (e.g. Windows DLL init) — re-queue
-          // without burning a retry. Task will be re-dispatched after cooldown.
-          log(`transient error detected for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing as ready`);
+          // Transient failure — re-queue without burning a retry.
+          log(`transient error for task ${taskId} (${count}/${TRANSIENT_FAILURE_LIMIT}) — re-queuing`);
           updateTaskStatus(db, taskId, task.orcaStatus === "in_review" ? "in_review" : task.orcaStatus === "changes_requested" ? "changes_requested" : "ready");
           updateInvocation(db, invocationId, {
             status: "failed",
@@ -273,13 +278,12 @@ async function dispatch(
           return;
         }
 
-        // Circuit breaker tripped — persistent "transient" error.
-        // Fall through to burn a real retry.
-        log(`transient error circuit breaker tripped for task ${taskId} after ${count} consecutive failures — burning retry`);
+        // Circuit breaker tripped — burn a real retry.
+        log(`transient circuit breaker for task ${taskId} after ${count} failures — burning retry`);
         transientFailureCounts.delete(taskId);
       }
 
-      // Non-transient error — existing behavior: mark failed, burn retry
+      // Non-transient error or circuit breaker — mark failed, burn retry
       updateTaskStatus(db, taskId, "failed");
       updateInvocation(db, invocationId, {
         status: "failed",
@@ -1283,15 +1287,33 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   // Check awaiting_ci tasks (poll PR checks, merge when CI passes)
   await checkPrCi(deps);
 
+  // Global DLL_INIT cooldown — skip dispatch and cleanup entirely.
+  // DLL_INIT is system-wide resource exhaustion; spawning ANY process
+  // (git, gh, node) will likely fail and make things worse.
+  const now = Date.now();
+  if (now < globalDllCooldownUntil) {
+    const remainingSec = Math.ceil((globalDllCooldownUntil - now) / 1000);
+    // Only log every 30s to avoid spam
+    if (remainingSec % 30 < (config.schedulerIntervalSec + 1)) {
+      log(`DLL_INIT cooldown active — ${remainingSec}s remaining, skipping dispatch and cleanup`);
+    }
+    return;
+  }
+
   // Periodic cleanup of stale branches and orphaned worktrees
   const cleanupIntervalMs = config.cleanupIntervalMin * 60 * 1000;
-  const now = Date.now();
   if (now - lastCleanupTime >= cleanupIntervalMs) {
     lastCleanupTime = now;
     try {
       cleanupStaleResources({ db, config });
     } catch (err) {
       log(`cleanup error: ${err}`);
+      // If cleanup hit DLL_INIT, activate cooldown
+      if (isDllInitError(err)) {
+        globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
+        log(`DLL_INIT in cleanup — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s`);
+        return;
+      }
     }
   }
 
@@ -1325,18 +1347,10 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   const runningInvs = getRunningInvocations(db);
   const tasksWithRunningInv = new Set(runningInvs.map((inv) => inv.linearIssueId));
 
-  // Expire stale repo cooldowns
-  const tickNow = Date.now();
-  for (const [repo, expiresAt] of repoCooldowns) {
-    if (tickNow >= expiresAt) repoCooldowns.delete(repo);
-  }
-
   const dispatchable = candidates.filter((t) => {
     if (!t.agentPrompt) return false;
     if (t.isParent) return false; // never dispatch parent issues
     if (tasksWithRunningInv.has(t.linearIssueId)) return false;
-    // Skip tasks whose repo is on cooldown (DLL init recovery)
-    if (repoCooldowns.has(t.repoPath)) return false;
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
       return graph.isDispatchable(t.linearIssueId, getStatus);

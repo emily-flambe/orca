@@ -2,7 +2,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
-import { git, gitWithRetry, cleanStaleLockFiles } from "../git.js";
+import { git, cleanStaleLockFiles } from "../git.js";
 
 /**
  * Run npm install synchronously in the given directory.
@@ -188,13 +188,13 @@ export function createWorktree(
   cleanStaleLockFiles(repoPath);
 
   // Fetch origin (with retry for transient OS errors)
-  gitWithRetry(["fetch", "origin"], { cwd: repoPath });
+  git(["fetch", "origin"], { cwd: repoPath });
 
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
     if (baseRef) {
       // For review/fix phases, reset to the remote tracking branch
-      gitWithRetry(["fetch", "origin"], { cwd: worktreePath });
+      git(["fetch", "origin"], { cwd: worktreePath });
       git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
     } else {
       resetWorktree(worktreePath);
@@ -360,6 +360,6 @@ export function removeWorktree(worktreePath: string): void {
  * @throws Error if the git fetch or reset commands fail
  */
 export function resetWorktree(worktreePath: string): void {
-  gitWithRetry(["fetch", "origin"], { cwd: worktreePath });
+  git(["fetch", "origin"], { cwd: worktreePath });
   git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
 }
