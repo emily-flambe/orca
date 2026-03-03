@@ -106,3 +106,29 @@ export function fetchSystemLogs(params?: { tail?: number; filter?: string }): Pr
   const query = qs.toString();
   return fetchJson<SystemLogsData>(`/logs${query ? `?${query}` : ""}`);
 }
+
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  teamId: string;
+}
+
+export function fetchProjects(): Promise<ProjectInfo[]> {
+  return fetchJson<ProjectInfo[]>("/projects");
+}
+
+export interface CreateTicketOptions {
+  title: string;
+  description?: string;
+  projectId?: string;
+  priority?: number;
+  status?: "ready" | "backlog";
+}
+
+export function createTicket(opts: CreateTicketOptions): Promise<{ identifier: string; id: string }> {
+  return fetchJson<{ identifier: string; id: string }>("/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+}

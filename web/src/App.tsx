@@ -7,6 +7,7 @@ import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import Metrics from "./components/Metrics";
 import SystemLog from "./components/SystemLog";
+import CreateTicketModal from "./components/CreateTicketModal";
 
 type Tab = "tasks" | "metrics" | "logs";
 
@@ -17,6 +18,7 @@ export default function App() {
   const [detailKey, setDetailKey] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("tasks");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [showCreateTicket, setShowCreateTicket] = useState(false);
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -62,6 +64,11 @@ export default function App() {
     onInvocationCompleted: handleInvocationCompleted,
   });
 
+  const handleTicketCreated = useCallback(async (_identifier: string) => {
+    setShowCreateTicket(false);
+    await handleSync();
+  }, [handleSync]);
+
   const handleSelectTask = useCallback((id: string) => {
     setSelectedTaskId(id);
     setMobileView("detail");
@@ -69,7 +76,8 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
-      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} />
+      <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} onNewTicket={() => setShowCreateTicket(true)} />
+      <CreateTicketModal isOpen={showCreateTicket} onClose={() => setShowCreateTicket(false)} onSuccess={handleTicketCreated} />
 
       {/* Tab bar */}
       <div className="flex gap-1 px-4 pt-2 border-b border-gray-800 bg-gray-950 shrink-0">

@@ -7,9 +7,10 @@ interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
   onConfigUpdate: (config: { concurrencyCap?: number; implementModel?: string; reviewModel?: string; fixModel?: string }) => Promise<void>;
+  onNewTicket: () => void;
 }
 
-export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Props) {
+export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewTicket }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
@@ -137,14 +138,22 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate }: Prop
         })}
       </div>
 
-      {/* Sync button */}
-      <button
-        onClick={handleSync}
-        disabled={syncing}
-        className="ml-auto px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {syncing ? "Syncing..." : "Sync"}
-      </button>
+      {/* New ticket + Sync buttons */}
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={onNewTicket}
+          className="px-3 py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
+        >
+          New ticket
+        </button>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {syncing ? "Syncing..." : "Sync"}
+        </button>
+      </div>
     </div>
   );
 }

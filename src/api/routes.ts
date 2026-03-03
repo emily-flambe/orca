@@ -292,6 +292,91 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/projects
+  // -----------------------------------------------------------------------
+  app.get("/api/projects", async (c) => {
+    try {
+      const projects = await client.fetchProjectNames(config.linearProjectIds);
+      return c.json(projects);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/tasks
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    const title = body.title;
+    if (typeof title !== "string" || title.trim().length === 0) {
+      return c.json({ error: "title is required" }, 400);
+    }
+
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const projectId = typeof body.projectId === "string" ? body.projectId : undefined;
+
+    const priority = body.priority !== undefined ? body.priority : undefined;
+    if (priority !== undefined) {
+      if (typeof priority !== "number" || !Number.isInteger(priority) || priority < 0 || priority > 4) {
+        return c.json({ error: "priority must be an integer 0–4" }, 400);
+      }
+    }
+
+    const status = body.status ?? "ready";
+    if (status !== "ready" && status !== "backlog") {
+      return c.json({ error: 'status must be "ready" or "backlog"' }, 400);
+    }
+
+    // Resolve teamId from project list
+    let teamId = "";
+    try {
+      const projects = await client.fetchProjectNames(config.linearProjectIds);
+      const matched = projectId
+        ? projects.find((p) => p.id === projectId)
+        : projects[0];
+      teamId = matched?.teamId ?? "";
+    } catch {
+      // non-fatal — will error below if still empty
+    }
+
+    if (!teamId) {
+      return c.json({ error: "could not resolve team for project" }, 400);
+    }
+
+    // Map status to Linear state
+    const linearStateName = status === "ready" ? "Todo" : "Backlog";
+    const stateEntry = stateMap.get(linearStateName);
+    const stateId = stateEntry?.id;
+
+    try {
+      const issue = await client.createIssue({
+        teamId,
+        title: title.trim(),
+        description,
+        projectId,
+        priority: priority as number | undefined,
+        stateId,
+      });
+
+      // Sync in background so the new ticket appears
+      syncTasks().catch(() => {});
+
+      return c.json({ identifier: issue.identifier, id: issue.id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/sync
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {

@@ -432,4 +432,74 @@ export class LinearClient {
 
     return data.issueUpdate.success;
   }
+
+  async fetchProjectNames(
+    projectIds: string[],
+  ): Promise<{ id: string; name: string; teamId: string }[]> {
+    if (projectIds.length === 0) return [];
+
+    const graphql = `
+      query($projectIds: [ID!]!) {
+        projects(filter: { id: { in: $projectIds } }, first: 50) {
+          nodes { id name teams { nodes { id } } }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      projects: {
+        nodes: Array<{
+          id: string;
+          name: string;
+          teams: { nodes: Array<{ id: string }> };
+        }>;
+      };
+    }>(graphql, { projectIds });
+
+    return data.projects.nodes.map((p) => ({
+      id: p.id,
+      name: p.name,
+      teamId: p.teams.nodes[0]?.id ?? "",
+    }));
+  }
+
+  async createIssue(opts: {
+    teamId: string;
+    title: string;
+    description?: string;
+    projectId?: string;
+    priority?: number;
+    stateId?: string;
+  }): Promise<{ id: string; identifier: string }> {
+    const graphql = `
+      mutation($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue { id identifier }
+        }
+      }
+    `;
+
+    const input: Record<string, unknown> = {
+      teamId: opts.teamId,
+      title: opts.title,
+    };
+    if (opts.description !== undefined) input.description = opts.description;
+    if (opts.projectId !== undefined) input.projectId = opts.projectId;
+    if (opts.priority !== undefined) input.priority = opts.priority;
+    if (opts.stateId !== undefined) input.stateId = opts.stateId;
+
+    const data = await this.query<{
+      issueCreate: {
+        success: boolean;
+        issue: { id: string; identifier: string } | null;
+      };
+    }>(graphql, { input });
+
+    if (!data.issueCreate.success || !data.issueCreate.issue) {
+      throw new Error("LinearClient: issueCreate returned success=false");
+    }
+
+    return data.issueCreate.issue;
+  }
 }
