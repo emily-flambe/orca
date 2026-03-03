@@ -1,3 +1,4 @@
+// Verified working: 2026-03-03
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
