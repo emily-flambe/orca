@@ -78,7 +78,7 @@ describe("GET /api/tasks", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
   });
 
   it("returns empty array when no tasks exist", async () => {
@@ -154,7 +154,7 @@ describe("GET /api/tasks/:id", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
   });
 
   it("returns task with invocations array", async () => {
@@ -200,6 +200,9 @@ describe("GET /api/status", () => {
       db,
       config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
       syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
     });
   });
 
@@ -256,7 +259,7 @@ describe("GET /api/events (SSE)", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0) });
+    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
   });
 
   it("returns content-type text/event-stream and streams events", async () => {
@@ -356,6 +359,7 @@ describe("POST /api/tasks/:id/status", () => {
       syncTasks: vi.fn().mockResolvedValue(0),
       client: mockClient,
       stateMap,
+      projectMeta: [],
     });
 
     // Spy on task:updated event emissions
@@ -817,5 +821,188 @@ describe("POST /api/tasks/:id/status", () => {
 
     const res = await postStatus("T-EMPTY-STR", { status: "" });
     expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/projects  (EMI-101: in-app ticket creation)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/projects", () => {
+  it("returns project id and name from projectMeta", async () => {
+    const projectMeta = [
+      { id: "proj-1", name: "Orca", description: "", teamIds: ["team-1"] },
+      { id: "proj-2", name: "Other", description: "", teamIds: ["team-2"] },
+    ];
+    const app = createApiRoutes({
+      db: createDb(":memory:"),
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta,
+    });
+
+    const res = await app.request("/api/projects");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([
+      { id: "proj-1", name: "Orca" },
+      { id: "proj-2", name: "Other" },
+    ]);
+  });
+
+  it("returns empty array when projectMeta is empty", async () => {
+    const app = createApiRoutes({
+      db: createDb(":memory:"),
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
+
+    const res = await app.request("/api/projects");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/tasks  (EMI-101: in-app ticket creation)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tasks", () => {
+  let db: OrcaDb;
+  let app: Hono;
+  let createIssueMock: ReturnType<typeof vi.fn>;
+  let syncTasksMock: ReturnType<typeof vi.fn>;
+  let stateMap: WorkflowStateMap;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    createIssueMock = vi.fn().mockResolvedValue({ id: "issue-abc", identifier: "PROJ-42" });
+    syncTasksMock = vi.fn().mockResolvedValue(0);
+    stateMap = new Map([
+      ["Backlog", { id: "state-backlog", type: "backlog" }],
+      ["Todo", { id: "state-todo", type: "unstarted" }],
+    ]);
+    const mockClient = { createIssue: createIssueMock } as any;
+    const projectMeta = [
+      { id: "proj-1", name: "Orca", description: "", teamIds: ["team-1"] },
+    ];
+    app = createApiRoutes({
+      db,
+      config: makeConfig({ linearProjectIds: ["proj-1"] }),
+      syncTasks: syncTasksMock,
+      client: mockClient,
+      stateMap,
+      projectMeta,
+    });
+  });
+
+  function post(body: unknown) {
+    return app.request("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("creates an issue and returns identifier", async () => {
+    const res = await post({ title: "Fix the thing" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ id: "issue-abc", identifier: "PROJ-42" });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Fix the thing",
+      teamId: "team-1",
+      stateId: "state-todo",
+    }));
+  });
+
+  it("uses backlog state when status=backlog", async () => {
+    await post({ title: "Someday task", status: "backlog" });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
+      stateId: "state-backlog",
+    }));
+  });
+
+  it("passes priority to createIssue", async () => {
+    await post({ title: "Urgent bug", priority: 1 });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }));
+  });
+
+  it("ignores out-of-range priority", async () => {
+    await post({ title: "Bad prio", priority: 99 });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: undefined }));
+  });
+
+  it("trims whitespace from title", async () => {
+    await post({ title: "  spaces  " });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: "spaces" }));
+  });
+
+  it("triggers sync after creation", async () => {
+    await post({ title: "New ticket" });
+    // syncTasks is called fire-and-forget; wait a tick for the promise to enqueue
+    await new Promise((r) => setTimeout(r, 0));
+    expect(syncTasksMock).toHaveBeenCalled();
+  });
+
+  it("returns 400 when title is missing", async () => {
+    const res = await post({ description: "no title" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/title/i);
+  });
+
+  it("returns 400 when title is blank", async () => {
+    const res = await post({ title: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for invalid status value", async () => {
+    const res = await post({ title: "ok", status: "in_progress" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/status/i);
+  });
+
+  it("returns 400 when project has no team", async () => {
+    const appNoTeam = createApiRoutes({
+      db: createDb(":memory:"),
+      config: makeConfig({ linearProjectIds: ["proj-empty"] }),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: { createIssue: createIssueMock } as any,
+      stateMap,
+      projectMeta: [{ id: "proj-empty", name: "Empty", description: "", teamIds: [] }],
+    });
+    const res = await appNoTeam.request("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "ok" }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/team/i);
+  });
+
+  it("returns 400 for invalid JSON body", async () => {
+    const res = await app.request("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not-json{{{",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 500 when createIssue throws", async () => {
+    createIssueMock.mockRejectedValueOnce(new Error("Linear API down"));
+    const res = await post({ title: "Will fail" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Linear API down");
   });
 });
