@@ -65,7 +65,6 @@ export default function App() {
   });
 
   const handleTicketCreated = useCallback(async (_identifier: string) => {
-    setShowCreateTicket(false);
     await handleSync();
   }, [handleSync]);
 

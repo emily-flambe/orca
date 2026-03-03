@@ -296,8 +296,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.get("/api/projects", async (c) => {
     try {
-      const projects = await client.fetchProjectNames(config.linearProjectIds);
-      return c.json(projects);
+      const projects = await client.fetchProjectMetadata(config.linearProjectIds);
+      return c.json(projects.map((p) => ({ id: p.id, name: p.name })));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: message }, 500);
@@ -323,7 +323,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const description = typeof body.description === "string" ? body.description : undefined;
     const projectId = typeof body.projectId === "string" ? body.projectId : undefined;
 
-    const priority = body.priority !== undefined ? body.priority : undefined;
+    const priority = body.priority;
     if (priority !== undefined) {
       if (typeof priority !== "number" || !Number.isInteger(priority) || priority < 0 || priority > 4) {
         return c.json({ error: "priority must be an integer 0–4" }, 400);
@@ -338,11 +338,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Resolve teamId from project list
     let teamId = "";
     try {
-      const projects = await client.fetchProjectNames(config.linearProjectIds);
+      const projects = await client.fetchProjectMetadata(config.linearProjectIds);
       const matched = projectId
         ? projects.find((p) => p.id === projectId)
         : projects[0];
-      teamId = matched?.teamId ?? "";
+      teamId = matched?.teamIds[0] ?? "";
     } catch {
       // non-fatal — will error below if still empty
     }

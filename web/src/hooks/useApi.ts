@@ -110,7 +110,6 @@ export function fetchSystemLogs(params?: { tail?: number; filter?: string }): Pr
 export interface ProjectInfo {
   id: string;
   name: string;
-  teamId: string;
 }
 
 export function fetchProjects(): Promise<ProjectInfo[]> {

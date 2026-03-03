@@ -76,7 +76,7 @@ export default function CreateTicketModal({ isOpen, onClose, onSuccess }: Props)
         priority,
         status,
       });
-      resetForm();
+      handleClose();
       onSuccess(result.identifier);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create ticket");

@@ -38,6 +38,7 @@ export type WorkflowStateMap = Map<string, { id: string; type: string }>;
 
 export interface ProjectMetadata {
   id: string;
+  name: string;
   description: string;
   teamIds: string[];
 }
@@ -305,7 +306,7 @@ export class LinearClient {
     const graphql = `
       query($projectIds: [ID!]!) {
         projects(filter: { id: { in: $projectIds } }, first: 50) {
-          nodes { id description content teams { nodes { id } } }
+          nodes { id name description content teams { nodes { id } } }
         }
       }
     `;
@@ -314,6 +315,7 @@ export class LinearClient {
       projects: {
         nodes: Array<{
           id: string;
+          name: string;
           description: string | null;
           content: string | null;
           teams: { nodes: Array<{ id: string }> };
@@ -323,6 +325,7 @@ export class LinearClient {
 
     const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
       id: p.id,
+      name: p.name,
       description: p.content || p.description || "",
       teamIds: p.teams.nodes.map((t) => t.id),
     }));
@@ -431,36 +434,6 @@ export class LinearClient {
     }>(graphql, { issueId, stateId });
 
     return data.issueUpdate.success;
-  }
-
-  async fetchProjectNames(
-    projectIds: string[],
-  ): Promise<{ id: string; name: string; teamId: string }[]> {
-    if (projectIds.length === 0) return [];
-
-    const graphql = `
-      query($projectIds: [ID!]!) {
-        projects(filter: { id: { in: $projectIds } }, first: 50) {
-          nodes { id name teams { nodes { id } } }
-        }
-      }
-    `;
-
-    const data = await this.query<{
-      projects: {
-        nodes: Array<{
-          id: string;
-          name: string;
-          teams: { nodes: Array<{ id: string }> };
-        }>;
-      };
-    }>(graphql, { projectIds });
-
-    return data.projects.nodes.map((p) => ({
-      id: p.id,
-      name: p.name,
-      teamId: p.teams.nodes[0]?.id ?? "",
-    }));
   }
 
   async createIssue(opts: {
