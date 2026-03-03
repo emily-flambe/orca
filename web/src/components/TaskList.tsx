@@ -12,6 +12,7 @@ interface Props {
 }
 
 const STATUS_FILTERS = [
+  { value: "backlog", label: "backlog" },
   { value: "ready", label: "queued" },
   { value: "running", label: "running" },
   { value: "dispatched", label: "dispatched" },
@@ -66,7 +67,7 @@ const MANUAL_STATUSES = [
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
-    () => new Set(ALL_FILTER_VALUES),
+    () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
   const [sort, setSort] = useState<SortOption>("priority");
 
