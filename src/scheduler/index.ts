@@ -8,6 +8,7 @@ import {
   getDeployingTasks,
   getDispatchableTasks,
   getInvocationsByTask,
+  getLastCompletedImplementInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
@@ -200,7 +201,22 @@ async function dispatch(
     }
   }
 
+  // Case 2: Fix phase resumes implement session
+  if (
+    phase === "implement" &&
+    task.orcaStatus === "changes_requested" &&
+    config.resumeOnFix
+  ) {
+    const prevInv = getLastCompletedImplementInvocation(db, taskId);
+    if (prevInv?.sessionId) {
+      resumeSessionId = prevInv.sessionId;
+      // No worktreePath — fix phase creates its own worktree from the PR branch
+      log(`fix-phase resume: session ${resumeSessionId} for task ${taskId}`);
+    }
+  }
+
   const isResume = resumeSessionId != null;
+  const isWorktreeResume = resumeWorktreePath != null;
 
   // 3. Determine model for this phase (needed for invocation record)
   const model =
@@ -227,7 +243,9 @@ async function dispatch(
     phase === "review"
       ? `Dispatched for code review (invocation #${invocationId}, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`
       : task.orcaStatus === "changes_requested"
-        ? `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
+        ? isResume
+          ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, session ${resumeSessionId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
+          : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
         : isResume
           ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
           : `Dispatched for implementation (invocation #${invocationId})`;
@@ -242,7 +260,7 @@ async function dispatch(
   // 5. Create or reuse worktree
   let worktreeResult: { worktreePath: string; branchName: string };
 
-  if (isResume) {
+  if (isWorktreeResume) {
     // Reuse preserved worktree from previous max-turns invocation
     worktreeResult = {
       worktreePath: resumeWorktreePath!,
@@ -322,7 +340,9 @@ async function dispatch(
     maxTurns = config.reviewMaxTurns;
   } else if (useExistingBranch) {
     // Fix phase (implement on changes_requested)
-    agentPrompt = `${task.agentPrompt}\n\nFix issues from code review.`;
+    agentPrompt = isResume
+      ? `You previously implemented this task. The code review requested changes — fix the issues raised in the review.`
+      : `${task.agentPrompt}\n\nFix issues from code review.`;
     systemPrompt = config.fixSystemPrompt || undefined;
   } else if (isResume) {
     // Resume: continuation prompt instead of full task prompt

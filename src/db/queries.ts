@@ -256,6 +256,30 @@ export function getInvocationsByTask(
 }
 
 /**
+ * Find the most recent completed implement-phase invocation for a task that
+ * has a valid session ID. Used to resume the implement session during fix phase.
+ */
+export function getLastCompletedImplementInvocation(
+  db: OrcaDb,
+  taskId: string,
+): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        eq(invocations.phase, "implement"),
+        eq(invocations.status, "completed"),
+        isNotNull(invocations.sessionId),
+      ),
+    )
+    .orderBy(desc(invocations.id))
+    .limit(1)
+    .get();
+}
+
+/**
  * Find the most recent invocation for a task where the agent hit max turns
  * during the implement phase and has a valid session ID and worktree path.
  * Used to determine if a retry can resume the previous session.
