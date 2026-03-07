@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import { fetchMetrics } from "../hooks/useApi";
 import type { MetricsData, RecentError } from "../hooks/useApi";
+import Card from "./ui/Card";
+import EmptyState from "./ui/EmptyState";
+import Skeleton from "./ui/Skeleton";
+import Button from "./ui/Button";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,11 +50,11 @@ function statusColor(s: string): string {
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <Card>
       <div className="text-xs text-gray-500 mb-1">{label}</div>
       <div className="text-2xl font-mono font-semibold text-gray-100">{value}</div>
       {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
-    </div>
+    </Card>
   );
 }
 
@@ -73,7 +77,7 @@ function TaskStatusGrid({ byStatus }: { byStatus: Record<string, number> }) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <Card>
       <div className="text-xs text-gray-500 mb-3">Tasks by Status</div>
       <div className="flex flex-wrap gap-2">
         {entries.map(({ status, count }) => (
@@ -83,10 +87,10 @@ function TaskStatusGrid({ byStatus }: { byStatus: Record<string, number> }) {
           </div>
         ))}
         {entries.length === 0 && (
-          <span className="text-sm text-gray-500">No tasks</span>
+          <EmptyState message="No tasks" />
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -102,7 +106,7 @@ function InvocationStatusRow({ byStatus }: { byStatus: { status: string; count: 
     : null;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <Card>
       <div className="text-xs text-gray-500 mb-3">Invocations ({total} total)</div>
       <div className="flex gap-4 flex-wrap">
         <div className="text-center">
@@ -128,22 +132,22 @@ function InvocationStatusRow({ byStatus }: { byStatus: { status: string; count: 
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
 function RecentErrors({ errors }: { errors: RecentError[] }) {
   if (errors.length === 0) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+      <Card>
         <div className="text-xs text-gray-500 mb-2">Recent Errors</div>
-        <div className="text-sm text-gray-500">No recent errors</div>
-      </div>
+        <EmptyState message="No recent errors" />
+      </Card>
     );
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <Card>
       <div className="text-xs text-gray-500 mb-3">Recent Errors (last {errors.length})</div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -169,7 +173,7 @@ function RecentErrors({ errors }: { errors: RecentError[] }) {
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -198,7 +202,7 @@ export default function Metrics() {
   }, []);
 
   if (loading) {
-    return <div className="p-6 text-sm text-gray-500">Loading metrics...</div>;
+    return <div className="p-6"><Skeleton lines={5} /></div>;
   }
 
   if (error) {
@@ -213,12 +217,7 @@ export default function Metrics() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-300">Metrics</h2>
-        <button
-          onClick={load}
-          className="text-xs px-2 py-1 rounded bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
-        >
-          Refresh
-        </button>
+        <Button onClick={load}>Refresh</Button>
       </div>
 
       {/* Summary stat cards */}

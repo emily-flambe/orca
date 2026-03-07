@@ -2,22 +2,15 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import StatusBadge, { statusStyles } from "./ui/StatusBadge";
+import Button from "./ui/Button";
+import Skeleton from "./ui/Skeleton";
+import EmptyState from "./ui/EmptyState";
 
 interface Props {
   taskId: string;
 }
 
-function statusBadge(s: string): string {
-  switch (s) {
-    case "done": case "completed": return "bg-green-500/20 text-green-400";
-    case "running": return "bg-blue-500/20 text-blue-400";
-    case "ready": return "bg-cyan-500/20 text-cyan-400";
-    case "failed": return "bg-red-500/20 text-red-400";
-    case "dispatched": return "bg-gray-500/20 text-gray-400";
-    case "timed_out": return "bg-orange-500/20 text-orange-400";
-    default: return "bg-gray-500/20 text-gray-400";
-  }
-}
 
 function formatDuration(start: string, end: string | null): string {
   if (!end) return "running...";
@@ -62,7 +55,7 @@ export default function TaskDetail({ taskId }: Props) {
   }, []);
 
   if (!detail) {
-    return <div className="p-4 text-gray-500">Loading...</div>;
+    return <div className="p-4"><Skeleton lines={4} /></div>;
   }
 
   const invocations = [...(detail.invocations || [])].sort(
@@ -77,7 +70,7 @@ export default function TaskDetail({ taskId }: Props) {
         <div className="relative" ref={statusMenuRef}>
           <button
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${statusBadge(detail.orcaStatus)}`}
+            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${statusStyles(detail.orcaStatus)}`}
           >
             {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
           </button>
@@ -102,7 +95,8 @@ export default function TaskDetail({ taskId }: Props) {
           )}
         </div>
         {detail.orcaStatus === "failed" && (
-          <button
+          <Button
+            variant="success"
             onClick={() => {
               if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
               retryTask(detail.linearIssueId)
@@ -110,10 +104,9 @@ export default function TaskDetail({ taskId }: Props) {
                 .then((d) => setDetail(d))
                 .catch(console.error);
             }}
-            className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
           >
             Retry
-          </button>
+          </Button>
         )}
       </div>
 
@@ -129,7 +122,7 @@ export default function TaskDetail({ taskId }: Props) {
       <div>
         <h3 className="text-sm text-gray-400 mb-2">Invocation History</h3>
         {invocations.length === 0 ? (
-          <div className="text-sm text-gray-500">No invocations yet</div>
+          <EmptyState message="No invocations yet" />
         ) : (
           <>
             {/* Mobile: card layout */}
@@ -142,9 +135,7 @@ export default function TaskDetail({ taskId }: Props) {
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-xs text-gray-400">{formatDate(inv.startedAt)}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${statusBadge(inv.status)}`}>
-                        {inv.status}
-                      </span>
+                      <StatusBadge status={inv.status} className="shrink-0" />
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-400">
                       <span className="tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</span>
@@ -157,7 +148,8 @@ export default function TaskDetail({ taskId }: Props) {
                   </button>
                   {inv.status === "running" && (
                     <div className="px-3 pb-2">
-                      <button
+                      <Button
+                        variant="danger"
                         onClick={(e) => {
                           e.stopPropagation();
                           if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
@@ -166,10 +158,9 @@ export default function TaskDetail({ taskId }: Props) {
                             .then((d) => setDetail(d))
                             .catch(console.error);
                         }}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                       >
                         Abort
-                      </button>
+                      </Button>
                     </div>
                   )}
                   {selectedInvocationId === inv.id && (
@@ -205,9 +196,7 @@ export default function TaskDetail({ taskId }: Props) {
                         <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
                         <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
                         <td className="py-2 pr-4">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge(inv.status)}`}>
-                            {inv.status}
-                          </span>
+                          <StatusBadge status={inv.status} />
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
                           {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
@@ -216,7 +205,8 @@ export default function TaskDetail({ taskId }: Props) {
                         <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
                         <td className="py-2">
                           {inv.status === "running" && (
-                            <button
+                            <Button
+                              variant="danger"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
@@ -225,10 +215,9 @@ export default function TaskDetail({ taskId }: Props) {
                                   .then((d) => setDetail(d))
                                   .catch(console.error);
                               }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                             >
                               Abort
-                            </button>
+                            </Button>
                           )}
                         </td>
                       </tr>
