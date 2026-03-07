@@ -93,6 +93,13 @@ const noMarkerRetryCounts = new Map<string, number>();
 const NO_MARKER_RETRY_LIMIT = 3;
 
 /**
+ * In-memory cooldown map for rate-limited tasks.
+ * Maps taskId → epoch ms when the rate limit resets.
+ * Tasks in this map with a future expiry are skipped during dispatch.
+ */
+const rateLimitCooldowns = new Map<string, number>();
+
+/**
  * Global cooldown timestamp. When ANY git command hits DLL_INIT
  * (0xC0000142 — Windows resource exhaustion), ALL git-based operations
  * (dispatch AND cleanup) pause until the cooldown expires.
@@ -726,13 +733,40 @@ function onSessionFailure(
 ): void {
   const { db, config, client } = deps;
 
-  updateTaskStatus(db, taskId, "failed");
-  emitTaskUpdated(getTask(db, taskId)!);
-
   log(
     `task ${taskId} failed (invocation ${invocationId}, ` +
       `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
   );
+
+  // Rate-limited: re-queue without burning a retry slot.
+  if (result.subtype === "rate_limited") {
+    // Record cooldown expiry if we know when the limit resets.
+    if (result.rateLimitResetsAt) {
+      const expiresAt = new Date(result.rateLimitResetsAt).getTime();
+      if (!isNaN(expiresAt)) {
+        rateLimitCooldowns.set(taskId, expiresAt);
+      }
+    }
+
+    // Put task back in the queue for the same phase, without incrementing retryCount.
+    const requeueStatus = phase === "review" ? "in_review" as const : "ready" as const;
+    updateTaskStatus(db, taskId, requeueStatus);
+    emitTaskUpdated(getTask(db, taskId)!);
+
+    client.createComment(taskId, `Rate limited (${result.outputSummary}) — will retry automatically when quota resets`).catch((err) => {
+      log(`comment failed on rate limit for task ${taskId}: ${err}`);
+    });
+
+    try {
+      removeWorktree(worktreePath);
+    } catch (err) {
+      log(`worktree removal on rate limit for invocation ${invocationId}: ${err}`);
+    }
+    return;
+  }
+
+  updateTaskStatus(db, taskId, "failed");
+  emitTaskUpdated(getTask(db, taskId)!);
 
   // Preserve worktree for resume when max turns hit on fresh implement phase.
   // Fix sessions (implement on changes_requested) are not resumed — only fresh implements.
@@ -1357,6 +1391,12 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     if (!t.agentPrompt) return false;
     if (t.isParent) return false; // never dispatch parent issues
     if (tasksWithRunningInv.has(t.linearIssueId)) return false;
+    // Skip tasks under a rate-limit cooldown
+    const cooldownUntil = rateLimitCooldowns.get(t.linearIssueId);
+    if (cooldownUntil !== undefined) {
+      if (Date.now() < cooldownUntil) return false;
+      rateLimitCooldowns.delete(t.linearIssueId);
+    }
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
       return graph.isDispatchable(t.linearIssueId, getStatus);

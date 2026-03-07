@@ -232,6 +232,31 @@ export function createWorktree(
     npmInstall(worktreePath);
   }
 
+  // Install nested package.json files.
+  // If ORCA_EXTRA_INSTALL_DIRS is set (comma-separated), install only those dirs.
+  // Otherwise, auto-discover by walking one level of subdirectories.
+  const extraInstallDirs = process.env.ORCA_EXTRA_INSTALL_DIRS
+    ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",").map((d) => d.trim()).filter(Boolean)
+    : null;
+
+  if (extraInstallDirs) {
+    for (const subdir of extraInstallDirs) {
+      const subPath = join(worktreePath, subdir);
+      if (existsSync(join(subPath, "package.json"))) {
+        npmInstall(subPath);
+      }
+    }
+  } else {
+    const entries = readdirSync(worktreePath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === "node_modules") continue;
+      const subPath = join(worktreePath, entry.name);
+      if (existsSync(join(subPath, "package.json"))) {
+        npmInstall(subPath);
+      }
+    }
+  }
+
   return { worktreePath, branchName };
 }
 

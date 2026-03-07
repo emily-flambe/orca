@@ -10,7 +10,7 @@ import { homedir, platform } from "node:os";
 
 /** Outcome of a completed Claude CLI session. */
 export interface SessionResult {
-  /** "success" | "error_max_turns" | "error_during_execution" | "process_error" */
+  /** "success" | "error_max_turns" | "error_during_execution" | "process_error" | "rate_limited" */
   subtype: string;
   /** Total API cost in USD, if reported by the CLI. */
   costUsd: number | null;
@@ -22,6 +22,8 @@ export interface SessionResult {
   exitSignal: string | null;
   /** Human-readable summary of the result or error. */
   outputSummary: string;
+  /** ISO timestamp when the rate limit resets, if subtype is "rate_limited". */
+  rateLimitResetsAt?: string;
 }
 
 /** Live handle to a running Claude CLI session. */
@@ -290,6 +292,11 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // Track whether we received a result message from the CLI.
     let resultReceived = false;
 
+    // Track rate limiting detected from the ndjson stream.
+    let rateLimitDetected = false;
+    let rateLimitType: string | null = null;
+    let rateLimitResetsAt: string | null = null;
+
     // Track completion of both the readline close and process exit.
     let exitCode: number | null = null;
     let exitSignal: NodeJS.Signals | null = null;
@@ -311,27 +318,43 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         finalResult = handle.result;
       } else if (exitCode !== 0 || exitSignal) {
         // No result message and non-zero exit or signal -> process error.
-        // Build a descriptive summary with as much info as possible.
-        const parts: string[] = ["process exited"];
-        if (exitSignal) {
-          parts.push(`by signal ${exitSignal}`);
-        }
-        if (exitCode !== null) {
-          const desc = describeExitCode(exitCode);
-          parts.push(`with code ${exitCode}${desc ? ` (${desc})` : ""}`);
-        } else if (!exitSignal) {
-          parts.push("with code unknown");
-        }
+        // Check first if a rate_limit_event was detected in the stream.
+        if (rateLimitDetected) {
+          const limitTypeStr = rateLimitType ?? "unknown";
+          const resetsAtStr = rateLimitResetsAt ?? "unknown";
+          finalResult = {
+            subtype: "rate_limited",
+            costUsd: null,
+            numTurns: null,
+            exitCode,
+            exitSignal: exitSignal?.toString() ?? null,
+            outputSummary: `rate limited: ${limitTypeStr} quota exceeded, resets at ${resetsAtStr}`,
+            rateLimitResetsAt: rateLimitResetsAt ?? undefined,
+          };
+          handle.result = finalResult;
+        } else {
+          // Build a descriptive summary with as much info as possible.
+          const parts: string[] = ["process exited"];
+          if (exitSignal) {
+            parts.push(`by signal ${exitSignal}`);
+          }
+          if (exitCode !== null) {
+            const desc = describeExitCode(exitCode);
+            parts.push(`with code ${exitCode}${desc ? ` (${desc})` : ""}`);
+          } else if (!exitSignal) {
+            parts.push("with code unknown");
+          }
 
-        finalResult = {
-          subtype: "process_error",
-          costUsd: null,
-          numTurns: null,
-          exitCode,
-          exitSignal: exitSignal?.toString() ?? null,
-          outputSummary: parts.join(" "),
-        };
-        handle.result = finalResult;
+          finalResult = {
+            subtype: "process_error",
+            costUsd: null,
+            numTurns: null,
+            exitCode,
+            exitSignal: exitSignal?.toString() ?? null,
+            outputSummary: parts.join(" "),
+          };
+          handle.result = finalResult;
+        }
       } else {
         // Process exited with code 0 but no result message.
         // Unusual, but not necessarily an error -- treat as success with
@@ -378,6 +401,16 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       if (type === "system" && msg.subtype === "init") {
         if (typeof msg.session_id === "string") {
           handle.sessionId = msg.session_id;
+        }
+        return;
+      }
+
+      // --- rate_limit_event ----------------------------------------------
+      if (type === "rate_limit_event") {
+        if (msg.overageStatus === "rejected") {
+          rateLimitDetected = true;
+          rateLimitType = typeof msg.rateLimitType === "string" ? msg.rateLimitType : null;
+          rateLimitResetsAt = typeof msg.resetsAt === "string" ? msg.resetsAt : null;
         }
         return;
       }
