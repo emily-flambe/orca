@@ -789,7 +789,8 @@ function onSessionFailure(
   emitTaskUpdated(getTask(db, taskId)!);
 
   // Preserve worktree for resume when max turns hit on fresh implement phase.
-  // Fix sessions (implement on changes_requested) are not resumed — only fresh implements.
+  // Fix sessions (implement on changes_requested) create their own fresh worktree
+  // from the PR branch but still resume the previous session via sessionId.
   const preserveForResume =
     result.subtype === "error_max_turns" &&
     config.resumeOnMaxTurns &&
