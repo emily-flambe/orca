@@ -27,6 +27,7 @@ export interface OrcaConfig {
   cleanupIntervalMin: number;
   cleanupBranchMaxAgeMin: number;
   resumeOnMaxTurns: boolean;
+  resumeOnFix: boolean;
   port: number;
   dbPath: string;
   logPath: string;
@@ -284,6 +285,7 @@ Steps:
     cleanupIntervalMin: readIntOrDefault("ORCA_CLEANUP_INTERVAL_MIN", 10),
     cleanupBranchMaxAgeMin: readIntOrDefault("ORCA_CLEANUP_BRANCH_MAX_AGE_MIN", 60),
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
+    resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),
