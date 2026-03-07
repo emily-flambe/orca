@@ -291,7 +291,7 @@ async function dispatch(
         outputSummary: `worktree creation failed: ${err}`,
       });
       emitTaskUpdated(getTask(db, taskId)!);
-      handleRetry(deps, taskId);
+      handleRetry(deps, taskId, `worktree creation failed: ${err}`, phase);
       return;
     }
   }
@@ -806,10 +806,16 @@ function handleRetry(
     );
 
     // Write-back on retry (fire-and-forget)
-    const writeBackEvent = phase === "review" ? "in_review" as const : "retry" as const;
-    writeBackStatus(client, taskId, writeBackEvent, stateMap).catch((err) => {
-      log(`write-back failed on retry for task ${taskId}: ${err}`);
-    });
+    // Only write back for review retries (→ "In Review"). Implementation
+    // retries intentionally skip the write-back to avoid setting Linear to
+    // "Todo", which can race with the "failed_permanent" → "Canceled"
+    // write-back and reset retryCount to 0 via resolveConflict/upsertTask,
+    // causing an infinite retry loop.
+    if (phase === "review") {
+      writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+        log(`write-back failed on retry for task ${taskId}: ${err}`);
+      });
+    }
 
     // Post retry comments (fire-and-forget)
     const isMaxTurnsResumable = briefSummary === "max turns reached" && config.resumeOnMaxTurns;
@@ -876,7 +882,7 @@ function checkTimeouts(deps: SchedulerDeps): void {
 
     if (inv) {
       updateTaskStatus(db, inv.linearIssueId, "failed");
-      handleRetry(deps, inv.linearIssueId);
+      handleRetry(deps, inv.linearIssueId, `process exited (code ${exitCode}) but completion handler did not fire`);
     }
   }
 
@@ -908,7 +914,7 @@ function checkTimeouts(deps: SchedulerDeps): void {
       updateTaskStatus(db, inv.linearIssueId, "failed");
 
       // Attempt retry
-      handleRetry(deps, inv.linearIssueId);
+      handleRetry(deps, inv.linearIssueId, `session timed out after ${config.sessionTimeoutMin}min`);
     }
   }
 }
