@@ -2,10 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
-import StatusBadge, { statusStyles } from "./ui/StatusBadge";
-import Button from "./ui/Button";
-import Skeleton from "./ui/Skeleton";
-import EmptyState from "./ui/EmptyState";
+import { StatusBadge, statusStyles, Button, Skeleton, EmptyState } from "./ui";
 
 interface Props {
   taskId: string;

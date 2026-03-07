@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task } from "../types";
 import { updateTaskStatus } from "../hooks/useApi";
-import PriorityDot from "./ui/PriorityDot";
-import { statusStyles, statusLabel } from "./ui/StatusBadge";
-import EmptyState from "./ui/EmptyState";
+import { PriorityDot, statusStyles, statusLabel, EmptyState } from "./ui";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;

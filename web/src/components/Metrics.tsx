@@ -1,10 +1,7 @@
 import { useState, useEffect } from "react";
 import { fetchMetrics } from "../hooks/useApi";
 import type { MetricsData, RecentError } from "../hooks/useApi";
-import Card from "./ui/Card";
-import EmptyState from "./ui/EmptyState";
-import Skeleton from "./ui/Skeleton";
-import Button from "./ui/Button";
+import { Card, EmptyState, Skeleton, Button } from "./ui";
 
 // ---------------------------------------------------------------------------
 // Helpers

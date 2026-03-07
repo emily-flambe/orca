@@ -1,4 +1,4 @@
-import React from "react";
+import { ReactNode } from "react";
 
 // Returns the CSS classes for a status value (bg + text color)
 // statusStyles(s) is a pure helper exported for use in filter pills etc.
@@ -33,7 +33,7 @@ export function statusLabel(s: string): string {
 interface Props {
   status: string;
   className?: string;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }
 
 // Renders a rounded pill badge for a task/invocation status
