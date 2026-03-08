@@ -10,6 +10,7 @@ import {
   and,
   isNotNull,
   avg,
+  lt,
 } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import { tasks, invocations, budgetEvents, type TaskStatus } from "./schema.js";
@@ -457,4 +458,92 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
     .orderBy(desc(invocations.id))
     .limit(limit)
     .all();
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard queries
+// ---------------------------------------------------------------------------
+
+export interface DailyStatEntry {
+  date: string;       // "YYYY-MM-DD"
+  completed: number;
+  failed: number;
+  costUsd: number;
+}
+
+export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const rows = db
+    .select({
+      date: sql<string>`date(${invocations.startedAt})`,
+      completed: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
+      failed: sql<number>`sum(case when ${invocations.status} in ('failed', 'timed_out') then 1 else 0 end)`,
+      costUsd: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, since))
+    .groupBy(sql`date(${invocations.startedAt})`)
+    .orderBy(sql`date(${invocations.startedAt})`)
+    .all();
+
+  // Fill in missing days with zeros
+  const dateMap = new Map(rows.map((r) => [r.date, r]));
+  const result: DailyStatEntry[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const dateStr = d.toISOString().split("T")[0]!;
+    const row = dateMap.get(dateStr);
+    result.push({
+      date: dateStr,
+      completed: row ? Number(row.completed) : 0,
+      failed: row ? Number(row.failed) : 0,
+      costUsd: row ? Number(row.costUsd) : 0,
+    });
+  }
+  return result;
+}
+
+export interface ActivityEntry {
+  id: number;
+  linearIssueId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  phase: string | null;
+  costUsd: number | null;
+}
+
+export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+      status: invocations.status,
+      phase: invocations.phase,
+      costUsd: invocations.costUsd,
+    })
+    .from(invocations)
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
+}
+
+/**
+ * Sum cost_usd from budget_events where recorded_at is within [windowStart, windowEnd).
+ * Returns 0 if no events match.
+ */
+export function sumCostInWindowRange(
+  db: OrcaDb,
+  windowStart: string,
+  windowEnd: string,
+): number {
+  const result = db
+    .select({ total: sum(budgetEvents.costUsd) })
+    .from(budgetEvents)
+    .where(and(gte(budgetEvents.recordedAt, windowStart), lt(budgetEvents.recordedAt, windowEnd)))
+    .get();
+  return result?.total ? Number(result.total) : 0;
 }
