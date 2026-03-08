@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
-import { abortInvocation } from "../hooks/useApi";
+import { abortInvocation, sendInvocationPrompt } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -35,6 +35,10 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
 
+  const [promptText, setPromptText] = useState("");
+  const [promptSending, setPromptSending] = useState(false);
+  const [promptFeedback, setPromptFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
@@ -52,6 +56,35 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
       setCancelling(false);
     }
   }, [invocation.id, onCancelled]);
+
+  const handleSendPrompt = useCallback(async () => {
+    const text = promptText.trim();
+    if (!text) return;
+    setPromptSending(true);
+    setPromptFeedback(null);
+    try {
+      await sendInvocationPrompt(invocation.id, text);
+      setPromptText("");
+      setPromptFeedback({ ok: true, message: "Prompt delivered" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send prompt";
+      setPromptFeedback({ ok: false, message });
+    } finally {
+      setPromptSending(false);
+      // Auto-clear feedback after 4 seconds
+      setTimeout(() => setPromptFeedback(null), 4000);
+    }
+  }, [invocation.id, promptText]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSendPrompt();
+      }
+    },
+    [handleSendPrompt],
+  );
 
   const effectivelyRunning = isRunning && !cancelled;
   const borderClass = effectivelyRunning
@@ -117,6 +150,34 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         compact
         onCostUpdate={handleCostUpdate}
       />
+
+      {/* Prompt input — only when running */}
+      {effectivelyRunning && (
+        <div className="border-t border-gray-800 px-3 py-2 space-y-1.5">
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Send a message to the agent… (⌘↵ to send)"
+              rows={2}
+              className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-600 transition-colors"
+            />
+            <button
+              onClick={handleSendPrompt}
+              disabled={promptSending || !promptText.trim()}
+              className="px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              {promptSending ? "…" : "Send"}
+            </button>
+          </div>
+          {promptFeedback && (
+            <p className={`text-xs ${promptFeedback.ok ? "text-cyan-400" : "text-red-400"}`}>
+              {promptFeedback.message}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
