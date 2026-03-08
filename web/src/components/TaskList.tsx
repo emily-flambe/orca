@@ -12,6 +12,8 @@ interface Props {
   tasks: Task[];
   selectedTaskId: string | null;
   onSelect: (id: string) => void;
+  projectFilter?: string | null;
+  onClearProjectFilter?: () => void;
 }
 
 const STATUS_FILTERS = [
@@ -78,7 +80,7 @@ const MANUAL_STATUSES = [
   { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
 ] as const;
 
-export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
+export default function TaskList({ tasks, selectedTaskId, onSelect, projectFilter, onClearProjectFilter }: Props) {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
@@ -159,8 +161,14 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
         ? byStatus
         : byStatus.filter((t) => !hiddenProjects.has(t.projectName ?? ""));
 
+    // If a sidebar project filter is active, override hiddenProjects and show only that project
+    const byProjectFilter =
+      projectFilter
+        ? byStatus.filter((t) => t.projectName === projectFilter)
+        : byProject;
+
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
-    const withHistory = byProject.filter(
+    const withHistory = byProjectFilter.filter(
       (t) => t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
     );
 
@@ -346,6 +354,23 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
             )}
           </div>
         </div>
+
+        {/* Sidebar project filter indicator */}
+        {projectFilter && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-gray-500">Filtered:</span>
+            <span className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-gray-700/60 text-gray-300 border border-gray-600">
+              {projectFilter}
+              <button
+                onClick={onClearProjectFilter}
+                className="ml-1 text-gray-500 hover:text-gray-300 transition-colors"
+                aria-label="Clear project filter"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Project filter — only shown when multiple projects exist */}
         {allProjects.length > 1 && (

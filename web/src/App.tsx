@@ -221,6 +221,8 @@ function TasksPage({
   expandedInvocationId,
   onSelect,
   onMobileBack,
+  projectFilter,
+  onClearProjectFilter,
 }: {
   tasks: Task[];
   selectedTaskId: string | null;
@@ -229,6 +231,8 @@ function TasksPage({
   expandedInvocationId: number | null;
   onSelect: (id: string) => void;
   onMobileBack: () => void;
+  projectFilter: string | null;
+  onClearProjectFilter: () => void;
 }) {
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -242,6 +246,8 @@ function TasksPage({
           tasks={tasks}
           selectedTaskId={selectedTaskId}
           onSelect={onSelect}
+          projectFilter={projectFilter}
+          onClearProjectFilter={onClearProjectFilter}
         />
       </div>
       {/* Task detail */}
@@ -285,6 +291,10 @@ export default function App() {
     number | null
   >(null);
   const [activePage, setActivePage] = useState<Page>("dashboard");
+  const [projectFilter, setProjectFilter] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("project");
+  });
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(getStoredTheme);
@@ -292,6 +302,18 @@ export default function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (projectFilter && activePage === "tasks") {
+      params.set("project", projectFilter);
+    } else {
+      params.delete("project");
+    }
+    const newSearch = params.toString();
+    const newUrl = newSearch ? `?${newSearch}` : window.location.pathname;
+    window.history.replaceState(null, "", newUrl);
+  }, [projectFilter, activePage]);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -405,8 +427,16 @@ export default function App() {
     [tasks],
   );
 
+  const handleProjectClick = useCallback((projectName: string) => {
+    setProjectFilter(projectName);
+    setActivePage("tasks");
+    setMobileView("list");
+    setSidebarOpen(false);
+  }, []);
+
   const handleNavigate = useCallback((page: Page) => {
     setActivePage(page);
+    setProjectFilter(null);
     setSidebarOpen(false);
     if (page === "tasks") setMobileView("list");
   }, []);
@@ -422,6 +452,8 @@ export default function App() {
         onSync={handleSync}
         onNewTicket={handleNewTicket}
         isOpen={sidebarOpen}
+        projectFilter={projectFilter}
+        onProjectClick={handleProjectClick}
       />
 
       {/* Mobile backdrop */}
@@ -459,6 +491,8 @@ export default function App() {
             expandedInvocationId={expandedInvocationId}
             onSelect={handleSelectTask}
             onMobileBack={() => setMobileView("list")}
+            projectFilter={projectFilter}
+            onClearProjectFilter={() => setProjectFilter(null)}
           />
         )}
 

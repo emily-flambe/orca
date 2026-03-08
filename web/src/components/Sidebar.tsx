@@ -12,6 +12,8 @@ interface SidebarProps {
   onSync: () => Promise<void>;
   onNewTicket: (identifier: string) => void;
   isOpen: boolean; // mobile open state
+  projectFilter: string | null;
+  onProjectClick: (name: string) => void;
 }
 
 // Simple hash to pick a color for a project name
@@ -42,6 +44,8 @@ export default function Sidebar({
   onSync,
   onNewTicket,
   isOpen,
+  projectFilter,
+  onProjectClick,
 }: SidebarProps) {
   const [syncing, setSyncing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -221,20 +225,24 @@ export default function Sidebar({
                   No projects
                 </div>
               ) : (
-                projects.map(([name, count]) => (
-                  <div
-                    key={name}
-                    className="flex items-center gap-2.5 px-3 py-1.5 rounded text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800/40 transition-colors cursor-default"
-                  >
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full shrink-0 ${projectColor(name)}`}
-                    />
-                    <span className="truncate">{name}</span>
-                    <span className="ml-auto text-gray-600 tabular-nums">
-                      {count}
-                    </span>
-                  </div>
-                ))
+                projects.map(([name, count]) => {
+                  const isActive = projectFilter === name;
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => onProjectClick(name)}
+                      className={`flex items-center gap-2.5 px-3 py-1.5 rounded text-xs transition-colors w-full text-left ${
+                        isActive
+                          ? "bg-gray-800 text-gray-100"
+                          : "text-gray-400 hover:text-gray-300 hover:bg-gray-800/40 cursor-pointer"
+                      }`}
+                    >
+                      <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${projectColor(name)}`} />
+                      <span className="truncate">{name}</span>
+                      <span className="ml-auto text-gray-600 tabular-nums">{count}</span>
+                    </button>
+                  );
+                })
               )}
             </div>
           )}
