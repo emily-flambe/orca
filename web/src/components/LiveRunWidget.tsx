@@ -134,7 +134,7 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
           <button
             onClick={handleCancel}
             disabled={cancelling}
-            className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+            className="text-xs px-3 md:px-2 py-1.5 md:py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
             title="Abort invocation"
           >
             {cancelling ? "…" : "✕"}

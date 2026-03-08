@@ -65,14 +65,14 @@ export default function TaskDetail({ taskId }: Props) {
   const runningInvocation = invocations.find((inv) => inv.status === "running");
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="p-4 space-y-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       {/* Header */}
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
         <div className="relative" ref={statusMenuRef}>
           <button
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
+            className={`text-xs px-2 py-2.5 md:py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
           >
             {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
           </button>
@@ -88,7 +88,7 @@ export default function TaskDetail({ taskId }: Props) {
                       .then((d) => setDetail(d))
                       .catch(console.error);
                   }}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                  className={`w-full text-left px-3 py-2.5 md:py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
                 >
                   {s.label}
                 </button>
@@ -105,7 +105,7 @@ export default function TaskDetail({ taskId }: Props) {
                 .then((d) => setDetail(d))
                 .catch(console.error);
             }}
-            className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+            className="text-xs px-2 py-1.5 md:py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
           >
             Retry
           </button>
@@ -127,7 +127,7 @@ export default function TaskDetail({ taskId }: Props) {
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>
-        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap break-words overflow-x-auto">
           {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
         </pre>
       </div>
@@ -171,7 +171,7 @@ export default function TaskDetail({ taskId }: Props) {
                             .then((d) => setDetail(d))
                             .catch(console.error);
                         }}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                        className="text-xs px-2 py-2 md:py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                       >
                         Abort
                       </button>

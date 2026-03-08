@@ -64,7 +64,7 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewT
 
   return (
     <>
-    <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0">
+    <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0 [padding-top:max(0.5rem,env(safe-area-inset-top))] [padding-left:max(1rem,env(safe-area-inset-left))] [padding-right:max(1rem,env(safe-area-inset-right))]">
       {/* Budget gauge */}
       <div className="flex items-center gap-2">
         <span className="text-gray-400 hidden sm:inline">Budget</span>
@@ -145,14 +145,14 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewT
       <div className="ml-auto flex items-center gap-2">
         <button
           onClick={() => setShowModal(true)}
-          className="px-3 py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
+          className="px-3 py-2.5 md:py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
         >
           + New ticket
         </button>
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-2.5 md:py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {syncing ? "Syncing..." : "Sync"}
         </button>

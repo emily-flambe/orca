@@ -73,7 +73,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-gray-100">
+    <div className="h-[100dvh] flex flex-col bg-gray-950 text-gray-100">
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} onNewTicket={handleNewTicket} />
 
       {/* Tab bar */}
@@ -85,7 +85,7 @@ export default function App() {
               setActiveTab(tab);
               if (tab === "tasks") setMobileView("list");
             }}
-            className={`px-4 py-1.5 text-sm rounded-t transition-colors ${
+            className={`px-4 py-3 md:py-1.5 text-sm rounded-t transition-colors ${
               activeTab === tab
                 ? "bg-gray-800 text-gray-100 border border-b-gray-800 border-gray-700"
                 : "text-gray-500 hover:text-gray-300"

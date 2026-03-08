@@ -82,7 +82,7 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-cyan-900/30 text-cyan-400 hover:text-cyan-300 transition-colors"
+        className="inline-flex items-center gap-1 text-xs px-2 py-1.5 md:py-0.5 rounded bg-cyan-900/30 text-cyan-400 hover:text-cyan-300 transition-colors"
       >
         <span className="font-mono font-bold">{name}</span>
         <span className="text-cyan-600">{open ? "▴" : "▾"}</span>
@@ -119,7 +119,7 @@ function ToolResultBlock({
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-cyan-900/20 text-cyan-300/70 hover:text-cyan-300 transition-colors"
+        className="inline-flex items-center gap-1 text-xs px-2 py-1.5 md:py-0.5 rounded bg-cyan-900/20 text-cyan-300/70 hover:text-cyan-300 transition-colors"
       >
         <span className="font-mono">↩ result</span>
         <span>{open ? "▴" : "▾"}</span>
@@ -139,7 +139,7 @@ function ThinkingBlock({ text }: { text: string }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-mono"
+        className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-mono py-1 px-1"
       >
         {open ? "▼" : "▶"} Thinking…
       </button>
