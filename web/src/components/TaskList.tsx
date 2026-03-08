@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task } from "../types";
 import { updateTaskStatus } from "../hooks/useApi";
+import PriorityDot from "./ui/PriorityDot";
+import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
+import EmptyState from "./ui/EmptyState";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -28,32 +31,6 @@ const ALL_FILTER_VALUES = STATUS_FILTERS.map((f) => f.value) as FilterStatus[];
 
 const SORT_OPTIONS = ["priority", "status", "date", "project"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
-
-function priorityDot(p: number): { color: string; label: string; title: string } {
-  switch (p) {
-    case 1: return { color: "bg-red-500 text-white", label: "P0", title: "P0" };
-    case 2: return { color: "bg-orange-500 text-white", label: "P1", title: "P1" };
-    case 3: return { color: "bg-blue-500 text-white", label: "P2", title: "P2" };
-    case 4: return { color: "bg-gray-500 text-white", label: "P3", title: "P3" };
-    default: return { color: "bg-transparent border border-gray-600 text-gray-500", label: "P4", title: "P4" };
-  }
-}
-
-function statusBadge(s: string): { bg: string; text: string } {
-  switch (s) {
-    case "done": return { bg: "bg-green-500/20 text-green-400", text: "done" };
-    case "running": return { bg: "bg-blue-500/20 text-blue-400", text: "running" };
-    case "ready": return { bg: "bg-cyan-500/20 text-cyan-400", text: "queued" };
-    case "failed": return { bg: "bg-red-500/20 text-red-400", text: "failed" };
-    case "dispatched": return { bg: "bg-gray-500/20 text-gray-400", text: "dispatched" };
-    case "in_review": return { bg: "bg-purple-500/20 text-purple-400", text: "in review" };
-    case "changes_requested": return { bg: "bg-orange-500/20 text-orange-400", text: "changes requested" };
-    case "awaiting_ci": return { bg: "bg-yellow-500/20 text-yellow-400", text: "awaiting CI" };
-    case "deploying": return { bg: "bg-teal-500/20 text-teal-400", text: "deploying" };
-    case "backlog": return { bg: "bg-gray-500/20 text-gray-500", text: "backlog" };
-    default: return { bg: "bg-gray-500/20 text-gray-400", text: s };
-  }
-}
 
 function statusFilterActiveStyle(value: FilterStatus): string {
   switch (value) {
@@ -314,7 +291,6 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       {/* Task rows */}
       <div className="flex-1 overflow-y-auto">
         {sorted.map((task) => {
-          const badge = statusBadge(task.orcaStatus);
           const isSelected = task.linearIssueId === selectedTaskId;
           return (
             <div
@@ -329,12 +305,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
             >
               {/* Top row: priority + ID + status */}
               <div className="flex items-center gap-2">
-                <span
-                  title={priorityDot(task.priority).title}
-                  className={`rounded-full shrink-0 flex items-center justify-center px-2 py-0.5 text-xs font-bold whitespace-nowrap ${priorityDot(task.priority).color}`}
-                >
-                  {priorityDot(task.priority).label}
-                </span>
+                <PriorityDot priority={task.priority} />
                 <span className="text-xs font-mono text-gray-400 shrink-0">
                   {task.linearIssueId}
                 </span>
@@ -354,9 +325,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                         statusMenuTaskId === task.linearIssueId ? null : task.linearIssueId,
                       );
                     }}
-                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${badge.bg}`}
+                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(task.orcaStatus)}`}
                   >
-                    {badge.text} &#9662;
+                    {getStatusDisplayText(task.orcaStatus)} &#9662;
                   </button>
                   {statusMenuTaskId === task.linearIssueId && (
                     <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
@@ -385,7 +356,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
           );
         })}
         {sorted.length === 0 && (
-          <div className="p-4 text-sm text-gray-500 text-center">No tasks</div>
+          <EmptyState message="No tasks" />
         )}
       </div>
     </div>
