@@ -65,6 +65,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [sort, setSort] = useState<SortOption>("priority");
   // hiddenProjects: empty = show all, otherwise hide listed project names
   const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
 
   const allProjects = useMemo(() => {
     const ps = new Set<string>();
@@ -140,11 +141,18 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     if (selectedStatuses.size === 1 && selectedStatuses.has("done")) return withHistory;
 
     // Hide done tasks older than 15 min (keep selected task visible)
-    return withHistory.filter((t) =>
+    const byAge = withHistory.filter((t) =>
       t.orcaStatus !== "done" ||
       t.linearIssueId === selectedTaskId ||
       !t.doneAt ||
       now - new Date(t.doneAt).getTime() <= DONE_HIDE_MS,
+    );
+
+    if (!searchQuery.trim()) return byAge;
+    const q = searchQuery.trim().toLowerCase();
+    return byAge.filter((t) =>
+      t.linearIssueId.toLowerCase().includes(q) ||
+      (t.agentPrompt ?? "").toLowerCase().includes(q),
     );
   })();
 
@@ -187,6 +195,15 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     <div className="flex flex-col h-full">
       {/* Filters */}
       <div className="px-3 pt-3 pb-2 border-b border-gray-800 space-y-3">
+
+        {/* Search input */}
+        <input
+          type="text"
+          placeholder="Search by ID or title…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full bg-gray-800/60 border border-gray-700 rounded-md px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-gray-500 transition-colors"
+        />
 
         {/* Status filter dropdown */}
         <div className="flex items-center gap-2" ref={statusDropdownRef}>
