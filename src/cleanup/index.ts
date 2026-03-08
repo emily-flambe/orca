@@ -1,6 +1,6 @@
 import { rmSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { git } from "../git.js";
+import { git, isTransientGitError } from "../git.js";
 import { removeWorktree } from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
@@ -175,7 +175,8 @@ function cleanupRepo(
   try {
     git(["worktree", "prune"], { cwd: repoPath });
   } catch (err) {
-    log(`worktree prune failed for ${repoPath}: ${err}`);
+    const detail = isTransientGitError(err) ? " (transient, will retry next cycle)" : "";
+    console.warn(`[orca/cleanup] worktree prune failed for ${repoPath}${detail}: ${err}`);
   }
 
   const repoDirname = basename(repoPath);

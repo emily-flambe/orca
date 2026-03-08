@@ -1,5 +1,6 @@
 import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { isTransientGitError } from "../git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -438,7 +439,8 @@ export function closeOrphanedPrs(
     prs = JSON.parse(output);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[orca/github] closeOrphanedPrs: failed to list PRs: ${msg}`);
+    const detail = isTransientGitError(err) ? " (transient, will retry next cycle)" : "";
+    console.warn(`[orca/github] closeOrphanedPrs: failed to list PRs${detail}: ${msg}`);
     return 0;
   }
 
