@@ -5,6 +5,8 @@ interface Props {
   invocationId: number;
   isRunning?: boolean;
   outputSummary?: string | null;
+  compact?: boolean;
+  onCostUpdate?: (cost: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +107,7 @@ function ResultFooter({ line }: { line: LogLine }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LogViewer({ invocationId, isRunning, outputSummary }: Props) {
+export default function LogViewer({ invocationId, isRunning, outputSummary, compact, onCostUpdate }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +148,8 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           setLines((prev) => [...prev, parsed]);
           setLoading(false);
           setError(null);
+          const cost = parsed.total_cost_usd ?? parsed.cost_usd;
+          if (cost != null && onCostUpdate) onCostUpdate(cost);
         } catch {
           // ignore parse errors
         }
@@ -252,7 +256,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
+      className={`overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 ${compact ? "max-h-64" : "max-h-[32rem]"}`}
     >
       {lines.map((line, idx) => {
         // Skip system messages

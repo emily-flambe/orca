@@ -27,6 +27,10 @@ export async function triggerSync(): Promise<{ synced: number }> {
   return fetchJson<{ synced: number }>("/sync", { method: "POST" });
 }
 
+export function fetchRunningInvocations(): Promise<import("../types").Invocation[]> {
+  return fetchJson<import("../types").Invocation[]>("/invocations/running");
+}
+
 export function fetchInvocationLogs(id: number): Promise<{ lines: unknown[] }> {
   return fetchJson<{ lines: unknown[] }>(`/invocations/${id}/logs`);
 }
