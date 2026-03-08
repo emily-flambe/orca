@@ -156,6 +156,7 @@ export function loadConfig(): OrcaConfig {
 - Say "let me know if..." or "shall I..." or "would you like me to..."
 - Use the EnterPlanMode or AskUserQuestion tools
 - Stop and wait for input at any point
+- Push directly to main — ALWAYS push to the feature branch in your worktree and open a PR
 
 If you are uncertain about a requirement, make the best decision based on context and proceed. Wrong is better than stuck.
 
