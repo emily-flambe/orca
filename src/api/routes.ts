@@ -24,6 +24,10 @@ import {
   updateTaskFields,
   getInvocationStats,
   getRecentErrors,
+  getDailyRunStats,
+  getDailyCostStats,
+  getRecentActivity,
+  sumCostInWindowRange,
 } from "../db/queries.js";
 import {
   orcaEvents,
@@ -579,6 +583,46 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       recentErrors,
       costLast24h,
       costLast7d,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/dashboard
+  // -----------------------------------------------------------------------
+  app.get("/api/dashboard", (c) => {
+    const invStats = getInvocationStats(db);
+    const totalCostUsd = invStats.totalCostUsd ?? 0;
+
+    const activeSessions = countActiveSessions(db);
+
+    // Success rate: completed / (completed + failed + timed_out) all-time
+    const completed = invStats.byStatus.find(r => r.status === "completed")?.count ?? 0;
+    const failed = invStats.byStatus.find(r => r.status === "failed")?.count ?? 0;
+    const timedOut = invStats.byStatus.find(r => r.status === "timed_out")?.count ?? 0;
+    const terminal = completed + failed + timedOut;
+    const successRate = terminal > 0 ? (completed / terminal) * 100 : null;
+
+    const cost24h = sumCostInWindow(db, budgetWindowStart(24));
+    const prevCost24h = sumCostInWindowRange(db, budgetWindowStart(48), budgetWindowStart(24));
+
+    const cost14d = sumCostInWindow(db, budgetWindowStart(14 * 24));
+    const prevCost14d = sumCostInWindowRange(db, budgetWindowStart(28 * 24), budgetWindowStart(14 * 24));
+
+    const dailyRuns = getDailyRunStats(db, 14);
+    const dailyCosts = getDailyCostStats(db, 14);
+    const recentActivity = getRecentActivity(db, 20);
+
+    return c.json({
+      totalCostUsd,
+      activeSessions,
+      successRate,
+      cost24h,
+      prevCost24h,
+      cost14d,
+      prevCost14d,
+      dailyRuns,
+      dailyCosts,
+      recentActivity,
     });
   });
 

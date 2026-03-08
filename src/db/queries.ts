@@ -458,3 +458,89 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
     .limit(limit)
     .all();
 }
+
+/**
+ * Sum cost_usd from budget_events where recorded_at is between windowStart and windowEnd.
+ */
+export function sumCostInWindowRange(db: OrcaDb, windowStart: string, windowEnd: string): number {
+  const result = db
+    .select({ total: sum(budgetEvents.costUsd) })
+    .from(budgetEvents)
+    .where(and(gte(budgetEvents.recordedAt, windowStart), sql`${budgetEvents.recordedAt} < ${windowEnd}`))
+    .get();
+  return result?.total ? Number(result.total) : 0;
+}
+
+export interface DailyRunStat {
+  date: string;      // "YYYY-MM-DD"
+  succeeded: number;
+  failed: number;
+}
+
+export interface DailyCostStat {
+  date: string;  // "YYYY-MM-DD"
+  costUsd: number;
+}
+
+export interface ActivityItem {
+  id: number;
+  linearIssueId: string;
+  status: string;
+  phase: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  costUsd: number | null;
+  outputSummary: string | null;
+}
+
+/** 14-day daily run stats: count of completed vs failed invocations per day. */
+export function getDailyRunStats(db: OrcaDb, days = 14): DailyRunStat[] {
+  const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db
+    .select({
+      date: sql<string>`date(${invocations.startedAt})`,
+      succeeded: sql<number>`count(case when ${invocations.status} = 'completed' then 1 end)`,
+      failed: sql<number>`count(case when ${invocations.status} in ('failed', 'timed_out') then 1 end)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, windowStart))
+    .groupBy(sql`date(${invocations.startedAt})`)
+    .orderBy(sql`date(${invocations.startedAt})`)
+    .all();
+  return rows.map(r => ({ date: r.date, succeeded: Number(r.succeeded), failed: Number(r.failed) }));
+}
+
+/** 14-day daily cost from budget_events. */
+export function getDailyCostStats(db: OrcaDb, days = 14): DailyCostStat[] {
+  const windowStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db
+    .select({
+      date: sql<string>`date(${budgetEvents.recordedAt})`,
+      costUsd: sum(budgetEvents.costUsd),
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .groupBy(sql`date(${budgetEvents.recordedAt})`)
+    .orderBy(sql`date(${budgetEvents.recordedAt})`)
+    .all();
+  return rows.map(r => ({ date: r.date, costUsd: r.costUsd ? Number(r.costUsd) : 0 }));
+}
+
+/** Recent invocations in reverse-chronological order. */
+export function getRecentActivity(db: OrcaDb, limit = 20): ActivityItem[] {
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      status: invocations.status,
+      phase: invocations.phase,
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+      costUsd: invocations.costUsd,
+      outputSummary: invocations.outputSummary,
+    })
+    .from(invocations)
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
+}

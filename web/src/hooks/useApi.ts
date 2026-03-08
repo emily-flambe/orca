@@ -141,3 +141,42 @@ export function sendInvocationPrompt(id: number, prompt: string): Promise<{ ok: 
     body: JSON.stringify({ prompt }),
   });
 }
+
+export interface DailyRunStat {
+  date: string;
+  succeeded: number;
+  failed: number;
+}
+
+export interface DailyCostStat {
+  date: string;
+  costUsd: number;
+}
+
+export interface ActivityItem {
+  id: number;
+  linearIssueId: string;
+  status: string;
+  phase: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  costUsd: number | null;
+  outputSummary: string | null;
+}
+
+export interface DashboardData {
+  totalCostUsd: number;
+  activeSessions: number;
+  successRate: number | null;
+  cost24h: number;
+  prevCost24h: number;
+  cost14d: number;
+  prevCost14d: number;
+  dailyRuns: DailyRunStat[];
+  dailyCosts: DailyCostStat[];
+  recentActivity: ActivityItem[];
+}
+
+export function fetchDashboard(): Promise<DashboardData> {
+  return fetchJson<DashboardData>("/dashboard");
+}
