@@ -8,6 +8,28 @@ set -euo pipefail
 ORCA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ORCA_DIR"
 
+# ---------------------------------------------------------------------------
+# Phase 1: Build (before touching the running process)
+# If the build fails here, the old process keeps running — no downtime.
+# ---------------------------------------------------------------------------
+
+echo "[deploy] pulling latest main..."
+git checkout main
+git pull origin main
+
+echo "[deploy] installing dependencies..."
+npm install
+
+echo "[deploy] rebuilding frontend..."
+(cd web && npm run build)
+
+echo "[deploy] build succeeded — proceeding to cutover"
+
+# ---------------------------------------------------------------------------
+# Phase 2: Drain active sessions, then kill old process
+# Only reached if the build above succeeded.
+# ---------------------------------------------------------------------------
+
 echo "[deploy] waiting for active sessions to finish..."
 MAX_WAIT=900  # 15 min safety timeout
 WAITED=0
@@ -86,15 +108,9 @@ else
 fi
 echo "[deploy] old process gone (waited ~$((KILL_WAIT / 2))s)"
 
-echo "[deploy] pulling latest main..."
-git checkout main
-git pull origin main
-
-echo "[deploy] installing dependencies..."
-npm install
-
-echo "[deploy] rebuilding frontend..."
-(cd web && npm run build)
+# ---------------------------------------------------------------------------
+# Phase 3: Start new process
+# ---------------------------------------------------------------------------
 
 echo "[deploy] starting Orca..."
 # Strip Claude nesting-detection env vars so spawned Claude sessions don't refuse to start.
