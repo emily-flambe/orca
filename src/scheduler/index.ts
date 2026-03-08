@@ -644,7 +644,7 @@ function onImplementSuccess(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db, config: _config, client, stateMap } = deps;
+  const { db, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) return;
 
@@ -1447,7 +1447,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         client
           .createComment(
             taskId,
-            `Task failed permanently after ${config.maxRetries} retries: deploy timed out after ${config.deployTimeoutMin}min`,
+            `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
           )
           .catch((err) => {
             log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
