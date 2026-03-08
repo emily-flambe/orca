@@ -19,6 +19,9 @@ interface ContentBlock {
   thinking?: string;
   name?: string;
   input?: unknown;
+  // for tool_result
+  tool_use_id?: string;
+  content?: string | Array<{ type: string; text?: string }>;
 }
 
 interface Message {
@@ -29,6 +32,11 @@ interface LogLine {
   type?: string;
   subtype?: string;
   message?: Message;
+  timestamp?: string;
+  text?: string; // stderr
+  code?: number | null; // process_exit
+  signal?: string | null; // process_exit
+  codeDescription?: string | null; // process_exit
   // result fields
   total_cost_usd?: number;
   cost_usd?: number;
@@ -37,12 +45,32 @@ interface LogLine {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function Timestamp({ iso }: { iso: string }) {
+  try {
+    const t = new Date(iso);
+    const hh = t.getHours().toString().padStart(2, "0");
+    const mm = t.getMinutes().toString().padStart(2, "0");
+    const ss = t.getSeconds().toString().padStart(2, "0");
+    return (
+      <span className="mr-2 text-xs text-gray-600 font-mono select-none">
+        {hh}:{mm}:{ss}
+      </span>
+    );
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
 function TextBlock({ text }: { text: string }) {
   return (
-    <pre className="whitespace-pre-wrap text-sm text-gray-200 leading-relaxed">
+    <pre className="whitespace-pre-wrap text-sm text-green-400 font-mono leading-relaxed">
       {text}
     </pre>
   );
@@ -54,14 +82,51 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-cyan-900/30 text-cyan-400 hover:text-cyan-300 transition-colors"
       >
-        <span className="font-mono">{name}</span>
+        <span className="font-mono font-bold">{name}</span>
+        <span className="text-cyan-600">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-cyan-300/70 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">
+          {typeof input === "string" ? input : JSON.stringify(input, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function ToolResultBlock({
+  content,
+}: {
+  content: string | Array<{ type: string; text?: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  let text = "";
+  if (typeof content === "string") {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content
+      .filter((b) => b.type === "text" && b.text)
+      .map((b) => b.text ?? "")
+      .join("\n");
+  }
+
+  if (!text) return null;
+
+  return (
+    <div className="my-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-cyan-900/20 text-cyan-300/70 hover:text-cyan-300 transition-colors"
+      >
+        <span className="font-mono">↩ result</span>
         <span>{open ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-gray-400 overflow-x-auto max-h-60 overflow-y-auto">
-          {typeof input === "string" ? input : JSON.stringify(input, null, 2)}
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-cyan-300/70 font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">
+          {text}
         </pre>
       )}
     </div>
@@ -74,12 +139,12 @@ function ThinkingBlock({ text }: { text: string }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-mono"
       >
-        {open ? "▼" : "▶"} Thinking...
+        {open ? "▼" : "▶"} Thinking…
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto">
+        <pre className="mt-1 ml-2 p-2 text-xs bg-purple-900/10 rounded text-purple-400/70 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">
           {text}
         </pre>
       )}
@@ -87,10 +152,46 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
+function SystemLine({ line }: { line: LogLine }) {
+  // Skip noisy init messages
+  if (line.subtype === "init") return null;
+  const label = line.subtype ? `[system:${line.subtype}]` : "[system]";
+  return (
+    <div className="text-xs text-yellow-400 font-mono">
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
+      {label}
+    </div>
+  );
+}
+
+function StderrLine({ line }: { line: LogLine }) {
+  if (!line.text) return null;
+  return (
+    <pre className="whitespace-pre-wrap text-xs text-red-400 font-mono leading-relaxed">
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
+      {line.text}
+    </pre>
+  );
+}
+
+function ProcessExitLine({ line }: { line: LogLine }) {
+  const normal = line.code === 0 && !line.signal;
+  const colorClass = normal ? "text-gray-500" : "text-yellow-400";
+  const desc = line.signal
+    ? `signal ${line.signal}`
+    : `exit ${line.code ?? "?"}${line.codeDescription ? ` (${line.codeDescription})` : ""}`;
+  return (
+    <div className={`text-xs font-mono ${colorClass}`}>
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
+      [process] {desc}
+    </div>
+  );
+}
+
 function ResultFooter({ line }: { line: LogLine }) {
   const cost = line.total_cost_usd ?? line.cost_usd;
   return (
-    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 flex gap-4">
+    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 font-mono flex gap-4">
       <span>Result: {line.subtype ?? "unknown"}</span>
       {cost != null && <span>Cost: ${cost.toFixed(2)}</span>}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
@@ -107,7 +208,13 @@ function ResultFooter({ line }: { line: LogLine }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LogViewer({ invocationId, isRunning, outputSummary, compact, onCostUpdate }: Props) {
+export default function LogViewer({
+  invocationId,
+  isRunning,
+  outputSummary,
+  compact,
+  onCostUpdate,
+}: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,7 +232,8 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
     pinnedRef.current = distanceFromBottom < 50;
   }, []);
 
@@ -139,7 +247,9 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
 
     if (isRunning) {
       // SSE streaming mode
-      const es = new EventSource(`/api/invocations/${invocationId}/logs/stream`);
+      const es = new EventSource(
+        `/api/invocations/${invocationId}/logs/stream`,
+      );
 
       es.addEventListener("log", (e) => {
         if (cancelled) return;
@@ -215,24 +325,24 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
   }, [invocationId, isRunning]);
 
   if (loading) {
-    return (
-      <div className="p-4 text-sm text-gray-500">Loading logs...</div>
-    );
+    return <div className="p-4 text-sm text-gray-500 font-mono">Loading logs...</div>;
   }
 
   if (error) {
     if (outputSummary) {
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
-          <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <div className="text-xs text-gray-500 mb-2 font-mono">
+            No log file (agent never started)
+          </div>
+          <pre className="whitespace-pre-wrap text-sm text-red-400 font-mono leading-relaxed">
             {outputSummary}
           </pre>
         </div>
       );
     }
     return (
-      <div className="p-4 text-sm text-red-400">Error: {error}</div>
+      <div className="p-4 text-sm text-red-400 font-mono">Error: {error}</div>
     );
   }
 
@@ -240,15 +350,17 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
     if (outputSummary) {
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
-          <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <div className="text-xs text-gray-500 mb-2 font-mono">
+            No log file (agent never started)
+          </div>
+          <pre className="whitespace-pre-wrap text-sm text-red-400 font-mono leading-relaxed">
             {outputSummary}
           </pre>
         </div>
       );
     }
     return (
-      <div className="p-4 text-sm text-gray-500">No log entries</div>
+      <div className="p-4 text-sm text-gray-500 font-mono">No log entries</div>
     );
   }
 
@@ -256,25 +368,39 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className={`overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 ${compact ? "max-h-64" : "max-h-[32rem]"}`}
+      className={`overflow-y-auto overflow-x-hidden p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono ${compact ? "max-h-64" : "max-h-[32rem]"}`}
     >
       {lines.map((line, idx) => {
-        // Skip system messages
-        if (line.type === "system") return null;
+        const type = line.type;
+
+        // System messages — show non-init ones as yellow, skip init
+        if (type === "system") {
+          return <SystemLine key={idx} line={line} />;
+        }
+
+        // Stderr output — red
+        if (type === "stderr") {
+          return <StderrLine key={idx} line={line} />;
+        }
+
+        // Process exit — gray (normal) or yellow (abnormal)
+        if (type === "process_exit") {
+          return <ProcessExitLine key={idx} line={line} />;
+        }
 
         // Result footer
-        if (line.type === "result") {
+        if (type === "result") {
           return <ResultFooter key={idx} line={line} />;
         }
 
-        // Assistant messages
-        if (line.type === "assistant" && line.message?.content) {
+        // Assistant messages — green text, cyan tool calls, purple thinking
+        if (type === "assistant" && line.message?.content) {
           const blocks = line.message.content;
           const hasContent = blocks.some(
             (b) =>
               (b.type === "text" && b.text) ||
               b.type === "tool_use" ||
-              (b.type === "thinking" && b.thinking)
+              (b.type === "thinking" && b.thinking),
           );
           if (!hasContent) return null;
 
@@ -302,11 +428,36 @@ export default function LogViewer({ invocationId, isRunning, outputSummary, comp
           );
         }
 
+        // User messages — render tool_result blocks in cyan-dimmer
+        if (type === "user" && line.message?.content) {
+          const blocks = line.message.content;
+          const resultBlocks = blocks.filter((b) => b.type === "tool_result");
+          if (resultBlocks.length === 0) return null;
+
+          return (
+            <div key={idx} className="space-y-1">
+              {resultBlocks.map((block, bi) => {
+                if (block.content == null) return null;
+                return (
+                  <ToolResultBlock
+                    key={bi}
+                    content={
+                      block.content as
+                        | string
+                        | Array<{ type: string; text?: string }>
+                    }
+                  />
+                );
+              })}
+            </div>
+          );
+        }
+
         // Skip other message types
         return null;
       })}
       {isRunning && (
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
