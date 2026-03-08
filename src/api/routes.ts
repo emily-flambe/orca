@@ -420,6 +420,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         orcaStatus: newStatus,
         retryCount: 0,
         reviewCycleCount: 0,
+        staleSessionRetryCount: 0,
       });
     }
 

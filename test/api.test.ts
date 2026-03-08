@@ -644,6 +644,49 @@ describe("POST /api/tasks/:id/status", () => {
     expect(task!.retryCount).toBe(3);
   });
 
+  it("resets staleSessionRetryCount when moving to ready", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-STALE-1",
+      orcaStatus: "failed" as const,
+      retryCount: 1,
+    }));
+
+    const { updateTaskFields, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    incrementStaleSessionRetryCount(db, "T-STALE-1");
+    incrementStaleSessionRetryCount(db, "T-STALE-1");
+    incrementStaleSessionRetryCount(db, "T-STALE-1");
+
+    const before = getTask(db, "T-STALE-1");
+    expect(before!.staleSessionRetryCount).toBe(3);
+
+    const res = await postStatus("T-STALE-1", { status: "ready" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-STALE-1");
+    expect(task!.staleSessionRetryCount).toBe(0);
+  });
+
+  it("resets staleSessionRetryCount when moving to backlog", async () => {
+    insertTask(db, makeTask({
+      linearIssueId: "T-STALE-2",
+      orcaStatus: "failed" as const,
+      retryCount: 2,
+    }));
+
+    const { incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    incrementStaleSessionRetryCount(db, "T-STALE-2");
+    incrementStaleSessionRetryCount(db, "T-STALE-2");
+
+    const before = getTask(db, "T-STALE-2");
+    expect(before!.staleSessionRetryCount).toBe(2);
+
+    const res = await postStatus("T-STALE-2", { status: "backlog" });
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "T-STALE-2");
+    expect(task!.staleSessionRetryCount).toBe(0);
+  });
+
   // -----------------------------------------------------------------------
   // done -> sets doneAt timestamp
   // -----------------------------------------------------------------------
