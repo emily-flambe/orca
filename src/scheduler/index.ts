@@ -99,6 +99,13 @@ const transientFailureCounts = new Map<string, number>();
 const TRANSIENT_FAILURE_LIMIT = 5;
 
 /**
+ * Per-task count of times the transient worktree-creation circuit breaker
+ * has tripped. After config.maxWorktreeRetries trips, the task is
+ * permanently failed regardless of retryCount.
+ */
+const worktreeBurnedRetries = new Map<string, number>();
+
+/**
  * Per-task count of review completions that lack a REVIEW_RESULT marker.
  * After NO_MARKER_RETRY_LIMIT attempts, the task burns a real retry instead
  * of looping indefinitely.
@@ -310,6 +317,7 @@ async function dispatch(
       });
       // Successful worktree creation — reset transient failure counter and global cooldown
       transientFailureCounts.delete(taskId);
+      worktreeBurnedRetries.delete(taskId);
       if (globalDllCooldownUntil > 0) {
         log("worktree creation succeeded — clearing DLL_INIT cooldown");
         globalDllCooldownUntil = 0;
@@ -354,13 +362,47 @@ async function dispatch(
         }
 
         // Circuit breaker tripped — burn a real retry.
+        const burned = (worktreeBurnedRetries.get(taskId) ?? 0) + 1;
+        worktreeBurnedRetries.set(taskId, burned);
         log(
-          `transient circuit breaker for task ${taskId} after ${count} failures — burning retry`,
+          `transient circuit breaker for task ${taskId} after ${count} failures (burned ${burned}/${config.maxWorktreeRetries}) — burning retry`,
         );
         transientFailureCounts.delete(taskId);
+
+        if (burned >= config.maxWorktreeRetries) {
+          // Exhausted worktree retry budget — permanently fail without going through handleRetry
+          worktreeBurnedRetries.delete(taskId);
+          const permanentSummary = `persistent worktree creation failure after ${burned} retries: ${err}`;
+          log(`task ${taskId}: ${permanentSummary} — permanently failing`);
+          updateTaskStatus(db, taskId, "failed");
+          updateInvocation(db, invocationId, {
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            outputSummary: permanentSummary,
+          });
+          emitTaskUpdated(getTask(db, taskId)!);
+          // Write-back to Linear as Canceled (fire-and-forget)
+          if (!terminalWriteBackTasks.has(taskId)) {
+            terminalWriteBackTasks.add(taskId);
+            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((writeErr) => {
+              log(`write-back failed on permanent worktree failure for task ${taskId}: ${writeErr}`);
+            });
+            client
+              .createComment(
+                taskId,
+                `Task permanently failed: ${permanentSummary}`,
+              )
+              .catch((commentErr) => {
+                log(`comment failed on permanent worktree failure for task ${taskId}: ${commentErr}`);
+              });
+          }
+          return;
+        }
+
+        // Not yet at the burned retry limit — fall through to handleRetry
       }
 
-      // Non-transient error or circuit breaker — mark failed, burn retry
+      // Non-transient error or circuit breaker below maxWorktreeRetries — mark failed, burn retry
       updateTaskStatus(db, taskId, "failed");
       updateInvocation(db, invocationId, {
         status: "failed",
