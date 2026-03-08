@@ -214,7 +214,11 @@ function LineChart({ data }: { data: DailyStatEntry[] }) {
 // ---------------------------------------------------------------------------
 // Main dashboard
 // ---------------------------------------------------------------------------
-export default function Dashboard() {
+interface DashboardProps {
+  onNavigateToInvocation?: (linearIssueId: string, invocationId: number) => void;
+}
+
+export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -325,7 +329,7 @@ export default function Dashboard() {
       {/* Activity feed */}
       <Card>
         <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">Recent Activity</div>
-        <ActivityFeed entries={recentActivity} />
+        <ActivityFeed entries={recentActivity} onNavigate={onNavigateToInvocation} />
       </Card>
     </div>
   );

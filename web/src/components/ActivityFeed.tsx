@@ -33,9 +33,10 @@ function statusDot(s: string): string {
 
 interface Props {
   entries: ActivityEntry[];
+  onNavigate?: (linearIssueId: string, invocationId: number) => void;
 }
 
-export default function ActivityFeed({ entries }: Props) {
+export default function ActivityFeed({ entries, onNavigate }: Props) {
   if (entries.length === 0) {
     return (
       <div className="py-8 text-center text-sm text-gray-500">
@@ -47,7 +48,11 @@ export default function ActivityFeed({ entries }: Props) {
   return (
     <div className="divide-y divide-gray-800">
       {entries.map((entry) => (
-        <div key={entry.id} className="flex items-center gap-3 py-2.5 px-1">
+        <div
+          key={entry.id}
+          onClick={() => onNavigate?.(entry.linearIssueId, entry.id)}
+          className={`flex items-center gap-3 py-2.5 px-1 rounded transition-colors${onNavigate ? " cursor-pointer hover:bg-gray-800/60" : ""}`}
+        >
           <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot(entry.status)}`} />
           <span className="font-mono text-sm text-gray-200 shrink-0">{entry.linearIssueId}</span>
           {entry.phase && (
