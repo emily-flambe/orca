@@ -290,10 +290,13 @@ export default function App() {
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
-  const [activePage, setActivePage] = useState<Page>("dashboard");
   const [projectFilter, setProjectFilter] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("project");
+  });
+  const [activePage, setActivePage] = useState<Page>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("project") ? "tasks" : "dashboard";
   });
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
