@@ -86,6 +86,14 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/invocations/running
+  // -----------------------------------------------------------------------
+  app.get("/api/invocations/running", (c) => {
+    const running = getRunningInvocations(db);
+    return c.json(running);
+  });
+
+  // -----------------------------------------------------------------------
   // GET /api/invocations/:id/logs
   // -----------------------------------------------------------------------
   app.get("/api/invocations/:id/logs", (c) => {
