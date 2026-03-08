@@ -37,6 +37,7 @@ export interface Invocation {
 
 export interface TaskWithInvocations extends Task {
   invocations: Invocation[];
+  prUrl: string | null;
 }
 
 export interface OrcaStatus {

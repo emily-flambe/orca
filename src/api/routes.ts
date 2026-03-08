@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { execFileSync } from "node:child_process";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -36,6 +37,34 @@ import {
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a local repo path and a PR number, return the GitHub PR URL by
+ * reading the git remote origin URL and converting it to https form.
+ * Returns null if the remote URL cannot be resolved or is not a GitHub URL.
+ */
+function getGitHubPrUrl(repoPath: string, prNumber: number): string | null {
+  try {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      encoding: "utf-8",
+      cwd: repoPath,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    // Convert SSH form: git@github.com:org/repo.git → https://github.com/org/repo
+    let httpsUrl = remote
+      .replace(/^git@github\.com:/, "https://github.com/")
+      .replace(/\.git$/, "");
+    // Already HTTPS — just strip trailing .git
+    if (!httpsUrl.startsWith("https://github.com/")) return null;
+    return `${httpsUrl}/pull/${prNumber}`;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,7 +115,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "task not found" }, 404);
     }
     const invocations = getInvocationsByTask(db, taskId);
-    return c.json({ ...task, invocations });
+    const prUrl =
+      task.prNumber != null && task.repoPath
+        ? getGitHubPrUrl(task.repoPath, task.prNumber)
+        : null;
+    return c.json({ ...task, invocations, prUrl });
   });
 
   // -----------------------------------------------------------------------
