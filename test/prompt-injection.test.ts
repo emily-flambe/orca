@@ -38,7 +38,6 @@ function makeConfig() {
     linearApiKey: "test",
     linearWebhookSecret: "test",
     linearProjectIds: ["test-project"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),
     logPath: "orca.log",

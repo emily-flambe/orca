@@ -388,7 +388,7 @@ export class LinearClient {
   }
 
   // -------------------------------------------------------------------------
-  // 2.4 createComment / createAttachment / updateIssueState
+  // 2.4 createComment / createAttachment / updateIssueState / createIssue
   // -------------------------------------------------------------------------
 
   async createComment(issueId: string, body: string): Promise<boolean> {
