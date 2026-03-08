@@ -158,6 +158,17 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewT
         </button>
       </div>
     </div>
+    {status.draining && (
+      <div className="bg-amber-900/40 border-b border-amber-700/50 px-4 py-1.5 text-xs text-amber-300 flex items-center gap-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+        </span>
+        <span>
+          Draining — waiting for {status.drainSessionCount} session{status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy
+        </span>
+      </div>
+    )}
     {showModal && (
       <CreateTicketModal
         onClose={() => setShowModal(false)}

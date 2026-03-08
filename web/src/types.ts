@@ -51,4 +51,6 @@ export interface OrcaStatus {
   implementModel: string;
   reviewModel: string;
   fixModel: string;
+  draining: boolean;
+  drainSessionCount: number;
 }

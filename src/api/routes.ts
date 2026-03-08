@@ -39,6 +39,7 @@ import {
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
+import { isDraining } from "../deploy.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -495,6 +496,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       budgetWindowStart(config.budgetWindowHours),
     );
 
+    const draining = isDraining();
     return c.json({
       activeSessions,
       activeTaskIds,
@@ -506,6 +508,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       implementModel: config.implementModel,
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,
+      draining,
+      drainSessionCount: draining ? activeSessions : 0,
     });
   });
 
