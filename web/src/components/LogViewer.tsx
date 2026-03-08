@@ -162,7 +162,8 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       es.addEventListener("error", () => {
         if (cancelled) return;
         // SSE error — connection dropped. Fall back to polling endpoint once.
-        cancelled = true;
+        // Use a separate flag to prevent retrying multiple times; keep `cancelled`
+        // as the component-unmount guard so the fallback callbacks still run.
         es.close();
         fetchInvocationLogs(invocationId)
           .then((data) => {
