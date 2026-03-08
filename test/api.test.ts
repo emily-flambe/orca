@@ -12,10 +12,12 @@ import {
   getTask,
 } from "../src/db/queries.js";
 import { orcaEvents } from "../src/events.js";
+import { activeHandles } from "../src/scheduler/index.js";
 import type { OrcaDb } from "../src/db/index.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { WorkflowStateMap } from "../src/linear/client.js";
 import type { Hono } from "hono";
+import type { SessionHandle } from "../src/runner/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1004,5 +1006,173 @@ describe("POST /api/tasks", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("Linear API down");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/invocations/:id/prompt  (EMI-84: human-in-the-loop prompt delivery)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/invocations/:id/prompt", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  function makeHandle(overrides?: Partial<SessionHandle>): SessionHandle {
+    const writeMock = vi.fn().mockReturnValue(true);
+    return {
+      process: { exitCode: null, killed: false } as unknown as SessionHandle["process"],
+      invocationId: 0,
+      sessionId: null,
+      result: null,
+      done: new Promise(() => {}),
+      stdin: { write: writeMock } as unknown as SessionHandle["stdin"],
+      ...overrides,
+    };
+  }
+
+  function post(id: number | string, body: unknown) {
+    return app.request(`/api/invocations/${id}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
+    activeHandles.clear();
+  });
+
+  afterEach(() => {
+    activeHandles.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("returns 400 for non-numeric id", async () => {
+    const res = await post("abc", { prompt: "hello" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("invalid invocation id");
+  });
+
+  it("returns 404 for unknown invocation", async () => {
+    const res = await post(9999, { prompt: "hello" });
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("invocation not found");
+  });
+
+  it("returns 409 when invocation is not running", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-1" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-1",
+      startedAt: now(),
+      status: "completed",
+    });
+
+    const res = await post(invId, { prompt: "hello" });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/not running/);
+  });
+
+  it("returns 400 when prompt is missing", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-2" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-2",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const res = await post(invId, {});
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when prompt is empty string", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-3" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-3",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const res = await post(invId, { prompt: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when prompt exceeds 10000 chars", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-4" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-4",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const res = await post(invId, { prompt: "x".repeat(10001) });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 409 when no active handle exists for running invocation", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-5" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-5",
+      startedAt: now(),
+      status: "running",
+    });
+    // No handle registered in activeHandles
+
+    const res = await post(invId, { prompt: "hello" });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/no active handle/);
+  });
+
+  it("returns 200 and delivers prompt when handle exists", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-6" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-6",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const handle = makeHandle({ invocationId: invId });
+    activeHandles.set(invId, handle);
+
+    const res = await post(invId, { prompt: "please continue" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify stdin was written to with the prompt + newline
+    expect((handle.stdin as any).write).toHaveBeenCalledWith("please continue\n");
+  });
+
+  it("returns 500 when sendPrompt fails (process already exited)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-PROMPT-7" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "T-PROMPT-7",
+      startedAt: now(),
+      status: "running",
+    });
+
+    // Handle with an already-exited process
+    const handle = makeHandle({
+      invocationId: invId,
+      process: { exitCode: 0, killed: false } as unknown as SessionHandle["process"],
+    });
+    activeHandles.set(invId, handle);
+
+    const res = await post(invId, { prompt: "hello" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/failed to deliver/);
   });
 });

@@ -30,7 +30,7 @@ import {
   type StatusPayload,
 } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
-import { killSession, invocationLogs } from "../runner/index.js";
+import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
@@ -269,6 +269,52 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
       // Best-effort — don't fail the abort if Linear write-back fails
     });
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/invocations/:id/prompt
+  // -----------------------------------------------------------------------
+  app.post("/api/invocations/:id/prompt", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      return c.json({ error: "invocation not found" }, 404);
+    }
+
+    if (invocation.status !== "running") {
+      return c.json({ error: `invocation is "${invocation.status}", not running` }, 409);
+    }
+
+    let body: { prompt?: string };
+    try {
+      body = await c.req.json<{ prompt?: string }>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    const prompt = body.prompt;
+    if (typeof prompt !== "string" || prompt.trim() === "") {
+      return c.json({ error: "prompt must be a non-empty string" }, 400);
+    }
+    if (prompt.length > 10000) {
+      return c.json({ error: "prompt exceeds maximum length of 10000 characters" }, 400);
+    }
+
+    const handle = activeHandles.get(id);
+    if (!handle) {
+      return c.json({ error: "no active handle for this invocation" }, 409);
+    }
+
+    const ok = sendPrompt(handle, prompt);
+    if (!ok) {
+      return c.json({ error: "failed to deliver prompt to session" }, 500);
+    }
 
     return c.json({ ok: true });
   });

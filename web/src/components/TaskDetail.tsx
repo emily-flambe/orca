@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus, sendInvocationPrompt } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
@@ -36,6 +36,9 @@ export default function TaskDetail({ taskId }: Props) {
   const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+  const [promptText, setPromptText] = useState("");
+  const [promptSending, setPromptSending] = useState(false);
+  const [promptSendStatus, setPromptSendStatus] = useState<Record<number, "sent" | "failed">>({});
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -52,6 +55,21 @@ export default function TaskDetail({ taskId }: Props) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const handleSendPrompt = async (invocationId: number) => {
+    if (!promptText.trim() || promptSending) return;
+    setPromptSending(true);
+    try {
+      await sendInvocationPrompt(invocationId, promptText.trim());
+      setPromptText("");
+      setPromptSendStatus((prev) => ({ ...prev, [invocationId]: "sent" }));
+    } catch {
+      setPromptSendStatus((prev) => ({ ...prev, [invocationId]: "failed" }));
+    } finally {
+      setPromptSending(false);
+      setTimeout(() => setPromptSendStatus((prev) => { const next = { ...prev }; delete next[invocationId]; return next; }), 2000);
+    }
+  };
 
   if (!detail) {
     return <Skeleton lines={3} className="m-4" />;
@@ -146,7 +164,7 @@ export default function TaskDetail({ taskId }: Props) {
                     )}
                   </button>
                   {inv.status === "running" && (
-                    <div className="px-3 pb-2">
+                    <div className="px-3 pb-2 space-y-1.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -160,6 +178,28 @@ export default function TaskDetail({ taskId }: Props) {
                       >
                         Abort
                       </button>
+                      <div className="flex gap-2">
+                        <textarea
+                          value={promptText}
+                          onChange={(e) => setPromptText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey && !promptSending && promptText.trim()) {
+                              e.preventDefault();
+                              handleSendPrompt(inv.id);
+                            }
+                          }}
+                          placeholder="Send a message to the agent..."
+                          rows={2}
+                          className="flex-1 text-xs bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-gray-100 resize-none placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                        />
+                        <button
+                          onClick={() => handleSendPrompt(inv.id)}
+                          disabled={!promptText.trim() || promptSending}
+                          className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors self-end"
+                        >
+                          {promptSendStatus[inv.id] === "sent" ? "Sent" : promptSendStatus[inv.id] === "failed" ? "Failed" : "Send"}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {selectedInvocationId === inv.id && (
@@ -204,19 +244,43 @@ export default function TaskDetail({ taskId }: Props) {
                         <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
                         <td className="py-2">
                           {inv.status === "running" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                                abortInvocation(inv.id)
-                                  .then(() => fetchTaskDetail(taskId))
-                                  .then((d) => setDetail(d))
-                                  .catch(console.error);
-                              }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                            >
-                              Abort
-                            </button>
+                            <div className="space-y-1.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                                  abortInvocation(inv.id)
+                                    .then(() => fetchTaskDetail(taskId))
+                                    .then((d) => setDetail(d))
+                                    .catch(console.error);
+                                }}
+                                className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                              >
+                                Abort
+                              </button>
+                              <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                <textarea
+                                  value={promptText}
+                                  onChange={(e) => setPromptText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey && !promptSending && promptText.trim()) {
+                                      e.preventDefault();
+                                      handleSendPrompt(inv.id);
+                                    }
+                                  }}
+                                  placeholder="Send a message to the agent..."
+                                  rows={2}
+                                  className="flex-1 text-xs bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-gray-100 resize-none placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                                />
+                                <button
+                                  onClick={() => handleSendPrompt(inv.id)}
+                                  disabled={!promptText.trim() || promptSending}
+                                  className="text-xs px-3 py-1.5 rounded bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors self-end"
+                                >
+                                  {promptSendStatus[inv.id] === "sent" ? "Sent" : promptSendStatus[inv.id] === "failed" ? "Failed" : "Send"}
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </td>
                       </tr>

@@ -51,6 +51,8 @@ export interface SessionHandle {
   result: SessionResult | null;
   /** Resolves when the process exits (normally or via kill). */
   done: Promise<SessionResult>;
+  /** Writable stdin of the child process, or null if not available. */
+  stdin: import("node:stream").Writable | null;
 }
 
 /** Options accepted by {@link spawnSession}. */
@@ -291,7 +293,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
@@ -303,6 +305,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     invocationId: options.invocationId,
     sessionId: null,
     result: null,
+    stdin: proc.stdin,
     // Placeholder — replaced immediately below.
     done: undefined as unknown as Promise<SessionResult>,
   };
@@ -628,6 +631,25 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   });
 
   return handle;
+}
+
+/**
+ * Send a prompt/message to a running Claude CLI session via stdin.
+ *
+ * @param handle - The session handle returned by {@link spawnSession}.
+ * @param text - The text to write to the session's stdin.
+ * @returns `true` if the text was successfully written, `false` otherwise.
+ */
+export function sendPrompt(handle: SessionHandle, text: string): boolean {
+  if (!handle.stdin) return false;
+  const proc = handle.process;
+  if (proc.exitCode !== null || proc.killed) return false;
+  try {
+    handle.stdin.write(text + "\n");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
