@@ -270,7 +270,7 @@ export default function LogViewer({
   }, [lines, scrollToBottom]);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled = false; // true = component unmounted, don't update state
 
     if (isRunning) {
       // SSE streaming mode
@@ -278,10 +278,14 @@ export default function LogViewer({
         `/api/invocations/${invocationId}/logs/stream`,
       );
 
+      let sseDone = false; // true = SSE stream closed (done or error handled)
+      let receivedAnyLines = false;
+
       es.addEventListener("log", (e) => {
         if (cancelled) return;
         try {
           const parsed = JSON.parse(e.data) as LogLine;
+          receivedAnyLines = true;
           setLines((prev) => [...prev, parsed]);
           setLoading(false);
           setError(null);
@@ -293,17 +297,32 @@ export default function LogViewer({
       });
 
       es.addEventListener("done", () => {
-        // Set cancelled before closing so the "error" event that browsers
-        // sometimes fire after a server-initiated close is ignored.
-        cancelled = true;
-        setLoading(false);
+        sseDone = true;
         es.close();
+        // If no log lines arrived, the server had no in-memory state (e.g.,
+        // after a deploy restart). Fall back to the polling endpoint so we
+        // still show whatever is on disk.
+        if (!receivedAnyLines) {
+          fetchInvocationLogs(invocationId)
+            .then((data) => {
+              if (cancelled) return;
+              setLines(data.lines as LogLine[]);
+              setLoading(false);
+            })
+            .catch((err) => {
+              if (cancelled) return;
+              setError(err instanceof Error ? err.message : String(err));
+              setLoading(false);
+            });
+        } else {
+          setLoading(false);
+        }
       });
 
       es.addEventListener("error", () => {
-        if (cancelled) return;
+        if (sseDone || cancelled) return;
         // SSE error — connection dropped. Fall back to polling endpoint once.
-        cancelled = true;
+        sseDone = true;
         es.close();
         fetchInvocationLogs(invocationId)
           .then((data) => {
