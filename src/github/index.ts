@@ -87,17 +87,23 @@ export function findPrForBranch(
         number: number;
         state: string;
       }[];
-      if (prs.length === 0) {
-        return { exists: false };
+      if (prs.length > 0) {
+        const pr = prs[0]!;
+        return {
+          exists: true,
+          url: pr.url,
+          number: pr.number,
+          merged: pr.state === "MERGED",
+        };
       }
-
-      const pr = prs[0]!;
-      return {
-        exists: true,
-        url: pr.url,
-        number: pr.number,
-        merged: pr.state === "MERGED",
-      };
+      // Empty result — may be GitHub API lag. Retry with backoff.
+      console.warn(
+        `[orca/github] findPrForBranch: no PR found for ${branchName} ` +
+          `(attempt ${attempt}/${maxAttempts}), retrying...`,
+      );
+      if (attempt < maxAttempts) {
+        sleepSyncMs(attempt * 5000);
+      }
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
@@ -110,12 +116,50 @@ export function findPrForBranch(
       }
     }
   }
-  const msg =
-    lastError instanceof Error ? lastError.message : String(lastError);
-  console.error(
-    `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
-  );
+  if (lastError) {
+    const msg =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    console.error(
+      `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
+    );
+  }
   return { exists: false };
+}
+
+/**
+ * Verify a PR exists by its URL.
+ *
+ * Uses `gh pr view <url> --json url,number,state` to confirm the PR.
+ * Returns PrInfo if found, or `{ exists: false }` if not.
+ */
+export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
+  try {
+    const output = gh(
+      ["pr", "view", prUrl, "--json", "url,number,state"],
+      { cwd },
+    );
+    const data = JSON.parse(output) as {
+      url?: string;
+      number?: number;
+      state?: string;
+    };
+    if (typeof data.number !== "number" || typeof data.url !== "string") {
+      console.warn(
+        `[orca/github] findPrByUrl: missing url or number in response for ${prUrl}`,
+      );
+      return { exists: false };
+    }
+    return {
+      exists: true,
+      url: data.url,
+      number: data.number,
+      merged: data.state === "MERGED",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] findPrByUrl failed for ${prUrl}: ${msg}`);
+    return { exists: false };
+  }
 }
 
 /**
