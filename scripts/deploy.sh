@@ -41,16 +41,31 @@ while true; do
 done
 
 echo "[deploy] killing existing Orca process (if any)..."
-# Kill any running orca process — use taskkill on Windows, pkill on Unix
-if command -v taskkill &>/dev/null; then
-  # Windows: find node.exe PIDs running orca and kill them
-  # The || true ensures we don't fail if no process is running
-  wmic process where "name='node.exe' and CommandLine like '%orca%start%'" get ProcessId 2>/dev/null \
-    | grep -oE '[0-9]+' \
-    | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done \
-    || true
+PIDFILE="$ORCA_DIR/orca.pid"
+if [ -f "$PIDFILE" ]; then
+  OLD_PID=$(cat "$PIDFILE" 2>/dev/null || true)
+  if [ -n "$OLD_PID" ]; then
+    echo "[deploy] killing PID $OLD_PID (from orca.pid)..."
+    if command -v taskkill &>/dev/null; then
+      taskkill //PID "$OLD_PID" //F 2>/dev/null || true
+    else
+      kill -9 "$OLD_PID" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$PIDFILE"
 else
-  pkill -f "node.*orca.*start" 2>/dev/null || true
+  echo "[deploy] no orca.pid found — trying port-based kill..."
+  if command -v taskkill &>/dev/null; then
+    # Windows: find process listening on the orca port and kill it
+    PORT="${ORCA_PORT:-4000}"
+    netstat -ano 2>/dev/null \
+      | grep ":${PORT}.*LISTENING" \
+      | awk '{print $NF}' \
+      | while read -r pid; do taskkill //PID "$pid" //F 2>/dev/null || true; done \
+      || true
+  else
+    pkill -f "tsx.*cli/index" 2>/dev/null || true
+  fi
 fi
 sleep 2
 

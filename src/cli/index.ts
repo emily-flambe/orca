@@ -27,6 +27,8 @@ import { initFileLogger } from "../logger.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 
 const program = new Command();
 
@@ -186,6 +188,15 @@ program
 
     serve({ fetch: app.fetch, port: config.port });
     console.log(`Hono server listening on port ${config.port}`);
+
+    // Write pidfile so deploy.sh can reliably kill this process
+    const pidFile = join(process.cwd(), "orca.pid");
+    writeFileSync(pidFile, String(process.pid));
+    for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
+      process.on(sig, () => {
+        try { unlinkSync(pidFile); } catch { /* already gone */ }
+      });
+    }
 
     // Start cloudflared tunnel
     const tunnel: TunnelHandle = startTunnel({
