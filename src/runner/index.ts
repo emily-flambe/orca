@@ -51,6 +51,8 @@ export interface SessionHandle {
   result: SessionResult | null;
   /** Resolves when the process exits (normally or via kill). */
   done: Promise<SessionResult>;
+  /** Send a user prompt to the running session via stdin. Throws if stdin is not writable. */
+  sendPrompt: (prompt: string) => void;
 }
 
 /** Options accepted by {@link spawnSession}. */
@@ -128,6 +130,10 @@ function describeExitCode(code: number | null): string | null {
 
 /**
  * Build the argument array for the `claude` CLI invocation.
+ *
+ * Uses `--input-format stream-json` (stdin piping) instead of `-p` so that
+ * additional user prompts can be injected into a running session via stdin.
+ * The initial prompt is written to stdin immediately after spawn.
  */
 function buildArgs(opts: SpawnSessionOptions): string[] {
   const args: string[] = opts.claudeArgs ? [...opts.claudeArgs] : [];
@@ -137,8 +143,8 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
   }
 
   args.push(
-    "-p",
-    opts.agentPrompt,
+    "--input-format",
+    "stream-json",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -291,11 +297,27 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
+
+  // Write the initial prompt to stdin as a stream-json user message, then
+  // leave stdin open so additional prompts can be injected later.
+  if (proc.stdin) {
+    const initialMsg = JSON.stringify({ type: "user", message: options.agentPrompt }) + "\n";
+    proc.stdin.write(initialMsg);
+  }
+
+  // Helper to inject a user prompt into the running session via stdin.
+  const sendPromptFn = (prompt: string): void => {
+    if (!proc.stdin || proc.stdin.destroyed || proc.killed || proc.exitCode !== null) {
+      throw new Error("session is not running or stdin is closed");
+    }
+    const msg = JSON.stringify({ type: "user", message: prompt }) + "\n";
+    proc.stdin.write(msg);
+  };
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -303,6 +325,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     invocationId: options.invocationId,
     sessionId: null,
     result: null,
+    sendPrompt: sendPromptFn,
     // Placeholder — replaced immediately below.
     done: undefined as unknown as Promise<SessionResult>,
   };
@@ -628,6 +651,20 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   });
 
   return handle;
+}
+
+/**
+ * Send a user prompt to a running Claude CLI session via stdin.
+ *
+ * Writes a stream-json `user` message to the process stdin so the agent can
+ * read it on its next turn. Throws if the session has already exited or stdin
+ * is no longer writable.
+ *
+ * @param handle - The session handle returned by {@link spawnSession}.
+ * @param prompt - The prompt text to inject.
+ */
+export function sendPrompt(handle: SessionHandle, prompt: string): void {
+  handle.sendPrompt(prompt);
 }
 
 /**

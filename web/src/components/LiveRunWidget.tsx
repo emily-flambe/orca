@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Invocation } from "../types";
-import { abortInvocation } from "../hooks/useApi";
+import { abortInvocation, sendPromptToInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -35,6 +35,11 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
 
+  const [promptText, setPromptText] = useState("");
+  const [promptStatus, setPromptStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const promptInputRef = useRef<HTMLInputElement>(null);
+
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
@@ -52,6 +57,32 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
       setCancelling(false);
     }
   }, [invocation.id, onCancelled]);
+
+  const handleSendPrompt = useCallback(async () => {
+    const trimmed = promptText.trim();
+    if (!trimmed) return;
+    setPromptStatus("sending");
+    setPromptError(null);
+    try {
+      await sendPromptToInvocation(invocation.id, trimmed);
+      setPromptText("");
+      setPromptStatus("sent");
+      setTimeout(() => setPromptStatus("idle"), 3000);
+    } catch (err) {
+      setPromptError(err instanceof Error ? err.message : "failed to send");
+      setPromptStatus("error");
+    }
+  }, [invocation.id, promptText]);
+
+  const handlePromptKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSendPrompt();
+      }
+    },
+    [handleSendPrompt],
+  );
 
   const effectivelyRunning = isRunning && !cancelled;
   const borderClass = effectivelyRunning
@@ -108,6 +139,37 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
           </button>
         )}
       </div>
+
+      {/* Prompt input — only shown while the session is running */}
+      {effectivelyRunning && (
+        <div className="flex flex-col gap-1 px-3 py-2 border-b border-gray-800">
+          <div className="flex gap-2">
+            <input
+              ref={promptInputRef}
+              type="text"
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={handlePromptKeyDown}
+              placeholder="Send a message to the agent…"
+              disabled={promptStatus === "sending"}
+              className="flex-1 min-w-0 bg-gray-800 text-gray-100 text-xs rounded px-2 py-1 placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-cyan-600 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSendPrompt}
+              disabled={promptStatus === "sending" || promptText.trim() === ""}
+              className="text-xs px-2 py-1 rounded bg-cyan-700/30 text-cyan-300 hover:bg-cyan-700/50 transition-colors disabled:opacity-40"
+            >
+              {promptStatus === "sending" ? "…" : "Send"}
+            </button>
+          </div>
+          {promptStatus === "sent" && (
+            <span className="text-xs text-green-400">Prompt delivered</span>
+          )}
+          {promptStatus === "error" && promptError && (
+            <span className="text-xs text-red-400">{promptError}</span>
+          )}
+        </div>
+      )}
 
       {/* Log body */}
       <LogViewer

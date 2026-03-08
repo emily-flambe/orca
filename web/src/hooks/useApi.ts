@@ -39,6 +39,14 @@ export function abortInvocation(id: number): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/invocations/${id}/abort`, { method: "POST" });
 }
 
+export function sendPromptToInvocation(id: number, prompt: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/invocations/${id}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 export function retryTask(id: string): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
 }
