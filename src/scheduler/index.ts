@@ -648,8 +648,7 @@ function onImplementSuccess(
       "already satisfied",
       "nothing to do",
       "no changes needed",
-      "acceptance criteria are met",
-      "acceptance criteria are already",
+      "acceptance criteria",
     ];
     const isAlreadyDone = alreadyDonePatterns.some((p) => summary.includes(p));
 
