@@ -346,7 +346,7 @@ describe("isTransientGitError — edge cases", () => {
     const err = new Error(
       "git command failed: git fetch origin\n" +
       "exit: 3221225794\n" +
-      "fatal: unable to access remote"
+      "fatal: not a git repository"
     );
     expect(isTransientGitError(err)).toBe(false);
   });

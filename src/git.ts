@@ -59,6 +59,8 @@ export function git(args: string[], options?: { cwd?: string }): string {
  * - Windows STATUS_DLL_INIT_FAILED (0xC0000142) — resource exhaustion
  *   when too many processes spawn concurrently. Transient: resolves
  *   once system resources are freed.
+ * - Network/auth failures (DNS, connection, SSL, remote hangup)
+ * - Windows EPERM from file locking during worktree operations
  */
 export function isTransientGitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -75,6 +77,28 @@ export function isTransientGitError(err: unknown): boolean {
   // Signal-killed process (OOM killer, etc.)
   if (execErr.signal) return true;
   if (err.message.includes("signal: SIG")) return true;
+
+  // Network/auth transient errors — DNS, connection, SSL, remote hangup
+  const networkPatterns = [
+    "Could not resolve host",
+    "Connection timed out",
+    "Connection refused",
+    "fatal: unable to access",
+    "SSL_connect",
+    "The remote end hung up unexpectedly",
+    "Failed to connect",
+    "Connection reset by peer",
+    "unable to look up",
+    "Could not read from remote repository",
+  ];
+  if (networkPatterns.some((p) => err.message.includes(p))) return true;
+
+  // Windows EPERM — file locking during worktree creation/removal
+  if (
+    err.message.includes("EPERM") ||
+    (execErr as NodeJS.ErrnoException).code === "EPERM"
+  )
+    return true;
 
   return false;
 }

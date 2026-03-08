@@ -111,6 +111,9 @@ const NO_MARKER_RETRY_LIMIT = 3;
  */
 const rateLimitCooldowns = new Map<string, number>();
 
+/** Tasks that have reached a terminal state — block further writeBackStatus calls. */
+const terminalWriteBackTasks = new Set<string>();
+
 /**
  * Global cooldown timestamp. When ANY git command hits DLL_INIT
  * (0xC0000142 — Windows resource exhaustion), ALL git-based operations
@@ -158,6 +161,9 @@ async function dispatch(
   const { db, config, client, stateMap } = deps;
   const taskId = task.linearIssueId;
 
+  // Clear terminal flag — this task has been re-activated for dispatch.
+  terminalWriteBackTasks.delete(taskId);
+
   // Guard: re-read task from DB and verify it's still in a dispatchable state.
   // Between the tick() query and this dispatch() call, a completion handler or
   // webhook could have changed the task's status (e.g. to "done").
@@ -193,7 +199,7 @@ async function dispatch(
   emitTaskUpdated(getTask(db, taskId)!);
 
   // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
-  if (phase === "implement") {
+  if (phase === "implement" && !terminalWriteBackTasks.has(taskId)) {
     writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
       log(`write-back failed on dispatch for task ${taskId}: ${err}`);
     });
@@ -629,6 +635,40 @@ function onImplementSuccess(
 
   // Hard gate: branch name is required
   if (!branchName) {
+    // Check if the work is already on main (Claude said "already done")
+    const summary = result.outputSummary?.toLowerCase() ?? "";
+    const alreadyDonePatterns = [
+      "already complete",
+      "already implemented",
+      "already merged",
+      "already on main",
+      "already on `main`",
+      "already on `origin/main`",
+      "already exists",
+      "already satisfied",
+      "nothing to do",
+      "no changes needed",
+      "acceptance criteria are met",
+      "acceptance criteria are already",
+    ];
+    const isAlreadyDone = alreadyDonePatterns.some((p) => summary.includes(p));
+
+    if (isAlreadyDone) {
+      log(`task ${taskId}: work already complete on main — marking done`);
+      updateTaskStatus(db, taskId, "done");
+      emitTaskUpdated(getTask(db, taskId)!);
+      terminalWriteBackTasks.add(taskId);
+      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+        log(`write-back failed on already-done for task ${taskId}: ${err}`);
+      });
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal for already-done task ${taskId}: ${err}`);
+      }
+      return;
+    }
+
     const gateMsg = "no branch name found on invocation or task";
     log(`task ${taskId}: ${gateMsg} — treating as failure`);
     updateInvocation(db, invocationId, {
@@ -706,9 +746,11 @@ function onImplementSuccess(
   emitTaskUpdated(getTask(db, taskId)!);
 
   // Write-back "In Review"
-  writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-    log(`write-back failed on implement success for task ${taskId}: ${err}`);
-  });
+  if (!terminalWriteBackTasks.has(taskId)) {
+    writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+      log(`write-back failed on implement success for task ${taskId}: ${err}`);
+    });
+  }
 
   // Post implementation success comment (fire-and-forget)
   client
@@ -770,9 +812,11 @@ async function onReviewSuccess(
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write-back (no-op for awaiting_ci, Linear stays at "In Review")
-    writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
-      log(`write-back failed on review approved for task ${taskId}: ${err}`);
-    });
+    if (!terminalWriteBackTasks.has(taskId)) {
+      writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
+        log(`write-back failed on review approved for task ${taskId}: ${err}`);
+      });
+    }
 
     // Post comment (fire-and-forget)
     client
@@ -796,13 +840,15 @@ async function onReviewSuccess(
       updateTaskStatus(db, taskId, "changes_requested");
       emitTaskUpdated(getTask(db, taskId)!);
 
-      writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-        (err) => {
-          log(
-            `write-back failed on changes requested for task ${taskId}: ${err}`,
-          );
-        },
-      );
+      if (!terminalWriteBackTasks.has(taskId)) {
+        writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
+          (err) => {
+            log(
+              `write-back failed on changes requested for task ${taskId}: ${err}`,
+            );
+          },
+        );
+      }
 
       // Post changes requested comment (fire-and-forget)
       client
@@ -930,6 +976,33 @@ function onSessionFailure(
     return;
   }
 
+  // Stale session resume — clear session ID and re-dispatch fresh instead of burning a retry
+  if (
+    result.subtype === "error_during_execution" &&
+    result.outputSummary?.includes("No conversation found with session ID")
+  ) {
+    log(
+      `task ${taskId}: stale session detected — clearing session and re-dispatching fresh`,
+    );
+    // Clear the stale session from the invocation so the next dispatch starts fresh
+    updateInvocation(db, invocationId, {
+      sessionId: null,
+    });
+    // Re-queue without burning a retry
+    const requeueStatus =
+      phase === "review" ? ("in_review" as const) : ("ready" as const);
+    updateTaskStatus(db, taskId, requeueStatus);
+    emitTaskUpdated(getTask(db, taskId)!);
+    try {
+      removeWorktree(worktreePath);
+    } catch (err) {
+      log(
+        `worktree removal on stale session for invocation ${invocationId}: ${err}`,
+      );
+    }
+    return;
+  }
+
   updateTaskStatus(db, taskId, "failed");
   emitTaskUpdated(getTask(db, taskId)!);
 
@@ -1018,7 +1091,7 @@ function handleRetry(
     // "Todo", which can race with the "failed_permanent" → "Canceled"
     // write-back and reset retryCount to 0 via resolveConflict/upsertTask,
     // causing an infinite retry loop.
-    if (phase === "review") {
+    if (phase === "review" && !terminalWriteBackTasks.has(taskId)) {
       writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
         log(`write-back failed on retry for task ${taskId}: ${err}`);
       });
@@ -1042,6 +1115,7 @@ function handleRetry(
     );
 
     // Write-back on permanent failure (fire-and-forget)
+    terminalWriteBackTasks.add(taskId);
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
       (err) => {
         log(
@@ -1214,6 +1288,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
         deployPollTimes.delete(taskId);
 
+        terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
           (err) => {
             log(
@@ -1245,6 +1320,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
 
+      terminalWriteBackTasks.add(taskId);
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
         log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
       });
@@ -1271,6 +1347,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
 
+      terminalWriteBackTasks.add(taskId);
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
         log(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
@@ -1294,6 +1371,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
 
+      terminalWriteBackTasks.add(taskId);
       writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
         (err) => {
           log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
@@ -1351,6 +1429,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
         ciPollTimes.delete(taskId);
 
+        terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
           (err) => {
             log(`write-back failed on CI timeout for task ${taskId}: ${err}`);
@@ -1397,11 +1476,13 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "changes_requested");
         emitTaskUpdated(getTask(db, taskId)!);
 
-        writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-          (err) => {
-            log(`write-back failed on CI failure for task ${taskId}: ${err}`);
-          },
-        );
+        if (!terminalWriteBackTasks.has(taskId)) {
+          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
+            (err) => {
+              log(`write-back failed on CI failure for task ${taskId}: ${err}`);
+            },
+          );
+        }
 
         client
           .createComment(
@@ -1421,6 +1502,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
 
+        terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
           (err) => {
             log(
@@ -1505,6 +1587,7 @@ async function mergeAndFinalize(
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
 
+        terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
           (err) => {
             log(
@@ -1571,11 +1654,15 @@ async function mergeAndFinalize(
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
 
-        writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-          log(
-            `write-back failed on merge escalation for task ${taskId}: ${err}`,
+        if (!terminalWriteBackTasks.has(taskId)) {
+          writeBackStatus(client, taskId, "in_review", stateMap).catch(
+            (err) => {
+              log(
+                `write-back failed on merge escalation for task ${taskId}: ${err}`,
+              );
+            },
           );
-        });
+        }
 
         client
           .createComment(
@@ -1631,6 +1718,7 @@ async function mergeAndFinalize(
     updateTaskStatus(db, taskId, "done");
     emitTaskUpdated(getTask(db, taskId)!);
 
+    terminalWriteBackTasks.add(taskId);
     writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
       log(`write-back failed on merge+done for task ${taskId}: ${err}`);
     });

@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, copyFileSync, rmSync, renameSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
 import { git, cleanStaleLockFiles } from "../git.js";
@@ -313,6 +313,31 @@ export function removeWorktree(worktreePath: string): void {
   // after the parent session is killed and hold open handles, causing EPERM.
   killProcessesInDirectory(worktreePath);
 
+  // Pre-deletion: remove node_modules trees first — they are the primary
+  // source of EPERM on Windows (deeply nested paths + antivirus locks).
+  // Best-effort: errors are logged but don't block the main removal flow.
+  if (platform() === "win32" && existsSync(worktreePath)) {
+    for (const candidate of [
+      join(worktreePath, "node_modules"),
+      ...(() => {
+        try {
+          return readdirSync(worktreePath, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && e.name !== "node_modules")
+            .map((e) => join(worktreePath, e.name, "node_modules"))
+            .filter((p) => existsSync(p));
+        } catch {
+          return [];
+        }
+      })(),
+    ]) {
+      try {
+        rmSync(candidate, { recursive: true, force: true });
+      } catch {
+        // Best-effort: will retry in the full removal below
+      }
+    }
+  }
+
   // Capture branch name before the directory is removed (needed for Bug 3
   // ghost-ref cleanup below). Detached HEAD or missing worktree returns null.
   let worktreeBranchName: string | null = null;
@@ -366,7 +391,20 @@ export function removeWorktree(worktreePath: string): void {
     `[orca/worktree] falling back to rmSync + prune for ${worktreePath}`,
   );
   if (existsSync(worktreePath)) {
-    rmSyncWithRetry(worktreePath);
+    try {
+      rmSyncWithRetry(worktreePath);
+    } catch (rmErr) {
+      // Last resort: rename to .trash so the original path is unblocked
+      const trashPath = `${worktreePath}.trash-${Date.now()}`;
+      try {
+        renameSync(worktreePath, trashPath);
+        console.warn(
+          `[orca/worktree] renamed stuck directory to ${trashPath} — manual cleanup needed`,
+        );
+      } catch {
+        throw rmErr;
+      }
+    }
   }
   if (repoRoot) {
     try {
