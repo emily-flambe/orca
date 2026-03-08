@@ -252,11 +252,27 @@ export default function App() {
     fetchStatus().then(setStatus).catch(console.error);
   }, []);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchTasks().then(setTasks).catch(console.error);
+        fetchStatus().then(setStatus).catch(console.error);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   const handleTaskUpdated = useCallback((task: unknown) => {
     const t = task as Task;
-    setTasks((prev) =>
-      prev.map((p) => (p.linearIssueId === t.linearIssueId ? t : p))
-    );
+    setTasks((prev) => {
+      const idx = prev.findIndex((p) => p.linearIssueId === t.linearIssueId);
+      if (idx === -1) return [...prev, t];
+      const next = [...prev];
+      next[idx] = t;
+      return next;
+    });
   }, []);
 
   const handleStatusUpdated = useCallback((s: unknown) => {
@@ -271,6 +287,15 @@ export default function App() {
     },
     [selectedTaskId]
   );
+
+  const handleTasksRefreshed = useCallback(() => {
+    fetchTasks().then(setTasks).catch(console.error);
+  }, []);
+
+  const handleReconnect = useCallback(() => {
+    fetchTasks().then(setTasks).catch(console.error);
+    fetchStatus().then(setStatus).catch(console.error);
+  }, []);
 
   const handleSync = useCallback(async () => {
     await triggerSync();
@@ -307,6 +332,8 @@ export default function App() {
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
     onInvocationCompleted: handleInvocationCompleted,
+    onTasksRefreshed: handleTasksRefreshed,
+    onReconnect: handleReconnect,
   });
 
   const handleSelectTask = useCallback((id: string) => {

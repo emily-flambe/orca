@@ -20,6 +20,7 @@ import {
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
 import { closePrsForCanceledTask } from "../github/index.js";
+import { emitTaskUpdated, emitTasksRefreshed } from "../events.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -301,6 +302,7 @@ export async function fullSync(
     await evaluateParentStatuses(db, client, stateMap);
   }
 
+  emitTasksRefreshed();
   log(`full sync complete: ${issues.length} issues`);
   return issues.length;
 }
@@ -363,8 +365,13 @@ export async function processWebhookEvent(
 
     upsertTask(db, issueFromEvent, config);
 
-    // If this is a child task, evaluate its parent's status
+    // Emit SSE event for the updated task
     const updatedTask = getTask(db, event.data.identifier);
+    if (updatedTask) {
+      emitTaskUpdated(updatedTask);
+    }
+
+    // If this is a child task, evaluate its parent's status
     if (updatedTask?.parentIdentifier) {
       evaluateParentStatuses(db, client, stateMap, [
         updatedTask.parentIdentifier,

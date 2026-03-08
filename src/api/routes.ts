@@ -767,10 +767,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
+      const onTasksRefreshed = () => {
+        try {
+          stream.writeSSE({ event: "tasks:refreshed", data: "" });
+        } catch {
+          // Connection likely closed; ignore
+        }
+      };
+
       orcaEvents.on("task:updated", onTaskUpdated);
       orcaEvents.on("invocation:started", onInvocationStarted);
       orcaEvents.on("invocation:completed", onInvocationCompleted);
       orcaEvents.on("status:updated", onStatusUpdated);
+      orcaEvents.on("tasks:refreshed", onTasksRefreshed);
 
       // Keep-alive ping every 30s
       const keepAlive = setInterval(() => {
@@ -788,6 +797,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         orcaEvents.off("invocation:started", onInvocationStarted);
         orcaEvents.off("invocation:completed", onInvocationCompleted);
         orcaEvents.off("status:updated", onStatusUpdated);
+        orcaEvents.off("tasks:refreshed", onTasksRefreshed);
       });
 
       // Block until aborted
