@@ -494,18 +494,25 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         let outputSummary: string;
         if (subtype === "success") {
           const resultText = typeof msg.result === "string" ? msg.result : "";
-          // Extract REVIEW_RESULT marker before truncation — the scheduler
-          // parses it from outputSummary and it's often at the end of long reviews.
+          // Extract key markers before truncation — the scheduler parses them
+          // from outputSummary and they can appear at the end of long outputs.
           const markerMatch = resultText.match(
             /REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/,
+          );
+          // Extract PR URL before truncation so Gate 2 fallback can find it.
+          const prUrlMatch = resultText.match(
+            /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+/,
           );
           const truncated = resultText
             ? resultText.slice(0, 500)
             : "completed successfully";
-          outputSummary =
-            markerMatch && !truncated.includes(markerMatch[0])
-              ? `${markerMatch[0]}\n\n${truncated}`
-              : truncated;
+          outputSummary = truncated;
+          if (markerMatch && !outputSummary.includes(markerMatch[0])) {
+            outputSummary = `${markerMatch[0]}\n\n${outputSummary}`;
+          }
+          if (prUrlMatch && !outputSummary.includes(prUrlMatch[0])) {
+            outputSummary = `${prUrlMatch[0]}\n\n${outputSummary}`;
+          }
         } else if (subtype === "error_max_turns") {
           outputSummary = "max turns reached";
         } else if (subtype === "error_during_execution") {

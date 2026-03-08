@@ -46,6 +46,7 @@ import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError, git } from "../git.js";
 import {
   findPrForBranch,
+  findPrByUrl,
   getMergeCommitSha,
   getPrCheckStatus,
   getWorkflowRunStatus,
@@ -710,7 +711,56 @@ function onImplementSuccess(
   }
 
   // Hard gate: PR must exist
-  const prInfo = findPrForBranch(branchName, task.repoPath);
+  let prInfo = findPrForBranch(branchName, task.repoPath);
+  if (!prInfo.exists) {
+    // Fallback: try to verify via PR URL extracted from Claude's summary.
+    // This handles GitHub API lag or branch name mismatches where
+    // `gh pr list --head <branch>` returns empty but the PR was created.
+    const rawSummary = result.outputSummary ?? "";
+    const prUrlMatch = rawSummary.match(
+      /https:\/\/github\.com\/([^\s/]+)\/([^\s/]+)\/pull\/(\d+)/,
+    );
+    if (prUrlMatch) {
+      const extractedUrl = prUrlMatch[0];
+      // Validate the extracted URL belongs to the same repo as task.repoPath.
+      // This prevents an unrelated PR URL mentioned in the summary from
+      // hijacking Gate 2 (e.g. a reference PR from another org/repo).
+      let repoUrlPrefix: string | null = null;
+      try {
+        const remoteUrl = git(
+          ["remote", "get-url", "origin"],
+          { cwd: task.repoPath },
+        ).trim();
+        // Normalize SSH → HTTPS: git@github.com:owner/repo.git → https://github.com/owner/repo
+        const sshMatch = remoteUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        if (sshMatch) {
+          repoUrlPrefix = `https://github.com/${sshMatch[1]}/pull/`;
+        }
+      } catch {
+        // If we can't get the remote URL, skip the validation (allow fallback)
+      }
+      const urlBelongsToRepo =
+        repoUrlPrefix === null || extractedUrl.startsWith(repoUrlPrefix);
+      if (urlBelongsToRepo) {
+        log(
+          `task ${taskId}: Gate 2 branch lookup found no PR for ${branchName}, ` +
+            `trying PR URL from summary: ${extractedUrl}`,
+        );
+        const urlInfo = findPrByUrl(extractedUrl, task.repoPath);
+        if (urlInfo.exists) {
+          log(
+            `task ${taskId}: Gate 2 PR confirmed via URL fallback (PR #${urlInfo.number})`,
+          );
+          prInfo = urlInfo;
+        }
+      } else {
+        log(
+          `task ${taskId}: Gate 2 skipping PR URL from summary (wrong repo): ${extractedUrl}`,
+        );
+      }
+    }
+  }
+
   if (!prInfo.exists) {
     // Check objectively (git diff) or via text patterns if no PR was opened
     const noChanges = worktreeHasNoChanges(worktreePath);
