@@ -96,6 +96,8 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     });
   }
 
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -110,6 +112,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     function handleClickOutside(e: MouseEvent) {
       if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
         setStatusMenuTaskId(null);
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -183,44 +188,68 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       {/* Filters */}
       <div className="px-3 pt-3 pb-2 border-b border-gray-800 space-y-3">
 
-        {/* Status filter */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Status</span>
+        {/* Status filter dropdown */}
+        <div className="flex items-center gap-2" ref={statusDropdownRef}>
+          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">Status</span>
+          <div className="relative flex-1">
             <button
-              onClick={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
-              className={`text-[11px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-              disabled={allStatusesSelected}
+              onClick={() => setStatusDropdownOpen((o) => !o)}
+              className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
             >
-              all
+              <span className="truncate">
+                {selectedStatuses.size === ALL_FILTER_VALUES.length
+                  ? "all statuses"
+                  : selectedStatuses.size === 0
+                  ? "none"
+                  : selectedStatuses.size === 1
+                  ? STATUS_FILTERS.find((f) => selectedStatuses.has(f.value))?.label ?? "1 status"
+                  : `${selectedStatuses.size} of ${ALL_FILTER_VALUES.length}`}
+              </span>
+              <svg className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
-          </div>
-          <div className="overflow-x-auto scrollbar-none">
-            <div className="flex gap-1 flex-nowrap min-w-max">
-              {STATUS_FILTERS.map((f) => {
-                const active = selectedStatuses.has(f.value);
-                const count = statusCounts[f.value] ?? 0;
-                return (
+            {statusDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
+                  <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Filter by status</span>
                   <button
-                    key={f.value}
-                    onClick={() => toggleStatus(f.value)}
-                    title={active ? `Hide ${f.label}` : `Show ${f.label}`}
-                    className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
-                      active
-                        ? statusFilterActiveStyle(f.value)
-                        : "text-gray-700 hover:text-gray-500 line-through"
-                    }`}
+                    onClick={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
+                    className={`text-[10px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                    disabled={allStatusesSelected}
                   >
-                    {f.label}
-                    {count > 0 && (
-                      <span className={`text-[10px] tabular-nums leading-none ${active ? "opacity-60" : "opacity-40"}`}>
-                        {count}
-                      </span>
-                    )}
+                    all
                   </button>
-                );
-              })}
-            </div>
+                </div>
+                {STATUS_FILTERS.map((f) => {
+                  const active = selectedStatuses.has(f.value);
+                  const count = statusCounts[f.value] ?? 0;
+                  return (
+                    <button
+                      key={f.value}
+                      onClick={() => toggleStatus(f.value)}
+                      className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
+                    >
+                      <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}>
+                        {active && (
+                          <svg className="w-2 h-2 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={`flex-1 text-left rounded-full px-1.5 py-0.5 ${active ? statusFilterActiveStyle(f.value) : "text-gray-600 line-through"}`}>
+                        {f.label}
+                      </span>
+                      {count > 0 && (
+                        <span className={`text-[10px] tabular-nums ${active ? "text-gray-500" : "text-gray-700"}`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
