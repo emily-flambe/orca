@@ -8,6 +8,7 @@ import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
+import OrchestratorBar from "./components/OrchestratorBar";
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
@@ -399,6 +400,14 @@ export default function App() {
             Orca
           </span>
         </div>
+
+        {/* Orchestrator bar — persistent status/action bar */}
+        <OrchestratorBar
+          status={status}
+          onSync={handleSync}
+          onConfigUpdate={handleConfigUpdate}
+          onNewTicket={handleNewTicket}
+        />
 
         {/* Page content */}
         {activePage === "tasks" && (
