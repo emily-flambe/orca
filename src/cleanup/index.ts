@@ -175,8 +175,12 @@ function cleanupRepo(
   try {
     git(["worktree", "prune"], { cwd: repoPath });
   } catch (err) {
-    const detail = isTransientGitError(err) ? " (transient, will retry next cycle)" : "";
-    console.warn(`[orca/cleanup] worktree prune failed for ${repoPath}${detail}: ${err}`);
+    const detail = isTransientGitError(err)
+      ? " (transient, will retry next cycle)"
+      : "";
+    console.warn(
+      `[orca/cleanup] worktree prune failed for ${repoPath}${detail}: ${err}`,
+    );
   }
 
   const repoDirname = basename(repoPath);

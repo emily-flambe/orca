@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
+import {
+  fetchTaskDetail,
+  abortInvocation,
+  retryTask,
+  updateTaskStatus,
+} from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import LiveRunWidget from "./LiveRunWidget";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
@@ -35,7 +40,9 @@ const MANUAL_STATUSES = [
 
 export default function TaskDetail({ taskId, initialInvocationId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
-  const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
+  const [selectedInvocationId, setSelectedInvocationId] = useState<
+    number | null
+  >(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement>(null);
 
@@ -53,7 +60,10 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+      if (
+        statusMenuRef.current &&
+        !statusMenuRef.current.contains(e.target as Node)
+      ) {
         setShowStatusMenu(false);
       }
     }
@@ -66,7 +76,7 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
   }
 
   const invocations = [...(detail.invocations || [])].sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
   );
 
   const runningInvocation = invocations.find((inv) => inv.status === "running");
@@ -75,38 +85,48 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
     <div className="p-4 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
+        <h2 className="text-lg font-mono font-semibold">
+          {detail.linearIssueId}
+        </h2>
         <div className="relative" ref={statusMenuRef}>
           <button
             onClick={() => setShowStatusMenu(!showStatusMenu)}
             className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
           >
-            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
+            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}{" "}
+            &#9662;
           </button>
           {showStatusMenu && (
             <div className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => {
-                    setShowStatusMenu(false);
-                    updateTaskStatus(detail.linearIssueId, s.value)
-                      .then(() => fetchTaskDetail(taskId))
-                      .then((d) => setDetail(d))
-                      .catch(console.error);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                >
-                  {s.label}
-                </button>
-              ))}
+              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map(
+                (s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => {
+                      setShowStatusMenu(false);
+                      updateTaskStatus(detail.linearIssueId, s.value)
+                        .then(() => fetchTaskDetail(taskId))
+                        .then((d) => setDetail(d))
+                        .catch(console.error);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                  >
+                    {s.label}
+                  </button>
+                ),
+              )}
             </div>
           )}
         </div>
         {detail.orcaStatus === "failed" && (
           <button
             onClick={() => {
-              if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
+              if (
+                !window.confirm(
+                  "Retry this task? It will be re-queued with fresh retry counters.",
+                )
+              )
+                return;
               retryTask(detail.linearIssueId)
                 .then(() => fetchTaskDetail(taskId))
                 .then((d) => setDetail(d))
@@ -135,7 +155,11 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>
         <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
-          {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
+          {detail.agentPrompt || (
+            <span className="text-gray-500 italic">
+              No prompt (issue has no description)
+            </span>
+          )}
         </pre>
       </div>
 
@@ -149,22 +173,43 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
             {/* Mobile: card layout */}
             <div className="md:hidden space-y-2">
               {invocations.map((inv) => (
-                <div key={inv.id} className="border border-gray-800 rounded-lg overflow-hidden">
+                <div
+                  key={inv.id}
+                  className="border border-gray-800 rounded-lg overflow-hidden"
+                >
                   <button
-                    onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
+                    onClick={() =>
+                      setSelectedInvocationId(
+                        selectedInvocationId === inv.id ? null : inv.id,
+                      )
+                    }
                     className="w-full text-left px-3 py-2.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-xs text-gray-400">{formatDate(inv.startedAt)}</span>
+                      <span className="text-xs text-gray-400">
+                        {formatDate(inv.startedAt)}
+                      </span>
                       <StatusBadge status={inv.status} className="shrink-0" />
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-400">
-                      <span className="tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</span>
-                      {inv.costUsd != null && <span className="tabular-nums">${inv.costUsd.toFixed(2)}</span>}
-                      {inv.numTurns != null && <span className="tabular-nums">{inv.numTurns} turns</span>}
+                      <span className="tabular-nums">
+                        {formatDuration(inv.startedAt, inv.endedAt)}
+                      </span>
+                      {inv.costUsd != null && (
+                        <span className="tabular-nums">
+                          ${inv.costUsd.toFixed(2)}
+                        </span>
+                      )}
+                      {inv.numTurns != null && (
+                        <span className="tabular-nums">
+                          {inv.numTurns} turns
+                        </span>
+                      )}
                     </div>
                     {inv.outputSummary && (
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{inv.outputSummary}</p>
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {inv.outputSummary}
+                      </p>
                     )}
                   </button>
                   {inv.status === "running" && (
@@ -172,7 +217,12 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                          if (
+                            !window.confirm(
+                              "Abort this invocation? The task will be reset to ready.",
+                            )
+                          )
+                            return;
                           abortInvocation(inv.id)
                             .then(() => fetchTaskDetail(taskId))
                             .then((d) => setDetail(d))
@@ -186,7 +236,11 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                   )}
                   {selectedInvocationId === inv.id && (
                     <div className="border-t border-gray-800">
-                      <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+                      <LogViewer
+                        invocationId={inv.id}
+                        isRunning={inv.status === "running"}
+                        outputSummary={inv.outputSummary}
+                      />
                     </div>
                   )}
                 </div>
@@ -211,25 +265,44 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                   {invocations.map((inv) => (
                     <Fragment key={inv.id}>
                       <tr
-                        onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
+                        onClick={() =>
+                          setSelectedInvocationId(
+                            selectedInvocationId === inv.id ? null : inv.id,
+                          )
+                        }
                         className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
                       >
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
+                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">
+                          {formatDate(inv.startedAt)}
+                        </td>
+                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">
+                          {formatDuration(inv.startedAt, inv.endedAt)}
+                        </td>
                         <td className="py-2 pr-4">
                           <StatusBadge status={inv.status} />
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
+                          {inv.costUsd != null
+                            ? `$${inv.costUsd.toFixed(2)}`
+                            : "\u2014"}
                         </td>
-                        <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                        <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
+                        <td className="py-2 pr-4 text-gray-300 tabular-nums">
+                          {inv.numTurns ?? "\u2014"}
+                        </td>
+                        <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">
+                          {inv.outputSummary ?? "\u2014"}
+                        </td>
                         <td className="py-2">
                           {inv.status === "running" && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                                if (
+                                  !window.confirm(
+                                    "Abort this invocation? The task will be reset to ready.",
+                                  )
+                                )
+                                  return;
                                 abortInvocation(inv.id)
                                   .then(() => fetchTaskDetail(taskId))
                                   .then((d) => setDetail(d))
@@ -245,7 +318,11 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                       {selectedInvocationId === inv.id && (
                         <tr>
                           <td colSpan={7} className="py-2">
-                            <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+                            <LogViewer
+                              invocationId={inv.id}
+                              isRunning={inv.status === "running"}
+                              outputSummary={inv.outputSummary}
+                            />
                           </td>
                         </tr>
                       )}

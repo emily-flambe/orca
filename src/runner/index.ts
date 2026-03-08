@@ -1,4 +1,9 @@
-import { spawn, execFileSync, execSync, type ChildProcess } from "node:child_process";
+import {
+  spawn,
+  execFileSync,
+  execSync,
+  type ChildProcess,
+} from "node:child_process";
 import { createInterface } from "node:readline";
 import {
   createWriteStream,
@@ -834,7 +839,12 @@ export async function killSession(
  */
 export function sendPrompt(handle: SessionHandle, text: string): boolean {
   const proc = handle.process;
-  if (proc.exitCode !== null || proc.killed || !proc.stdin || proc.stdin.destroyed) {
+  if (
+    proc.exitCode !== null ||
+    proc.killed ||
+    !proc.stdin ||
+    proc.stdin.destroyed
+  ) {
     return false;
   }
   try {

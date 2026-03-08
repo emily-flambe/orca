@@ -11,7 +11,9 @@ export default function SystemLog() {
   const [tail, setTail] = useState(200);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(
+    undefined,
+  );
 
   const load = useCallback(() => {
     fetchSystemLogs({ tail, filter: filter || undefined })
@@ -21,7 +23,9 @@ export default function SystemLog() {
         setSizeBytes(data.sizeBytes);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : String(err)),
+      )
       .finally(() => setLoading(false));
   }, [tail, filter]);
 
@@ -91,7 +95,10 @@ export default function SystemLog() {
         </button>
 
         <button
-          onClick={() => { setLoading(true); load(); }}
+          onClick={() => {
+            setLoading(true);
+            load();
+          }}
           className="text-xs px-2 py-1 rounded bg-gray-800 text-gray-400 hover:text-gray-200 transition-colors"
         >
           Refresh
@@ -111,7 +118,9 @@ export default function SystemLog() {
           <div className="p-4 text-sm text-red-400">Error: {error}</div>
         ) : lines.length === 0 ? (
           <div className="p-4 text-sm text-gray-500">
-            {filter ? "No lines match the filter." : "Log file is empty or does not exist yet."}
+            {filter
+              ? "No lines match the filter."
+              : "Log file is empty or does not exist yet."}
           </div>
         ) : (
           <div className="p-3 font-mono text-xs text-gray-300 space-y-0.5">
@@ -128,17 +137,23 @@ export default function SystemLog() {
 
 // Highlight filter match in a line
 function LogLine({ line, filter }: { line: string; filter: string }) {
-  const isError = /\berror\b|\bfailed\b|\bException\b|\bstack trace\b/i.test(line);
+  const isError = /\berror\b|\bfailed\b|\bException\b|\bstack trace\b/i.test(
+    line,
+  );
   const isWarn = /\bwarn\b|\bwarning\b/i.test(line);
 
   const baseColor = isError
     ? "text-red-400"
     : isWarn
-    ? "text-yellow-400"
-    : "text-gray-300";
+      ? "text-yellow-400"
+      : "text-gray-300";
 
   if (!filter) {
-    return <div className={`whitespace-pre-wrap break-all leading-5 ${baseColor}`}>{line}</div>;
+    return (
+      <div className={`whitespace-pre-wrap break-all leading-5 ${baseColor}`}>
+        {line}
+      </div>
+    );
   }
 
   // Split line on filter match for highlighting
@@ -148,11 +163,16 @@ function LogLine({ line, filter }: { line: string; filter: string }) {
   let idx = 0;
   let match: number;
   while ((match = lowerLine.indexOf(lowerFilter, idx)) !== -1) {
-    if (match > idx) parts.push({ text: line.slice(idx, match), highlight: false });
-    parts.push({ text: line.slice(match, match + filter.length), highlight: true });
+    if (match > idx)
+      parts.push({ text: line.slice(idx, match), highlight: false });
+    parts.push({
+      text: line.slice(match, match + filter.length),
+      highlight: true,
+    });
     idx = match + filter.length;
   }
-  if (idx < line.length) parts.push({ text: line.slice(idx), highlight: false });
+  if (idx < line.length)
+    parts.push({ text: line.slice(idx), highlight: false });
 
   return (
     <div className={`whitespace-pre-wrap break-all leading-5 ${baseColor}`}>
@@ -163,7 +183,7 @@ function LogLine({ line, filter }: { line: string; filter: string }) {
           </mark>
         ) : (
           <span key={i}>{p.text}</span>
-        )
+        ),
       )}
     </div>
   );

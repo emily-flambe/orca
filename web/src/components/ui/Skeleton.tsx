@@ -18,6 +18,8 @@ export default function Skeleton({ className = "", lines }: Props) {
   }
 
   return (
-    <div className={`animate-pulse bg-gray-800 rounded h-4 w-full ${className}`} />
+    <div
+      className={`animate-pulse bg-gray-800 rounded h-4 w-full ${className}`}
+    />
   );
 }

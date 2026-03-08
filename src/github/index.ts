@@ -135,10 +135,9 @@ export function findPrForBranch(
  */
 export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
   try {
-    const output = gh(
-      ["pr", "view", prUrl, "--json", "url,number,state"],
-      { cwd },
-    );
+    const output = gh(["pr", "view", prUrl, "--json", "url,number,state"], {
+      cwd,
+    });
     const data = JSON.parse(output) as {
       url?: string;
       number?: number;
@@ -322,7 +321,8 @@ export function closeSupersededPrs(
           String(pr.number),
           "--delete-branch",
           "--comment",
-          comment ?? `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
+          comment ??
+            `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
         ],
         { cwd },
       );
@@ -439,8 +439,12 @@ export function closeOrphanedPrs(
     prs = JSON.parse(output);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const detail = isTransientGitError(err) ? " (transient, will retry next cycle)" : "";
-    console.warn(`[orca/github] closeOrphanedPrs: failed to list PRs${detail}: ${msg}`);
+    const detail = isTransientGitError(err)
+      ? " (transient, will retry next cycle)"
+      : "";
+    console.warn(
+      `[orca/github] closeOrphanedPrs: failed to list PRs${detail}: ${msg}`,
+    );
     return 0;
   }
 

@@ -93,10 +93,13 @@ export default function Sidebar({
   const projectCounts: Record<string, number> = {};
   for (const task of tasks) {
     if (task.projectName) {
-      projectCounts[task.projectName] = (projectCounts[task.projectName] ?? 0) + 1;
+      projectCounts[task.projectName] =
+        (projectCounts[task.projectName] ?? 0) + 1;
     }
   }
-  const projects = Object.entries(projectCounts).sort(([a], [b]) => a.localeCompare(b));
+  const projects = Object.entries(projectCounts).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
 
   const navItemClass = (page: Page) =>
     `flex items-center gap-2.5 px-3 py-2 rounded text-sm cursor-pointer transition-colors w-full text-left ${
@@ -184,14 +187,20 @@ export default function Sidebar({
             className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
             onClick={() => setProjectsExpanded((v) => !v)}
           >
-            <span className="uppercase tracking-wider font-medium">Projects</span>
-            <span className="ml-auto text-gray-600">{projectsExpanded ? "▾" : "▸"}</span>
+            <span className="uppercase tracking-wider font-medium">
+              Projects
+            </span>
+            <span className="ml-auto text-gray-600">
+              {projectsExpanded ? "▾" : "▸"}
+            </span>
           </button>
 
           {projectsExpanded && (
             <div className="flex flex-col gap-0.5">
               {projects.length === 0 ? (
-                <div className="px-3 py-1 text-xs text-gray-600 italic">No projects</div>
+                <div className="px-3 py-1 text-xs text-gray-600 italic">
+                  No projects
+                </div>
               ) : (
                 projects.map(([name, count]) => (
                   <div
@@ -202,7 +211,9 @@ export default function Sidebar({
                       className={`inline-block h-2 w-2 rounded-full shrink-0 ${projectColor(name)}`}
                     />
                     <span className="truncate">{name}</span>
-                    <span className="ml-auto text-gray-600 tabular-nums">{count}</span>
+                    <span className="ml-auto text-gray-600 tabular-nums">
+                      {count}
+                    </span>
                   </div>
                 ))
               )}
@@ -232,11 +243,23 @@ export default function Sidebar({
           <button
             onClick={toggleTheme}
             className="p-1.5 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
           >
             {theme === "dark" ? (
               // Sun icon
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <circle cx="12" cy="12" r="5" />
                 <line x1="12" y1="1" x2="12" y2="3" />
                 <line x1="12" y1="21" x2="12" y2="23" />
@@ -249,7 +272,17 @@ export default function Sidebar({
               </svg>
             ) : (
               // Moon icon
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             )}

@@ -206,7 +206,11 @@ program
     writeFileSync(pidFile, String(process.pid));
     for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
       process.on(sig, () => {
-        try { unlinkSync(pidFile); } catch { /* already gone */ }
+        try {
+          unlinkSync(pidFile);
+        } catch {
+          /* already gone */
+        }
       });
     }
 

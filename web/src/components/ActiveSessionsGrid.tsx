@@ -32,16 +32,26 @@ export default function ActiveSessionsGrid() {
   }, []);
 
   const handleInvocationCompleted = useCallback(
-    (data: { taskId: string; invocationId: number; status: string; costUsd: number }) => {
+    (data: {
+      taskId: string;
+      invocationId: number;
+      status: string;
+      costUsd: number;
+    }) => {
       setRunning((prev) => {
         const completed = prev.find((inv) => inv.id === data.invocationId);
         if (completed) {
-          setLastCompleted({ ...completed, status: data.status as Invocation["status"], costUsd: data.costUsd, endedAt: new Date().toISOString() });
+          setLastCompleted({
+            ...completed,
+            status: data.status as Invocation["status"],
+            costUsd: data.costUsd,
+            endedAt: new Date().toISOString(),
+          });
         }
         return prev.filter((inv) => inv.id !== data.invocationId);
       });
     },
-    []
+    [],
   );
 
   useSSE({
@@ -66,12 +76,16 @@ export default function ActiveSessionsGrid() {
           {lastCompleted ? (
             <div className="text-xs text-gray-600">
               Last completed:{" "}
-              <span className="font-mono text-gray-500">{lastCompleted.linearIssueId}</span>
+              <span className="font-mono text-gray-500">
+                {lastCompleted.linearIssueId}
+              </span>
               {lastCompleted.endedAt && (
                 <span className="ml-1">({timeAgo(lastCompleted.endedAt)})</span>
               )}
               {lastCompleted.costUsd != null && (
-                <span className="ml-1">${lastCompleted.costUsd.toFixed(2)}</span>
+                <span className="ml-1">
+                  ${lastCompleted.costUsd.toFixed(2)}
+                </span>
               )}
             </div>
           ) : null}
@@ -79,11 +93,7 @@ export default function ActiveSessionsGrid() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {running.map((inv) => (
-            <LiveRunWidget
-              key={inv.id}
-              invocation={inv}
-              onCancelled={reload}
-            />
+            <LiveRunWidget key={inv.id} invocation={inv} onCancelled={reload} />
           ))}
         </div>
       )}

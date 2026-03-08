@@ -36,7 +36,9 @@ export function triggerGracefulDeploy(db: OrcaDb): void {
   const poll = () => {
     const active = countActiveSessions(db);
     if (active > 0) {
-      log(`draining: ${active} session(s) still running — checking again in ${POLL_INTERVAL_MS / 1000}s`);
+      log(
+        `draining: ${active} session(s) still running — checking again in ${POLL_INTERVAL_MS / 1000}s`,
+      );
       setTimeout(poll, POLL_INTERVAL_MS);
       return;
     }
