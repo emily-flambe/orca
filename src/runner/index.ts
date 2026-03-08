@@ -293,9 +293,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   // Spawn the claude CLI process.
   // Strip Claude nesting-detection env vars so child sessions don't refuse to start.
-  const childEnv = { ...process.env };
-  delete childEnv.CLAUDECODE;
-  delete childEnv.CLAUDE_CODE_ENTRYPOINT;
+  // On Windows, `delete` on a spread of process.env doesn't reliably remove vars
+  // from child processes. Filter them out explicitly (case-insensitive).
+  const STRIP_VARS = new Set(["claudecode", "claude_code_entrypoint"]);
+  const childEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !STRIP_VARS.has(key.toLowerCase()),
+    ),
+  );
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
