@@ -1,42 +1,78 @@
-import { useState, useEffect, useRef, Fragment } from "react";
-import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
-import LogViewer from "./LogViewer";
-import LiveRunWidget from "./LiveRunWidget";
+import { useState, useEffect } from "react";
+import type { TaskWithInvocations, Invocation } from "../types";
+import { fetchTaskDetail, retryTask } from "../hooks/useApi";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
-import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
-import EmptyState from "./ui/EmptyState";
+import PropertiesPanel from "./PropertiesPanel";
+import InvocationTimeline from "./InvocationTimeline";
 
 interface Props {
   taskId: string;
-}
-
-function formatDuration(start: string, end: string | null): string {
-  if (!end) return "running...";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  return `${mins}m ${remSecs}s`;
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-const MANUAL_STATUSES = [
-  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
-  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
-  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
-] as const;
+// ---------------------------------------------------------------------------
+// Activity feed helpers
+// ---------------------------------------------------------------------------
+
+interface ActivityEvent {
+  time: string;
+  icon: string;
+  label: string;
+}
+
+function buildActivityFeed(task: TaskWithInvocations): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
+
+  for (const inv of task.invocations || []) {
+    if (inv.phase === "implement") {
+      events.push({ time: inv.startedAt, icon: "→", label: "Implementation run dispatched" });
+    } else if (inv.phase === "review") {
+      events.push({ time: inv.startedAt, icon: "⟳", label: "Review started" });
+      if (inv.status === "completed") {
+        events.push({ time: inv.endedAt ?? inv.startedAt, icon: "✓", label: "Review completed" });
+      }
+    } else if (inv.phase === "fix") {
+      events.push({ time: inv.startedAt, icon: "→", label: "Fix run dispatched" });
+    }
+  }
+
+  if (task.prNumber != null) {
+    // Approximate PR creation time: earliest review invocation, or task updatedAt
+    const reviewInv = (task.invocations || []).find((i) => i.phase === "review");
+    const prTime = reviewInv?.startedAt ?? task.updatedAt;
+    events.push({ time: prTime, icon: "⎇", label: `PR #${task.prNumber} created` });
+  }
+
+  if (task.doneAt) {
+    events.push({ time: task.doneAt, icon: "✓", label: "Task marked done" });
+  }
+
+  events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
-  const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
+
+  const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    return sessionStorage.getItem("propertiesPanelOpen") === "true";
+  });
+
+  const togglePanel = () => {
+    setPanelOpen((prev) => {
+      const next = !prev;
+      sessionStorage.setItem("propertiesPanelOpen", String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -44,212 +80,119 @@ export default function TaskDetail({ taskId }: Props) {
       .catch(console.error);
   }, [taskId]);
 
+  // Cmd+\ shortcut to toggle panel
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
-        setShowStatusMenu(false);
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.metaKey && e.key === "\\") {
+        e.preventDefault();
+        togglePanel();
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   if (!detail) {
     return <Skeleton lines={3} className="m-4" />;
   }
 
-  const invocations = [...(detail.invocations || [])].sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-  );
+  const invocations: Invocation[] = detail.invocations || [];
+  const activityFeed = buildActivityFeed(detail);
 
-  const runningInvocation = invocations.find((inv) => inv.status === "running");
+  function refresh() {
+    fetchTaskDetail(taskId)
+      .then((d) => setDetail(d))
+      .catch(console.error);
+  }
 
   return (
-    <div className="p-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
-        <div className="relative" ref={statusMenuRef}>
-          <button
-            onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
+    <div className="flex min-h-0 flex-1">
+      {/* Main content */}
+      <div className="flex-1 p-4 space-y-6 min-w-0">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
+
+          {/* Current status badge (non-interactive, panel handles changes) */}
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${getStatusBadgeClasses(detail.orcaStatus)}`}
           >
-            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
-          </button>
-          {showStatusMenu && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => {
-                    setShowStatusMenu(false);
-                    updateTaskStatus(detail.linearIssueId, s.value)
-                      .then(() => fetchTaskDetail(taskId))
-                      .then((d) => setDetail(d))
-                      .catch(console.error);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}
+          </span>
+
+          {detail.orcaStatus === "failed" && (
+            <button
+              onClick={() => {
+                if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
+                retryTask(detail.linearIssueId)
+                  .then(refresh)
+                  .catch(console.error);
+              }}
+              className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+            >
+              Retry
+            </button>
           )}
-        </div>
-        {detail.orcaStatus === "failed" && (
+
+          <span className="flex-1" />
+
+          {/* Properties toggle */}
           <button
-            onClick={() => {
-              if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
-              retryTask(detail.linearIssueId)
-                .then(() => fetchTaskDetail(taskId))
-                .then((d) => setDetail(d))
-                .catch(console.error);
-            }}
-            className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+            onClick={togglePanel}
+            title="Toggle properties panel (⌘\)"
+            className="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
           >
-            Retry
+            Properties
           </button>
-        )}
-      </div>
+        </div>
 
-      {/* Live run widget — shown when task has an active invocation */}
-      {runningInvocation && (
-        <LiveRunWidget
-          invocation={runningInvocation}
-          onCancelled={() =>
-            fetchTaskDetail(taskId)
-              .then((d) => setDetail(d))
-              .catch(console.error)
-          }
-        />
-      )}
+        {/* Agent prompt */}
+        <div className="space-y-2">
+          <label className="text-sm text-gray-400">Agent Prompt</label>
+          <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+            {detail.agentPrompt || (
+              <span className="text-gray-500 italic">No prompt (issue has no description)</span>
+            )}
+          </pre>
+        </div>
 
-      {/* Agent prompt (read-only, synced from Linear) */}
-      <div className="space-y-2">
-        <label className="text-sm text-gray-400">Agent Prompt</label>
-        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
-          {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
-        </pre>
-      </div>
+        {/* Invocation history — timeline */}
+        <div>
+          <h3 className="text-sm text-gray-400 mb-3">Invocation History</h3>
+          <InvocationTimeline
+            invocations={invocations}
+            taskId={taskId}
+            onAborted={refresh}
+          />
+        </div>
 
-      {/* Invocation history */}
-      <div>
-        <h3 className="text-sm text-gray-400 mb-2">Invocation History</h3>
-        {invocations.length === 0 ? (
-          <EmptyState message="No invocations yet" />
-        ) : (
-          <>
-            {/* Mobile: card layout */}
-            <div className="md:hidden space-y-2">
-              {invocations.map((inv) => (
-                <div key={inv.id} className="border border-gray-800 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-xs text-gray-400">{formatDate(inv.startedAt)}</span>
-                      <StatusBadge status={inv.status} className="shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-400">
-                      <span className="tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</span>
-                      {inv.costUsd != null && <span className="tabular-nums">${inv.costUsd.toFixed(2)}</span>}
-                      {inv.numTurns != null && <span className="tabular-nums">{inv.numTurns} turns</span>}
-                    </div>
-                    {inv.outputSummary && (
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{inv.outputSummary}</p>
-                    )}
-                  </button>
-                  {inv.status === "running" && (
-                    <div className="px-3 pb-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                          abortInvocation(inv.id)
-                            .then(() => fetchTaskDetail(taskId))
-                            .then((d) => setDetail(d))
-                            .catch(console.error);
-                        }}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                      >
-                        Abort
-                      </button>
-                    </div>
-                  )}
-                  {selectedInvocationId === inv.id && (
-                    <div className="border-t border-gray-800">
-                      <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
-                    </div>
-                  )}
+        {/* Activity Feed */}
+        {activityFeed.length > 0 && (
+          <div>
+            <h3 className="text-sm text-gray-400 mb-3">Activity</h3>
+            <div className="space-y-2">
+              {activityFeed.map((event, idx) => (
+                <div key={idx} className="flex items-start gap-3 text-sm">
+                  <span className="text-gray-500 w-4 shrink-0 text-center">{event.icon}</span>
+                  <span className="text-gray-300 flex-1">{event.label}</span>
+                  <span className="text-xs text-gray-500 whitespace-nowrap">{formatDate(event.time)}</span>
                 </div>
               ))}
             </div>
-
-            {/* Desktop: table layout */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 border-b border-gray-800">
-                    <th className="pb-2 pr-4">Date</th>
-                    <th className="pb-2 pr-4">Duration</th>
-                    <th className="pb-2 pr-4">Status</th>
-                    <th className="pb-2 pr-4">Cost</th>
-                    <th className="pb-2 pr-4">Turns</th>
-                    <th className="pb-2 pr-4">Summary</th>
-                    <th className="pb-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invocations.map((inv) => (
-                    <Fragment key={inv.id}>
-                      <tr
-                        onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
-                        className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
-                      >
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                        <td className="py-2 pr-4">
-                          <StatusBadge status={inv.status} />
-                        </td>
-                        <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                        </td>
-                        <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                        <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                        <td className="py-2">
-                          {inv.status === "running" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                                abortInvocation(inv.id)
-                                  .then(() => fetchTaskDetail(taskId))
-                                  .then((d) => setDetail(d))
-                                  .catch(console.error);
-                              }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                            >
-                              Abort
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {selectedInvocationId === inv.id && (
-                        <tr>
-                          <td colSpan={7} className="py-2">
-                            <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+          </div>
         )}
       </div>
+
+      {/* Properties panel overlay */}
+      <PropertiesPanel
+        task={detail}
+        open={panelOpen}
+        onClose={() => {
+          setPanelOpen(false);
+          sessionStorage.setItem("propertiesPanelOpen", "false");
+        }}
+        onStatusChange={refresh}
+      />
     </div>
   );
 }
