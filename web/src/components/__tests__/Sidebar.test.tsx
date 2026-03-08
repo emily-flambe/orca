@@ -56,6 +56,8 @@ const defaultProps = {
   onSync: vi.fn().mockResolvedValue(undefined),
   onNewTicket: vi.fn(),
   isOpen: true,
+  projectFilter: null,
+  onProjectClick: vi.fn(),
 };
 
 describe("Sidebar", () => {
@@ -125,5 +127,31 @@ describe("Sidebar", () => {
     render(<Sidebar {...defaultProps} tasks={tasks} />);
 
     expect(screen.getByText("No projects")).toBeInTheDocument();
+  });
+
+  it("calls onProjectClick with project name when a project is clicked", () => {
+    const onProjectClick = vi.fn();
+    const tasks = [
+      makeTask({ linearIssueId: "ENG-1", projectName: "ProjectAlpha" }),
+    ];
+    render(<Sidebar {...defaultProps} tasks={tasks} onProjectClick={onProjectClick} />);
+
+    fireEvent.click(screen.getByText("ProjectAlpha"));
+    expect(onProjectClick).toHaveBeenCalledWith("ProjectAlpha");
+  });
+
+  it("highlights the active project when projectFilter matches", () => {
+    const tasks = [
+      makeTask({ linearIssueId: "ENG-1", projectName: "ProjectAlpha" }),
+      makeTask({ linearIssueId: "ENG-2", projectName: "ProjectBeta" }),
+    ];
+    render(<Sidebar {...defaultProps} tasks={tasks} projectFilter="ProjectAlpha" />);
+
+    const activeButton = screen.getByText("ProjectAlpha").closest("button")!;
+    const inactiveButton = screen.getByText("ProjectBeta").closest("button")!;
+
+    // Active project gets bg-gray-800 text-gray-100; inactive gets text-gray-400
+    expect(activeButton.className).toContain("text-gray-100");
+    expect(inactiveButton.className).toContain("text-gray-400");
   });
 });

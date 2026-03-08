@@ -133,6 +133,36 @@ describe("TaskList", () => {
     expect(backlogFilterBtn!.textContent).toContain("2");
   });
 
+  it("filters tasks by projectFilter prop", () => {
+    const tasks = [
+      makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready", projectName: "Orca" }),
+      makeTask({ linearIssueId: "ENG-2", orcaStatus: "ready", projectName: "Atlas" }),
+    ];
+    render(<TaskList {...defaultProps} tasks={tasks} projectFilter="Orca" />);
+
+    expect(screen.getByText("ENG-1")).toBeInTheDocument();
+    expect(screen.queryByText("ENG-2")).not.toBeInTheDocument();
+  });
+
+  it("calls onClearProjectFilter when clear button is clicked", () => {
+    const onClearProjectFilter = vi.fn();
+    const tasks = [
+      makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready", projectName: "Orca" }),
+    ];
+    render(
+      <TaskList
+        {...defaultProps}
+        tasks={tasks}
+        projectFilter="Orca"
+        onClearProjectFilter={onClearProjectFilter}
+      />,
+    );
+
+    const clearButton = screen.getByLabelText("Clear project filter");
+    fireEvent.click(clearButton);
+    expect(onClearProjectFilter).toHaveBeenCalledTimes(1);
+  });
+
   it("hides done tasks with zero invocations", () => {
     const tasks = [
       makeTask({
