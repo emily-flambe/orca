@@ -256,6 +256,17 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE tasks ADD COLUMN merge_attempt_count INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 10 (stale session retry tracking):
+  //   - Add stale_session_retry_count column to tasks (bounds stale-session loops)
+  //   Sentinel: stale_session_retry_count column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "stale_session_retry_count")) {
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

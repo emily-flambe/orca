@@ -209,7 +209,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
       isParent,
       ...(issue.projectName ? { projectName: issue.projectName } : {}),
       ...(resetCounters
-        ? { retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0 }
+        ? { retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0, staleSessionRetryCount: 0 }
         : {}),
     });
   }
@@ -446,6 +446,7 @@ export function resolveConflict(
       retryCount: 0,
       reviewCycleCount: 0,
       mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
     });
     log(
       `conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`,
@@ -464,6 +465,7 @@ export function resolveConflict(
       retryCount: 0,
       reviewCycleCount: 0,
       mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
     });
     log(
       `conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`,

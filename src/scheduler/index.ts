@@ -16,6 +16,7 @@ import {
   incrementMergeAttemptCount,
   incrementRetryCount,
   incrementReviewCycleCount,
+  incrementStaleSessionRetryCount,
   insertBudgetEvent,
   insertInvocation,
   sumCostInWindow,
@@ -1133,6 +1134,34 @@ function onSessionFailure(
       );
       updateInvocation(db, sourceInv.id, { sessionId: null });
     }
+    // Increment stale-session retry counter and cap at 3 to prevent runaway loops
+    const staleRetries = incrementStaleSessionRetryCount(db, taskId);
+    const maxStaleSessionRetries = 3;
+    if (staleRetries >= maxStaleSessionRetries) {
+      log(
+        `task ${taskId}: stale session retry limit reached (${staleRetries}/${maxStaleSessionRetries}) — permanently failing`,
+      );
+      updateTaskStatus(db, taskId, "failed");
+      const failedTask = getTask(db, taskId);
+      emitTaskUpdated(failedTask!);
+      client
+        .createComment(
+          taskId,
+          `Task permanently failed: stale session detected ${staleRetries} times in a row. The Claude session cannot be resumed — manual intervention required.`,
+        )
+        .catch((err) => {
+          log(`comment failed on stale session cap for task ${taskId}: ${err}`);
+        });
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(
+          `worktree removal on stale session cap for invocation ${invocationId}: ${err}`,
+        );
+      }
+      return;
+    }
+
     // Re-queue without burning a retry
     const staleTask = getTask(db, taskId);
     const requeueStatus =

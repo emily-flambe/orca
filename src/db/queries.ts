@@ -112,6 +112,26 @@ export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): void {
     .run();
 }
 
+/** Increment stale_session_retry_count by 1 and return the new count. */
+export function incrementStaleSessionRetryCount(
+  db: OrcaDb,
+  taskId: string,
+): number {
+  db.update(tasks)
+    .set({
+      staleSessionRetryCount: sql`${tasks.staleSessionRetryCount} + 1`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+  const row = db
+    .select({ count: tasks.staleSessionRetryCount })
+    .from(tasks)
+    .where(eq(tasks.linearIssueId, taskId))
+    .get();
+  return row?.count ?? 0;
+}
+
 /** Increment review_cycle_count by 1. */
 export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)
