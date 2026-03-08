@@ -43,7 +43,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
-import { isTransientGitError, isDllInitError } from "../git.js";
+import { isTransientGitError, isDllInitError, git } from "../git.js";
 import {
   findPrForBranch,
   getMergeCommitSha,
@@ -614,6 +614,25 @@ async function onSessionComplete(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: detect whether a worktree has no local commits vs origin/main
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the worktree at `worktreePath` has no commits ahead of
+ * `origin/main`. Used to objectively detect "already done" tasks where
+ * Claude succeeded but made no changes (because none were needed).
+ */
+function worktreeHasNoChanges(worktreePath: string): boolean {
+  try {
+    if (!existsSync(worktreePath)) return false;
+    const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
+    return diff.trim() === "";
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Implement success: verify PR, transition to in_review
 // ---------------------------------------------------------------------------
 
@@ -653,8 +672,12 @@ function onImplementSuccess(
 
   // Hard gate: branch name is required
   if (!branchName) {
-    if (isAlreadyDone) {
-      log(`task ${taskId}: work already complete on main — marking done`);
+    // Objective check: if the worktree has no commits ahead of origin/main,
+    // Claude made no changes — the task was already complete.
+    const noChanges = worktreeHasNoChanges(worktreePath);
+    if (noChanges || isAlreadyDone) {
+      const reason = noChanges ? "no local commits on worktree" : "output summary indicates already done";
+      log(`task ${taskId}: work already complete on main (${reason}) — marking done`);
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
@@ -689,9 +712,11 @@ function onImplementSuccess(
   // Hard gate: PR must exist
   const prInfo = findPrForBranch(branchName, task.repoPath);
   if (!prInfo.exists) {
-    // If Claude said the work is already done, no PR is expected — mark done
-    if (isAlreadyDone) {
-      log(`task ${taskId}: work already complete on main (no PR needed) — marking done`);
+    // Check objectively (git diff) or via text patterns if no PR was opened
+    const noChanges = worktreeHasNoChanges(worktreePath);
+    if (noChanges || isAlreadyDone) {
+      const reason = noChanges ? "no local commits on worktree" : "output summary indicates already done";
+      log(`task ${taskId}: work already complete on main (no PR needed, ${reason}) — marking done`);
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
