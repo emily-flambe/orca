@@ -12,6 +12,8 @@ import {
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
+  incrementMergeAttemptCount,
+  resetMergeAttemptCount,
   incrementRetryCount,
   incrementReviewCycleCount,
   insertBudgetEvent,
@@ -1318,27 +1320,48 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
       }
 
       if (!alreadyMerged) {
-        // Genuine merge failure
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
+        // Merge failure — retry with backoff rather than destroying completed work.
+        // The PR and branch are preserved in all cases.
+        const MAX_MERGE_ATTEMPTS = 3;
+        const currentAttempts = (task.mergeAttemptCount ?? 0) + 1;
 
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on merge failure for task ${taskId}: ${err}`);
-        });
+        if (currentAttempts < MAX_MERGE_ATTEMPTS) {
+          // Transient failure — keep awaiting_ci, increment counter, retry next tick
+          incrementMergeAttemptCount(db, taskId);
+          emitTaskUpdated(getTask(db, taskId)!);
 
-        client.createComment(
-          taskId,
-          `Failed to merge PR #${task.prNumber}: ${mergeResult.error}`,
-        ).catch((err) => {
-          log(`comment failed on merge failure for task ${taskId}: ${err}`);
-        });
+          client.createComment(
+            taskId,
+            `Merge attempt ${currentAttempts}/${MAX_MERGE_ATTEMPTS} failed for PR #${task.prNumber}: ${mergeResult.error}\n\nWill retry automatically on the next scheduler tick.`,
+          ).catch((err) => {
+            log(`comment failed on merge failure for task ${taskId}: ${err}`);
+          });
 
-        log(`task ${taskId} merge failed: ${mergeResult.error}`);
+          log(`task ${taskId} merge failed (attempt ${currentAttempts}/${MAX_MERGE_ATTEMPTS}): ${mergeResult.error} — keeping awaiting_ci, will retry`);
+        } else {
+          // Max attempts reached — escalate to in_review for human intervention.
+          // The PR is preserved; the human can merge manually or reset to Todo.
+          resetMergeAttemptCount(db, taskId);
+          updateTaskStatus(db, taskId, "in_review");
+          emitTaskUpdated(getTask(db, taskId)!);
+
+          client.createComment(
+            taskId,
+            `Merge failed after ${MAX_MERGE_ATTEMPTS} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please check branch protection rules, resolve any blocking conditions, and either merge manually or move the issue back to Todo to trigger a fresh attempt.`,
+          ).catch((err) => {
+            log(`comment failed on merge exhaustion for task ${taskId}: ${err}`);
+          });
+
+          log(`task ${taskId} merge failed after ${MAX_MERGE_ATTEMPTS} attempts → in_review for human intervention`);
+        }
         return;
       }
       // PR was already merged by someone else — continue normally
       log(`task ${taskId} PR #${task.prNumber} already merged — proceeding`);
     }
+
+    // Successful merge — reset attempt counter
+    resetMergeAttemptCount(db, taskId);
   }
 
   // After merge: transition to deploying (if github_actions) or done

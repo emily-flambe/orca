@@ -82,6 +82,25 @@ export function updateTaskFixReason(db: OrcaDb, taskId: string, fixReason: strin
     .run();
 }
 
+/** Increment merge_attempt_count by 1. */
+export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({
+      mergeAttemptCount: sql`${tasks.mergeAttemptCount} + 1`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
+/** Reset merge_attempt_count to 0. */
+export function resetMergeAttemptCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({ mergeAttemptCount: 0, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Increment review_cycle_count by 1. */
 export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_number INTEGER,
   deploy_started_at TEXT,
   ci_started_at TEXT,
+  merge_attempt_count INTEGER NOT NULL DEFAULT 0,
   done_at TEXT,
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
@@ -233,6 +234,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "fix_reason")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN fix_reason TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 9 (merge retry tracking):
+  //   - Add merge_attempt_count column to tasks (tracks consecutive merge failures)
+  //   Sentinel: merge_attempt_count column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "merge_attempt_count")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN merge_attempt_count INTEGER NOT NULL DEFAULT 0");
   }
 }
 
