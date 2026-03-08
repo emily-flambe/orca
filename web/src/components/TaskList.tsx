@@ -213,13 +213,22 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
               <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48">
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
                   <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Filter by status</span>
-                  <button
-                    onClick={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
-                    className={`text-[10px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                    disabled={allStatusesSelected}
-                  >
-                    all
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
+                      className={`text-[10px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                      disabled={allStatusesSelected}
+                    >
+                      all
+                    </button>
+                    <button
+                      onClick={() => setSelectedStatuses(new Set())}
+                      className={`text-[10px] transition-colors ${selectedStatuses.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                      disabled={selectedStatuses.size === 0}
+                    >
+                      none
+                    </button>
+                  </div>
                 </div>
                 {STATUS_FILTERS.map((f) => {
                   const active = selectedStatuses.has(f.value);
