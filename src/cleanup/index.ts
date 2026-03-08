@@ -11,6 +11,10 @@ import {
   getRunningInvocations,
 } from "../db/queries.js";
 
+/** Track consecutive failed removal attempts per directory path. */
+const failedRemovalAttempts = new Map<string, number>();
+const MAX_REMOVAL_ATTEMPTS = 5;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -215,11 +219,24 @@ function cleanupRepo(
     // Never remove worktrees preserved for session resume
     if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
 
+    // Skip directories that have failed too many times
+    const wtAttempts = failedRemovalAttempts.get(wtPath) ?? 0;
+    if (wtAttempts >= MAX_REMOVAL_ATTEMPTS) continue;
+
     try {
       removeWorktree(wtPath);
+      failedRemovalAttempts.delete(wtPath);
       log(`removed worktree: ${wtPath}`);
     } catch (err) {
-      log(`failed to remove worktree ${wtPath}: ${err}`);
+      const newAttempts = wtAttempts + 1;
+      failedRemovalAttempts.set(wtPath, newAttempts);
+      if (newAttempts >= MAX_REMOVAL_ATTEMPTS) {
+        log(
+          `permanently skipping worktree ${wtPath} after ${newAttempts} failed attempts — manual removal required`,
+        );
+      } else {
+        log(`failed to remove worktree ${wtPath}: ${err}`);
+      }
     }
   }
 
@@ -251,11 +268,24 @@ function cleanupRepo(
         continue;
       }
 
+      // Skip directories that have failed too many times
+      const attempts = failedRemovalAttempts.get(fullPath) ?? 0;
+      if (attempts >= MAX_REMOVAL_ATTEMPTS) continue;
+
       try {
         rmSync(fullPath, { recursive: true, force: true });
+        failedRemovalAttempts.delete(fullPath);
         log(`removed orphaned worktree directory: ${fullPath}`);
       } catch (err) {
-        log(`failed to remove orphaned directory ${fullPath}: ${err}`);
+        const newAttempts = attempts + 1;
+        failedRemovalAttempts.set(fullPath, newAttempts);
+        if (newAttempts >= MAX_REMOVAL_ATTEMPTS) {
+          log(
+            `permanently skipping orphaned directory ${fullPath} after ${newAttempts} failed attempts — manual removal required`,
+          );
+        } else {
+          log(`failed to remove orphaned directory ${fullPath}: ${err}`);
+        }
       }
     }
   } catch {
