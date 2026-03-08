@@ -1,5 +1,9 @@
 # Orca — Project Instructions
 
+## Creating Linear Issues
+
+When creating Linear issues via MCP, always reference `docs/linear_issue_templates.md` and apply the appropriate template structure based on issue type (Feature Implementation, Bug Fix, Refactor, Feature Planning, or Discovery). Fill in all sections with real content — never leave placeholder text in the final issue.
+
 ## Deploying Changes
 
 After committing and pushing changes to main, **always deploy using the single deploy script**. Never ask the user to do it.
