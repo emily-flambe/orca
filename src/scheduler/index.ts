@@ -1985,6 +1985,13 @@ async function tick(deps: SchedulerDeps): Promise<void> {
       if (Date.now() < cooldownUntil) return false;
       rateLimitCooldowns.delete(t.linearIssueId);
     }
+    // Skip in_review tasks where review cycles are exhausted — leave for human intervention
+    if (
+      t.orcaStatus === "in_review" &&
+      t.reviewCycleCount >= config.maxReviewCycles
+    ) {
+      return false;
+    }
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
       return graph.isDispatchable(t.linearIssueId, getStatus);
