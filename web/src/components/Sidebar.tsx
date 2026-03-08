@@ -68,6 +68,25 @@ export default function Sidebar({
     a.localeCompare(b),
   );
 
+  // Build queued tasks list
+  const QUEUED_STATUSES = new Set(["ready", "in_review", "changes_requested"]);
+  const QUEUED_PHASE_ORDER: Record<string, number> = {
+    in_review: 0,
+    changes_requested: 1,
+    ready: 2,
+  };
+  const queuedTasks = tasks
+    .filter((t) => QUEUED_STATUSES.has(t.orcaStatus))
+    .sort((a, b) => {
+      const phaseA = QUEUED_PHASE_ORDER[a.orcaStatus] ?? 99;
+      const phaseB = QUEUED_PHASE_ORDER[b.orcaStatus] ?? 99;
+      if (phaseA !== phaseB) return phaseA - phaseB;
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeA - timeB;
+    });
+
   const navItemClass = (page: Page) =>
     `flex items-center gap-2.5 px-3 py-2 rounded text-sm cursor-pointer transition-colors w-full text-left ${
       activePage === page
@@ -146,6 +165,39 @@ export default function Sidebar({
           >
             <span>Logs</span>
           </button>
+
+          {/* Queued section */}
+          {queuedTasks.length > 0 && (
+            <>
+              <div className="my-1 border-t border-gray-800" />
+              <div className="px-3 py-1.5 text-xs text-gray-500 uppercase tracking-wider font-medium">
+                Queued
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {queuedTasks.slice(0, 5).map((task) => (
+                  <div
+                    key={task.linearIssueId}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800/40 transition-colors cursor-default"
+                  >
+                    <span className="text-gray-500 font-mono tabular-nums shrink-0">
+                      {task.linearIssueId}
+                    </span>
+                    <span className="truncate text-gray-400">
+                      {task.agentPrompt}
+                    </span>
+                  </div>
+                ))}
+                {queuedTasks.length > 5 && (
+                  <button
+                    className="px-3 py-1 text-xs text-gray-500 hover:text-gray-400 text-left transition-colors"
+                    onClick={() => onNavigate("tasks")}
+                  >
+                    view all
+                  </button>
+                )}
+              </div>
+            </>
+          )}
 
           <div className="my-1 border-t border-gray-800" />
 
