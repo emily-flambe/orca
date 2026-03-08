@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
-import { abortInvocation } from "../hooks/useApi";
+import { abortInvocation, sendInvocationPrompt } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -34,10 +34,27 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cost, setCost] = useState<number | null>(invocation.costUsd);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [promptSending, setPromptSending] = useState(false);
+  const [promptFeedback, setPromptFeedback] = useState<string | null>(null);
 
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
+
+  const handleSendPrompt = useCallback(async () => {
+    setPromptSending(true);
+    try {
+      await sendInvocationPrompt(invocation.id, promptText.trim());
+      setPromptText("");
+      setPromptFeedback("Sent");
+      setTimeout(() => setPromptFeedback(null), 2000);
+    } catch (err) {
+      setPromptFeedback(err instanceof Error ? err.message : "Error");
+    } finally {
+      setPromptSending(false);
+    }
+  }, [invocation.id, promptText]);
 
   const handleCancel = useCallback(async () => {
     if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
@@ -117,6 +134,30 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         compact
         onCostUpdate={handleCostUpdate}
       />
+
+      {effectivelyRunning && (
+        <div className="border-t border-gray-800 px-3 py-2 flex items-center gap-2">
+          <input
+            type="text"
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (promptText.trim()) handleSendPrompt(); }}}
+            placeholder="Send a message to the agent…"
+            disabled={promptSending}
+            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-600 disabled:opacity-50"
+          />
+          <button
+            onClick={handleSendPrompt}
+            disabled={promptSending || !promptText.trim()}
+            className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors disabled:opacity-50"
+          >
+            {promptSending ? "…" : "Send"}
+          </button>
+          {promptFeedback && (
+            <span className="text-xs text-gray-400">{promptFeedback}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

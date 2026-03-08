@@ -51,6 +51,8 @@ export interface SessionHandle {
   result: SessionResult | null;
   /** Resolves when the process exits (normally or via kill). */
   done: Promise<SessionResult>;
+  /** Send a human-in-the-loop prompt to the running Claude session via stdin. Returns false if stdin is not writable. */
+  sendPrompt: (text: string) => boolean;
 }
 
 /** Options accepted by {@link spawnSession}. */
@@ -298,7 +300,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
@@ -312,6 +314,19 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     result: null,
     // Placeholder — replaced immediately below.
     done: undefined as unknown as Promise<SessionResult>,
+    sendPrompt: (text: string): boolean => {
+      if (!proc.stdin || proc.stdin.destroyed || proc.exitCode !== null || proc.killed) {
+        return false;
+      }
+      // Claude Code reads human turns as JSON on stdin, newline-terminated
+      const payload = JSON.stringify({ type: "user", content: text }) + "\n";
+      try {
+        proc.stdin.write(payload);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 
   // The `done` promise is resolved once both:
