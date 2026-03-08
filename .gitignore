@@ -13,3 +13,4 @@ orca.log.1
 .env.local
 .claude/
 *.tsbuildinfo
+test-results/
