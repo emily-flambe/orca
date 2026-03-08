@@ -27,6 +27,11 @@ function makeMetrics(overrides: Partial<MetricsData> = {}): MetricsData {
         { status: "failed", count: 2 },
         { status: "running", count: 1 },
       ],
+      byStatusLast12h: [
+        { status: "completed", count: 10 },
+        { status: "failed", count: 2 },
+        { status: "running", count: 1 },
+      ],
       avgDurationSecs: 120,
       avgCostUsd: 0.05,
       totalCostUsd: 5.42,
@@ -77,7 +82,7 @@ describe("Dashboard", () => {
     await waitFor(() => {
       expect(screen.getByText("Total Cost")).toBeInTheDocument();
       expect(screen.getByText("Active Sessions")).toBeInTheDocument();
-      expect(screen.getByText("Success Rate")).toBeInTheDocument();
+      expect(screen.getByText("Success Rate (past 12h)")).toBeInTheDocument();
       expect(screen.getByText("24h Cost")).toBeInTheDocument();
     });
   });
@@ -87,6 +92,7 @@ describe("Dashboard", () => {
       makeMetrics({
         invocationStats: {
           byStatus: [{ status: "completed", count: 5 }],
+          byStatusLast12h: [{ status: "completed", count: 5 }],
           avgDurationSecs: null,
           avgCostUsd: null,
           totalCostUsd: 12.34,
@@ -105,6 +111,10 @@ describe("Dashboard", () => {
       makeMetrics({
         invocationStats: {
           byStatus: [
+            { status: "running", count: 4 },
+            { status: "completed", count: 20 },
+          ],
+          byStatusLast12h: [
             { status: "running", count: 4 },
             { status: "completed", count: 20 },
           ],

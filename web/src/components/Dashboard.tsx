@@ -391,7 +391,7 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
         />
         <MetricCard label="Active Sessions" value={String(running)} />
         <MetricCard
-          label="Success Rate (12h)"
+          label="Success Rate (past 12h)"
           value={terminal12h > 0 ? `${successRate.toFixed(1)}%` : "—"}
           trend={
             last7Rate > 0 || prev7Rate > 0 ? (
