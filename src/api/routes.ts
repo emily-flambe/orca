@@ -24,6 +24,9 @@ import {
   updateTaskFields,
   getInvocationStats,
   getRecentErrors,
+  getDailyStats,
+  getRecentActivity,
+  sumCostInWindowRange,
 } from "../db/queries.js";
 import {
   orcaEvents,
@@ -573,12 +576,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
     const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
 
+    const prev24hStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const prev24hEnd = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
+
+    const dailyStats = getDailyStats(db, 14);
+    const recentActivity = getRecentActivity(db, 20);
+
     return c.json({
       tasksByStatus,
       invocationStats,
       recentErrors,
       costLast24h,
       costLast7d,
+      costPrev24h,
+      dailyStats,
+      recentActivity,
     });
   });
 

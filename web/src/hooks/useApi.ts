@@ -80,6 +80,23 @@ export interface RecentError {
   costUsd: number | null;
 }
 
+export interface DailyStatEntry {
+  date: string;
+  completed: number;
+  failed: number;
+  costUsd: number;
+}
+
+export interface ActivityEntry {
+  id: number;
+  linearIssueId: string;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  phase: string | null;
+  costUsd: number | null;
+}
+
 export interface MetricsData {
   tasksByStatus: Record<string, number>;
   invocationStats: {
@@ -91,6 +108,9 @@ export interface MetricsData {
   recentErrors: RecentError[];
   costLast24h: number;
   costLast7d: number;
+  costPrev24h: number;
+  dailyStats: DailyStatEntry[];
+  recentActivity: ActivityEntry[];
 }
 
 export function fetchMetrics(): Promise<MetricsData> {
