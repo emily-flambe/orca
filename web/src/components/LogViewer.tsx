@@ -174,6 +174,16 @@ function StderrLine({ line }: { line: LogLine }) {
   );
 }
 
+function StdoutLine({ line }: { line: LogLine }) {
+  if (!line.text) return null;
+  return (
+    <pre className="whitespace-pre-wrap text-xs text-gray-400 font-mono leading-relaxed">
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
+      {line.text}
+    </pre>
+  );
+}
+
 function ProcessExitLine({ line }: { line: LogLine }) {
   const normal = line.code === 0 && !line.signal;
   const colorClass = normal ? "text-gray-500" : "text-yellow-400";
@@ -381,6 +391,11 @@ export default function LogViewer({
         // Stderr output — red
         if (type === "stderr") {
           return <StderrLine key={idx} line={line} />;
+        }
+
+        // Stdout / info — gray
+        if (type === "stdout" || type === "info") {
+          return <StdoutLine key={idx} line={line} />;
         }
 
         // Process exit — gray (normal) or yellow (abnormal)
