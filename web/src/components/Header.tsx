@@ -59,8 +59,12 @@ export default function Header({
       <button
         onClick={onToggleTheme}
         className="flex items-center justify-center w-11 h-11 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
-        title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-        aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        title={
+          theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+        }
+        aria-label={
+          theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+        }
       >
         {theme === "dark" ? (
           // Sun icon
