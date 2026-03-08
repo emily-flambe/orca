@@ -97,7 +97,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.get("/api/invocations/running", (c) => {
     const running = getRunningInvocations(db);
-    return c.json(running);
+    const enriched = running.map((inv) => {
+      const task = getTask(db, inv.linearIssueId);
+      return { ...inv, agentPrompt: task?.agentPrompt ?? null };
+    });
+    return c.json(enriched);
   });
 
   // -----------------------------------------------------------------------

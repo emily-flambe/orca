@@ -34,6 +34,13 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cost, setCost] = useState<number | null>(invocation.costUsd);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const promptLines = invocation.agentPrompt?.split("\n") ?? [];
+  const ticketTitle = promptLines.find((l) => l.trim()) ?? null;
+  const ticketDescription = ticketTitle
+    ? invocation.agentPrompt!.slice(invocation.agentPrompt!.indexOf(ticketTitle) + ticketTitle.length).trim() || null
+    : null;
 
   const [promptText, setPromptText] = useState("");
   const [promptSending, setPromptSending] = useState(false);
@@ -141,6 +148,38 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
           </button>
         )}
       </div>
+
+      {/* Ticket title + expandable description */}
+      {ticketTitle && (
+        <>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-800 bg-gray-900">
+            <span className="text-xs text-gray-300 truncate flex-1">{ticketTitle}</span>
+            {ticketDescription && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="shrink-0 text-gray-500 hover:text-gray-300 transition-colors"
+                title={expanded ? "Collapse description" : "Expand description"}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                >
+                  <path d="M3 5L7 9L11 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+          {expanded && ticketDescription && (
+            <div className="bg-gray-950 px-3 py-2 text-xs text-gray-400 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto border-b border-gray-800">
+              {ticketDescription}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Log body */}
       <LogViewer
