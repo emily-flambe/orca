@@ -1966,47 +1966,49 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   // the deploy indefinitely if timeouts are skipped while isDraining() is true.
   checkTimeouts(deps);
 
-  // Stop dispatching new jobs when a graceful deploy drain is in progress
-  if (isDraining()) {
-    return;
-  }
+  // During a graceful deploy drain, skip polling, cleanup, and new
+  // implementation dispatch. Review and fix-cycle dispatches are still
+  // allowed — they continue existing work and are typically fast.
+  const draining = isDraining();
 
-  // Check deploying tasks (non-blocking per-task polling)
-  await checkDeployments(deps);
+  if (!draining) {
+    // Check deploying tasks (non-blocking per-task polling)
+    await checkDeployments(deps);
 
-  // Check awaiting_ci tasks (poll PR checks, merge when CI passes)
-  await checkPrCi(deps);
+    // Check awaiting_ci tasks (poll PR checks, merge when CI passes)
+    await checkPrCi(deps);
 
-  // Global DLL_INIT cooldown — skip dispatch and cleanup entirely.
-  // DLL_INIT is system-wide resource exhaustion; spawning ANY process
-  // (git, gh, node) will likely fail and make things worse.
-  const now = Date.now();
-  if (now < globalDllCooldownUntil) {
-    const remainingSec = Math.ceil((globalDllCooldownUntil - now) / 1000);
-    // Only log every 30s to avoid spam
-    if (remainingSec % 30 < config.schedulerIntervalSec + 1) {
-      log(
-        `DLL_INIT cooldown active — ${remainingSec}s remaining, skipping dispatch and cleanup`,
-      );
-    }
-    return;
-  }
-
-  // Periodic cleanup of stale branches and orphaned worktrees
-  const cleanupIntervalMs = config.cleanupIntervalMin * 60 * 1000;
-  if (now - lastCleanupTime >= cleanupIntervalMs) {
-    lastCleanupTime = now;
-    try {
-      cleanupStaleResources({ db, config });
-    } catch (err) {
-      log(`cleanup error: ${err}`);
-      // If cleanup hit DLL_INIT, activate cooldown
-      if (isDllInitError(err)) {
-        globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
+    // Global DLL_INIT cooldown — skip dispatch and cleanup entirely.
+    // DLL_INIT is system-wide resource exhaustion; spawning ANY process
+    // (git, gh, node) will likely fail and make things worse.
+    const now = Date.now();
+    if (now < globalDllCooldownUntil) {
+      const remainingSec = Math.ceil((globalDllCooldownUntil - now) / 1000);
+      // Only log every 30s to avoid spam
+      if (remainingSec % 30 < config.schedulerIntervalSec + 1) {
         log(
-          `DLL_INIT in cleanup — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s`,
+          `DLL_INIT cooldown active — ${remainingSec}s remaining, skipping dispatch and cleanup`,
         );
-        return;
+      }
+      return;
+    }
+
+    // Periodic cleanup of stale branches and orphaned worktrees
+    const cleanupIntervalMs = config.cleanupIntervalMin * 60 * 1000;
+    if (now - lastCleanupTime >= cleanupIntervalMs) {
+      lastCleanupTime = now;
+      try {
+        cleanupStaleResources({ db, config });
+      } catch (err) {
+        log(`cleanup error: ${err}`);
+        // If cleanup hit DLL_INIT, activate cooldown
+        if (isDllInitError(err)) {
+          globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
+          log(
+            `DLL_INIT in cleanup — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s`,
+          );
+          return;
+        }
       }
     }
   }
@@ -2024,12 +2026,11 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 3. Get tasks in dispatchable states: ready, in_review, changes_requested
-  const candidateStatuses: TaskStatus[] = [
-    "ready",
-    "in_review",
-    "changes_requested",
-  ];
+  // 3. Get tasks in dispatchable states.
+  // During drain, only allow review/fix-cycle phases — no new implementations.
+  const candidateStatuses: TaskStatus[] = draining
+    ? ["in_review", "changes_requested"]
+    : ["ready", "in_review", "changes_requested"];
   const candidates = getDispatchableTasks(db, candidateStatuses);
   if (candidates.length === 0) {
     return;
