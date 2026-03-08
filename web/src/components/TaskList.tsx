@@ -4,6 +4,7 @@ import { updateTaskStatus } from "../hooks/useApi";
 import PriorityDot from "./ui/PriorityDot";
 import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
+import Badge from "./ui/Badge";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -444,9 +445,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   {task.linearIssueId}
                 </span>
                 {task.projectName && (
-                  <span className="text-xs text-gray-500 truncate">
+                  <Badge className="shrink-0 !text-[10px] !px-1.5 !py-0 !text-gray-500 !bg-transparent !border-gray-700">
                     {task.projectName}
-                  </span>
+                  </Badge>
                 )}
                 <div
                   className="relative shrink-0 ml-auto"
