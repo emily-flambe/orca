@@ -70,6 +70,9 @@ fi
 sleep 2
 
 echo "[deploy] starting Orca..."
+# Strip Claude nesting-detection env vars so spawned Claude sessions don't refuse to start.
+# These are inherited when deploy.sh is run from within a Claude Code session.
+unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
 npx tsx src/cli/index.ts start >> "$ORCA_DIR/orca.log" 2>&1 &
 disown
 

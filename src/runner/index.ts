@@ -292,9 +292,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   cleanStaleClaudeProjectDirs(options.worktreePath, options.repoPath);
 
   // Spawn the claude CLI process.
-  // Strip CLAUDECODE env var so child sessions don't think they're nested.
+  // Strip Claude nesting-detection env vars so child sessions don't refuse to start.
   const childEnv = { ...process.env };
   delete childEnv.CLAUDECODE;
+  delete childEnv.CLAUDE_CODE_ENTRYPOINT;
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
