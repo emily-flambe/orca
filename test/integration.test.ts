@@ -1,5 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDb, type OrcaDb } from "../src/db/index.js";
@@ -209,6 +216,57 @@ describe("9.2 - Runner spawns mock claude session through full lifecycle", () =>
     const logPath = join(tmpDir, "logs", "99.ndjson");
     expect(existsSync(logPath)).toBe(true);
   });
+
+  test.skipIf(process.platform !== "win32")(
+    "spawnSession resolves an explicit Windows .cmd shim to node cli.js",
+    async () => {
+      const cliDir = join(
+        tmpDir,
+        "node_modules",
+        "@anthropic-ai",
+        "claude-code",
+      );
+      mkdirSync(cliDir, { recursive: true });
+
+      const cliScript = join(cliDir, "cli.js");
+      writeFileSync(
+        cliScript,
+        [
+          'process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"shim-123"}) + "\\n");',
+          'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:"shim ok"}) + "\\n");',
+        ].join("\n"),
+      );
+
+      const shimPath = join(tmpDir, "claude.cmd");
+      writeFileSync(
+        shimPath,
+        [
+          "@ECHO off",
+          "GOTO start",
+          ":find_dp0",
+          "SET dp0=%~dp0",
+          "EXIT /b",
+          ":start",
+          "SETLOCAL",
+          'endLocal & goto #_undefined_# 2>NUL || "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+        ].join("\r\n"),
+      );
+
+      const handle = spawnSession({
+        agentPrompt: "shim resolution test",
+        worktreePath: tmpDir,
+        maxTurns: 1,
+        invocationId: 100,
+        projectRoot: tmpDir,
+        claudePath: shimPath,
+      });
+
+      const result = await handle.done;
+      expect(result.subtype).toBe("success");
+      expect(result.outputSummary).toBe("shim ok");
+      expect(handle.sessionId).toBe("shim-123");
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

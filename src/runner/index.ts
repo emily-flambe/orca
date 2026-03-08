@@ -1,7 +1,14 @@
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, execFileSync, execSync, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join, basename } from "node:path";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { join, basename, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { EventEmitter } from "node:events";
 
@@ -79,6 +86,8 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
+  /** Keep stdin open for follow-up prompts via {@link sendPrompt}. Defaults to false. */
+  allowFollowupPrompts?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,9 +275,104 @@ function killProcessTree(pid: number, proc: ChildProcess): void {
  * @param options - Configuration for the CLI invocation.
  * @returns A {@link SessionHandle} for monitoring and controlling the session.
  */
+/**
+ * Resolve the claude CLI to a directly-spawnable [command, prefixArgs] pair.
+ *
+ * On Windows the `claude` command is an npm `.cmd` shim that just calls
+ * `node …/cli.js %*`.  Spawning `.cmd` shims requires either `shell: true`
+ * (broken by Node v24 DEP0190) or manual resolution.  We parse the shim,
+ * extract the cli.js path, and spawn `node cli.js` directly — no shell needed.
+ *
+ * Cached after first call so we don't shell out to `where` on every dispatch.
+ */
+const resolvedClaudeCache = new Map<
+  string,
+  { command: string; prefixArgs: string[] }
+>();
+
+function isWindowsBatchShim(command: string): boolean {
+  return /\.(cmd|bat)$/i.test(command);
+}
+
+function resolveClaudeCliFromShim(
+  shimPath: string,
+): { command: string; prefixArgs: string[] } | null {
+  try {
+    const shim = readFileSync(shimPath, "utf8");
+    const match = shim.match(
+      /"%dp0%\\([^"]*node_modules\\@anthropic-ai\\claude-code\\cli\.js)"/i,
+    );
+    if (!match) return null;
+
+    const cliJs = resolve(dirname(shimPath), match[1]);
+    if (!existsSync(cliJs)) return null;
+
+    process.stderr.write(`[orca/runner] resolved claude -> node ${cliJs}\n`);
+    return { command: process.execPath, prefixArgs: [cliJs] };
+  } catch {
+    return null;
+  }
+}
+
+function resolveClaudeBinary(requested: string): {
+  command: string;
+  prefixArgs: string[];
+} {
+  const cacheKey = platform() === "win32" ? requested.toLowerCase() : requested;
+  const cached = resolvedClaudeCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (platform() !== "win32") {
+    const direct = { command: requested, prefixArgs: [] };
+    resolvedClaudeCache.set(cacheKey, direct);
+    return direct;
+  }
+
+  try {
+    const explicitShimPath =
+      requested === "claude" || requested === "claude.cmd"
+        ? null
+        : isWindowsBatchShim(requested)
+          ? requested
+          : null;
+
+    if (explicitShimPath) {
+      const resolved = resolveClaudeCliFromShim(explicitShimPath);
+      if (resolved) {
+        resolvedClaudeCache.set(cacheKey, resolved);
+        return resolved;
+      }
+    }
+
+    if (requested === "claude" || requested === "claude.cmd") {
+      const whereOut = execFileSync("where", ["claude"], {
+        encoding: "utf8",
+        timeout: 5000,
+      }).trim();
+      const cmdPath = whereOut
+        .split(/\r?\n/)
+        .find((p) => p.toLowerCase().endsWith(".cmd"));
+      if (cmdPath) {
+        const resolved = resolveClaudeCliFromShim(cmdPath);
+        if (resolved) {
+          resolvedClaudeCache.set(cacheKey, resolved);
+          return resolved;
+        }
+      }
+    }
+  } catch {
+    // Fall through and try the requested command directly.
+  }
+
+  const direct = { command: requested, prefixArgs: [] };
+  resolvedClaudeCache.set(cacheKey, direct);
+  return direct;
+}
+
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
-  const claudePath = options.claudePath ?? "claude";
-  const args = buildArgs(options);
+  const requested = options.claudePath ?? "claude";
+  const { command: spawnCmd, prefixArgs } = resolveClaudeBinary(requested);
+  const args = [...prefixArgs, ...buildArgs(options)];
 
   // Ensure logs directory exists and open the log file for writing.
   const logsDir = ensureLogsDir(options.projectRoot);
@@ -291,10 +395,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // stale project dirs forces Claude to create a fresh one for this worktree.
   cleanStaleClaudeProjectDirs(options.worktreePath, options.repoPath);
 
-  // Spawn the claude CLI process.
-  // Strip Claude nesting-detection env vars so child sessions don't refuse to start.
-  // On Windows, `delete` on a spread of process.env doesn't reliably remove vars
-  // from child processes. Filter them out explicitly (case-insensitive).
+  // Strip Claude nesting-detection env vars so child sessions don't refuse to
+  // start.  Use filter (not delete) because delete on a spread of process.env
+  // doesn't reliably remove vars from child processes on Windows.
   const STRIP_VARS = new Set(["claudecode", "claude_code_entrypoint"]);
   const childEnv = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -302,13 +405,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     ),
   );
 
-  const proc = spawn(claudePath, args, {
+  const proc = spawn(spawnCmd, args, {
     cwd: options.worktreePath,
     stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
-    // On Windows, shell: true is needed to resolve .cmd shims (e.g. npm global installs).
-    shell: process.platform === "win32",
-    // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
 
@@ -316,6 +416,13 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // (e.g. EPIPE) from crashing the server if the child closes its stdin end
   // while the process is still alive.
   proc.stdin?.on("error", () => {});
+
+  // Claude one-shot `-p` sessions can hang indefinitely if stdin stays open.
+  // Close it by default; callers that need interactive follow-up prompts must
+  // opt in to keeping the pipe open.
+  if (!options.allowFollowupPrompts) {
+    proc.stdin?.end();
+  }
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
