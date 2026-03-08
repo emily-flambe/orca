@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Invocation } from "../types";
-import { abortInvocation } from "../hooks/useApi";
+import { abortInvocation, sendPromptToInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -35,6 +35,12 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
 
+  // Prompt injection state
+  const [promptText, setPromptText] = useState("");
+  const [promptStatus, setPromptStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
+
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
@@ -52,6 +58,35 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
       setCancelling(false);
     }
   }, [invocation.id, onCancelled]);
+
+  const handleSendPrompt = useCallback(async () => {
+    const text = promptText.trim();
+    if (!text) return;
+    setPromptStatus("sending");
+    setPromptError(null);
+    try {
+      await sendPromptToInvocation(invocation.id, text);
+      setPromptText("");
+      setPromptStatus("sent");
+      // Reset status after a moment
+      setTimeout(() => setPromptStatus("idle"), 3000);
+    } catch (err) {
+      setPromptStatus("error");
+      setPromptError(err instanceof Error ? err.message : "Failed to send prompt");
+      setTimeout(() => setPromptStatus("idle"), 5000);
+    }
+  }, [invocation.id, promptText]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Ctrl+Enter or Cmd+Enter to submit
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void handleSendPrompt();
+      }
+    },
+    [handleSendPrompt],
+  );
 
   const effectivelyRunning = isRunning && !cancelled;
   const borderClass = effectivelyRunning
@@ -117,6 +152,40 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         compact
         onCostUpdate={handleCostUpdate}
       />
+
+      {/* Prompt injection — only shown for running sessions */}
+      {effectivelyRunning && (
+        <div className="border-t border-gray-800 px-3 py-2 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500 font-medium">Send prompt to agent</span>
+            {promptStatus === "sent" && (
+              <span className="text-xs text-green-400">✓ delivered</span>
+            )}
+            {promptStatus === "error" && promptError && (
+              <span className="text-xs text-red-400" title={promptError}>✗ {promptError}</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <textarea
+              ref={promptInputRef}
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a message… (Ctrl+Enter to send)"
+              rows={2}
+              disabled={promptStatus === "sending"}
+              className="flex-1 resize-none bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-cyan-600 disabled:opacity-50 font-mono"
+            />
+            <button
+              onClick={handleSendPrompt}
+              disabled={!promptText.trim() || promptStatus === "sending"}
+              className="self-end text-xs px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {promptStatus === "sending" ? "…" : "Send"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

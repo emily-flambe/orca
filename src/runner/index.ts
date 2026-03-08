@@ -298,11 +298,16 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
+
+  // Suppress unhandled 'error' events on stdin (e.g. if the child closes its
+  // end of the pipe while we try to write). Without this listener Node would
+  // throw an uncaught exception and crash the server.
+  proc.stdin?.on("error", () => {});
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -556,6 +561,11 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // Process exit handler
     // ------------------------------------------------------------------
     proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      // Close stdin so the child process is not left waiting for more input.
+      // With stdio: ["pipe", ...] the child may block on a stdin read unless
+      // we send EOF explicitly.
+      proc.stdin?.destroy();
+
       exitCode = code;
       exitSignal = signal;
       exitReceived = true;
@@ -651,6 +661,24 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
  * @param handle - The session handle returned by {@link spawnSession}.
  * @returns The final {@link SessionResult}.
  */
+/**
+ * Send a human-turn prompt to a running Claude CLI session via stdin.
+ * Claude Code processes stdin input as user messages during execution.
+ * Returns false if the process is not running or stdin is unavailable.
+ */
+export function sendPrompt(handle: SessionHandle, text: string): boolean {
+  const stdin = handle.process.stdin;
+  if (!stdin || handle.process.exitCode !== null || handle.process.killed) {
+    return false;
+  }
+  try {
+    stdin.write(text + "\n");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function killSession(
   handle: SessionHandle,
 ): Promise<SessionResult> {
