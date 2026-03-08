@@ -3,8 +3,11 @@ dist/
 web/dist/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 logs/
-orca.log
-orca.log.1
+*.log
 .env
 .env.local
+.claude/
+*.tsbuildinfo
