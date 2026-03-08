@@ -122,6 +122,7 @@ export interface MetricsData {
   tasksByStatus: Record<string, number>;
   invocationStats: {
     byStatus: InvocationStat[];
+    byStatusLast12h: InvocationStat[];
     avgDurationSecs: number | null;
     avgCostUsd: number | null;
     totalCostUsd: number | null;

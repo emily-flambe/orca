@@ -407,6 +407,8 @@ export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
 export interface InvocationStats {
   /** Counts of invocations by status. */
   byStatus: { status: string; count: number }[];
+  /** Counts of invocations by status over the past 12 hours (for success rate). */
+  byStatusLast12h: { status: string; count: number }[];
   /** Average session duration in seconds for completed invocations. */
   avgDurationSecs: number | null;
   /** Average cost in USD for completed invocations. */
@@ -420,6 +422,15 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
   const byStatus = db
     .select({ status: invocations.status, count: count() })
     .from(invocations)
+    .groupBy(invocations.status)
+    .all()
+    .map((r) => ({ status: r.status, count: r.count }));
+
+  const since12h = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  const byStatusLast12h = db
+    .select({ status: invocations.status, count: count() })
+    .from(invocations)
+    .where(gte(invocations.startedAt, since12h))
     .groupBy(invocations.status)
     .all()
     .map((r) => ({ status: r.status, count: r.count }));
@@ -443,6 +454,7 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
 
   return {
     byStatus,
+    byStatusLast12h,
     avgDurationSecs: durationResult?.avgDuration ?? null,
     avgCostUsd: costResult?.avgCost ? Number(costResult.avgCost) : null,
     totalCostUsd: costResult?.totalCost ? Number(costResult.totalCost) : null,

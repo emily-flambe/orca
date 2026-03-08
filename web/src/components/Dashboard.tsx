@@ -345,14 +345,16 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
   const totalCost = invocationStats.totalCostUsd ?? 0;
   const running =
     invocationStats.byStatus.find((s) => s.status === "running")?.count ?? 0;
-  const completed =
-    invocationStats.byStatus.find((s) => s.status === "completed")?.count ?? 0;
-  const failed =
-    (invocationStats.byStatus.find((s) => s.status === "failed")?.count ?? 0) +
-    (invocationStats.byStatus.find((s) => s.status === "timed_out")?.count ??
-      0);
-  const terminal = completed + failed;
-  const successRate = terminal > 0 ? (completed / terminal) * 100 : 0;
+  const completed12h =
+    invocationStats.byStatusLast12h.find((s) => s.status === "completed")
+      ?.count ?? 0;
+  const failed12h =
+    (invocationStats.byStatusLast12h.find((s) => s.status === "failed")
+      ?.count ?? 0) +
+    (invocationStats.byStatusLast12h.find((s) => s.status === "timed_out")
+      ?.count ?? 0);
+  const terminal12h = completed12h + failed12h;
+  const successRate = terminal12h > 0 ? (completed12h / terminal12h) * 100 : 0;
 
   // 7d success rate trend using dailyStats
   const last7 = dailyStats.slice(7);
@@ -389,8 +391,8 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
         />
         <MetricCard label="Active Sessions" value={String(running)} />
         <MetricCard
-          label="Success Rate"
-          value={terminal > 0 ? `${successRate.toFixed(1)}%` : "—"}
+          label="Success Rate (12h)"
+          value={terminal12h > 0 ? `${successRate.toFixed(1)}%` : "—"}
           trend={
             last7Rate > 0 || prev7Rate > 0 ? (
               <TrendBadge
