@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { fetchInvocationLogs } from "../hooks/useApi";
 
 interface Props {
@@ -228,6 +228,7 @@ export default function LogViewer({
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showJump, setShowJump] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true); // true = auto-scroll to bottom
 
@@ -245,10 +246,21 @@ export default function LogViewer({
     const distanceFromBottom =
       el.scrollHeight - el.scrollTop - el.clientHeight;
     pinnedRef.current = distanceFromBottom < 50;
+    setShowJump(distanceFromBottom >= 50);
   }, []);
 
-  // Scroll to bottom when lines change (if pinned)
-  useEffect(() => {
+  // Jump to bottom button handler: re-engage pin and scroll
+  const handleJumpToBottom = useCallback(() => {
+    pinnedRef.current = true;
+    setShowJump(false);
+    const el = containerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // Scroll to bottom when lines change (if pinned).
+  // useLayoutEffect runs before paint so completed invocations start at bottom
+  // without users ever seeing the top.
+  useLayoutEffect(() => {
     scrollToBottom();
   }, [lines, scrollToBottom]);
 
@@ -375,6 +387,7 @@ export default function LogViewer({
   }
 
   return (
+    <div className="relative">
     <div
       ref={containerRef}
       onScroll={handleScroll}
@@ -480,6 +493,15 @@ export default function LogViewer({
           Session running...
         </div>
       )}
+    </div>
+    {showJump && (
+      <button
+        onClick={handleJumpToBottom}
+        className="absolute bottom-4 right-4 flex items-center gap-1 px-3 py-1.5 text-xs font-mono bg-gray-800 border border-gray-600 text-gray-300 rounded-full shadow-lg hover:bg-gray-700 hover:text-white transition-colors"
+      >
+        ↓ Jump to bottom
+      </button>
+    )}
     </div>
   );
 }
