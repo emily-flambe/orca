@@ -334,15 +334,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "no active handle for this invocation" }, 404);
     }
 
-    const delivered = sendPrompt(handle, prompt.trim());
-    if (!delivered) {
+    const result = sendPrompt(handle, prompt.trim());
+    if (result === false) {
       return c.json(
         { error: "session process is not accepting input" },
         409,
       );
     }
 
-    return c.json({ ok: true });
+    if (result === "queued") {
+      return c.json({ ok: true, status: "queued" }, 202);
+    }
+
+    return c.json({ ok: true, status: "delivered" });
   });
 
   // -----------------------------------------------------------------------

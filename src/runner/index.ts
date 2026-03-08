@@ -58,6 +58,10 @@ export interface SessionHandle {
   result: SessionResult | null;
   /** Resolves when the process exits (normally or via kill). */
   done: Promise<SessionResult>;
+  /** Prompts waiting to be delivered when Claude finishes its current turn. */
+  pendingPrompts: string[];
+  /** Whether Claude is currently idle (waiting for the next user turn). */
+  isIdle: boolean;
 }
 
 /** Options accepted by {@link spawnSession}. */
@@ -369,6 +373,26 @@ function resolveClaudeBinary(requested: string): {
   return direct;
 }
 
+/**
+ * If Claude is idle and there are queued prompts, deliver the next one.
+ * Called after each `result` event.
+ */
+function drainQueue(handle: SessionHandle): void {
+  if (handle.pendingPrompts.length === 0) return;
+  const proc = handle.process;
+  if (proc.exitCode !== null || proc.killed || !proc.stdin || proc.stdin.destroyed) return;
+  const next = handle.pendingPrompts.shift()!;
+  try {
+    const payload = JSON.stringify({ type: "user", message: next }) + "\n";
+    proc.stdin.write(payload);
+    handle.isIdle = false;
+  } catch {
+    // stdin closed between the alive-check above and the write; put the
+    // message back so the exit handler can log it rather than silently lose it.
+    handle.pendingPrompts.unshift(next);
+  }
+}
+
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const requested = options.claudePath ?? "claude";
   const { command: spawnCmd, prefixArgs } = resolveClaudeBinary(requested);
@@ -432,6 +456,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     result: null,
     // Placeholder — replaced immediately below.
     done: undefined as unknown as Promise<SessionResult>,
+    pendingPrompts: [],
+    isIdle: false,
   };
 
   // The `done` promise is resolved once both:
@@ -647,6 +673,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           exitSignal: null, // Will be filled in on exit.
           outputSummary,
         };
+
+        // Mark idle and drain the queue.
+        handle.isIdle = true;
+        drainQueue(handle);
         return;
       }
 
@@ -696,6 +726,21 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         codeDescription: code !== null ? describeExitCode(code) : null,
       });
       logStream.write(exitEntry + "\n");
+
+      // Warn about any prompts that were queued but never delivered.
+      if (handle.pendingPrompts.length > 0) {
+        const droppedEntry = JSON.stringify({
+          type: "dropped_prompts",
+          timestamp: new Date().toISOString(),
+          count: handle.pendingPrompts.length,
+          prompts: handle.pendingPrompts,
+        });
+        logStream.write(droppedEntry + "\n");
+        process.stderr.write(
+          `[orca/runner] warning: ${handle.pendingPrompts.length} queued prompt(s) dropped on process exit (invocation ${options.invocationId})\n`,
+        );
+        handle.pendingPrompts = [];
+      }
 
       tryResolve();
 
@@ -830,24 +875,25 @@ export async function killSession(
 /**
  * Send a user prompt to a running Claude CLI session via stdin.
  *
- * Returns true if the write succeeded, false if the process is no longer alive.
+ * Returns:
+ * - "delivered" if written to stdin immediately (Claude is idle)
+ * - "queued"    if Claude is mid-turn; will be delivered after the current turn
+ * - false       if the session process is dead / not accepting input
  */
-export function sendPrompt(handle: SessionHandle, text: string): boolean {
+export function sendPrompt(handle: SessionHandle, text: string): "delivered" | "queued" | false {
   const proc = handle.process;
   if (proc.exitCode !== null || proc.killed || !proc.stdin || proc.stdin.destroyed) {
     return false;
   }
+  if (!handle.isIdle) {
+    handle.pendingPrompts.push(text);
+    return "queued";
+  }
   try {
-    // Claude CLI in stream-json mode accepts user turns as JSON on stdin.
-    // Format: {"type":"user","message":"text"} followed by newline.
     const payload = JSON.stringify({ type: "user", message: text }) + "\n";
-    const accepted = proc.stdin.write(payload);
-    // write() returns false when the pipe buffer is full (backpressure).
-    // The data is still queued in Node's internal buffer and will be flushed
-    // once the child drains stdin, so this is not data loss. We still return
-    // true because the prompt was accepted into the write queue.
-    void accepted;
-    return true;
+    proc.stdin.write(payload);
+    handle.isIdle = false;
+    return "delivered";
   } catch {
     return false;
   }

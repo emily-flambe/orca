@@ -430,6 +430,7 @@ async function dispatch(
     resumeSessionId,
     repoPath: task.repoPath,
     model,
+    allowFollowupPrompts: true,
   });
 
   // 9. Update task to running

@@ -154,8 +154,8 @@ export function createTask(data: {
   });
 }
 
-export function sendInvocationPrompt(id: number, prompt: string): Promise<{ ok: boolean }> {
-  return fetchJson<{ ok: boolean }>(`/invocations/${id}/prompt`, {
+export function sendInvocationPrompt(id: number, prompt: string): Promise<{ ok: boolean; status?: string }> {
+  return fetchJson<{ ok: boolean; status?: string }>(`/invocations/${id}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),

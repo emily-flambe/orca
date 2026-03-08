@@ -70,9 +70,12 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
     setPromptSending(true);
     setPromptFeedback(null);
     try {
-      await sendInvocationPrompt(invocation.id, text);
+      const result = await sendInvocationPrompt(invocation.id, text);
       setPromptText("");
-      setPromptFeedback({ ok: true, message: "Prompt delivered" });
+      const message = result.status === "queued"
+        ? "Message queued — will deliver after current turn"
+        : "Prompt delivered";
+      setPromptFeedback({ ok: true, message });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send prompt";
       setPromptFeedback({ ok: false, message });
