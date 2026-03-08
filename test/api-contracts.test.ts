@@ -5,6 +5,10 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { activeHandles } from "../src/scheduler/index.js";
 import { createDb } from "../src/db/index.js";
 import { createApiRoutes } from "../src/api/routes.js";
 import { insertTask, insertInvocation } from "../src/db/queries.js";
@@ -241,6 +245,27 @@ describe("GET /api/invocations/:id/logs — contract", () => {
     const body = await res.json();
     expect(typeof body.error).toBe("string");
   });
+
+  it("200: log file exists — returns { lines: any[] }", async () => {
+    const logFile = join(tmpdir(), `orca-test-log-${Date.now()}.ndjson`);
+    writeFileSync(logFile, '{"type":"text","content":"hello"}\n{"type":"text","content":"world"}\n');
+    try {
+      insertTask(db, makeTask({ linearIssueId: "LOG-OK" }));
+      const invId = insertInvocation(db, {
+        linearIssueId: "LOG-OK",
+        startedAt: new Date().toISOString(),
+        status: "completed",
+        logPath: logFile,
+      });
+      const res = await app.request(`/api/invocations/${invId}/logs`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(Array.isArray(body.lines)).toBe(true);
+      expect(body.lines).toHaveLength(2);
+    } finally {
+      unlinkSync(logFile);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -384,6 +409,30 @@ describe("POST /api/invocations/:id/prompt — contract", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
+  });
+
+  it("200: active handle exists and sendPrompt succeeds — returns { ok: true }", async () => {
+    insertTask(db, makeTask({ linearIssueId: "PROMPT-OK", orcaStatus: "running" as const }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "PROMPT-OK",
+      startedAt: new Date().toISOString(),
+      status: "running",
+    });
+    // Register a fake handle so the route can find it
+    const fakeHandle = {} as any;
+    activeHandles.set(invId, fakeHandle);
+    try {
+      const res = await app.request(`/api/invocations/${invId}/prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "continue please" }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+    } finally {
+      activeHandles.delete(invId);
+    }
   });
 });
 
