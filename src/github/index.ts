@@ -282,6 +282,7 @@ export function closeSupersededPrs(
   newInvocationId: number,
   newBranchName: string,
   cwd: string,
+  comment?: string,
 ): number {
   let prs: { headRefName: string; number: number }[];
   try {
@@ -320,7 +321,7 @@ export function closeSupersededPrs(
           String(pr.number),
           "--delete-branch",
           "--comment",
-          `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
+          comment ?? `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
         ],
         { cwd },
       );
