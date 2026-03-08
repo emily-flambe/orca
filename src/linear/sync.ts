@@ -209,7 +209,12 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
       isParent,
       ...(issue.projectName ? { projectName: issue.projectName } : {}),
       ...(resetCounters
-        ? { retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0, staleSessionRetryCount: 0 }
+        ? {
+            retryCount: 0,
+            reviewCycleCount: 0,
+            mergeAttemptCount: 0,
+            staleSessionRetryCount: 0,
+          }
         : {}),
     });
   }

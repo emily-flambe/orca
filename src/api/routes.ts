@@ -279,7 +279,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Reset task to ready with zeroed counters
     const taskId = invocation.linearIssueId;
     updateTaskStatus(db, taskId, "ready");
-    updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0, staleSessionRetryCount: 0 });
+    updateTaskFields(db, taskId, {
+      retryCount: 0,
+      reviewCycleCount: 0,
+      staleSessionRetryCount: 0,
+    });
 
     emitTaskUpdated(getTask(db, taskId)!);
     emitInvocationCompleted({
@@ -447,7 +451,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Reset to ready with fresh retry/review counters
     updateTaskStatus(db, taskId, "ready");
-    updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0, staleSessionRetryCount: 0 });
+    updateTaskFields(db, taskId, {
+      retryCount: 0,
+      reviewCycleCount: 0,
+      staleSessionRetryCount: 0,
+    });
 
     emitTaskUpdated(getTask(db, taskId)!);
 
