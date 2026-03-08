@@ -633,25 +633,26 @@ function onImplementSuccess(
   const thisInv = invocations.find((inv) => inv.id === invocationId);
   const branchName = thisInv?.branchName ?? task.prBranchName;
 
+  // Check if Claude indicated the work is already on main (no branch/PR needed)
+  const summary = result.outputSummary?.toLowerCase() ?? "";
+  const alreadyDonePatterns = [
+    "already complete",
+    "already implemented",
+    "already merged",
+    "already on main",
+    "already on `main`",
+    "already on `origin/main`",
+    "already exists",
+    "already satisfied",
+    "already done",
+    "nothing to do",
+    "no changes needed",
+    "acceptance criteria",
+  ];
+  const isAlreadyDone = alreadyDonePatterns.some((p) => summary.includes(p));
+
   // Hard gate: branch name is required
   if (!branchName) {
-    // Check if the work is already on main (Claude said "already done")
-    const summary = result.outputSummary?.toLowerCase() ?? "";
-    const alreadyDonePatterns = [
-      "already complete",
-      "already implemented",
-      "already merged",
-      "already on main",
-      "already on `main`",
-      "already on `origin/main`",
-      "already exists",
-      "already satisfied",
-      "nothing to do",
-      "no changes needed",
-      "acceptance criteria",
-    ];
-    const isAlreadyDone = alreadyDonePatterns.some((p) => summary.includes(p));
-
     if (isAlreadyDone) {
       log(`task ${taskId}: work already complete on main — marking done`);
       updateTaskStatus(db, taskId, "done");
@@ -688,6 +689,23 @@ function onImplementSuccess(
   // Hard gate: PR must exist
   const prInfo = findPrForBranch(branchName, task.repoPath);
   if (!prInfo.exists) {
+    // If Claude said the work is already done, no PR is expected — mark done
+    if (isAlreadyDone) {
+      log(`task ${taskId}: work already complete on main (no PR needed) — marking done`);
+      updateTaskStatus(db, taskId, "done");
+      emitTaskUpdated(getTask(db, taskId)!);
+      terminalWriteBackTasks.add(taskId);
+      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+        log(`write-back failed on already-done for task ${taskId}: ${err}`);
+      });
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal for already-done task ${taskId}: ${err}`);
+      }
+      return;
+    }
+
     const gateMsg = `no PR found for branch ${branchName}`;
     log(
       `task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`,
