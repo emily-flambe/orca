@@ -18,6 +18,28 @@ npm install
 echo "[deploy] rebuilding frontend..."
 (cd web && npm run build)
 
+echo "[deploy] waiting for active sessions to finish..."
+MAX_WAIT=900  # 15 min safety timeout
+WAITED=0
+while true; do
+  active=$(curl -s http://localhost:4000/api/status | node -e "
+    let d='';process.stdin.on('data',c=>d+=c);
+    process.stdin.on('end',()=>console.log(JSON.parse(d).activeSessions||0))" 2>/dev/null) || active=""
+  # If curl/parse failed (server not running), proceed immediately
+  if [ -z "$active" ]; then
+    echo "[deploy] Orca not responding — proceeding immediately"
+    break
+  fi
+  [ "$active" = "0" ] && break
+  if [ "$WAITED" -ge "$MAX_WAIT" ]; then
+    echo "[deploy] timeout after ${MAX_WAIT}s — deploying anyway ($active sessions orphaned)"
+    break
+  fi
+  echo "[deploy] $active session(s) still running, waiting 10s..."
+  sleep 10
+  WAITED=$((WAITED + 10))
+done
+
 echo "[deploy] killing existing Orca process (if any)..."
 # Kill any running orca process — use taskkill on Windows, pkill on Unix
 if command -v taskkill &>/dev/null; then
