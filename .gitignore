@@ -13,3 +13,11 @@ orca.log.1
 .env.local
 .claude/
 *.tsbuildinfo
+
+# Scratch / personal files
+tmp_*.js
+tmp_*.cjs
+tmp_*.ts
+test-run-*.md
+emi*.json
+linear-templates.md
