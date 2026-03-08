@@ -1,5 +1,5 @@
-import { EventEmitter } from "node:events";
-import type { Task } from "./db/queries.js";
+import { EventEmitter } from 'node:events';
+import type { Task } from './db/queries.js';
 
 // ---------------------------------------------------------------------------
 // Singleton event bus
@@ -36,17 +36,17 @@ export interface StatusPayload {
 // ---------------------------------------------------------------------------
 
 export function emitTaskUpdated(task: Task): void {
-  orcaEvents.emit("task:updated", task);
+  orcaEvents.emit('task:updated', task);
 }
 
 export function emitInvocationStarted(payload: InvocationStartedPayload): void {
-  orcaEvents.emit("invocation:started", payload);
+  orcaEvents.emit('invocation:started', payload);
 }
 
 export function emitInvocationCompleted(payload: InvocationCompletedPayload): void {
-  orcaEvents.emit("invocation:completed", payload);
+  orcaEvents.emit('invocation:completed', payload);
 }
 
 export function emitStatusUpdated(status: StatusPayload): void {
-  orcaEvents.emit("status:updated", status);
+  orcaEvents.emit('status:updated', status);
 }

@@ -1,11 +1,11 @@
-import { rmSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
-import { git } from "../git.js";
-import { removeWorktree } from "../worktree/index.js";
-import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
-import type { OrcaConfig } from "../config/index.js";
-import type { OrcaDb } from "../db/index.js";
-import { getAllTasks, getLastMaxTurnsInvocation, getRunningInvocations } from "../db/queries.js";
+import { rmSync, readdirSync, statSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { git } from '../git.js';
+import { removeWorktree } from '../worktree/index.js';
+import { listOpenPrBranches, closeOrphanedPrs } from '../github/index.js';
+import type { OrcaConfig } from '../config/index.js';
+import type { OrcaDb } from '../db/index.js';
+import { getAllTasks, getLastMaxTurnsInvocation, getRunningInvocations } from '../db/queries.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,15 +32,9 @@ function log(message: string): void {
  * Get the commit date of the latest commit on a branch, in ms since epoch.
  * Returns null if the branch or log command fails.
  */
-function getBranchLastCommitMs(
-  branchName: string,
-  cwd: string,
-): number | null {
+function getBranchLastCommitMs(branchName: string, cwd: string): number | null {
   try {
-    const dateStr = git(
-      ["log", "-1", "--format=%ci", branchName],
-      { cwd },
-    );
+    const dateStr = git(['log', '-1', '--format=%ci', branchName], { cwd });
     if (!dateStr) return null;
     const ms = new Date(dateStr).getTime();
     return Number.isNaN(ms) ? null : ms;
@@ -55,12 +49,9 @@ function getBranchLastCommitMs(
  */
 function listOrcaBranches(cwd: string): string[] {
   try {
-    const output = git(
-      ["for-each-ref", "--format=%(refname:short)", "refs/heads/orca/"],
-      { cwd },
-    );
+    const output = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/orca/'], { cwd });
     if (!output) return [];
-    return output.split("\n").filter(Boolean);
+    return output.split('\n').filter(Boolean);
   } catch {
     return [];
   }
@@ -71,11 +62,11 @@ function listOrcaBranches(cwd: string): string[] {
  */
 function listWorktreePaths(cwd: string): string[] {
   try {
-    const output = git(["worktree", "list", "--porcelain"], { cwd });
+    const output = git(['worktree', 'list', '--porcelain'], { cwd });
     const paths: string[] = [];
-    for (const line of output.split("\n")) {
-      if (line.startsWith("worktree ")) {
-        paths.push(line.slice("worktree ".length));
+    for (const line of output.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        paths.push(line.slice('worktree '.length));
       }
     }
     return paths;
@@ -110,28 +101,24 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   // Build protection sets from DB state
   const runningInvocations = getRunningInvocations(db);
   const runningBranches = new Set(
-    runningInvocations
-      .map((inv) => inv.branchName)
-      .filter((b): b is string => b != null),
+    runningInvocations.map((inv) => inv.branchName).filter((b): b is string => b != null)
   );
   const runningWorktreePaths = new Set(
-    runningInvocations
-      .map((inv) => inv.worktreePath)
-      .filter((p): p is string => p != null),
+    runningInvocations.map((inv) => inv.worktreePath).filter((p): p is string => p != null)
   );
 
   // Branches referenced by tasks not in terminal states
-  const TERMINAL_STATUSES = new Set(["done", "failed"]);
+  const TERMINAL_STATUSES = new Set(['done', 'failed']);
   const activeBranches = new Set(
     allTasks
       .filter((t) => !TERMINAL_STATUSES.has(t.orcaStatus))
       .map((t) => t.prBranchName)
-      .filter((b): b is string => b != null),
+      .filter((b): b is string => b != null)
   );
 
   // Build set of worktree paths preserved for resume (max-turns on "ready" tasks)
   const preservedWorktreePaths = new Set<string>();
-  const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
+  const readyTasks = allTasks.filter((t) => t.orcaStatus === 'ready');
   for (const t of readyTasks) {
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
     if (inv?.worktreePath) {
@@ -167,11 +154,11 @@ function cleanupRepo(
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
-  },
+  }
 ): void {
   // --- Worktree cleanup ---
   try {
-    git(["worktree", "prune"], { cwd: repoPath });
+    git(['worktree', 'prune'], { cwd: repoPath });
   } catch (err) {
     log(`worktree prune failed for ${repoPath}: ${err}`);
   }
@@ -189,19 +176,15 @@ function cleanupRepo(
   //   normalizeSlashes — slashes only, used for the worktreePaths array so that
   //                    the original casing is preserved when passed to removeWorktree()
   //                    and to fs/git commands (which may be case-sensitive).
-  const normalizePath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
-  const normalizeSlashes = (p: string) => p.replace(/\\/g, "/");
+  const normalizePath = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+  const normalizeSlashes = (p: string) => p.replace(/\\/g, '/');
   const worktreePaths = listWorktreePaths(repoPath).map(normalizeSlashes);
   // Pre-built set for O(1) membership tests — lowercase for case-insensitive matching.
   const normalizedWorktreePathSet = new Set(worktreePaths.map(normalizePath));
   const normalizedRepoPath = normalizePath(repoPath);
   const normalizedRepoDirname = normalizePath(repoDirname);
-  const normalizedRunningWtPaths = new Set(
-    [...ctx.runningWorktreePaths].map(normalizePath),
-  );
-  const normalizedPreservedWtPaths = new Set(
-    [...ctx.preservedWorktreePaths].map(normalizePath),
-  );
+  const normalizedRunningWtPaths = new Set([...ctx.runningWorktreePaths].map(normalizePath));
+  const normalizedPreservedWtPaths = new Set([...ctx.preservedWorktreePaths].map(normalizePath));
 
   for (const wtPath of worktreePaths) {
     // Skip the main worktree (the repo itself)
@@ -305,7 +288,7 @@ function cleanupRepo(
 
     // Safe to delete
     try {
-      git(["branch", "-D", branch], { cwd: repoPath });
+      git(['branch', '-D', branch], { cwd: repoPath });
       log(`deleted stale branch: ${branch}`);
     } catch (err) {
       log(`failed to delete branch ${branch}: ${err}`);

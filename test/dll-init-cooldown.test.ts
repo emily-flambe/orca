@@ -2,26 +2,18 @@
 // DLL init error detection, cooldown logic, and retry edge cases
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  vi,
-  beforeEach,
-} from "vitest";
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-import {
-  isTransientGitError,
-  isDllInitError,
-  type ExecError,
-} from "../src/git.js";
+import { isTransientGitError, isDllInitError, type ExecError } from '../src/git.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeGitError(overrides: Partial<ExecError> & { message?: string } = {}): Error & ExecError {
-  const err = new Error(overrides.message ?? "git command failed") as Error & ExecError;
+function makeGitError(
+  overrides: Partial<ExecError> & { message?: string } = {}
+): Error & ExecError {
+  const err = new Error(overrides.message ?? 'git command failed') as Error & ExecError;
   if (overrides.status !== undefined) err.status = overrides.status;
   if (overrides.signal !== undefined) err.signal = overrides.signal;
   if (overrides.code !== undefined) err.code = overrides.code;
@@ -34,7 +26,7 @@ function makeGitError(overrides: Partial<ExecError> & { message?: string } = {})
  */
 function retryWrapper(
   fn: () => string,
-  maxAttempts: number,
+  maxAttempts: number
 ): { result?: string; attempts: number; error?: Error } {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -46,57 +38,57 @@ function retryWrapper(
       }
     }
   }
-  return { attempts: maxAttempts, error: new Error("unreachable") };
+  return { attempts: maxAttempts, error: new Error('unreachable') };
 }
 
 // ---------------------------------------------------------------------------
 // isDllInitError — comprehensive edge cases
 // ---------------------------------------------------------------------------
 
-describe("isDllInitError", () => {
-  test("returns true for exact Windows DLL init exit code (3221225794)", () => {
+describe('isDllInitError', () => {
+  test('returns true for exact Windows DLL init exit code (3221225794)', () => {
     const err = makeGitError({ status: 3221225794 });
     expect(isDllInitError(err)).toBe(true);
   });
 
-  test("returns true for signed 32-bit representation (-1073741502)", () => {
+  test('returns true for signed 32-bit representation (-1073741502)', () => {
     // 0xC0000142 as signed i32 is -1073741502 — must detect both representations
     const err = makeGitError({ status: -1073741502 });
     expect(isDllInitError(err)).toBe(true);
   });
 
-  test("returns false for normal exit code 0 (success)", () => {
+  test('returns false for normal exit code 0 (success)', () => {
     const err = makeGitError({ status: 0 });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for exit code 1 (generic failure)", () => {
+  test('returns false for exit code 1 (generic failure)', () => {
     const err = makeGitError({ status: 1 });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for exit code 128 (git fatal error)", () => {
+  test('returns false for exit code 128 (git fatal error)', () => {
     const err = makeGitError({ status: 128 });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for exit code 127 (command not found)", () => {
+  test('returns false for exit code 127 (command not found)', () => {
     const err = makeGitError({ status: 127 });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false when status is null", () => {
+  test('returns false when status is null', () => {
     const err = makeGitError({ status: null as any });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false when status is undefined (no status property)", () => {
-    const err = new Error("some error");
+  test('returns false when status is undefined (no status property)', () => {
+    const err = new Error('some error');
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for non-Error values", () => {
-    expect(isDllInitError("3221225794")).toBe(false);
+  test('returns false for non-Error values', () => {
+    expect(isDllInitError('3221225794')).toBe(false);
     expect(isDllInitError(3221225794)).toBe(false);
     expect(isDllInitError(null)).toBe(false);
     expect(isDllInitError(undefined)).toBe(false);
@@ -104,30 +96,30 @@ describe("isDllInitError", () => {
     expect(isDllInitError({ status: 3221225794 })).toBe(false); // plain object, not Error
   });
 
-  test("returns false for exit code close to DLL init (off by one)", () => {
+  test('returns false for exit code close to DLL init (off by one)', () => {
     expect(isDllInitError(makeGitError({ status: 3221225793 }))).toBe(false);
     expect(isDllInitError(makeGitError({ status: 3221225795 }))).toBe(false);
   });
 
-  test("returns false for other large Windows exit codes (ACCESS_VIOLATION = 0xC0000005)", () => {
+  test('returns false for other large Windows exit codes (ACCESS_VIOLATION = 0xC0000005)', () => {
     // STATUS_ACCESS_VIOLATION = 3221225477
     const err = makeGitError({ status: 3221225477 });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for NaN status", () => {
+  test('returns false for NaN status', () => {
     const err = makeGitError({ status: NaN as any });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for Infinity status", () => {
+  test('returns false for Infinity status', () => {
     const err = makeGitError({ status: Infinity as any });
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("returns false for string status that looks like the code", () => {
-    const err = new Error("git command failed") as Error & ExecError;
-    (err as any).status = "3221225794";
+  test('returns false for string status that looks like the code', () => {
+    const err = new Error('git command failed') as Error & ExecError;
+    (err as any).status = '3221225794';
     // Strict equality with a number means string !== number
     expect(isDllInitError(err)).toBe(false);
   });
@@ -137,27 +129,27 @@ describe("isDllInitError", () => {
 // isTransientGitError with DLL init — interactions
 // ---------------------------------------------------------------------------
 
-describe("isTransientGitError — DLL init interactions", () => {
-  test("DLL init error is both transient and DLL-specific", () => {
+describe('isTransientGitError — DLL init interactions', () => {
+  test('DLL init error is both transient and DLL-specific', () => {
     const err = makeGitError({ status: 3221225794 });
     expect(isTransientGitError(err)).toBe(true);
     expect(isDllInitError(err)).toBe(true);
   });
 
-  test("signal-killed error is transient but NOT DLL-specific", () => {
-    const err = makeGitError({ signal: "SIGKILL" });
+  test('signal-killed error is transient but NOT DLL-specific', () => {
+    const err = makeGitError({ signal: 'SIGKILL' });
     expect(isTransientGitError(err)).toBe(true);
     expect(isDllInitError(err)).toBe(false);
   });
 
-  test("DLL init error with signal set: DLL check wins (status takes priority)", () => {
+  test('DLL init error with signal set: DLL check wins (status takes priority)', () => {
     // Unlikely in practice but tests precedence
-    const err = makeGitError({ status: 3221225794, signal: "SIGTERM" });
+    const err = makeGitError({ status: 3221225794, signal: 'SIGTERM' });
     expect(isTransientGitError(err)).toBe(true);
     expect(isDllInitError(err)).toBe(true);
   });
 
-  test("non-DLL non-signal error is neither transient nor DLL", () => {
+  test('non-DLL non-signal error is neither transient nor DLL', () => {
     const err = makeGitError({ status: 1 });
     expect(isTransientGitError(err)).toBe(false);
     expect(isDllInitError(err)).toBe(false);
@@ -168,33 +160,43 @@ describe("isTransientGitError — DLL init interactions", () => {
 // Retry behavior with DLL init errors
 // ---------------------------------------------------------------------------
 
-describe("retry behavior with DLL init errors", () => {
-  test("DLL init error on attempt 1 of 3: retries, succeeds on attempt 2", () => {
+describe('retry behavior with DLL init errors', () => {
+  test('DLL init error on attempt 1 of 3: retries, succeeds on attempt 2', () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockReturnValue("recovered");
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockReturnValue('recovered');
 
     const { result, attempts } = retryWrapper(fn, 3);
-    expect(result).toBe("recovered");
+    expect(result).toBe('recovered');
     expect(attempts).toBe(2);
   });
 
-  test("DLL init error on attempts 1 and 2 of 3: fails on attempt 3 succeeds", () => {
+  test('DLL init error on attempts 1 and 2 of 3: fails on attempt 3 succeeds', () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockReturnValue("recovered-late");
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockReturnValue('recovered-late');
 
     const { result, attempts } = retryWrapper(fn, 3);
-    expect(result).toBe("recovered-late");
+    expect(result).toBe('recovered-late');
     expect(attempts).toBe(3);
   });
 
-  test("DLL init error on all 3 of 3 attempts: throws after exhaustion", () => {
+  test('DLL init error on all 3 of 3 attempts: throws after exhaustion', () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw dllErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 3);
     expect(error).toBeDefined();
@@ -202,9 +204,11 @@ describe("retry behavior with DLL init errors", () => {
     expect(fn).toHaveBeenCalledTimes(3);
   });
 
-  test("DLL init error with maxAttempts=1: no retry, fails immediately", () => {
+  test('DLL init error with maxAttempts=1: no retry, fails immediately', () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw dllErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 1);
     expect(error).toBeDefined();
@@ -212,38 +216,50 @@ describe("retry behavior with DLL init errors", () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  test("DLL error then non-transient error: stops on non-transient (no retry)", () => {
+  test('DLL error then non-transient error: stops on non-transient (no retry)', () => {
     const dllErr = makeGitError({ status: 3221225794 });
     const normalErr = makeGitError({ status: 128 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockImplementationOnce(() => { throw normalErr; });
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockImplementationOnce(() => {
+        throw normalErr;
+      });
 
     const { error, attempts } = retryWrapper(fn, 5);
     expect(error).toBeDefined();
-    expect(error!.message).toBe("git command failed");
+    expect(error!.message).toBe('git command failed');
     expect(attempts).toBe(2);
   });
 
-  test("non-transient error then DLL error: never reaches DLL (stops at first)", () => {
+  test('non-transient error then DLL error: never reaches DLL (stops at first)', () => {
     const normalErr = makeGitError({ status: 1 });
-    const fn = vi.fn().mockImplementation(() => { throw normalErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw normalErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 3);
     expect(error).toBeDefined();
     expect(attempts).toBe(1);
   });
 
-  test("mixed transient types: signal then DLL then success", () => {
-    const sigErr = makeGitError({ signal: "SIGKILL" });
+  test('mixed transient types: signal then DLL then success', () => {
+    const sigErr = makeGitError({ signal: 'SIGKILL' });
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw sigErr; })
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockReturnValue("ok");
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw sigErr;
+      })
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockReturnValue('ok');
 
     const { result, attempts } = retryWrapper(fn, 5);
-    expect(result).toBe("ok");
+    expect(result).toBe('ok');
     expect(attempts).toBe(3);
   });
 });
@@ -252,7 +268,7 @@ describe("retry behavior with DLL init errors", () => {
 // Repo cooldown logic — simulated scheduler behavior
 // ---------------------------------------------------------------------------
 
-describe("repo cooldown simulation", () => {
+describe('repo cooldown simulation', () => {
   // Since repoCooldowns is module-private in the scheduler, we simulate
   // the exact cooldown logic here to test its correctness.
 
@@ -278,75 +294,75 @@ describe("repo cooldown simulation", () => {
     return repoCooldowns.has(repoPath);
   }
 
-  test("cooldown blocks dispatch for the affected repo", () => {
-    setCooldown("/repos/my-project");
-    expect(isOnCooldown("/repos/my-project")).toBe(true);
+  test('cooldown blocks dispatch for the affected repo', () => {
+    setCooldown('/repos/my-project');
+    expect(isOnCooldown('/repos/my-project')).toBe(true);
   });
 
-  test("cooldown does NOT block unrelated repos", () => {
-    setCooldown("/repos/project-a");
-    expect(isOnCooldown("/repos/project-b")).toBe(false);
+  test('cooldown does NOT block unrelated repos', () => {
+    setCooldown('/repos/project-a');
+    expect(isOnCooldown('/repos/project-b')).toBe(false);
   });
 
-  test("cooldown expires after REPO_COOLDOWN_MS", () => {
+  test('cooldown expires after REPO_COOLDOWN_MS', () => {
     // Set cooldown in the past (already expired)
-    repoCooldowns.set("/repos/my-project", Date.now() - 1);
+    repoCooldowns.set('/repos/my-project', Date.now() - 1);
     expireCooldowns();
-    expect(isOnCooldown("/repos/my-project")).toBe(false);
+    expect(isOnCooldown('/repos/my-project')).toBe(false);
   });
 
-  test("cooldown at exact expiry time: >= means it expires (boundary)", () => {
+  test('cooldown at exact expiry time: >= means it expires (boundary)', () => {
     // The scheduler uses `now >= expiresAt` (not >) so exact match = expired
     const exactTime = Date.now();
-    repoCooldowns.set("/repos/my-project", exactTime);
+    repoCooldowns.set('/repos/my-project', exactTime);
     // Simulate the check happening at exactly expiresAt time
     // We set expiresAt = exactTime and Date.now() >= exactTime is true
     const now = exactTime;
     for (const [repo, expiresAt] of repoCooldowns) {
       if (now >= expiresAt) repoCooldowns.delete(repo);
     }
-    expect(isOnCooldown("/repos/my-project")).toBe(false);
+    expect(isOnCooldown('/repos/my-project')).toBe(false);
   });
 
-  test("cooldown NOT expired: future timestamp still blocks", () => {
-    repoCooldowns.set("/repos/my-project", Date.now() + 60_000);
+  test('cooldown NOT expired: future timestamp still blocks', () => {
+    repoCooldowns.set('/repos/my-project', Date.now() + 60_000);
     expireCooldowns();
-    expect(isOnCooldown("/repos/my-project")).toBe(true);
+    expect(isOnCooldown('/repos/my-project')).toBe(true);
   });
 
-  test("multiple tasks sharing same repo: one DLL failure blocks all", () => {
+  test('multiple tasks sharing same repo: one DLL failure blocks all', () => {
     // Two tasks target the same repo
-    const repoPath = "/repos/shared-repo";
+    const repoPath = '/repos/shared-repo';
     const tasks = [
-      { id: "TASK-1", repoPath },
-      { id: "TASK-2", repoPath },
-      { id: "TASK-3", repoPath },
+      { id: 'TASK-1', repoPath },
+      { id: 'TASK-2', repoPath },
+      { id: 'TASK-3', repoPath },
     ];
 
     // TASK-1 triggers DLL init error, puts repo on cooldown
     setCooldown(repoPath);
 
     // All tasks for this repo should be blocked
-    const dispatchable = tasks.filter(t => !isOnCooldown(t.repoPath));
+    const dispatchable = tasks.filter((t) => !isOnCooldown(t.repoPath));
     expect(dispatchable).toHaveLength(0);
   });
 
-  test("multiple repos: cooldown on one does not affect others", () => {
+  test('multiple repos: cooldown on one does not affect others', () => {
     const tasks = [
-      { id: "TASK-1", repoPath: "/repos/project-a" },
-      { id: "TASK-2", repoPath: "/repos/project-a" },
-      { id: "TASK-3", repoPath: "/repos/project-b" },
+      { id: 'TASK-1', repoPath: '/repos/project-a' },
+      { id: 'TASK-2', repoPath: '/repos/project-a' },
+      { id: 'TASK-3', repoPath: '/repos/project-b' },
     ];
 
-    setCooldown("/repos/project-a");
+    setCooldown('/repos/project-a');
 
-    const dispatchable = tasks.filter(t => !isOnCooldown(t.repoPath));
+    const dispatchable = tasks.filter((t) => !isOnCooldown(t.repoPath));
     expect(dispatchable).toHaveLength(1);
-    expect(dispatchable[0]!.id).toBe("TASK-3");
+    expect(dispatchable[0]!.id).toBe('TASK-3');
   });
 
-  test("successful worktree creation clears cooldown for that repo", () => {
-    const repoPath = "/repos/my-project";
+  test('successful worktree creation clears cooldown for that repo', () => {
+    const repoPath = '/repos/my-project';
     setCooldown(repoPath);
     expect(isOnCooldown(repoPath)).toBe(true);
 
@@ -355,25 +371,25 @@ describe("repo cooldown simulation", () => {
     expect(isOnCooldown(repoPath)).toBe(false);
   });
 
-  test("cooldown key is exact string match (case-sensitive)", () => {
+  test('cooldown key is exact string match (case-sensitive)', () => {
     // On Windows, paths are case-insensitive but the Map uses exact string
     // comparison. This could be a bug if repoPath comes from different sources
     // with different casing.
-    setCooldown("C:\\Users\\emily\\repos\\Project");
-    expect(isOnCooldown("C:\\Users\\emily\\repos\\Project")).toBe(true);
-    expect(isOnCooldown("C:\\Users\\emily\\repos\\project")).toBe(false);
-    expect(isOnCooldown("c:\\users\\emily\\repos\\Project")).toBe(false);
+    setCooldown('C:\\Users\\emily\\repos\\Project');
+    expect(isOnCooldown('C:\\Users\\emily\\repos\\Project')).toBe(true);
+    expect(isOnCooldown('C:\\Users\\emily\\repos\\project')).toBe(false);
+    expect(isOnCooldown('c:\\users\\emily\\repos\\Project')).toBe(false);
   });
 
-  test("cooldown key with trailing slash mismatch", () => {
+  test('cooldown key with trailing slash mismatch', () => {
     // Another path normalization edge case
-    setCooldown("/repos/my-project/");
-    expect(isOnCooldown("/repos/my-project/")).toBe(true);
-    expect(isOnCooldown("/repos/my-project")).toBe(false);
+    setCooldown('/repos/my-project/');
+    expect(isOnCooldown('/repos/my-project/')).toBe(true);
+    expect(isOnCooldown('/repos/my-project')).toBe(false);
   });
 
-  test("rapid successive DLL errors: cooldown timestamp is overwritten (not extended)", () => {
-    const repoPath = "/repos/my-project";
+  test('rapid successive DLL errors: cooldown timestamp is overwritten (not extended)', () => {
+    const repoPath = '/repos/my-project';
     const firstCooldown = Date.now() + REPO_COOLDOWN_MS;
     repoCooldowns.set(repoPath, firstCooldown);
 
@@ -387,17 +403,17 @@ describe("repo cooldown simulation", () => {
     expect(secondCooldown).toBeGreaterThan(firstCooldown);
   });
 
-  test("deleting during iteration: safe because scheduler collects then deletes", () => {
+  test('deleting during iteration: safe because scheduler collects then deletes', () => {
     // The scheduler iterates repoCooldowns and deletes expired entries.
     // Deleting from a Map during for...of iteration is safe in JavaScript.
-    repoCooldowns.set("/repos/a", Date.now() - 1000);
-    repoCooldowns.set("/repos/b", Date.now() - 1000);
-    repoCooldowns.set("/repos/c", Date.now() + 60_000);
+    repoCooldowns.set('/repos/a', Date.now() - 1000);
+    repoCooldowns.set('/repos/b', Date.now() - 1000);
+    repoCooldowns.set('/repos/c', Date.now() + 60_000);
 
     expireCooldowns();
 
     expect(repoCooldowns.size).toBe(1);
-    expect(repoCooldowns.has("/repos/c")).toBe(true);
+    expect(repoCooldowns.has('/repos/c')).toBe(true);
   });
 });
 
@@ -405,10 +421,10 @@ describe("repo cooldown simulation", () => {
 // Transient failure counter interaction with cooldown
 // ---------------------------------------------------------------------------
 
-describe("transient failure counter + cooldown interaction", () => {
+describe('transient failure counter + cooldown interaction', () => {
   const TRANSIENT_FAILURE_LIMIT = 5;
 
-  test("DLL init error below limit: task re-queued, repo on cooldown", () => {
+  test('DLL init error below limit: task re-queued, repo on cooldown', () => {
     // Simulates: count = 1, < LIMIT, so task stays dispatchable
     // but repo is on cooldown so next tick won't dispatch it
     let count = 0;
@@ -419,33 +435,33 @@ describe("transient failure counter + cooldown interaction", () => {
     if (isTransientGitError(err)) {
       count++;
       if (isDllInitError(err)) {
-        repoCooldowns.set("/repos/my-project", Date.now() + 30_000);
+        repoCooldowns.set('/repos/my-project', Date.now() + 30_000);
       }
     }
 
     expect(count).toBe(1);
     expect(count < TRANSIENT_FAILURE_LIMIT).toBe(true);
-    expect(repoCooldowns.has("/repos/my-project")).toBe(true);
+    expect(repoCooldowns.has('/repos/my-project')).toBe(true);
   });
 
-  test("signal error below limit: task re-queued, NO cooldown set", () => {
+  test('signal error below limit: task re-queued, NO cooldown set', () => {
     // Signal errors are transient but do NOT set repo cooldown
     let count = 0;
     const repoCooldowns = new Map<string, number>();
 
-    const err = makeGitError({ signal: "SIGKILL" });
+    const err = makeGitError({ signal: 'SIGKILL' });
     if (isTransientGitError(err)) {
       count++;
       if (isDllInitError(err)) {
-        repoCooldowns.set("/repos/my-project", Date.now() + 30_000);
+        repoCooldowns.set('/repos/my-project', Date.now() + 30_000);
       }
     }
 
     expect(count).toBe(1);
-    expect(repoCooldowns.has("/repos/my-project")).toBe(false);
+    expect(repoCooldowns.has('/repos/my-project')).toBe(false);
   });
 
-  test("5 consecutive DLL errors: circuit breaker trips, burns real retry", () => {
+  test('5 consecutive DLL errors: circuit breaker trips, burns real retry', () => {
     let count = 0;
     const LIMIT = TRANSIENT_FAILURE_LIMIT;
     const dllErr = makeGitError({ status: 3221225794 });
@@ -461,11 +477,11 @@ describe("transient failure counter + cooldown interaction", () => {
     expect(count >= LIMIT).toBe(true);
   });
 
-  test("4 DLL errors then success: counter resets, cooldown clears", () => {
+  test('4 DLL errors then success: counter resets, cooldown clears', () => {
     let count = 0;
     const repoCooldowns = new Map<string, number>();
-    const repoPath = "/repos/my-project";
-    const taskId = "TASK-1";
+    const repoPath = '/repos/my-project';
+    const taskId = 'TASK-1';
     const transientFailureCounts = new Map<string, number>();
     const dllErr = makeGitError({ status: 3221225794 });
 
@@ -491,11 +507,11 @@ describe("transient failure counter + cooldown interaction", () => {
     expect(repoCooldowns.has(repoPath)).toBe(false);
   });
 
-  test("DLL error then signal error: both increment counter, only DLL sets cooldown", () => {
+  test('DLL error then signal error: both increment counter, only DLL sets cooldown', () => {
     const transientFailureCounts = new Map<string, number>();
     const repoCooldowns = new Map<string, number>();
-    const taskId = "TASK-1";
-    const repoPath = "/repos/my-project";
+    const taskId = 'TASK-1';
+    const repoPath = '/repos/my-project';
 
     // DLL error
     const dllErr = makeGitError({ status: 3221225794 });
@@ -512,7 +528,7 @@ describe("transient failure counter + cooldown interaction", () => {
 
     // Clear cooldown (simulate expiry) and then signal error
     repoCooldowns.delete(repoPath);
-    const sigErr = makeGitError({ signal: "SIGKILL" });
+    const sigErr = makeGitError({ signal: 'SIGKILL' });
     if (isTransientGitError(sigErr)) {
       const c = (transientFailureCounts.get(taskId) ?? 0) + 1;
       transientFailureCounts.set(taskId, c);
@@ -531,7 +547,7 @@ describe("transient failure counter + cooldown interaction", () => {
 // Scheduler dispatch filtering — simulated with real filter logic
 // ---------------------------------------------------------------------------
 
-describe("scheduler dispatch filtering with cooldowns", () => {
+describe('scheduler dispatch filtering with cooldowns', () => {
   const REPO_COOLDOWN_MS = 30_000;
 
   interface MockTask {
@@ -545,7 +561,7 @@ describe("scheduler dispatch filtering with cooldowns", () => {
   function simulateDispatchFilter(
     candidates: MockTask[],
     repoCooldowns: Map<string, number>,
-    tasksWithRunningInv: Set<string>,
+    tasksWithRunningInv: Set<string>
   ): MockTask[] {
     // Expire stale cooldowns (mirrors scheduler logic)
     const tickNow = Date.now();
@@ -562,108 +578,198 @@ describe("scheduler dispatch filtering with cooldowns", () => {
     });
   }
 
-  test("no cooldowns: all valid tasks are dispatchable", () => {
+  test('no cooldowns: all valid tasks are dispatchable', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/b", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-2',
+        repoPath: '/repos/b',
+        agentPrompt: 'do Y',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const result = simulateDispatchFilter(tasks, new Map(), new Set());
     expect(result).toHaveLength(2);
   });
 
-  test("cooldown on repo A blocks T-1 and T-2, allows T-3 on repo B", () => {
+  test('cooldown on repo A blocks T-1 and T-2, allows T-3 on repo B', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/a", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-3", repoPath: "/repos/b", agentPrompt: "do Z", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-2',
+        repoPath: '/repos/a',
+        agentPrompt: 'do Y',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-3',
+        repoPath: '/repos/b',
+        agentPrompt: 'do Z',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(1);
-    expect(result[0]!.linearIssueId).toBe("T-3");
+    expect(result[0]!.linearIssueId).toBe('T-3');
   });
 
-  test("expired cooldown: all tasks dispatchable again", () => {
+  test('expired cooldown: all tasks dispatchable again', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/a", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-2',
+        repoPath: '/repos/a',
+        agentPrompt: 'do Y',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const cooldowns = new Map<string, number>();
     // Cooldown already expired
-    cooldowns.set("/repos/a", Date.now() - 1);
+    cooldowns.set('/repos/a', Date.now() - 1);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(2);
     // Cooldown should have been cleaned up
-    expect(cooldowns.has("/repos/a")).toBe(false);
+    expect(cooldowns.has('/repos/a')).toBe(false);
   });
 
-  test("cooldown AND running invocation: both block independently", () => {
+  test('cooldown AND running invocation: both block independently', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
-    const running = new Set(["T-1"]);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
+    const running = new Set(['T-1']);
 
     const result = simulateDispatchFilter(tasks, cooldowns, running);
     expect(result).toHaveLength(0);
   });
 
-  test("cooldown with no agentPrompt: filtered by agentPrompt check first", () => {
+  test('cooldown with no agentPrompt: filtered by agentPrompt check first', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: '',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(0);
   });
 
-  test("parent task with cooldown: blocked by isParent, not cooldown", () => {
+  test('parent task with cooldown: blocked by isParent, not cooldown', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: true, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: true,
+        orcaStatus: 'ready',
+      },
     ];
     // No cooldown -- still blocked because isParent
     const result = simulateDispatchFilter(tasks, new Map(), new Set());
     expect(result).toHaveLength(0);
   });
 
-  test("all repos on cooldown: nothing dispatched", () => {
+  test('all repos on cooldown: nothing dispatched', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/b", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-3", repoPath: "/repos/c", agentPrompt: "do Z", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'do X',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-2',
+        repoPath: '/repos/b',
+        agentPrompt: 'do Y',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
+      {
+        linearIssueId: 'T-3',
+        repoPath: '/repos/c',
+        agentPrompt: 'do Z',
+        isParent: false,
+        orcaStatus: 'ready',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
-    cooldowns.set("/repos/b", Date.now() + REPO_COOLDOWN_MS);
-    cooldowns.set("/repos/c", Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/b', Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/c', Date.now() + REPO_COOLDOWN_MS);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(0);
   });
 
-  test("in_review task on cooled-down repo: still blocked by cooldown", () => {
+  test('in_review task on cooled-down repo: still blocked by cooldown', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "review PR", isParent: false, orcaStatus: "in_review" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'review PR',
+        isParent: false,
+        orcaStatus: 'in_review',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(0);
   });
 
-  test("changes_requested task on cooled-down repo: still blocked", () => {
+  test('changes_requested task on cooled-down repo: still blocked', () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "fix issues", isParent: false, orcaStatus: "changes_requested" },
+      {
+        linearIssueId: 'T-1',
+        repoPath: '/repos/a',
+        agentPrompt: 'fix issues',
+        isParent: false,
+        orcaStatus: 'changes_requested',
+      },
     ];
     const cooldowns = new Map<string, number>();
-    cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
+    cooldowns.set('/repos/a', Date.now() + REPO_COOLDOWN_MS);
 
     const result = simulateDispatchFilter(tasks, cooldowns, new Set());
     expect(result).toHaveLength(0);
@@ -674,7 +780,7 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 // gitWithRetry global state concern — documenting test isolation issue
 // ---------------------------------------------------------------------------
 
-describe("globalTransientFailureCount isolation concern", () => {
+describe('globalTransientFailureCount isolation concern', () => {
   // The real gitWithRetry() has a module-level `globalTransientFailureCount`
   // that persists across test runs within the same vitest module. This test
   // documents the risk: if one test triggers global transient failures without
@@ -685,11 +791,11 @@ describe("globalTransientFailureCount isolation concern", () => {
   // global counter. But any test that imports and calls the real gitWithRetry()
   // will be affected.
 
-  test("isDllInitError and isTransientGitError are pure functions (no state)", () => {
+  test('isDllInitError and isTransientGitError are pure functions (no state)', () => {
     // These functions don't mutate any state, so they are safe to call
     // in any order across tests.
     const err1 = makeGitError({ status: 3221225794 });
-    const err2 = makeGitError({ signal: "SIGKILL" });
+    const err2 = makeGitError({ signal: 'SIGKILL' });
     const err3 = makeGitError({ status: 1 });
 
     // Call in arbitrary order -- results should be deterministic
@@ -710,25 +816,25 @@ describe("globalTransientFailureCount isolation concern", () => {
 // TRANSIENT_FAILURE_LIMIT boundary (was 3, now 5)
 // ---------------------------------------------------------------------------
 
-describe("TRANSIENT_FAILURE_LIMIT = 5 boundary", () => {
+describe('TRANSIENT_FAILURE_LIMIT = 5 boundary', () => {
   const TRANSIENT_FAILURE_LIMIT = 5;
 
-  test("failure count 4: still below limit, task re-queued", () => {
+  test('failure count 4: still below limit, task re-queued', () => {
     const count = 4;
     expect(count < TRANSIENT_FAILURE_LIMIT).toBe(true);
   });
 
-  test("failure count 5: at limit, circuit breaker trips", () => {
+  test('failure count 5: at limit, circuit breaker trips', () => {
     const count = 5;
     expect(count < TRANSIENT_FAILURE_LIMIT).toBe(false);
   });
 
-  test("failure count 6: above limit (should never reach if logic is correct)", () => {
+  test('failure count 6: above limit (should never reach if logic is correct)', () => {
     const count = 6;
     expect(count < TRANSIENT_FAILURE_LIMIT).toBe(false);
   });
 
-  test("with old limit of 3: same scenario would have tripped earlier", () => {
+  test('with old limit of 3: same scenario would have tripped earlier', () => {
     // Documents that the limit change from 3 to 5 gives more headroom
     const OLD_LIMIT = 3;
     const NEW_LIMIT = 5;
@@ -745,8 +851,8 @@ describe("TRANSIENT_FAILURE_LIMIT = 5 boundary", () => {
 // Edge case: error types that could confuse the detection
 // ---------------------------------------------------------------------------
 
-describe("error type confusion risks", () => {
-  test("Error subclass with status property: isDllInitError still works", () => {
+describe('error type confusion risks', () => {
+  test('Error subclass with status property: isDllInitError still works', () => {
     class GitCommandError extends Error {
       status: number;
       constructor(msg: string, status: number) {
@@ -754,37 +860,39 @@ describe("error type confusion risks", () => {
         this.status = status;
       }
     }
-    const err = new GitCommandError("git fetch failed", 3221225794);
+    const err = new GitCommandError('git fetch failed', 3221225794);
     expect(isDllInitError(err)).toBe(true);
     expect(isTransientGitError(err)).toBe(true);
   });
 
-  test("cross-realm Error (Object.create(Error.prototype)): instanceof check passes", () => {
+  test('cross-realm Error (Object.create(Error.prototype)): instanceof check passes', () => {
     const fakeErr = Object.create(Error.prototype);
-    fakeErr.message = "git command failed";
+    fakeErr.message = 'git command failed';
     fakeErr.status = 3221225794;
     // Object.create(Error.prototype) passes instanceof Error
     expect(fakeErr instanceof Error).toBe(true);
     expect(isDllInitError(fakeErr)).toBe(true);
   });
 
-  test("plain object mimicking Error: instanceof fails, detection fails", () => {
+  test('plain object mimicking Error: instanceof fails, detection fails', () => {
     const fake = {
-      message: "git command failed",
+      message: 'git command failed',
       status: 3221225794,
-      stack: "fake stack",
+      stack: 'fake stack',
     };
     expect(fake instanceof Error).toBe(false);
     expect(isDllInitError(fake)).toBe(false);
     expect(isTransientGitError(fake)).toBe(false);
   });
 
-  test("Error with status as getter that throws: does not crash isDllInitError", () => {
-    const err = new Error("tricky error");
-    Object.defineProperty(err, "status", {
-      get() { throw new Error("getter exploded"); },
+  test('Error with status as getter that throws: does not crash isDllInitError', () => {
+    const err = new Error('tricky error');
+    Object.defineProperty(err, 'status', {
+      get() {
+        throw new Error('getter exploded');
+      },
     });
     // This WILL throw because isDllInitError accesses .status
-    expect(() => isDllInitError(err)).toThrow("getter exploded");
+    expect(() => isDllInitError(err)).toThrow('getter exploded');
   });
 });

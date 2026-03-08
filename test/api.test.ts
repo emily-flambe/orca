@@ -2,20 +2,15 @@
 // Phase 3 UI Dashboard - API endpoint tests
 // ---------------------------------------------------------------------------
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createDb } from "../src/db/index.js";
-import { createApiRoutes } from "../src/api/routes.js";
-import {
-  insertTask,
-  insertInvocation,
-  insertBudgetEvent,
-  getTask,
-} from "../src/db/queries.js";
-import { orcaEvents } from "../src/events.js";
-import type { OrcaDb } from "../src/db/index.js";
-import type { OrcaConfig } from "../src/config/index.js";
-import type { WorkflowStateMap } from "../src/linear/client.js";
-import type { Hono } from "hono";
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createDb } from '../src/db/index.js';
+import { createApiRoutes } from '../src/api/routes.js';
+import { insertTask, insertInvocation, insertBudgetEvent, getTask } from '../src/db/queries.js';
+import { orcaEvents } from '../src/events.js';
+import type { OrcaDb } from '../src/db/index.js';
+import type { OrcaConfig } from '../src/config/index.js';
+import type { WorkflowStateMap } from '../src/linear/client.js';
+import type { Hono } from 'hono';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,28 +18,28 @@ import type { Hono } from "hono";
 
 function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   return {
-    defaultCwd: "/tmp",
+    defaultCwd: '/tmp',
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
     schedulerIntervalSec: 10,
-    claudePath: "claude",
+    claudePath: 'claude',
     defaultMaxTurns: 20,
-    implementSystemPrompt: "",
-    reviewSystemPrompt: "",
-    fixSystemPrompt: "",
+    implementSystemPrompt: '',
+    reviewSystemPrompt: '',
+    fixSystemPrompt: '',
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
-    disallowedTools: "",
+    disallowedTools: '',
     port: 3000,
-    dbPath: ":memory:",
-    linearApiKey: "test",
-    linearWebhookSecret: "test",
-    linearProjectIds: ["test-project"],
-    linearReadyStateType: "unstarted",
-    tunnelHostname: "test.example.com",
+    dbPath: ':memory:',
+    linearApiKey: 'test',
+    linearWebhookSecret: 'test',
+    linearProjectIds: ['test-project'],
+    linearReadyStateType: 'unstarted',
+    tunnelHostname: 'test.example.com',
     projectRepoMap: new Map(),
     ...overrides,
   };
@@ -52,14 +47,14 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
 
 function makeTask(overrides?: Record<string, unknown>) {
   return {
-    linearIssueId: "TEST-1",
-    agentPrompt: "Fix the bug",
-    repoPath: "/tmp/repo",
-    orcaStatus: "ready" as const,
+    linearIssueId: 'TEST-1',
+    agentPrompt: 'Fix the bug',
+    repoPath: '/tmp/repo',
+    orcaStatus: 'ready' as const,
     priority: 2,
     retryCount: 0,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -72,130 +67,153 @@ function now(): string {
 // Test suite
 // ---------------------------------------------------------------------------
 
-describe("GET /api/tasks", () => {
+describe('GET /api/tasks', () => {
   let db: OrcaDb;
   let app: Hono;
 
   beforeEach(() => {
-    db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    db = createDb(':memory:');
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
-  it("returns empty array when no tasks exist", async () => {
-    const res = await app.request("/api/tasks");
+  it('returns empty array when no tasks exist', async () => {
+    const res = await app.request('/api/tasks');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual([]);
   });
 
-  it("returns tasks sorted by priority ASC then createdAt ASC", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "LOW-PRIO",
-      priority: 3,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }));
-    insertTask(db, makeTask({
-      linearIssueId: "HIGH-PRIO",
-      priority: 1,
-      createdAt: "2026-01-02T00:00:00.000Z",
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    }));
-    insertTask(db, makeTask({
-      linearIssueId: "HIGH-PRIO-EARLIER",
-      priority: 1,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }));
+  it('returns tasks sorted by priority ASC then createdAt ASC', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'LOW-PRIO',
+        priority: 3,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+    );
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'HIGH-PRIO',
+        priority: 1,
+        createdAt: '2026-01-02T00:00:00.000Z',
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      })
+    );
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'HIGH-PRIO-EARLIER',
+        priority: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+    );
 
-    const res = await app.request("/api/tasks");
+    const res = await app.request('/api/tasks');
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body).toHaveLength(3);
     // Priority 1 first (two of them), then priority 3
-    expect(body[0].linearIssueId).toBe("HIGH-PRIO-EARLIER"); // prio 1, earlier date
-    expect(body[1].linearIssueId).toBe("HIGH-PRIO");          // prio 1, later date
-    expect(body[2].linearIssueId).toBe("LOW-PRIO");           // prio 3
+    expect(body[0].linearIssueId).toBe('HIGH-PRIO-EARLIER'); // prio 1, earlier date
+    expect(body[1].linearIssueId).toBe('HIGH-PRIO'); // prio 1, later date
+    expect(body[2].linearIssueId).toBe('LOW-PRIO'); // prio 3
   });
 
-  it("returns all task fields correctly", async () => {
+  it('returns all task fields correctly', async () => {
     const task = makeTask({
-      linearIssueId: "FULL-TASK",
-      agentPrompt: "Implement feature X",
-      repoPath: "/home/user/project",
-      orcaStatus: "running" as const,
+      linearIssueId: 'FULL-TASK',
+      agentPrompt: 'Implement feature X',
+      repoPath: '/home/user/project',
+      orcaStatus: 'running' as const,
       priority: 1,
       retryCount: 2,
-      createdAt: "2026-02-15T10:30:00.000Z",
-      updatedAt: "2026-02-15T11:00:00.000Z",
+      createdAt: '2026-02-15T10:30:00.000Z',
+      updatedAt: '2026-02-15T11:00:00.000Z',
     });
     insertTask(db, task);
 
-    const res = await app.request("/api/tasks");
+    const res = await app.request('/api/tasks');
     const body = await res.json();
 
     expect(body).toHaveLength(1);
     const returned = body[0];
-    expect(returned.linearIssueId).toBe("FULL-TASK");
-    expect(returned.agentPrompt).toBe("Implement feature X");
-    expect(returned.repoPath).toBe("/home/user/project");
-    expect(returned.orcaStatus).toBe("running");
+    expect(returned.linearIssueId).toBe('FULL-TASK');
+    expect(returned.agentPrompt).toBe('Implement feature X');
+    expect(returned.repoPath).toBe('/home/user/project');
+    expect(returned.orcaStatus).toBe('running');
     expect(returned.priority).toBe(1);
     expect(returned.retryCount).toBe(2);
-    expect(returned.createdAt).toBe("2026-02-15T10:30:00.000Z");
-    expect(returned.updatedAt).toBe("2026-02-15T11:00:00.000Z");
+    expect(returned.createdAt).toBe('2026-02-15T10:30:00.000Z');
+    expect(returned.updatedAt).toBe('2026-02-15T11:00:00.000Z');
   });
 });
 
-describe("GET /api/tasks/:id", () => {
+describe('GET /api/tasks/:id', () => {
   let db: OrcaDb;
   let app: Hono;
 
   beforeEach(() => {
-    db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    db = createDb(':memory:');
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
-  it("returns task with invocations array", async () => {
-    insertTask(db, makeTask({ linearIssueId: "TASK-WITH-INV" }));
+  it('returns task with invocations array', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'TASK-WITH-INV' }));
     const invId = insertInvocation(db, {
-      linearIssueId: "TASK-WITH-INV",
-      startedAt: "2026-01-01T00:00:00.000Z",
-      status: "completed",
+      linearIssueId: 'TASK-WITH-INV',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      status: 'completed',
       costUsd: 0.25,
       numTurns: 5,
-      outputSummary: "All done",
+      outputSummary: 'All done',
     });
 
-    const res = await app.request("/api/tasks/TASK-WITH-INV");
+    const res = await app.request('/api/tasks/TASK-WITH-INV');
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(body.linearIssueId).toBe("TASK-WITH-INV");
+    expect(body.linearIssueId).toBe('TASK-WITH-INV');
     expect(body.invocations).toBeInstanceOf(Array);
     expect(body.invocations).toHaveLength(1);
     expect(body.invocations[0].id).toBe(invId);
-    expect(body.invocations[0].status).toBe("completed");
+    expect(body.invocations[0].status).toBe('completed');
     expect(body.invocations[0].costUsd).toBe(0.25);
     expect(body.invocations[0].numTurns).toBe(5);
-    expect(body.invocations[0].outputSummary).toBe("All done");
+    expect(body.invocations[0].outputSummary).toBe('All done');
   });
 
-  it("returns 404 for unknown task ID", async () => {
-    const res = await app.request("/api/tasks/NONEXISTENT");
+  it('returns 404 for unknown task ID', async () => {
+    const res = await app.request('/api/tasks/NONEXISTENT');
     expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe("task not found");
+    expect(body.error).toBe('task not found');
   });
 });
 
-describe("GET /api/status", () => {
+describe('GET /api/status', () => {
   let db: OrcaDb;
   let app: Hono;
 
   beforeEach(() => {
-    db = createDb(":memory:");
+    db = createDb(':memory:');
     app = createApiRoutes({
       db,
       config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
@@ -206,33 +224,42 @@ describe("GET /api/status", () => {
     });
   });
 
-  it("returns correct status object with all fields", async () => {
+  it('returns correct status object with all fields', async () => {
     // Insert a ready task
-    insertTask(db, makeTask({
-      linearIssueId: "READY-1",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'READY-1',
+        orcaStatus: 'ready' as const,
+      })
+    );
     // Insert a running task with a running invocation
-    insertTask(db, makeTask({
-      linearIssueId: "RUNNING-1",
-      orcaStatus: "running" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'RUNNING-1',
+        orcaStatus: 'running' as const,
+      })
+    );
     insertInvocation(db, {
-      linearIssueId: "RUNNING-1",
+      linearIssueId: 'RUNNING-1',
       startedAt: now(),
-      status: "running",
+      status: 'running',
     });
     // Insert a done task (should not appear in queued or active)
-    insertTask(db, makeTask({
-      linearIssueId: "DONE-1",
-      orcaStatus: "done" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'DONE-1',
+        orcaStatus: 'done' as const,
+      })
+    );
 
     // Insert a budget event in the current window
     const invId = insertInvocation(db, {
-      linearIssueId: "DONE-1",
+      linearIssueId: 'DONE-1',
       startedAt: now(),
-      status: "completed",
+      status: 'completed',
     });
     insertBudgetEvent(db, {
       invocationId: invId,
@@ -240,12 +267,12 @@ describe("GET /api/status", () => {
       recordedAt: now(),
     });
 
-    const res = await app.request("/api/status");
+    const res = await app.request('/api/status');
     expect(res.status).toBe(200);
     const body = await res.json();
 
     expect(body.activeSessions).toBe(1);
-    expect(body.activeTaskIds).toEqual(["RUNNING-1"]);
+    expect(body.activeTaskIds).toEqual(['RUNNING-1']);
     expect(body.queuedTasks).toBe(1);
     expect(body.costInWindow).toBeCloseTo(2.5);
     expect(body.budgetLimit).toBe(10.0);
@@ -253,54 +280,60 @@ describe("GET /api/status", () => {
   });
 });
 
-describe("GET /api/events (SSE)", () => {
+describe('GET /api/events (SSE)', () => {
   let db: OrcaDb;
   let app: Hono;
 
   beforeEach(() => {
-    db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    db = createDb(':memory:');
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
-  it("returns content-type text/event-stream and streams events", async () => {
+  it('returns content-type text/event-stream and streams events', async () => {
     const controller = new AbortController();
 
-    const res = await app.request("/api/events", {
+    const res = await app.request('/api/events', {
       signal: controller.signal,
     });
 
     expect(res.status).toBe(200);
-    const contentType = res.headers.get("content-type");
-    expect(contentType).toContain("text/event-stream");
+    const contentType = res.headers.get('content-type');
+    expect(contentType).toContain('text/event-stream');
 
     // Read the stream for events
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
 
     // Emit a task:updated event after a short delay to give the stream time to set up
-    const eventPayload = { linearIssueId: "SSE-TEST", orcaStatus: "running" };
+    const eventPayload = { linearIssueId: 'SSE-TEST', orcaStatus: 'running' };
     setTimeout(() => {
-      orcaEvents.emit("task:updated", eventPayload);
+      orcaEvents.emit('task:updated', eventPayload);
     }, 50);
 
     // Read chunks until we find our event or timeout
-    let accumulated = "";
+    let accumulated = '';
     const readWithTimeout = async (): Promise<string> => {
       const timeoutMs = 2000;
       const start = Date.now();
 
       while (Date.now() - start < timeoutMs) {
         const readPromise = reader.read();
-        const timeoutPromise = new Promise<{ done: true; value: undefined }>(
-          (resolve) =>
-            setTimeout(() => resolve({ done: true, value: undefined }), 500),
+        const timeoutPromise = new Promise<{ done: true; value: undefined }>((resolve) =>
+          setTimeout(() => resolve({ done: true, value: undefined }), 500)
         );
 
         const result = await Promise.race([readPromise, timeoutPromise]);
         if (result.value) {
           accumulated += decoder.decode(result.value, { stream: true });
         }
-        if (accumulated.includes("task:updated")) {
+        if (accumulated.includes('task:updated')) {
           break;
         }
         if (result.done) {
@@ -321,7 +354,7 @@ describe("GET /api/events (SSE)", () => {
     }
 
     // Verify the SSE event was streamed
-    expect(output).toContain("event: task:updated");
+    expect(output).toContain('event: task:updated');
     expect(output).toContain(JSON.stringify(eventPayload));
   });
 });
@@ -330,7 +363,7 @@ describe("GET /api/events (SSE)", () => {
 // POST /api/tasks/:id/status  (EMI-93: status update from UI)
 // ---------------------------------------------------------------------------
 
-describe("POST /api/tasks/:id/status", () => {
+describe('POST /api/tasks/:id/status', () => {
   let db: OrcaDb;
   let app: Hono;
   let writeBackStatusMock: ReturnType<typeof vi.fn>;
@@ -338,13 +371,13 @@ describe("POST /api/tasks/:id/status", () => {
   let taskUpdatedSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    db = createDb(":memory:");
+    db = createDb(':memory:');
     writeBackStatusMock = vi.fn().mockResolvedValue(undefined);
     stateMap = new Map([
-      ["Backlog", { id: "state-backlog", type: "backlog" }],
-      ["Todo", { id: "state-todo", type: "unstarted" }],
-      ["In Progress", { id: "state-progress", type: "started" }],
-      ["Done", { id: "state-done", type: "completed" }],
+      ['Backlog', { id: 'state-backlog', type: 'backlog' }],
+      ['Todo', { id: 'state-todo', type: 'unstarted' }],
+      ['In Progress', { id: 'state-progress', type: 'started' }],
+      ['Done', { id: 'state-done', type: 'completed' }],
     ]);
 
     // Create a mock client that has writeBackStatus mocked
@@ -364,19 +397,19 @@ describe("POST /api/tasks/:id/status", () => {
 
     // Spy on task:updated event emissions
     taskUpdatedSpy = vi.fn();
-    orcaEvents.on("task:updated", taskUpdatedSpy);
+    orcaEvents.on('task:updated', taskUpdatedSpy);
   });
 
   afterEach(() => {
-    orcaEvents.removeListener("task:updated", taskUpdatedSpy);
+    orcaEvents.removeListener('task:updated', taskUpdatedSpy);
     vi.restoreAllMocks();
   });
 
   // --- Helper to POST status ---
   function postStatus(taskId: string, body: unknown) {
     return app.request(`/api/tasks/${taskId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
   }
@@ -385,164 +418,191 @@ describe("POST /api/tasks/:id/status", () => {
   // Happy path transitions
   // -----------------------------------------------------------------------
 
-  it("backlog -> ready: succeeds and resets counters", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-1",
-      orcaStatus: "backlog" as const,
-      retryCount: 3,
-    }));
+  it('backlog -> ready: succeeds and resets counters', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-1',
+        orcaStatus: 'backlog' as const,
+        retryCount: 3,
+      })
+    );
 
-    const res = await postStatus("T-1", { status: "ready" });
+    const res = await postStatus('T-1', { status: 'ready' });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
 
-    const task = getTask(db, "T-1");
-    expect(task!.orcaStatus).toBe("ready");
+    const task = getTask(db, 'T-1');
+    expect(task!.orcaStatus).toBe('ready');
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("ready -> done: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-2",
-      orcaStatus: "ready" as const,
-    }));
+  it('ready -> done: succeeds', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-2',
+        orcaStatus: 'ready' as const,
+      })
+    );
 
-    const res = await postStatus("T-2", { status: "done" });
+    const res = await postStatus('T-2', { status: 'done' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-2");
-    expect(task!.orcaStatus).toBe("done");
+    const task = getTask(db, 'T-2');
+    expect(task!.orcaStatus).toBe('done');
   });
 
-  it("done -> backlog: succeeds and resets counters", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-3",
-      orcaStatus: "done" as const,
-      retryCount: 2,
-    }));
+  it('done -> backlog: succeeds and resets counters', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-3',
+        orcaStatus: 'done' as const,
+        retryCount: 2,
+      })
+    );
 
-    const res = await postStatus("T-3", { status: "backlog" });
+    const res = await postStatus('T-3', { status: 'backlog' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-3");
-    expect(task!.orcaStatus).toBe("backlog");
+    const task = getTask(db, 'T-3');
+    expect(task!.orcaStatus).toBe('backlog');
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("failed -> ready: succeeds (re-queue via status endpoint)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-4",
-      orcaStatus: "failed" as const,
-      retryCount: 5,
-    }));
+  it('failed -> ready: succeeds (re-queue via status endpoint)', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-4',
+        orcaStatus: 'failed' as const,
+        retryCount: 5,
+      })
+    );
 
-    const res = await postStatus("T-4", { status: "ready" });
+    const res = await postStatus('T-4', { status: 'ready' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-4");
-    expect(task!.orcaStatus).toBe("ready");
+    const task = getTask(db, 'T-4');
+    expect(task!.orcaStatus).toBe('ready');
     expect(task!.retryCount).toBe(0);
   });
 
-  it("failed -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-5",
-      orcaStatus: "failed" as const,
-    }));
+  it('failed -> backlog: succeeds', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-5',
+        orcaStatus: 'failed' as const,
+      })
+    );
 
-    const res = await postStatus("T-5", { status: "backlog" });
+    const res = await postStatus('T-5', { status: 'backlog' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-5");
-    expect(task!.orcaStatus).toBe("backlog");
+    const task = getTask(db, 'T-5');
+    expect(task!.orcaStatus).toBe('backlog');
   });
 
-  it("ready -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-6",
-      orcaStatus: "ready" as const,
-    }));
+  it('ready -> backlog: succeeds', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-6',
+        orcaStatus: 'ready' as const,
+      })
+    );
 
-    const res = await postStatus("T-6", { status: "backlog" });
+    const res = await postStatus('T-6', { status: 'backlog' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-6");
-    expect(task!.orcaStatus).toBe("backlog");
+    const task = getTask(db, 'T-6');
+    expect(task!.orcaStatus).toBe('backlog');
   });
 
   // -----------------------------------------------------------------------
   // Error responses
   // -----------------------------------------------------------------------
 
-  it("returns 400 for invalid status value", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-ERR-1" }));
+  it('returns 400 for invalid status value', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-ERR-1' }));
 
-    const res = await postStatus("T-ERR-1", { status: "running" });
+    const res = await postStatus('T-ERR-1', { status: 'running' });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain("status must be one of");
+    expect(body.error).toContain('status must be one of');
   });
 
-  it("returns 400 for status=null", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-ERR-2" }));
+  it('returns 400 for status=null', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-ERR-2' }));
 
-    const res = await postStatus("T-ERR-2", { status: null });
+    const res = await postStatus('T-ERR-2', { status: null });
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 for missing status field", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-ERR-3" }));
+  it('returns 400 for missing status field', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-ERR-3' }));
 
-    const res = await postStatus("T-ERR-3", {});
+    const res = await postStatus('T-ERR-3', {});
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 for status as integer", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-ERR-4" }));
+  it('returns 400 for status as integer', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-ERR-4' }));
 
-    const res = await postStatus("T-ERR-4", { status: 42 });
+    const res = await postStatus('T-ERR-4', { status: 42 });
     expect(res.status).toBe(400);
   });
 
-  it("returns 404 for non-existent task", async () => {
-    const res = await postStatus("NONEXISTENT", { status: "ready" });
+  it('returns 404 for non-existent task', async () => {
+    const res = await postStatus('NONEXISTENT', { status: 'ready' });
     expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe("task not found");
+    expect(body.error).toBe('task not found');
   });
 
-  it("returns 409 when setting same status as current", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-SAME",
-      orcaStatus: "ready" as const,
-    }));
+  it('returns 409 when setting same status as current', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-SAME',
+        orcaStatus: 'ready' as const,
+      })
+    );
 
-    const res = await postStatus("T-SAME", { status: "ready" });
+    const res = await postStatus('T-SAME', { status: 'ready' });
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.error).toContain("already");
+    expect(body.error).toContain('already');
   });
 
-  it("returns 409 when setting done on already-done task", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONE-SAME",
-      orcaStatus: "done" as const,
-    }));
+  it('returns 409 when setting done on already-done task', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-DONE-SAME',
+        orcaStatus: 'done' as const,
+      })
+    );
 
-    const res = await postStatus("T-DONE-SAME", { status: "done" });
+    const res = await postStatus('T-DONE-SAME', { status: 'done' });
     expect(res.status).toBe(409);
   });
 
-  it("returns 409 when setting backlog on already-backlog task", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-BL-SAME",
-      orcaStatus: "backlog" as const,
-    }));
+  it('returns 409 when setting backlog on already-backlog task', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-BL-SAME',
+        orcaStatus: 'backlog' as const,
+      })
+    );
 
-    const res = await postStatus("T-BL-SAME", { status: "backlog" });
+    const res = await postStatus('T-BL-SAME', { status: 'backlog' });
     expect(res.status).toBe(409);
   });
 
@@ -550,13 +610,13 @@ describe("POST /api/tasks/:id/status", () => {
   // Malformed body
   // -----------------------------------------------------------------------
 
-  it("returns error for malformed JSON body (BUG: should be 400, not 500)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-MALFORMED" }));
+  it('returns error for malformed JSON body (BUG: should be 400, not 500)', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-MALFORMED' }));
 
-    const res = await app.request("/api/tasks/T-MALFORMED/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not-valid-json{{{",
+    const res = await app.request('/api/tasks/T-MALFORMED/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-valid-json{{{',
     });
 
     // The endpoint does not try/catch c.req.json(), so Hono's default
@@ -568,13 +628,13 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns error for empty body (BUG: should be 400, not 500)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-EMPTY" }));
+  it('returns error for empty body (BUG: should be 400, not 500)', async () => {
+    insertTask(db, makeTask({ linearIssueId: 'T-EMPTY' }));
 
-    const res = await app.request("/api/tasks/T-EMPTY/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "",
+    const res = await app.request('/api/tasks/T-EMPTY/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '',
     });
 
     // Same issue: no try/catch around c.req.json()
@@ -587,59 +647,68 @@ describe("POST /api/tasks/:id/status", () => {
   // Counter resets
   // -----------------------------------------------------------------------
 
-  it("resets retryCount and reviewCycleCount when moving to ready", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-1",
-      orcaStatus: "failed" as const,
-      retryCount: 5,
-    }));
+  it('resets retryCount and reviewCycleCount when moving to ready', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-COUNTERS-1',
+        orcaStatus: 'failed' as const,
+        retryCount: 5,
+      })
+    );
 
     // Set reviewCycleCount using updateTaskFields
-    const { updateTaskFields } = await import("../src/db/queries.js");
-    updateTaskFields(db, "T-COUNTERS-1", { reviewCycleCount: 3 });
+    const { updateTaskFields } = await import('../src/db/queries.js');
+    updateTaskFields(db, 'T-COUNTERS-1', { reviewCycleCount: 3 });
 
     // Verify precondition
-    const before = getTask(db, "T-COUNTERS-1");
+    const before = getTask(db, 'T-COUNTERS-1');
     expect(before!.retryCount).toBe(5);
     expect(before!.reviewCycleCount).toBe(3);
 
-    const res = await postStatus("T-COUNTERS-1", { status: "ready" });
+    const res = await postStatus('T-COUNTERS-1', { status: 'ready' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-COUNTERS-1");
+    const task = getTask(db, 'T-COUNTERS-1');
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("resets retryCount and reviewCycleCount when moving to backlog", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-2",
-      orcaStatus: "done" as const,
-      retryCount: 2,
-    }));
+  it('resets retryCount and reviewCycleCount when moving to backlog', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-COUNTERS-2',
+        orcaStatus: 'done' as const,
+        retryCount: 2,
+      })
+    );
 
-    const { updateTaskFields } = await import("../src/db/queries.js");
-    updateTaskFields(db, "T-COUNTERS-2", { reviewCycleCount: 4 });
+    const { updateTaskFields } = await import('../src/db/queries.js');
+    updateTaskFields(db, 'T-COUNTERS-2', { reviewCycleCount: 4 });
 
-    const res = await postStatus("T-COUNTERS-2", { status: "backlog" });
+    const res = await postStatus('T-COUNTERS-2', { status: 'backlog' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-COUNTERS-2");
+    const task = getTask(db, 'T-COUNTERS-2');
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("does NOT reset counters when moving to done (uses updateTaskStatus)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-3",
-      orcaStatus: "ready" as const,
-      retryCount: 3,
-    }));
+  it('does NOT reset counters when moving to done (uses updateTaskStatus)', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-COUNTERS-3',
+        orcaStatus: 'ready' as const,
+        retryCount: 3,
+      })
+    );
 
-    const res = await postStatus("T-COUNTERS-3", { status: "done" });
+    const res = await postStatus('T-COUNTERS-3', { status: 'done' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-COUNTERS-3");
+    const task = getTask(db, 'T-COUNTERS-3');
     // updateTaskStatus does NOT reset retryCount, so it should remain 3
     expect(task!.retryCount).toBe(3);
   });
@@ -648,33 +717,39 @@ describe("POST /api/tasks/:id/status", () => {
   // done -> sets doneAt timestamp
   // -----------------------------------------------------------------------
 
-  it("sets doneAt when moving to done", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONEAT",
-      orcaStatus: "ready" as const,
-    }));
+  it('sets doneAt when moving to done', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-DONEAT',
+        orcaStatus: 'ready' as const,
+      })
+    );
 
-    await postStatus("T-DONEAT", { status: "done" });
+    await postStatus('T-DONEAT', { status: 'done' });
 
-    const task = getTask(db, "T-DONEAT");
+    const task = getTask(db, 'T-DONEAT');
     expect(task!.doneAt).not.toBeNull();
   });
 
-  it("clears doneAt when moving from done to backlog", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONEAT-CLEAR",
-      orcaStatus: "done" as const,
-    }));
+  it('clears doneAt when moving from done to backlog', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-DONEAT-CLEAR',
+        orcaStatus: 'done' as const,
+      })
+    );
     // Set doneAt
-    const { updateTaskStatus: uts } = await import("../src/db/queries.js");
-    uts(db, "T-DONEAT-CLEAR", "done");
+    const { updateTaskStatus: uts } = await import('../src/db/queries.js');
+    uts(db, 'T-DONEAT-CLEAR', 'done');
 
-    const before = getTask(db, "T-DONEAT-CLEAR");
+    const before = getTask(db, 'T-DONEAT-CLEAR');
     expect(before!.doneAt).not.toBeNull();
 
-    await postStatus("T-DONEAT-CLEAR", { status: "backlog" });
+    await postStatus('T-DONEAT-CLEAR', { status: 'backlog' });
 
-    const after = getTask(db, "T-DONEAT-CLEAR");
+    const after = getTask(db, 'T-DONEAT-CLEAR');
     expect(after!.doneAt).toBeNull();
   });
 
@@ -682,33 +757,39 @@ describe("POST /api/tasks/:id/status", () => {
   // Event emission
   // -----------------------------------------------------------------------
 
-  it("emits task:updated event after status change", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-EVENT",
-      orcaStatus: "backlog" as const,
-    }));
+  it('emits task:updated event after status change', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-EVENT',
+        orcaStatus: 'backlog' as const,
+      })
+    );
 
-    await postStatus("T-EVENT", { status: "ready" });
+    await postStatus('T-EVENT', { status: 'ready' });
 
     // The event should have been emitted with the updated task
     expect(taskUpdatedSpy).toHaveBeenCalledTimes(1);
     const emittedTask = taskUpdatedSpy.mock.calls[0][0];
-    expect(emittedTask.linearIssueId).toBe("T-EVENT");
-    expect(emittedTask.orcaStatus).toBe("ready");
+    expect(emittedTask.linearIssueId).toBe('T-EVENT');
+    expect(emittedTask.orcaStatus).toBe('ready');
   });
 
-  it("does NOT emit task:updated on error (404)", async () => {
-    await postStatus("NONEXISTENT", { status: "ready" });
+  it('does NOT emit task:updated on error (404)', async () => {
+    await postStatus('NONEXISTENT', { status: 'ready' });
     expect(taskUpdatedSpy).not.toHaveBeenCalled();
   });
 
-  it("does NOT emit task:updated on error (409)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-NO-EVENT",
-      orcaStatus: "ready" as const,
-    }));
+  it('does NOT emit task:updated on error (409)', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-NO-EVENT',
+        orcaStatus: 'ready' as const,
+      })
+    );
 
-    await postStatus("T-NO-EVENT", { status: "ready" });
+    await postStatus('T-NO-EVENT', { status: 'ready' });
     expect(taskUpdatedSpy).not.toHaveBeenCalled();
   });
 
@@ -716,70 +797,82 @@ describe("POST /api/tasks/:id/status", () => {
   // Edge case: moving from active states (running/dispatched/in_review)
   // -----------------------------------------------------------------------
 
-  it("running -> done: succeeds (kills session logic does not crash without active handles)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-RUNNING",
-      orcaStatus: "running" as const,
-    }));
+  it('running -> done: succeeds (kills session logic does not crash without active handles)', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-RUNNING',
+        orcaStatus: 'running' as const,
+      })
+    );
     // Insert a running invocation
     insertInvocation(db, {
-      linearIssueId: "T-RUNNING",
+      linearIssueId: 'T-RUNNING',
       startedAt: now(),
-      status: "running",
+      status: 'running',
     });
 
-    const res = await postStatus("T-RUNNING", { status: "done" });
+    const res = await postStatus('T-RUNNING', { status: 'done' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-RUNNING");
-    expect(task!.orcaStatus).toBe("done");
+    const task = getTask(db, 'T-RUNNING');
+    expect(task!.orcaStatus).toBe('done');
   });
 
-  it("dispatched -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DISPATCHED",
-      orcaStatus: "dispatched" as const,
-    }));
+  it('dispatched -> backlog: succeeds', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-DISPATCHED',
+        orcaStatus: 'dispatched' as const,
+      })
+    );
 
-    const res = await postStatus("T-DISPATCHED", { status: "backlog" });
+    const res = await postStatus('T-DISPATCHED', { status: 'backlog' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-DISPATCHED");
-    expect(task!.orcaStatus).toBe("backlog");
+    const task = getTask(db, 'T-DISPATCHED');
+    expect(task!.orcaStatus).toBe('backlog');
   });
 
-  it("in_review -> ready: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-REVIEW",
-      orcaStatus: "in_review" as const,
-    }));
+  it('in_review -> ready: succeeds', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-REVIEW',
+        orcaStatus: 'in_review' as const,
+      })
+    );
 
-    const res = await postStatus("T-REVIEW", { status: "ready" });
+    const res = await postStatus('T-REVIEW', { status: 'ready' });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-REVIEW");
-    expect(task!.orcaStatus).toBe("ready");
+    const task = getTask(db, 'T-REVIEW');
+    expect(task!.orcaStatus).toBe('ready');
   });
 
   // -----------------------------------------------------------------------
   // Edge case: extra fields in body should be ignored
   // -----------------------------------------------------------------------
 
-  it("ignores extra fields in request body", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-EXTRA",
-      orcaStatus: "backlog" as const,
-    }));
+  it('ignores extra fields in request body', async () => {
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: 'T-EXTRA',
+        orcaStatus: 'backlog' as const,
+      })
+    );
 
-    const res = await postStatus("T-EXTRA", {
-      status: "ready",
-      extraField: "should be ignored",
+    const res = await postStatus('T-EXTRA', {
+      status: 'ready',
+      extraField: 'should be ignored',
       priority: 999,
     });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-EXTRA");
-    expect(task!.orcaStatus).toBe("ready");
+    const task = getTask(db, 'T-EXTRA');
+    expect(task!.orcaStatus).toBe('ready');
     // Priority should NOT have changed
     expect(task!.priority).toBe(2);
   });
@@ -789,37 +882,37 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("rejects status='Ready' (case sensitive)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-CASE" }));
+    insertTask(db, makeTask({ linearIssueId: 'T-CASE' }));
 
-    const res = await postStatus("T-CASE", { status: "Ready" });
+    const res = await postStatus('T-CASE', { status: 'Ready' });
     expect(res.status).toBe(400);
   });
 
   it("rejects status='DONE' (case sensitive)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-CASE-2" }));
+    insertTask(db, makeTask({ linearIssueId: 'T-CASE-2' }));
 
-    const res = await postStatus("T-CASE-2", { status: "DONE" });
+    const res = await postStatus('T-CASE-2', { status: 'DONE' });
     expect(res.status).toBe(400);
   });
 
   it("rejects status='failed' (not an allowed target)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-FAILED-TARGET" }));
+    insertTask(db, makeTask({ linearIssueId: 'T-FAILED-TARGET' }));
 
-    const res = await postStatus("T-FAILED-TARGET", { status: "failed" });
+    const res = await postStatus('T-FAILED-TARGET', { status: 'failed' });
     expect(res.status).toBe(400);
   });
 
   it("rejects status='running' (not an allowed target)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-RUNNING-TARGET" }));
+    insertTask(db, makeTask({ linearIssueId: 'T-RUNNING-TARGET' }));
 
-    const res = await postStatus("T-RUNNING-TARGET", { status: "running" });
+    const res = await postStatus('T-RUNNING-TARGET', { status: 'running' });
     expect(res.status).toBe(400);
   });
 
   it("rejects status='' (empty string)", async () => {
-    insertTask(db, makeTask({ linearIssueId: "T-EMPTY-STR" }));
+    insertTask(db, makeTask({ linearIssueId: 'T-EMPTY-STR' }));
 
-    const res = await postStatus("T-EMPTY-STR", { status: "" });
+    const res = await postStatus('T-EMPTY-STR', { status: '' });
     expect(res.status).toBe(400);
   });
 });
@@ -828,14 +921,14 @@ describe("POST /api/tasks/:id/status", () => {
 // GET /api/projects  (EMI-101: in-app ticket creation)
 // ---------------------------------------------------------------------------
 
-describe("GET /api/projects", () => {
-  it("returns project id and name from projectMeta", async () => {
+describe('GET /api/projects', () => {
+  it('returns project id and name from projectMeta', async () => {
     const projectMeta = [
-      { id: "proj-1", name: "Orca", description: "", teamIds: ["team-1"] },
-      { id: "proj-2", name: "Other", description: "", teamIds: ["team-2"] },
+      { id: 'proj-1', name: 'Orca', description: '', teamIds: ['team-1'] },
+      { id: 'proj-2', name: 'Other', description: '', teamIds: ['team-2'] },
     ];
     const app = createApiRoutes({
-      db: createDb(":memory:"),
+      db: createDb(':memory:'),
       config: makeConfig(),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
@@ -843,18 +936,18 @@ describe("GET /api/projects", () => {
       projectMeta,
     });
 
-    const res = await app.request("/api/projects");
+    const res = await app.request('/api/projects');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual([
-      { id: "proj-1", name: "Orca" },
-      { id: "proj-2", name: "Other" },
+      { id: 'proj-1', name: 'Orca' },
+      { id: 'proj-2', name: 'Other' },
     ]);
   });
 
-  it("returns empty array when projectMeta is empty", async () => {
+  it('returns empty array when projectMeta is empty', async () => {
     const app = createApiRoutes({
-      db: createDb(":memory:"),
+      db: createDb(':memory:'),
       config: makeConfig(),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
@@ -862,7 +955,7 @@ describe("GET /api/projects", () => {
       projectMeta: [],
     });
 
-    const res = await app.request("/api/projects");
+    const res = await app.request('/api/projects');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual([]);
@@ -873,7 +966,7 @@ describe("GET /api/projects", () => {
 // POST /api/tasks  (EMI-101: in-app ticket creation)
 // ---------------------------------------------------------------------------
 
-describe("POST /api/tasks", () => {
+describe('POST /api/tasks', () => {
   let db: OrcaDb;
   let app: Hono;
   let createIssueMock: ReturnType<typeof vi.fn>;
@@ -881,20 +974,18 @@ describe("POST /api/tasks", () => {
   let stateMap: WorkflowStateMap;
 
   beforeEach(() => {
-    db = createDb(":memory:");
-    createIssueMock = vi.fn().mockResolvedValue({ id: "issue-abc", identifier: "PROJ-42" });
+    db = createDb(':memory:');
+    createIssueMock = vi.fn().mockResolvedValue({ id: 'issue-abc', identifier: 'PROJ-42' });
     syncTasksMock = vi.fn().mockResolvedValue(0);
     stateMap = new Map([
-      ["Backlog", { id: "state-backlog", type: "backlog" }],
-      ["Todo", { id: "state-todo", type: "unstarted" }],
+      ['Backlog', { id: 'state-backlog', type: 'backlog' }],
+      ['Todo', { id: 'state-todo', type: 'unstarted' }],
     ]);
     const mockClient = { createIssue: createIssueMock } as any;
-    const projectMeta = [
-      { id: "proj-1", name: "Orca", description: "", teamIds: ["team-1"] },
-    ];
+    const projectMeta = [{ id: 'proj-1', name: 'Orca', description: '', teamIds: ['team-1'] }];
     app = createApiRoutes({
       db,
-      config: makeConfig({ linearProjectIds: ["proj-1"] }),
+      config: makeConfig({ linearProjectIds: ['proj-1'] }),
       syncTasks: syncTasksMock,
       client: mockClient,
       stateMap,
@@ -903,106 +994,110 @@ describe("POST /api/tasks", () => {
   });
 
   function post(body: unknown) {
-    return app.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    return app.request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
   }
 
-  it("creates an issue and returns identifier", async () => {
-    const res = await post({ title: "Fix the thing" });
+  it('creates an issue and returns identifier', async () => {
+    const res = await post({ title: 'Fix the thing' });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ id: "issue-abc", identifier: "PROJ-42" });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Fix the thing",
-      teamId: "team-1",
-      stateId: "state-todo",
-    }));
+    expect(body).toEqual({ id: 'issue-abc', identifier: 'PROJ-42' });
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Fix the thing',
+        teamId: 'team-1',
+        stateId: 'state-todo',
+      })
+    );
   });
 
-  it("uses backlog state when status=backlog", async () => {
-    await post({ title: "Someday task", status: "backlog" });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
-      stateId: "state-backlog",
-    }));
+  it('uses backlog state when status=backlog', async () => {
+    await post({ title: 'Someday task', status: 'backlog' });
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stateId: 'state-backlog',
+      })
+    );
   });
 
-  it("passes priority to createIssue", async () => {
-    await post({ title: "Urgent bug", priority: 1 });
+  it('passes priority to createIssue', async () => {
+    await post({ title: 'Urgent bug', priority: 1 });
     expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }));
   });
 
-  it("ignores out-of-range priority", async () => {
-    await post({ title: "Bad prio", priority: 99 });
+  it('ignores out-of-range priority', async () => {
+    await post({ title: 'Bad prio', priority: 99 });
     expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: undefined }));
   });
 
-  it("trims whitespace from title", async () => {
-    await post({ title: "  spaces  " });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: "spaces" }));
+  it('trims whitespace from title', async () => {
+    await post({ title: '  spaces  ' });
+    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'spaces' }));
   });
 
-  it("triggers sync after creation", async () => {
-    await post({ title: "New ticket" });
+  it('triggers sync after creation', async () => {
+    await post({ title: 'New ticket' });
     // syncTasks is called fire-and-forget; wait a tick for the promise to enqueue
     await new Promise((r) => setTimeout(r, 0));
     expect(syncTasksMock).toHaveBeenCalled();
   });
 
-  it("returns 400 when title is missing", async () => {
-    const res = await post({ description: "no title" });
+  it('returns 400 when title is missing', async () => {
+    const res = await post({ description: 'no title' });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/title/i);
   });
 
-  it("returns 400 when title is blank", async () => {
-    const res = await post({ title: "   " });
+  it('returns 400 when title is blank', async () => {
+    const res = await post({ title: '   ' });
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 for invalid status value", async () => {
-    const res = await post({ title: "ok", status: "in_progress" });
+  it('returns 400 for invalid status value', async () => {
+    const res = await post({ title: 'ok', status: 'in_progress' });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/status/i);
   });
 
-  it("returns 400 when project has no team", async () => {
+  it('returns 400 when project has no team', async () => {
     const appNoTeam = createApiRoutes({
-      db: createDb(":memory:"),
-      config: makeConfig({ linearProjectIds: ["proj-empty"] }),
+      db: createDb(':memory:'),
+      config: makeConfig({ linearProjectIds: ['proj-empty'] }),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: { createIssue: createIssueMock } as any,
       stateMap,
-      projectMeta: [{ id: "proj-empty", name: "Empty", description: "", teamIds: [] }],
+      projectMeta: [{ id: 'proj-empty', name: 'Empty', description: '', teamIds: [] }],
     });
-    const res = await appNoTeam.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "ok" }),
+    const res = await appNoTeam.request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'ok' }),
     });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/team/i);
   });
 
-  it("returns 400 for invalid JSON body", async () => {
-    const res = await app.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not-json{{{",
+  it('returns 400 for invalid JSON body', async () => {
+    const res = await app.request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json{{{',
     });
     expect(res.status).toBe(400);
   });
 
-  it("returns 500 when createIssue throws", async () => {
-    createIssueMock.mockRejectedValueOnce(new Error("Linear API down"));
-    const res = await post({ title: "Will fail" });
+  it('returns 500 when createIssue throws', async () => {
+    createIssueMock.mockRejectedValueOnce(new Error('Linear API down'));
+    const res = await post({ title: 'Will fail' });
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.error).toBe("Linear API down");
+    expect(body.error).toBe('Linear API down');
   });
 });

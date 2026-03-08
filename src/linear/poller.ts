@@ -2,11 +2,11 @@
 // Linear poller — fallback polling when tunnel is down
 // ---------------------------------------------------------------------------
 
-import type { OrcaDb } from "../db/index.js";
-import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient, WorkflowStateMap } from "./client.js";
-import type { DependencyGraph } from "./graph.js";
-import { fullSync } from "./sync.js";
+import type { OrcaDb } from '../db/index.js';
+import type { OrcaConfig } from '../config/index.js';
+import type { LinearClient, WorkflowStateMap } from './client.js';
+import type { DependencyGraph } from './graph.js';
+import { fullSync } from './sync.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,7 +94,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (tunnelUp) {
         // 7.2 Tunnel recovered — log once and skip
         if (lastPollActive) {
-          log("tunnel recovered, stopping poll");
+          log('tunnel recovered, stopping poll');
           lastPollActive = false;
         }
         // Tunnel up is not a failure — reset backoff
@@ -105,7 +105,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
 
       // 7.2 Tunnel is down — poll
       if (!lastPollActive) {
-        log("tunnel down, polling Linear...");
+        log('tunnel down, polling Linear...');
         lastPollActive = true;
       }
 
@@ -124,7 +124,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       lastError = String(err);
       const nextInterval = computeBackoffMs(consecutiveFailures);
       log(
-        `poll error (failure #${consecutiveFailures}, next retry in ${Math.round(nextInterval / 1000)}s): ${err}`,
+        `poll error (failure #${consecutiveFailures}, next retry in ${Math.round(nextInterval / 1000)}s): ${err}`
       );
     } finally {
       polling = false;
@@ -136,7 +136,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (timerId !== null) return; // Already started
       stopped = false;
       scheduleNext();
-      log("started (interval: 30s)");
+      log('started (interval: 30s)');
     },
 
     stop(): void {
@@ -144,7 +144,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       if (timerId !== null) {
         clearTimeout(timerId);
         timerId = null;
-        log("stopped");
+        log('stopped');
       }
     },
 

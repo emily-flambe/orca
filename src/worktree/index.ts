@@ -1,8 +1,8 @@
-import { execFileSync, execSync } from "node:child_process";
-import { existsSync, readdirSync, copyFileSync, rmSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
-import { platform } from "node:os";
-import { git, cleanStaleLockFiles } from "../git.js";
+import { execFileSync, execSync } from 'node:child_process';
+import { existsSync, readdirSync, copyFileSync, rmSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { platform } from 'node:os';
+import { git, cleanStaleLockFiles } from '../git.js';
 
 /**
  * Run npm install synchronously in the given directory.
@@ -10,16 +10,16 @@ import { git, cleanStaleLockFiles } from "../git.js";
  */
 function npmInstall(cwd: string): void {
   try {
-    execFileSync("npm", ["install"], {
-      encoding: "utf-8",
+    execFileSync('npm', ['install'], {
+      encoding: 'utf-8',
       cwd,
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ['pipe', 'pipe', 'pipe'],
       shell: true,
     });
   } catch (err: unknown) {
     const execErr = err as { stderr?: string; message?: string };
-    const stderr = execErr.stderr?.trim() ?? "";
-    const detail = stderr || execErr.message || "unknown error";
+    const stderr = execErr.stderr?.trim() ?? '';
+    const detail = stderr || execErr.message || 'unknown error';
     throw new Error(`npm install failed in ${cwd}\n${detail}`);
   }
 }
@@ -38,7 +38,7 @@ function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
       return;
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "EPERM" || attempt === maxAttempts) {
+      if (code !== 'EPERM' || attempt === maxAttempts) {
         throw err;
       }
       // Synchronous sleep via Atomics.wait — avoids spinning the CPU
@@ -57,7 +57,7 @@ function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
  * actually matches and avoids the delete-and-recreate path that triggers EPERM.
  */
 function normalizePath(p: string): string {
-  return p.replace(/\\/g, "/").toLowerCase();
+  return p.replace(/\\/g, '/').toLowerCase();
 }
 
 /**
@@ -71,17 +71,17 @@ function normalizePath(p: string): string {
  * and forcefully terminates them. Best-effort: errors are silently ignored.
  */
 function killProcessesInDirectory(dirPath: string): void {
-  if (platform() !== "win32") return;
+  if (platform() !== 'win32') return;
   try {
     // Normalize to backslashes for matching against Windows command lines.
     // Escape single quotes for use in a PowerShell single-quoted string.
-    const winPath = dirPath.replace(/\//g, "\\").replace(/'/g, "''");
+    const winPath = dirPath.replace(/\//g, '\\').replace(/'/g, "''");
     execSync(
       `powershell.exe -NoProfile -NonInteractive -Command ` +
         `"Get-CimInstance Win32_Process | ` +
         `Where-Object { $_.CommandLine -ne $null -and $_.CommandLine.Contains('${winPath}') } | ` +
         `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
-      { stdio: "ignore", timeout: 10_000 },
+      { stdio: 'ignore', timeout: 10_000 }
     );
   } catch {
     // Best-effort: ignore errors (process may have already exited)
@@ -92,14 +92,14 @@ function killProcessesInDirectory(dirPath: string): void {
  * Check whether a git worktree is already registered at the given path.
  */
 function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
-  const output = git(["worktree", "list", "--porcelain"], { cwd: repoPath });
+  const output = git(['worktree', 'list', '--porcelain'], { cwd: repoPath });
   const normalizedTarget = normalizePath(worktreePath);
   // Each worktree block starts with "worktree <absolute-path>"
-  for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ")) {
+  for (const line of output.split('\n')) {
+    if (line.startsWith('worktree ')) {
       // Normalize both sides: git may return forward slashes with different
       // drive-letter casing than the path we constructed.
-      const gitPath = normalizePath(line.slice("worktree ".length));
+      const gitPath = normalizePath(line.slice('worktree '.length));
       if (gitPath === normalizedTarget) return true;
     }
   }
@@ -111,7 +111,7 @@ function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
  */
 function branchExists(repoPath: string, branchName: string): boolean {
   try {
-    git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], { cwd: repoPath });
+    git(['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], { cwd: repoPath });
     return true;
   } catch {
     return false;
@@ -125,7 +125,7 @@ function branchExists(repoPath: string, branchName: string): boolean {
 function copyEnvFiles(srcDir: string, destDir: string): void {
   const entries = readdirSync(srcDir);
   for (const entry of entries) {
-    if (entry.startsWith(".env")) {
+    if (entry.startsWith('.env')) {
       copyFileSync(join(srcDir, entry), join(destDir, entry));
     }
   }
@@ -158,7 +158,7 @@ export function createWorktree(
   repoPath: string,
   taskId: string,
   invocationId: number | string,
-  options?: { baseRef?: string },
+  options?: { baseRef?: string }
 ): { worktreePath: string; branchName: string } {
   // Validate repo path exists
   if (!existsSync(repoPath)) {
@@ -178,7 +178,7 @@ export function createWorktree(
   // Best-effort: a transient OS error (e.g. Windows 0xC0000142) should
   // not prevent the worktree add attempt.
   try {
-    git(["worktree", "prune"], { cwd: repoPath });
+    git(['worktree', 'prune'], { cwd: repoPath });
   } catch (pruneErr) {
     // Log but don't throw — worktree add may still succeed
     console.warn(`[orca/worktree] prune failed (non-fatal): ${pruneErr}`);
@@ -188,14 +188,14 @@ export function createWorktree(
   cleanStaleLockFiles(repoPath);
 
   // Fetch origin (with retry for transient OS errors)
-  git(["fetch", "origin"], { cwd: repoPath });
+  git(['fetch', 'origin'], { cwd: repoPath });
 
   // If worktree already exists at target path, reuse it (retry scenario)
   if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
     if (baseRef) {
       // For review/fix phases, reset to the remote tracking branch
-      git(["fetch", "origin"], { cwd: worktreePath });
-      git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
+      git(['fetch', 'origin'], { cwd: worktreePath });
+      git(['reset', '--hard', `origin/${baseRef}`], { cwd: worktreePath });
     } else {
       resetWorktree(worktreePath);
     }
@@ -212,23 +212,23 @@ export function createWorktree(
     // Use the same branch name as the PR branch so pushes update the existing PR
     // instead of creating a new remote branch.
     if (branchExists(repoPath, baseRef)) {
-      git(["branch", "-D", baseRef], { cwd: repoPath });
+      git(['branch', '-D', baseRef], { cwd: repoPath });
     }
-    git(["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
+    git(['worktree', 'add', '-b', baseRef, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
   } else {
     // If branch already exists, delete it first
     if (branchExists(repoPath, branchName)) {
-      git(["branch", "-D", branchName], { cwd: repoPath });
+      git(['branch', '-D', branchName], { cwd: repoPath });
     }
     // Create worktree with new branch based on origin/main
-    git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], { cwd: repoPath });
+    git(['worktree', 'add', '-b', branchName, worktreePath, 'origin/main'], { cwd: repoPath });
   }
 
   // Copy .env* files from base repo
   copyEnvFiles(repoPath, worktreePath);
 
   // Run npm install if package.json exists
-  if (existsSync(join(worktreePath, "package.json"))) {
+  if (existsSync(join(worktreePath, 'package.json'))) {
     npmInstall(worktreePath);
   }
 
@@ -236,22 +236,24 @@ export function createWorktree(
   // If ORCA_EXTRA_INSTALL_DIRS is set (comma-separated), install only those dirs.
   // Otherwise, auto-discover by walking one level of subdirectories.
   const extraInstallDirs = process.env.ORCA_EXTRA_INSTALL_DIRS
-    ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",").map((d) => d.trim()).filter(Boolean)
+    ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(',')
+        .map((d) => d.trim())
+        .filter(Boolean)
     : null;
 
   if (extraInstallDirs) {
     for (const subdir of extraInstallDirs) {
       const subPath = join(worktreePath, subdir);
-      if (existsSync(join(subPath, "package.json"))) {
+      if (existsSync(join(subPath, 'package.json'))) {
         npmInstall(subPath);
       }
     }
   } else {
     const entries = readdirSync(worktreePath, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name === "node_modules") continue;
+      if (!entry.isDirectory() || entry.name === 'node_modules') continue;
       const subPath = join(worktreePath, entry.name);
-      if (existsSync(join(subPath, "package.json"))) {
+      if (existsSync(join(subPath, 'package.json'))) {
         npmInstall(subPath);
       }
     }
@@ -271,11 +273,11 @@ export function createWorktree(
 export function deriveRepoRoot(worktreePath: string): string | undefined {
   const parentDir = dirname(worktreePath);
   const dirName = basename(worktreePath);
-  const parts = dirName.split("-");
+  const parts = dirName.split('-');
 
   // Try progressively shorter prefixes (at least 1 part)
   for (let len = parts.length - 1; len >= 1; len--) {
-    const candidate = join(parentDir, parts.slice(0, len).join("-"));
+    const candidate = join(parentDir, parts.slice(0, len).join('-'));
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -306,8 +308,8 @@ export function removeWorktree(worktreePath: string): void {
   // ghost-ref cleanup below). Detached HEAD or missing worktree returns null.
   let worktreeBranchName: string | null = null;
   try {
-    const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath }).trim();
-    if (branchRef && branchRef !== "HEAD") {
+    const branchRef = git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: worktreePath }).trim();
+    if (branchRef && branchRef !== 'HEAD') {
       worktreeBranchName = branchRef;
     }
   } catch {
@@ -318,10 +320,9 @@ export function removeWorktree(worktreePath: string): void {
 
   // Level 1: resolve repo root via git
   try {
-    const mainWorktree = git(
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd: worktreePath },
-    );
+    const mainWorktree = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      cwd: worktreePath,
+    });
     // --git-common-dir returns the .git directory (e.g. /repo/.git).
     // We need the repo root, which is its parent.
     repoRoot = dirname(mainWorktree);
@@ -330,7 +331,7 @@ export function removeWorktree(worktreePath: string): void {
     repoRoot = deriveRepoRoot(worktreePath);
     if (repoRoot) {
       console.warn(
-        `[orca/worktree] rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
+        `[orca/worktree] rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`
       );
     }
   }
@@ -338,12 +339,10 @@ export function removeWorktree(worktreePath: string): void {
   // Try git worktree remove if we have a repo root
   if (repoRoot) {
     try {
-      git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
+      git(['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot });
       return;
     } catch (removeErr) {
-      console.warn(
-        `[orca/worktree] git worktree remove failed for ${worktreePath}: ${removeErr}`,
-      );
+      console.warn(`[orca/worktree] git worktree remove failed for ${worktreePath}: ${removeErr}`);
       // Fall through to level 3
     }
   }
@@ -355,7 +354,7 @@ export function removeWorktree(worktreePath: string): void {
   }
   if (repoRoot) {
     try {
-      git(["worktree", "prune"], { cwd: repoRoot });
+      git(['worktree', 'prune'], { cwd: repoRoot });
     } catch (pruneErr) {
       console.warn(`[orca/worktree] prune after rmSync failed: ${pruneErr}`);
     }
@@ -366,7 +365,7 @@ export function removeWorktree(worktreePath: string): void {
     // is checked out in worktree". git update-ref -d bypasses that check.
     if (worktreeBranchName) {
       try {
-        git(["update-ref", "-d", `refs/heads/${worktreeBranchName}`], { cwd: repoRoot });
+        git(['update-ref', '-d', `refs/heads/${worktreeBranchName}`], { cwd: repoRoot });
       } catch {
         // Branch may not exist or was already cleaned up by worktree prune
       }
@@ -385,6 +384,6 @@ export function removeWorktree(worktreePath: string): void {
  * @throws Error if the git fetch or reset commands fail
  */
 export function resetWorktree(worktreePath: string): void {
-  git(["fetch", "origin"], { cwd: worktreePath });
-  git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+  git(['fetch', 'origin'], { cwd: worktreePath });
+  git(['reset', '--hard', 'origin/main'], { cwd: worktreePath });
 }

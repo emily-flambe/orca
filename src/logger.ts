@@ -1,10 +1,4 @@
-import {
-  appendFileSync,
-  existsSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-} from "node:fs";
+import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs';
 
 export interface FileLoggerConfig {
   logPath: string;
@@ -12,12 +6,12 @@ export interface FileLoggerConfig {
 }
 
 /** Unique symbol used to detect if process.stdout.write is already our patch. */
-const PATCHED = Symbol("orca-logger-patched");
+const PATCHED = Symbol('orca-logger-patched');
 
 function maybeRotate(logPath: string, maxSizeBytes: number): void {
   try {
     if (existsSync(logPath) && statSync(logPath).size >= maxSizeBytes) {
-      const backup = logPath + ".1";
+      const backup = logPath + '.1';
       try {
         if (existsSync(backup)) {
           // Remove old backup before renaming (required on Windows)
@@ -38,21 +32,21 @@ function maybeRotate(logPath: string, maxSizeBytes: number): void {
 /** Prefix each non-empty line with an ISO timestamp. */
 function addTimestamps(text: string): string {
   const ts = new Date().toISOString();
-  const lines = text.split("\n");
+  const lines = text.split('\n');
   const result: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     // The final empty segment after a trailing newline gets no prefix.
-    if (line === "" && i === lines.length - 1) {
-      result.push("");
-    } else if (line === "") {
+    if (line === '' && i === lines.length - 1) {
+      result.push('');
+    } else if (line === '') {
       // Blank lines within the text: preserve as-is.
-      result.push("");
+      result.push('');
     } else {
       result.push(`${ts} ${line}`);
     }
   }
-  return result.join("\n");
+  return result.join('\n');
 }
 
 /**
@@ -76,27 +70,20 @@ export function initFileLogger(config: FileLoggerConfig): void {
   function writeToFile(data: string | Uint8Array): void {
     try {
       maybeRotate(config.logPath, config.maxSizeBytes);
-      const text =
-        typeof data === "string" ? data : Buffer.from(data).toString("utf8");
+      const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf8');
       appendFileSync(config.logPath, addTimestamps(text));
     } catch {
       // File write errors are non-fatal
     }
   }
 
-  const patchedStdout = function (
-    data: string | Uint8Array,
-    ...rest: unknown[]
-  ) {
+  const patchedStdout = function (data: string | Uint8Array, ...rest: unknown[]) {
     writeToFile(data);
     return (origStdout as Function)(data, ...rest);
   } as typeof process.stdout.write;
   (patchedStdout as unknown as Record<symbol, boolean>)[PATCHED] = true;
 
-  const patchedStderr = function (
-    data: string | Uint8Array,
-    ...rest: unknown[]
-  ) {
+  const patchedStderr = function (data: string | Uint8Array, ...rest: unknown[]) {
     writeToFile(data);
     return (origStderr as Function)(data, ...rest);
   } as typeof process.stderr.write;

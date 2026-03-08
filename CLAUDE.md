@@ -11,7 +11,7 @@ After committing and pushing changes to main, **always deploy using the single d
 ### How to deploy
 
 ```bash
-bash /c/Users/emily/Documents/Github/orca/scripts/deploy.sh
+bash scripts/deploy.sh
 ```
 
 This script handles everything: pull, install, frontend rebuild, kill old process, start new process with log redirection to `orca.log`.

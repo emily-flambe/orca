@@ -2,7 +2,7 @@
 // Linear GraphQL API client
 // ---------------------------------------------------------------------------
 
-const LINEAR_API_URL = "https://api.linear.app/graphql";
+const LINEAR_API_URL = 'https://api.linear.app/graphql';
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WARN_THRESHOLD = 500;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503]);
@@ -72,7 +72,7 @@ export class LinearClient {
 
   constructor(apiKey: string) {
     if (!apiKey) {
-      throw new Error("LinearClient: API key is required");
+      throw new Error('LinearClient: API key is required');
     }
     this.apiKey = apiKey;
   }
@@ -81,10 +81,7 @@ export class LinearClient {
   // Private: typed GraphQL request helper (2.1)
   // -------------------------------------------------------------------------
 
-  private async query<T>(
-    graphql: string,
-    variables?: Record<string, unknown>,
-  ): Promise<T> {
+  private async query<T>(graphql: string, variables?: Record<string, unknown>): Promise<T> {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -98,10 +95,10 @@ export class LinearClient {
       let response: Response;
       try {
         response = await fetch(LINEAR_API_URL, {
-          method: "POST",
+          method: 'POST',
           headers: {
             Authorization: this.apiKey,
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify({ query: graphql, variables }),
         });
@@ -112,12 +109,12 @@ export class LinearClient {
           continue;
         }
         throw new Error(
-          `LinearClient: network error after ${MAX_RETRIES + 1} attempts: ${lastError.message}`,
+          `LinearClient: network error after ${MAX_RETRIES + 1} attempts: ${lastError.message}`
         );
       }
 
       // Rate limit monitoring (2.5)
-      const remaining = response.headers.get("X-RateLimit-Requests-Remaining");
+      const remaining = response.headers.get('X-RateLimit-Requests-Remaining');
       if (remaining !== null) {
         const remainingNum = parseInt(remaining, 10);
         if (!Number.isNaN(remainingNum) && remainingNum < RATE_LIMIT_WARN_THRESHOLD) {
@@ -129,29 +126,23 @@ export class LinearClient {
       if (response.status === 401 || response.status === 403) {
         throw new Error(
           `LinearClient: authentication failed (HTTP ${response.status}). ` +
-            `Check that ORCA_LINEAR_API_KEY is valid.`,
+            `Check that ORCA_LINEAR_API_KEY is valid.`
         );
       }
 
       // Transient errors -- retry
       if (TRANSIENT_STATUS_CODES.has(response.status)) {
-        lastError = new Error(
-          `LinearClient: HTTP ${response.status} from Linear API`,
-        );
+        lastError = new Error(`LinearClient: HTTP ${response.status} from Linear API`);
         if (attempt < MAX_RETRIES) {
           continue;
         }
-        throw new Error(
-          `LinearClient: HTTP ${response.status} after ${MAX_RETRIES + 1} attempts`,
-        );
+        throw new Error(`LinearClient: HTTP ${response.status} after ${MAX_RETRIES + 1} attempts`);
       }
 
       // Other client errors -- do NOT retry
       if (!response.ok) {
-        const body = await response.text().catch(() => "(unreadable body)");
-        throw new Error(
-          `LinearClient: HTTP ${response.status}: ${body}`,
-        );
+        const body = await response.text().catch(() => '(unreadable body)');
+        throw new Error(`LinearClient: HTTP ${response.status}: ${body}`);
       }
 
       // Parse JSON response
@@ -161,19 +152,19 @@ export class LinearClient {
       };
 
       if (json.errors && json.errors.length > 0) {
-        const messages = json.errors.map((e) => e.message).join("; ");
+        const messages = json.errors.map((e) => e.message).join('; ');
         throw new Error(`LinearClient: GraphQL errors: ${messages}`);
       }
 
       if (!json.data) {
-        throw new Error("LinearClient: response missing data field");
+        throw new Error('LinearClient: response missing data field');
       }
 
       return json.data;
     }
 
     // Should not reach here, but satisfy TypeScript
-    throw lastError ?? new Error("LinearClient: unexpected retry loop exit");
+    throw lastError ?? new Error('LinearClient: unexpected retry loop exit');
   }
 
   // -------------------------------------------------------------------------
@@ -259,7 +250,7 @@ export class LinearClient {
           id: node.id,
           identifier: node.identifier,
           title: node.title,
-          description: node.description ?? "",
+          description: node.description ?? '',
           priority: node.priority,
           state: node.state,
           teamId: node.team.id,
@@ -298,9 +289,7 @@ export class LinearClient {
    * Fetch project descriptions and team IDs in a single query.
    * Used at startup to build the per-project repo map and resolve team IDs.
    */
-  async fetchProjectMetadata(
-    projectIds: string[],
-  ): Promise<ProjectMetadata[]> {
+  async fetchProjectMetadata(projectIds: string[]): Promise<ProjectMetadata[]> {
     if (projectIds.length === 0) return [];
 
     const graphql = `
@@ -325,14 +314,14 @@ export class LinearClient {
 
     const results: ProjectMetadata[] = data.projects.nodes.map((p) => ({
       id: p.id,
-      name: p.name ?? "",
-      description: p.content || p.description || "",
+      name: p.name ?? '',
+      description: p.content || p.description || '',
       teamIds: p.teams.nodes.map((t) => t.id),
     }));
 
     log(
       `fetched metadata for ${results.length} project(s) ` +
-        `(${new Set(results.flatMap((p) => p.teamIds)).size} team(s))`,
+        `(${new Set(results.flatMap((p) => p.teamIds)).size} team(s))`
     );
     return results;
   }
@@ -377,10 +366,7 @@ export class LinearClient {
       }
     }
 
-    log(
-      `fetched workflow states from ${teamIds.length} team(s): ` +
-        `${stateMap.size} state(s)`,
-    );
+    log(`fetched workflow states from ${teamIds.length} team(s): ` + `${stateMap.size} state(s)`);
     return stateMap;
   }
 
@@ -456,7 +442,7 @@ export class LinearClient {
       issueCreate: { success: boolean; issue: { id: string; identifier: string } };
     }>(graphql, { input });
     if (!data.issueCreate.success || !data.issueCreate.issue) {
-      throw new Error("LinearClient: issueCreate returned success=false");
+      throw new Error('LinearClient: issueCreate returned success=false');
     }
     return data.issueCreate.issue;
   }

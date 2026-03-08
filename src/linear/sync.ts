@@ -2,11 +2,11 @@
 // Linear sync — full sync, webhook processing, conflict resolution, write-back
 // ---------------------------------------------------------------------------
 
-import type { OrcaDb } from "../db/index.js";
-import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
-import type { DependencyGraph } from "./graph.js";
-import type { TaskStatus } from "../db/schema.js";
+import type { OrcaDb } from '../db/index.js';
+import type { OrcaConfig } from '../config/index.js';
+import type { LinearClient, LinearIssue, WorkflowStateMap } from './client.js';
+import type { DependencyGraph } from './graph.js';
+import type { TaskStatus } from '../db/schema.js';
 import {
   getTask,
   getChildTasks,
@@ -16,17 +16,17 @@ import {
   updateTaskFields,
   updateInvocation,
   getRunningInvocations,
-} from "../db/queries.js";
-import { activeHandles } from "../scheduler/index.js";
-import { killSession } from "../runner/index.js";
-import { closePrsForCanceledTask } from "../github/index.js";
+} from '../db/queries.js';
+import { activeHandles } from '../scheduler/index.js';
+import { killSession } from '../runner/index.js';
+import { closePrsForCanceledTask } from '../github/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface WebhookEvent {
-  action: "create" | "update" | "remove";
+  action: 'create' | 'update' | 'remove';
   type: string; // "Issue"
   data: {
     id: string;
@@ -44,25 +44,16 @@ export interface WebhookEvent {
 // 4.6 Write-back loop prevention
 // ---------------------------------------------------------------------------
 
-export const expectedChanges = new Map<
-  string,
-  { stateName: string; expiresAt: number }
->();
+export const expectedChanges = new Map<string, { stateName: string; expiresAt: number }>();
 
-export function registerExpectedChange(
-  taskId: string,
-  stateName: string,
-): void {
+export function registerExpectedChange(taskId: string, stateName: string): void {
   expectedChanges.set(taskId, {
     stateName,
     expiresAt: Date.now() + 10_000,
   });
 }
 
-export function isExpectedChange(
-  taskId: string,
-  stateName: string,
-): boolean {
+export function isExpectedChange(taskId: string, stateName: string): boolean {
   const entry = expectedChanges.get(taskId);
   if (!entry) return false;
 
@@ -93,16 +84,20 @@ function log(message: string): void {
 // 4.2 State mapping
 // ---------------------------------------------------------------------------
 
-function mapLinearStateToOrcaStatus(
-  stateName: string,
-): TaskStatus | null {
+function mapLinearStateToOrcaStatus(stateName: string): TaskStatus | null {
   switch (stateName) {
-    case "Backlog": return "backlog";
-    case "Todo": return "ready";
-    case "In Progress": return "running";
-    case "In Review": return "in_review";
-    case "Done": return "done";
-    default: return null; // Canceled and unknown → skip
+    case 'Backlog':
+      return 'backlog';
+    case 'Todo':
+      return 'ready';
+    case 'In Progress':
+      return 'running';
+    case 'In Review':
+      return 'in_review';
+    case 'Done':
+      return 'done';
+    default:
+      return null; // Canceled and unknown → skip
   }
 }
 
@@ -113,21 +108,17 @@ function mapLinearStateToOrcaStatus(
 export function buildPrompt(issue: LinearIssue): string {
   const ownPrompt = `${issue.title}\n\n${issue.description}`.trim();
   if (issue.parentTitle) {
-    return `## Parent Issue\n**${issue.parentTitle}**\n${issue.parentDescription ?? ""}\n\n---\n\n## This Issue\n${ownPrompt}`;
+    return `## Parent Issue\n**${issue.parentTitle}**\n${issue.parentDescription ?? ''}\n\n---\n\n## This Issue\n${ownPrompt}`;
   }
   return ownPrompt;
 }
 
-function upsertTask(
-  db: OrcaDb,
-  issue: LinearIssue,
-  config: OrcaConfig,
-): void {
+function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
   // Canceled → transition existing tasks to failed; skip creating new ones.
-  if (issue.state.name === "Canceled") {
+  if (issue.state.name === 'Canceled') {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      updateTaskStatus(db, issue.identifier, "failed");
+      updateTaskStatus(db, issue.identifier, 'failed');
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
     }
@@ -140,12 +131,9 @@ function upsertTask(
   if (orcaStatus === null) return;
 
   // Resolve repo path: per-project map → defaultCwd fallback → skip
-  const repoPath =
-    config.projectRepoMap.get(issue.projectId) ?? config.defaultCwd;
+  const repoPath = config.projectRepoMap.get(issue.projectId) ?? config.defaultCwd;
   if (!repoPath) {
-    log(
-      `skipping ${issue.identifier}: no repo path for project ${issue.projectId}`,
-    );
+    log(`skipping ${issue.identifier}: no repo path for project ${issue.projectId}`);
     return;
   }
 
@@ -161,7 +149,7 @@ function upsertTask(
     // this is a fresh instance. Since no agent is actually running, map
     // these to "ready" so the scheduler can re-dispatch them.
     const insertStatus =
-      orcaStatus === "running" || orcaStatus === "in_review" ? "ready" : orcaStatus;
+      orcaStatus === 'running' || orcaStatus === 'in_review' ? 'ready' : orcaStatus;
     const now = new Date().toISOString();
     insertTask(db, {
       linearIssueId: issue.identifier,
@@ -170,7 +158,7 @@ function upsertTask(
       orcaStatus: insertStatus,
       priority: issue.priority,
       retryCount: 0,
-      doneAt: insertStatus === "done" ? now : null,
+      doneAt: insertStatus === 'done' ? now : null,
       parentIdentifier,
       isParent,
       projectName: issue.projectName,
@@ -189,12 +177,15 @@ function upsertTask(
     // that Orca set to "ready" (via retry) or "failed" gets clobbered back to
     // "running" by fullSync seeing the stale "In Progress" in Linear.
     const isUserOverride =
-      orcaStatus === "backlog" || orcaStatus === "ready" || orcaStatus === "done" || orcaStatus === "failed";
+      orcaStatus === 'backlog' ||
+      orcaStatus === 'ready' ||
+      orcaStatus === 'done' ||
+      orcaStatus === 'failed';
     const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
 
     // When Linear "Todo" overrides a non-ready state, reset retry/review counts
     // so the task gets a completely fresh start.
-    const resetCounters = orcaStatus === "ready" && existing.orcaStatus !== "ready";
+    const resetCounters = orcaStatus === 'ready' && existing.orcaStatus !== 'ready';
 
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
@@ -214,12 +205,12 @@ function upsertTask(
 // ---------------------------------------------------------------------------
 
 const ACTIVE_CHILD_STATUSES = new Set<string>([
-  "dispatched",
-  "running",
-  "in_review",
-  "changes_requested",
-  "deploying",
-  "awaiting_ci",
+  'dispatched',
+  'running',
+  'in_review',
+  'changes_requested',
+  'deploying',
+  'awaiting_ci',
 ]);
 
 /**
@@ -230,7 +221,7 @@ export async function evaluateParentStatuses(
   db: OrcaDb,
   client: LinearClient,
   stateMap: WorkflowStateMap,
-  parentIds?: string[],
+  parentIds?: string[]
 ): Promise<void> {
   const parents = parentIds
     ? parentIds
@@ -242,18 +233,18 @@ export async function evaluateParentStatuses(
     const children = getChildTasks(db, parent.linearIssueId);
     if (children.length === 0) continue;
 
-    const allDone = children.every((c) => c.orcaStatus === "done");
+    const allDone = children.every((c) => c.orcaStatus === 'done');
     const anyActive = children.some((c) => ACTIVE_CHILD_STATUSES.has(c.orcaStatus));
 
-    if (allDone && parent.orcaStatus !== "done") {
-      updateTaskStatus(db, parent.linearIssueId, "done");
-      writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch((err) => {
+    if (allDone && parent.orcaStatus !== 'done') {
+      updateTaskStatus(db, parent.linearIssueId, 'done');
+      writeBackStatus(client, parent.linearIssueId, 'done', stateMap).catch((err) => {
         log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
       });
       log(`parent ${parent.linearIssueId} → done (all children done)`);
-    } else if (anyActive && parent.orcaStatus === "ready") {
-      updateTaskStatus(db, parent.linearIssueId, "running");
-      writeBackStatus(client, parent.linearIssueId, "dispatched", stateMap).catch((err) => {
+    } else if (anyActive && parent.orcaStatus === 'ready') {
+      updateTaskStatus(db, parent.linearIssueId, 'running');
+      writeBackStatus(client, parent.linearIssueId, 'dispatched', stateMap).catch((err) => {
         log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
       });
       log(`parent ${parent.linearIssueId} → running (child activity detected)`);
@@ -270,7 +261,7 @@ export async function fullSync(
   client: LinearClient,
   graph: DependencyGraph,
   config: OrcaConfig,
-  stateMap?: WorkflowStateMap,
+  stateMap?: WorkflowStateMap
 ): Promise<number> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
@@ -299,7 +290,7 @@ export async function processWebhookEvent(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap: WorkflowStateMap,
-  event: WebhookEvent,
+  event: WebhookEvent
 ): Promise<void> {
   // Check for write-back echo
   const stateName = event.data.state?.name;
@@ -308,7 +299,7 @@ export async function processWebhookEvent(
     return;
   }
 
-  if (event.action === "remove") {
+  if (event.action === 'remove') {
     // Per spec: leave task as-is, don't delete from DB
     return;
   }
@@ -324,18 +315,18 @@ export async function processWebhookEvent(
     id: event.data.id,
     identifier: event.data.identifier,
     title: event.data.title,
-    description: event.data.description ?? "",
+    description: event.data.description ?? '',
     priority: event.data.priority,
-    state: event.data.state ?? { id: "", name: "", type: "" },
-    teamId: event.data.teamId ?? "",
-    projectId: event.data.projectId ?? "",
+    state: event.data.state ?? { id: '', name: '', type: '' },
+    teamId: event.data.teamId ?? '',
+    projectId: event.data.projectId ?? '',
     relations: [],
     inverseRelations: [],
     parentId: existingTask?.parentIdentifier ?? null,
     parentTitle: null,
     parentDescription: null,
-    projectName: "", // webhook payloads don't include project name; preserved via conditional update
-    childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    projectName: '', // webhook payloads don't include project name; preserved via conditional update
+    childIds: existingTask?.isParent ? ['_placeholder'] : [],
   };
 
   // Only upsert if we have state info
@@ -348,11 +339,9 @@ export async function processWebhookEvent(
     // If this is a child task, evaluate its parent's status
     const updatedTask = getTask(db, event.data.identifier);
     if (updatedTask?.parentIdentifier) {
-      evaluateParentStatuses(db, client, stateMap, [updatedTask.parentIdentifier]).catch(
-        (err) => {
-          log(`parent eval failed after webhook for ${event.data.identifier}: ${err}`);
-        },
-      );
+      evaluateParentStatuses(db, client, stateMap, [updatedTask.parentIdentifier]).catch((err) => {
+        log(`parent eval failed after webhook for ${event.data.identifier}: ${err}`);
+      });
     }
   }
 }
@@ -366,16 +355,16 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
   const runningInvocations = getRunningInvocations(db);
   for (const [invId, handle] of activeHandles) {
     const matchingInv = runningInvocations.find(
-      (inv) => inv.linearIssueId === taskId && inv.id === invId,
+      (inv) => inv.linearIssueId === taskId && inv.id === invId
     );
     if (matchingInv) {
       killSession(handle).catch((err) => {
         log(`error killing session for task ${taskId}: ${err}`);
       });
       updateInvocation(db, invId, {
-        status: "failed",
+        status: 'failed',
         endedAt: new Date().toISOString(),
-        outputSummary: "interrupted by Linear state change",
+        outputSummary: 'interrupted by Linear state change',
       });
       activeHandles.delete(invId);
       break;
@@ -383,21 +372,17 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
   }
 }
 
-export function resolveConflict(
-  db: OrcaDb,
-  taskId: string,
-  linearStateName: string,
-): void {
+export function resolveConflict(db: OrcaDb, taskId: string, linearStateName: string): void {
   const task = getTask(db, taskId);
   if (!task) return;
 
   // Canceled must be checked before the null guard because
   // mapLinearStateToOrcaStatus returns null for Canceled.
-  if (linearStateName === "Canceled") {
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+  if (linearStateName === 'Canceled') {
+    if (task.orcaStatus === 'running' || task.orcaStatus === 'in_review') {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed");
+    updateTaskStatus(db, taskId, 'failed');
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     closePrsForCanceledTask(taskId, task.repoPath);
     return;
@@ -410,61 +395,71 @@ export function resolveConflict(
   if (task.orcaStatus === expectedOrcaStatus) return;
 
   // Any state → Linear Backlog: reset to backlog.
-  if (linearStateName === "Backlog") {
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+  if (linearStateName === 'Backlog') {
+    if (task.orcaStatus === 'running' || task.orcaStatus === 'in_review') {
       killRunningSession(db, taskId);
     }
-    updateTaskFields(db, taskId, { orcaStatus: "backlog", retryCount: 0, reviewCycleCount: 0 });
-    log(`conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`);
+    updateTaskFields(db, taskId, { orcaStatus: 'backlog', retryCount: 0, reviewCycleCount: 0 });
+    log(
+      `conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`
+    );
     return;
   }
 
   // Any state → Linear Todo: reset to ready with fresh retry/review counts.
   // This covers: running, done, in_review, changes_requested, deploying, failed.
-  if (linearStateName === "Todo") {
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+  if (linearStateName === 'Todo') {
+    if (task.orcaStatus === 'running' || task.orcaStatus === 'in_review') {
       killRunningSession(db, taskId);
     }
-    updateTaskFields(db, taskId, { orcaStatus: "ready", retryCount: 0, reviewCycleCount: 0 });
-    log(`conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`);
+    updateTaskFields(db, taskId, { orcaStatus: 'ready', retryCount: 0, reviewCycleCount: 0 });
+    log(
+      `conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`
+    );
     return;
   }
 
   // Conflict case 2: Orca ready, Linear Done → set done
-  if (task.orcaStatus === "ready" && linearStateName === "Done") {
-    updateTaskStatus(db, taskId, "done");
+  if (task.orcaStatus === 'ready' && linearStateName === 'Done') {
+    updateTaskStatus(db, taskId, 'done');
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
 
   // Conflict case 5: in_review, Linear Done → mark done (human override)
-  if (task.orcaStatus === "in_review" && linearStateName === "Done") {
-    updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`);
+  if (task.orcaStatus === 'in_review' && linearStateName === 'Done') {
+    updateTaskStatus(db, taskId, 'done');
+    log(
+      `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`
+    );
     return;
   }
 
   // Conflict case 8: deploying, Linear "In Review" → no-op (expected state, don't overwrite)
-  if (task.orcaStatus === "deploying" && linearStateName === "In Review") {
+  if (task.orcaStatus === 'deploying' && linearStateName === 'In Review') {
     return;
   }
 
   // Conflict case 8b: awaiting_ci, Linear "In Review" → no-op (expected state, don't overwrite)
-  if (task.orcaStatus === "awaiting_ci" && linearStateName === "In Review") {
+  if (task.orcaStatus === 'awaiting_ci' && linearStateName === 'In Review') {
     return;
   }
 
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
-  if (task.orcaStatus === "deploying" && linearStateName === "Done") {
-    updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`);
+  if (task.orcaStatus === 'deploying' && linearStateName === 'Done') {
+    updateTaskStatus(db, taskId, 'done');
+    log(
+      `conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`
+    );
     return;
   }
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
-  if (task.orcaStatus === "awaiting_ci" && linearStateName === "Done") {
-    updateTaskStatus(db, taskId, "done");
-    log(`conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`);
+  if (task.orcaStatus === 'awaiting_ci' && linearStateName === 'Done') {
+    updateTaskStatus(db, taskId, 'done');
+    log(
+      `conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`
+    );
     return;
   }
 
@@ -478,20 +473,29 @@ export function resolveConflict(
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
-  orcaTransition: "dispatched" | "in_review" | "deploying" | "awaiting_ci" | "done" | "changes_requested" | "failed_permanent" | "retry" | "backlog",
-  stateMap: WorkflowStateMap,
+  orcaTransition:
+    | 'dispatched'
+    | 'in_review'
+    | 'deploying'
+    | 'awaiting_ci'
+    | 'done'
+    | 'changes_requested'
+    | 'failed_permanent'
+    | 'retry'
+    | 'backlog',
+  stateMap: WorkflowStateMap
 ): Promise<void> {
   // deploying and awaiting_ci are no-ops — Linear stays at "In Review", don't write back
-  if (orcaTransition === "deploying" || orcaTransition === "awaiting_ci") return;
+  if (orcaTransition === 'deploying' || orcaTransition === 'awaiting_ci') return;
 
   const transitionToStateName: Record<string, string> = {
-    dispatched: "In Progress",
-    in_review: "In Review",
-    done: "Done",
-    changes_requested: "In Progress",
-    failed_permanent: "Canceled",
-    retry: "Todo",
-    backlog: "Backlog",
+    dispatched: 'In Progress',
+    in_review: 'In Review',
+    done: 'Done',
+    changes_requested: 'In Progress',
+    failed_permanent: 'Canceled',
+    retry: 'Todo',
+    backlog: 'Backlog',
   };
 
   const targetStateName = transitionToStateName[orcaTransition];

@@ -1,12 +1,7 @@
-import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull, avg } from "drizzle-orm";
-import type { InferInsertModel } from "drizzle-orm";
-import {
-  tasks,
-  invocations,
-  budgetEvents,
-  type TaskStatus,
-} from "./schema.js";
-import type { OrcaDb } from "./index.js";
+import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull, avg } from 'drizzle-orm';
+import type { InferInsertModel } from 'drizzle-orm';
+import { tasks, invocations, budgetEvents, type TaskStatus } from './schema.js';
+import type { OrcaDb } from './index.js';
 
 // ---------------------------------------------------------------------------
 // Task types
@@ -24,15 +19,11 @@ export function insertTask(db: OrcaDb, task: NewTask): void {
 }
 
 /** Update a task's orca_status and set updated_at to now. */
-export function updateTaskStatus(
-  db: OrcaDb,
-  taskId: string,
-  status: TaskStatus,
-): void {
+export function updateTaskStatus(db: OrcaDb, taskId: string, status: TaskStatus): void {
   db.update(tasks)
     .set({
       orcaStatus: status,
-      doneAt: status === "done" ? new Date().toISOString() : null,
+      doneAt: status === 'done' ? new Date().toISOString() : null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))
@@ -43,7 +34,7 @@ export function updateTaskStatus(
 export function incrementRetryCount(
   db: OrcaDb,
   taskId: string,
-  resetStatus: TaskStatus = "ready",
+  resetStatus: TaskStatus = 'ready'
 ): void {
   db.update(tasks)
     .set({
@@ -95,27 +86,19 @@ export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
 
 /** Get all tasks with orca_status="deploying". */
 export function getDeployingTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.orcaStatus, "deploying"))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.orcaStatus, 'deploying')).all();
 }
 
 /** Get all tasks with orca_status="awaiting_ci". */
 export function getAwaitingCiTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.orcaStatus, "awaiting_ci"))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.orcaStatus, 'awaiting_ci')).all();
 }
 
 /** Update CI tracking fields on a task. */
 export function updateTaskCiInfo(
   db: OrcaDb,
   taskId: string,
-  info: { ciStartedAt?: string | null },
+  info: { ciStartedAt?: string | null }
 ): void {
   db.update(tasks)
     .set({ ...info, updatedAt: new Date().toISOString() })
@@ -127,7 +110,11 @@ export function updateTaskCiInfo(
 export function updateTaskDeployInfo(
   db: OrcaDb,
   taskId: string,
-  info: { mergeCommitSha?: string | null; prNumber?: number | null; deployStartedAt?: string | null },
+  info: {
+    mergeCommitSha?: string | null;
+    prNumber?: number | null;
+    deployStartedAt?: string | null;
+  }
 ): void {
   db.update(tasks)
     .set({ ...info, updatedAt: new Date().toISOString() })
@@ -137,11 +124,7 @@ export function updateTaskDeployInfo(
 
 /** Get a single task by its linear_issue_id. */
 export function getTask(db: OrcaDb, taskId: string): Task | undefined {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.linearIssueId, taskId))
-    .get();
+  return db.select().from(tasks).where(eq(tasks.linearIssueId, taskId)).get();
 }
 
 /** Get all tasks. */
@@ -151,27 +134,22 @@ export function getAllTasks(db: OrcaDb): Task[] {
 
 /** Get all child tasks for a given parent identifier. */
 export function getChildTasks(db: OrcaDb, parentIdentifier: string): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.parentIdentifier, parentIdentifier))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.parentIdentifier, parentIdentifier)).all();
 }
 
 /** Get all parent tasks (isParent = 1). */
 export function getParentTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.isParent, 1))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.isParent, 1)).all();
 }
 
 /** Delete a task and its invocations/budget events by linear_issue_id. */
 export function deleteTask(db: OrcaDb, taskId: string): void {
   // Delete budget events for this task's invocations first (FK chain)
-  const taskInvocations = db.select({ id: invocations.id }).from(invocations)
-    .where(eq(invocations.linearIssueId, taskId)).all();
+  const taskInvocations = db
+    .select({ id: invocations.id })
+    .from(invocations)
+    .where(eq(invocations.linearIssueId, taskId))
+    .all();
   if (taskInvocations.length > 0) {
     const invIds = taskInvocations.map((i) => i.id);
     db.delete(budgetEvents).where(inArray(budgetEvents.invocationId, invIds)).run();
@@ -184,13 +162,13 @@ export function deleteTask(db: OrcaDb, taskId: string): void {
 export function updateTaskFields(
   db: OrcaDb,
   taskId: string,
-  updates: Partial<Omit<NewTask, "linearIssueId" | "createdAt">>,
+  updates: Partial<Omit<NewTask, 'linearIssueId' | 'createdAt'>>
 ): void {
   const setValues: Record<string, unknown> = { ...updates, updatedAt: new Date().toISOString() };
 
   // Automatically manage doneAt when orcaStatus is being updated
-  if ("orcaStatus" in updates) {
-    setValues.doneAt = updates.orcaStatus === "done" ? new Date().toISOString() : null;
+  if ('orcaStatus' in updates) {
+    setValues.doneAt = updates.orcaStatus === 'done' ? new Date().toISOString() : null;
   }
 
   db.update(tasks)
@@ -206,9 +184,7 @@ type NewInvocation = InferInsertModel<typeof invocations>;
 type Invocation = typeof invocations.$inferSelect;
 
 // Partial update type: all fields except id and linear_issue_id are optional
-type InvocationUpdate = Partial<
-  Omit<Invocation, "id" | "linearIssueId">
->;
+type InvocationUpdate = Partial<Omit<Invocation, 'id' | 'linearIssueId'>>;
 
 // ---------------------------------------------------------------------------
 // Invocation queries
@@ -224,43 +200,25 @@ export function countActiveSessions(db: OrcaDb): number {
   const result = db
     .select({ value: count() })
     .from(invocations)
-    .where(eq(invocations.status, "running"))
+    .where(eq(invocations.status, 'running'))
     .get();
   return result?.value ?? 0;
 }
 
 /** Insert a new invocation and return its auto-generated id. */
 export function insertInvocation(db: OrcaDb, invocation: NewInvocation): number {
-  const result = db
-    .insert(invocations)
-    .values(invocation)
-    .returning({ id: invocations.id })
-    .get();
+  const result = db.insert(invocations).values(invocation).returning({ id: invocations.id }).get();
   return result.id;
 }
 
 /** Partial update of an invocation by id. */
-export function updateInvocation(
-  db: OrcaDb,
-  id: number,
-  updates: InvocationUpdate,
-): void {
-  db.update(invocations)
-    .set(updates)
-    .where(eq(invocations.id, id))
-    .run();
+export function updateInvocation(db: OrcaDb, id: number, updates: InvocationUpdate): void {
+  db.update(invocations).set(updates).where(eq(invocations.id, id)).run();
 }
 
 /** Get all invocations for a given task. */
-export function getInvocationsByTask(
-  db: OrcaDb,
-  taskId: string,
-): Invocation[] {
-  return db
-    .select()
-    .from(invocations)
-    .where(eq(invocations.linearIssueId, taskId))
-    .all();
+export function getInvocationsByTask(db: OrcaDb, taskId: string): Invocation[] {
+  return db.select().from(invocations).where(eq(invocations.linearIssueId, taskId)).all();
 }
 
 /**
@@ -269,7 +227,7 @@ export function getInvocationsByTask(
  */
 export function getLastCompletedImplementInvocation(
   db: OrcaDb,
-  taskId: string,
+  taskId: string
 ): Invocation | undefined {
   return db
     .select()
@@ -277,10 +235,10 @@ export function getLastCompletedImplementInvocation(
     .where(
       and(
         eq(invocations.linearIssueId, taskId),
-        eq(invocations.phase, "implement"),
-        eq(invocations.status, "completed"),
-        isNotNull(invocations.sessionId),
-      ),
+        eq(invocations.phase, 'implement'),
+        eq(invocations.status, 'completed'),
+        isNotNull(invocations.sessionId)
+      )
     )
     .orderBy(desc(invocations.id))
     .limit(1)
@@ -292,21 +250,18 @@ export function getLastCompletedImplementInvocation(
  * during the implement phase and has a valid session ID and worktree path.
  * Used to determine if a retry can resume the previous session.
  */
-export function getLastMaxTurnsInvocation(
-  db: OrcaDb,
-  taskId: string,
-): Invocation | undefined {
+export function getLastMaxTurnsInvocation(db: OrcaDb, taskId: string): Invocation | undefined {
   return db
     .select()
     .from(invocations)
     .where(
       and(
         eq(invocations.linearIssueId, taskId),
-        eq(invocations.outputSummary, "max turns reached"),
-        eq(invocations.phase, "implement"),
+        eq(invocations.outputSummary, 'max turns reached'),
+        eq(invocations.phase, 'implement'),
         isNotNull(invocations.sessionId),
-        isNotNull(invocations.worktreePath),
-      ),
+        isNotNull(invocations.worktreePath)
+      )
     )
     .orderBy(desc(invocations.id))
     .limit(1)
@@ -315,11 +270,7 @@ export function getLastMaxTurnsInvocation(
 
 /** Get all invocations with status="running". */
 export function getRunningInvocations(db: OrcaDb): Invocation[] {
-  return db
-    .select()
-    .from(invocations)
-    .where(eq(invocations.status, "running"))
-    .all();
+  return db.select().from(invocations).where(eq(invocations.status, 'running')).all();
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +334,7 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
       avgDuration: sql<number>`avg((julianday(${invocations.endedAt}) - julianday(${invocations.startedAt})) * 86400)`,
     })
     .from(invocations)
-    .where(eq(invocations.status, "completed"))
+    .where(eq(invocations.status, 'completed'))
     .get();
 
   const costResult = db
@@ -392,7 +343,7 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
       totalCost: sum(invocations.costUsd),
     })
     .from(invocations)
-    .where(eq(invocations.status, "completed"))
+    .where(eq(invocations.status, 'completed'))
     .get();
 
   return {
@@ -428,7 +379,7 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
       costUsd: invocations.costUsd,
     })
     .from(invocations)
-    .where(inArray(invocations.status, ["failed", "timed_out"]))
+    .where(inArray(invocations.status, ['failed', 'timed_out']))
     .orderBy(desc(invocations.id))
     .limit(limit)
     .all();

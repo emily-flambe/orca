@@ -1,9 +1,9 @@
-import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { createInterface } from "node:readline";
-import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join, basename } from "node:path";
-import { homedir, platform } from "node:os";
-import { EventEmitter } from "node:events";
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { createWriteStream, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join, basename } from 'node:path';
+import { homedir, platform } from 'node:os';
+import { EventEmitter } from 'node:events';
 
 // ---------------------------------------------------------------------------
 // In-memory per-invocation log state for SSE streaming
@@ -90,7 +90,7 @@ export interface SpawnSessionOptions {
  * Uses `recursive: true` so it is a no-op if the directory already exists.
  */
 function ensureLogsDir(projectRoot: string): string {
-  const logsDir = join(projectRoot, "logs");
+  const logsDir = join(projectRoot, 'logs');
   mkdirSync(logsDir, { recursive: true });
   return logsDir;
 }
@@ -100,20 +100,20 @@ function ensureLogsDir(projectRoot: string): string {
  * These appear as unsigned 32-bit values from Node's child_process.
  */
 const WINDOWS_EXIT_CODES: Record<number, string> = {
-  3221225477: "STATUS_ACCESS_VIOLATION (0xC0000005)",
-  3221225725: "STATUS_CONTROL_C_EXIT (0xC000013A)",
-  3221225786: "STATUS_CONTROL_C_EXIT (0xC000013A)", // alternate
-  3221225794: "STATUS_DLL_INIT_FAILED (0xC0000142)",
-  3221225495: "STATUS_STACK_OVERFLOW (0xC00000FD)",
-  3221226505: "STATUS_STACK_BUFFER_OVERRUN (0xC0000409)",
-  3221225501: "STATUS_BAD_INITIAL_STACK (0xC0000103)",
-  3221225559: "STATUS_GDI_HANDLE_LEAK (0xC0000117)",
+  3221225477: 'STATUS_ACCESS_VIOLATION (0xC0000005)',
+  3221225725: 'STATUS_CONTROL_C_EXIT (0xC000013A)',
+  3221225786: 'STATUS_CONTROL_C_EXIT (0xC000013A)', // alternate
+  3221225794: 'STATUS_DLL_INIT_FAILED (0xC0000142)',
+  3221225495: 'STATUS_STACK_OVERFLOW (0xC00000FD)',
+  3221226505: 'STATUS_STACK_BUFFER_OVERRUN (0xC0000409)',
+  3221225501: 'STATUS_BAD_INITIAL_STACK (0xC0000103)',
+  3221225559: 'STATUS_GDI_HANDLE_LEAK (0xC0000117)',
 };
 
 /** Signed 32-bit equivalents (Node sometimes reports signed values). */
 const WINDOWS_EXIT_CODES_SIGNED: Record<number, string> = {};
 for (const [code, name] of Object.entries(WINDOWS_EXIT_CODES)) {
-  const signed = (Number(code) | 0); // Convert to signed 32-bit
+  const signed = Number(code) | 0; // Convert to signed 32-bit
   if (signed < 0) WINDOWS_EXIT_CODES_SIGNED[signed] = name;
 }
 
@@ -133,30 +133,30 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
   const args: string[] = opts.claudeArgs ? [...opts.claudeArgs] : [];
 
   if (opts.resumeSessionId) {
-    args.push("--resume", opts.resumeSessionId);
+    args.push('--resume', opts.resumeSessionId);
   }
 
   args.push(
-    "-p",
+    '-p',
     opts.agentPrompt,
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--max-turns",
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--max-turns',
     String(opts.maxTurns),
-    "--dangerously-skip-permissions",
+    '--dangerously-skip-permissions'
   );
 
   if (opts.appendSystemPrompt) {
-    args.push("--append-system-prompt", opts.appendSystemPrompt);
+    args.push('--append-system-prompt', opts.appendSystemPrompt);
   }
 
   if (opts.disallowedTools && opts.disallowedTools.length > 0) {
-    args.push("--disallowedTools", ...opts.disallowedTools);
+    args.push('--disallowedTools', ...opts.disallowedTools);
   }
 
   if (opts.model) {
-    args.push("--model", opts.model);
+    args.push('--model', opts.model);
   }
 
   return args;
@@ -179,11 +179,11 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
  */
 function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): void {
   try {
-    const projectsDir = join(homedir(), ".claude", "projects");
+    const projectsDir = join(homedir(), '.claude', 'projects');
 
     if (!repoPath) {
       process.stderr.write(
-        `[orca/runner] warning: no repoPath provided, skipping stale Claude project dir cleanup\n`,
+        `[orca/runner] warning: no repoPath provided, skipping stale Claude project dir cleanup\n`
       );
       return;
     }
@@ -192,8 +192,8 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
 
     // Claude's key format: replace all : \ / with -
     // The parent dir of worktrees is the same as the parent dir of the repo.
-    const repoParentPath = join(repoPath, "..");
-    const parentKey = repoParentPath.replace(/[:\\/]/g, "-") + "-";
+    const repoParentPath = join(repoPath, '..');
+    const parentKey = repoParentPath.replace(/[:\\/]/g, '-') + '-';
 
     // Match: <parentKey><repoName> (exact = main repo)
     // Match: <parentKey><repoName>-* (worktree dirs like orca-EMI-88)
@@ -203,17 +203,15 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       // Match the main repo dir exactly OR any worktree dir (has - suffix)
-      if (entry.name !== mainRepoKey && !entry.name.startsWith(mainRepoKey + "-")) continue;
+      if (entry.name !== mainRepoKey && !entry.name.startsWith(mainRepoKey + '-')) continue;
 
       const fullPath = join(projectsDir, entry.name);
       rmSync(fullPath, { recursive: true, force: true });
-      process.stderr.write(
-        `[orca/runner] cleaned stale Claude project dir: ${entry.name}\n`,
-      );
+      process.stderr.write(`[orca/runner] cleaned stale Claude project dir: ${entry.name}\n`);
     }
   } catch (err) {
     process.stderr.write(
-      `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`,
+      `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`
     );
   }
 }
@@ -231,15 +229,15 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
  * kill requires detached:true which we don't use).
  */
 function killProcessTree(pid: number, proc: ChildProcess): void {
-  if (platform() === "win32") {
+  if (platform() === 'win32') {
     try {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
     } catch {
       // taskkill may fail if process already exited; fall back to direct kill
-      proc.kill("SIGKILL");
+      proc.kill('SIGKILL');
     }
   } else {
-    proc.kill("SIGKILL");
+    proc.kill('SIGKILL');
   }
 }
 
@@ -260,13 +258,13 @@ function killProcessTree(pid: number, proc: ChildProcess): void {
  * @returns A {@link SessionHandle} for monitoring and controlling the session.
  */
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
-  const claudePath = options.claudePath ?? "claude";
+  const claudePath = options.claudePath ?? 'claude';
   const args = buildArgs(options);
 
   // Ensure logs directory exists and open the log file for writing.
   const logsDir = ensureLogsDir(options.projectRoot);
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
-  const logStream = createWriteStream(logPath, { flags: "w" });
+  const logStream = createWriteStream(logPath, { flags: 'w' });
 
   // Create in-memory log state for SSE streaming.
   const logState: InvocationLogState = {
@@ -291,7 +289,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
@@ -343,10 +341,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         // No result message and non-zero exit or signal -> process error.
         // Check first if a rate_limit_event was detected in the stream.
         if (rateLimitDetected) {
-          const limitTypeStr = rateLimitType ?? "unknown";
-          const resetsAtStr = rateLimitResetsAt ?? "unknown";
+          const limitTypeStr = rateLimitType ?? 'unknown';
+          const resetsAtStr = rateLimitResetsAt ?? 'unknown';
           finalResult = {
-            subtype: "rate_limited",
+            subtype: 'rate_limited',
             costUsd: null,
             numTurns: null,
             exitCode,
@@ -357,24 +355,24 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           handle.result = finalResult;
         } else {
           // Build a descriptive summary with as much info as possible.
-          const parts: string[] = ["process exited"];
+          const parts: string[] = ['process exited'];
           if (exitSignal) {
             parts.push(`by signal ${exitSignal}`);
           }
           if (exitCode !== null) {
             const desc = describeExitCode(exitCode);
-            parts.push(`with code ${exitCode}${desc ? ` (${desc})` : ""}`);
+            parts.push(`with code ${exitCode}${desc ? ` (${desc})` : ''}`);
           } else if (!exitSignal) {
-            parts.push("with code unknown");
+            parts.push('with code unknown');
           }
 
           finalResult = {
-            subtype: "process_error",
+            subtype: 'process_error',
             costUsd: null,
             numTurns: null,
             exitCode,
             exitSignal: exitSignal?.toString() ?? null,
-            outputSummary: parts.join(" "),
+            outputSummary: parts.join(' '),
           };
           handle.result = finalResult;
         }
@@ -383,12 +381,12 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         // Unusual, but not necessarily an error -- treat as success with
         // limited information.
         finalResult = {
-          subtype: "success",
+          subtype: 'success',
           costUsd: null,
           numTurns: null,
           exitCode: 0,
           exitSignal: null,
-          outputSummary: "process exited cleanly with no result message",
+          outputSummary: 'process exited cleanly with no result message',
         };
         handle.result = finalResult;
       }
@@ -398,7 +396,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       logStream.end(() => {
         if (!logState.done) {
           logState.done = true;
-          logState.emitter.emit("done");
+          logState.emitter.emit('done');
         }
         // Only delete if this invocation's state is still in the map
         // (guards against ID reuse before the timer fires).
@@ -416,14 +414,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // ------------------------------------------------------------------
     const rl = createInterface({ input: proc.stdout! });
 
-    rl.on("line", (line: string) => {
+    rl.on('line', (line: string) => {
       // Tee every raw line to the log file.
-      logStream.write(line + "\n");
+      logStream.write(line + '\n');
 
       // Buffer and emit for SSE streaming.
       logState.buffer.push(line);
       if (logState.buffer.length > 100) logState.buffer.shift();
-      logState.emitter.emit("line", line);
+      logState.emitter.emit('line', line);
 
       // Parse JSON defensively.
       let msg: Record<string, unknown>;
@@ -431,7 +429,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         msg = JSON.parse(line) as Record<string, unknown>;
       } catch {
         process.stderr.write(
-          `[orca/runner] warning: non-JSON line from claude (invocation ${options.invocationId}): ${line.slice(0, 200)}\n`,
+          `[orca/runner] warning: non-JSON line from claude (invocation ${options.invocationId}): ${line.slice(0, 200)}\n`
         );
         return;
       }
@@ -439,65 +437,60 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       const type = msg.type as string | undefined;
 
       // --- system / init -------------------------------------------------
-      if (type === "system" && msg.subtype === "init") {
-        if (typeof msg.session_id === "string") {
+      if (type === 'system' && msg.subtype === 'init') {
+        if (typeof msg.session_id === 'string') {
           handle.sessionId = msg.session_id;
         }
         return;
       }
 
       // --- rate_limit_event ----------------------------------------------
-      if (type === "rate_limit_event") {
-        if (msg.overageStatus === "rejected") {
+      if (type === 'rate_limit_event') {
+        if (msg.overageStatus === 'rejected') {
           rateLimitDetected = true;
-          rateLimitType = typeof msg.rateLimitType === "string" ? msg.rateLimitType : null;
-          rateLimitResetsAt = typeof msg.resetsAt === "string" ? msg.resetsAt : null;
+          rateLimitType = typeof msg.rateLimitType === 'string' ? msg.rateLimitType : null;
+          rateLimitResetsAt = typeof msg.resetsAt === 'string' ? msg.resetsAt : null;
         }
         return;
       }
 
       // --- assistant (informational) -------------------------------------
-      if (type === "assistant") {
+      if (type === 'assistant') {
         // Nothing to extract beyond logging (already tee'd above).
         return;
       }
 
       // --- result --------------------------------------------------------
-      if (type === "result") {
+      if (type === 'result') {
         resultReceived = true;
 
-        const subtype =
-          typeof msg.subtype === "string" ? msg.subtype : "success";
+        const subtype = typeof msg.subtype === 'string' ? msg.subtype : 'success';
 
         // The SDK uses `total_cost_usd`; older CLI versions used `cost_usd`.
         const costRaw = msg.total_cost_usd ?? msg.cost_usd ?? null;
-        const costUsd =
-          typeof costRaw === "number" ? costRaw : null;
+        const costUsd = typeof costRaw === 'number' ? costRaw : null;
 
         const numTurnsRaw = msg.num_turns ?? null;
-        const numTurns =
-          typeof numTurnsRaw === "number" ? numTurnsRaw : null;
+        const numTurns = typeof numTurnsRaw === 'number' ? numTurnsRaw : null;
 
         // Build a human-readable summary.
         let outputSummary: string;
-        if (subtype === "success") {
-          const resultText =
-            typeof msg.result === "string" ? msg.result : "";
+        if (subtype === 'success') {
+          const resultText = typeof msg.result === 'string' ? msg.result : '';
           // Extract REVIEW_RESULT marker before truncation — the scheduler
           // parses it from outputSummary and it's often at the end of long reviews.
           const markerMatch = resultText.match(/REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/);
-          const truncated = resultText
-            ? resultText.slice(0, 500)
-            : "completed successfully";
-          outputSummary = markerMatch && !truncated.includes(markerMatch[0])
-            ? `${markerMatch[0]}\n\n${truncated}`
-            : truncated;
-        } else if (subtype === "error_max_turns") {
-          outputSummary = "max turns reached";
-        } else if (subtype === "error_during_execution") {
+          const truncated = resultText ? resultText.slice(0, 500) : 'completed successfully';
+          outputSummary =
+            markerMatch && !truncated.includes(markerMatch[0])
+              ? `${markerMatch[0]}\n\n${truncated}`
+              : truncated;
+        } else if (subtype === 'error_max_turns') {
+          outputSummary = 'max turns reached';
+        } else if (subtype === 'error_during_execution') {
           const errors = Array.isArray(msg.errors)
-            ? (msg.errors as string[]).join("; ")
-            : "execution error";
+            ? (msg.errors as string[]).join('; ')
+            : 'execution error';
           outputSummary = errors;
         } else {
           outputSummary = `result subtype: ${subtype}`;
@@ -518,7 +511,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       // already tee'd to the log file; nothing else to extract.
     });
 
-    rl.on("close", () => {
+    rl.on('close', () => {
       rlClosed = true;
       tryResolve();
     });
@@ -527,39 +520,37 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // stderr -- forward to parent stderr AND write to log file
     // ------------------------------------------------------------------
     if (proc.stderr) {
-      proc.stderr.on("data", (chunk: Buffer) => {
+      proc.stderr.on('data', (chunk: Buffer) => {
         const text = chunk.toString();
-        process.stderr.write(
-          `[orca/runner][stderr][inv-${options.invocationId}] ${text}`,
-        );
+        process.stderr.write(`[orca/runner][stderr][inv-${options.invocationId}] ${text}`);
         // Write stderr to the log file as a structured JSON line so it's
         // preserved for post-mortem analysis.
         const stderrEntry = JSON.stringify({
-          type: "stderr",
+          type: 'stderr',
           timestamp: new Date().toISOString(),
           text: text.trimEnd(),
         });
-        logStream.write(stderrEntry + "\n");
+        logStream.write(stderrEntry + '\n');
       });
     }
 
     // ------------------------------------------------------------------
     // Process exit handler
     // ------------------------------------------------------------------
-    proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+    proc.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       exitCode = code;
       exitSignal = signal;
       exitReceived = true;
 
       // Log exit details to the log file for post-mortem analysis.
       const exitEntry = JSON.stringify({
-        type: "process_exit",
+        type: 'process_exit',
         timestamp: new Date().toISOString(),
         code,
         signal: signal?.toString() ?? null,
         codeDescription: code !== null ? describeExitCode(code) : null,
       });
-      logStream.write(exitEntry + "\n");
+      logStream.write(exitEntry + '\n');
 
       tryResolve();
 
@@ -572,7 +563,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           if (!rlClosed) {
             process.stderr.write(
               `[orca/runner] warning: readline did not close within 10s of exit ` +
-                `for invocation ${options.invocationId}, forcing resolution\n`,
+                `for invocation ${options.invocationId}, forcing resolution\n`
             );
             rlClosed = true;
             rl.close();
@@ -586,13 +577,13 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
     // Handle write errors on the log stream (e.g. disk full). Mark done so
     // SSE clients are not left hanging waiting for an event that never arrives.
-    logStream.on("error", (err: Error) => {
+    logStream.on('error', (err: Error) => {
       process.stderr.write(
-        `[orca/runner] warning: log stream error for invocation ${options.invocationId}: ${err.message}\n`,
+        `[orca/runner] warning: log stream error for invocation ${options.invocationId}: ${err.message}\n`
       );
       if (!logState.done) {
         logState.done = true;
-        logState.emitter.emit("done");
+        logState.emitter.emit('done');
         setTimeout(() => {
           if (invocationLogs.get(options.invocationId) === logState) {
             invocationLogs.delete(options.invocationId);
@@ -602,9 +593,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     });
 
     // Handle spawn errors (e.g. executable not found).
-    proc.on("error", (err: Error) => {
+    proc.on('error', (err: Error) => {
       const result: SessionResult = {
-        subtype: "process_error",
+        subtype: 'process_error',
         costUsd: null,
         numTurns: null,
         exitCode: null,
@@ -615,7 +606,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       logStream.end(() => {
         if (!logState.done) {
           logState.done = true;
-          logState.emitter.emit("done");
+          logState.emitter.emit('done');
         }
         setTimeout(() => {
           if (invocationLogs.get(options.invocationId) === logState) {
@@ -650,7 +641,7 @@ export async function killSession(handle: SessionHandle): Promise<SessionResult>
     return handle.done;
   }
 
-  if (platform() === "win32") {
+  if (platform() === 'win32') {
     // On Windows, kill the entire process tree immediately using taskkill /T /F.
     // proc.kill("SIGTERM") only kills the direct Claude Code process; grandchild
     // processes (e.g. wrangler dev spawning miniflare workers) survive and hold
@@ -658,28 +649,25 @@ export async function killSession(handle: SessionHandle): Promise<SessionResult>
     if (proc.pid !== undefined) {
       killProcessTree(proc.pid, proc);
     } else {
-      proc.kill("SIGKILL");
+      proc.kill('SIGKILL');
     }
     return handle.done;
   }
 
   // On Unix: send SIGTERM first, then escalate to SIGKILL after 5 seconds.
-  proc.kill("SIGTERM");
+  proc.kill('SIGTERM');
 
   // Race: either the process exits within 5 s, or we escalate to SIGKILL.
   let killTimerId: ReturnType<typeof setTimeout> | undefined;
-  const killTimer = new Promise<"timeout">((resolve) => {
-    killTimerId = setTimeout(() => resolve("timeout"), 5_000);
+  const killTimer = new Promise<'timeout'>((resolve) => {
+    killTimerId = setTimeout(() => resolve('timeout'), 5_000);
   });
 
-  const raceResult = await Promise.race([
-    handle.done.then(() => "exited" as const),
-    killTimer,
-  ]);
+  const raceResult = await Promise.race([handle.done.then(() => 'exited' as const), killTimer]);
 
-  if (raceResult === "timeout") {
+  if (raceResult === 'timeout') {
     // Still alive after 5 seconds -- force kill.
-    proc.kill("SIGKILL");
+    proc.kill('SIGKILL');
   } else {
     // Process exited before timeout -- clear the pending timer so it
     // does not keep the event loop alive unnecessarily.

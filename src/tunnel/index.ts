@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from 'node:child_process';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,20 +78,18 @@ export interface TunnelOptions {
  * @returns A {@link TunnelHandle} for health checks and shutdown.
  */
 export function startTunnel(options?: TunnelOptions): TunnelHandle {
-  const bin = options?.cloudflaredPath ?? "cloudflared";
+  const bin = options?.cloudflaredPath ?? 'cloudflared';
   const token = options?.token;
   let connected = false;
   let proc: ChildProcess | null = null;
   let stopped = false;
 
-  const args = token
-    ? ["tunnel", "run", "--token", token]
-    : ["tunnel", "run"];
+  const args = token ? ['tunnel', 'run', '--token', token] : ['tunnel', 'run'];
 
-  log(`spawning: ${bin} ${args.join(" ").replace(token ?? "", "<redacted>")}`);
+  log(`spawning: ${bin} ${args.join(' ').replace(token ?? '', '<redacted>')}`);
 
   proc = spawn(bin, args, {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
 
@@ -106,12 +104,12 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
 
     if (matchesAny(line, CONNECTED_PATTERNS)) {
       if (!connected) {
-        log("tunnel connected");
+        log('tunnel connected');
       }
       connected = true;
     } else if (matchesAny(line, DISCONNECTED_PATTERNS)) {
       if (connected) {
-        log("tunnel disconnected");
+        log('tunnel disconnected');
       }
       connected = false;
     }
@@ -120,10 +118,10 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   // cloudflared writes most status messages to stderr, but we monitor both
   // streams for robustness.
   if (proc.stdout) {
-    let stdoutBuf = "";
-    proc.stdout.on("data", (chunk: Buffer) => {
+    let stdoutBuf = '';
+    proc.stdout.on('data', (chunk: Buffer) => {
       stdoutBuf += chunk.toString();
-      const lines = stdoutBuf.split("\n");
+      const lines = stdoutBuf.split('\n');
       // Keep the last incomplete line in the buffer
       stdoutBuf = lines.pop()!;
       for (const line of lines) {
@@ -133,10 +131,10 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   }
 
   if (proc.stderr) {
-    let stderrBuf = "";
-    proc.stderr.on("data", (chunk: Buffer) => {
+    let stderrBuf = '';
+    proc.stderr.on('data', (chunk: Buffer) => {
       stderrBuf += chunk.toString();
-      const lines = stderrBuf.split("\n");
+      const lines = stderrBuf.split('\n');
       stderrBuf = lines.pop()!;
       for (const line of lines) {
         handleLine(line);
@@ -148,22 +146,20 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   // Process lifecycle
   // -----------------------------------------------------------------------
 
-  proc.on("error", (err: Error) => {
+  proc.on('error', (err: Error) => {
     logError(`spawn error: ${err.message}`);
     connected = false;
     proc = null;
   });
 
-  proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+  proc.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
     if (!stopped) {
       // Unexpected exit
       logError(
-        `process exited unexpectedly (code: ${code ?? "null"}, signal: ${signal ?? "none"})`,
+        `process exited unexpectedly (code: ${code ?? 'null'}, signal: ${signal ?? 'none'})`
       );
     } else {
-      log(
-        `process exited (code: ${code ?? "null"}, signal: ${signal ?? "none"})`,
-      );
+      log(`process exited (code: ${code ?? 'null'}, signal: ${signal ?? 'none'})`);
     }
     connected = false;
     proc = null;
@@ -183,26 +179,26 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
       stopped = true;
 
       if (!proc || proc.exitCode !== null || proc.killed) {
-        log("process already exited, nothing to stop");
+        log('process already exited, nothing to stop');
         return;
       }
 
-      log("sending SIGTERM to cloudflared");
-      proc.kill("SIGTERM");
+      log('sending SIGTERM to cloudflared');
+      proc.kill('SIGTERM');
 
       // Escalate to SIGKILL after 5 seconds if still alive.
       // Mirrors the killSession pattern from src/runner/index.ts.
       const ref = proc;
       const killTimer = setTimeout(() => {
         if (ref.exitCode === null && !ref.killed) {
-          log("cloudflared did not exit within 5 s, sending SIGKILL");
-          ref.kill("SIGKILL");
+          log('cloudflared did not exit within 5 s, sending SIGKILL');
+          ref.kill('SIGKILL');
         }
       }, 5_000);
 
       // If the process exits before the timer fires, clear the timer so it
       // does not keep the event loop alive.
-      ref.on("exit", () => {
+      ref.on('exit', () => {
         clearTimeout(killTimer);
       });
     },

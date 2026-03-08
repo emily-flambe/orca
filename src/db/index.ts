@@ -1,6 +1,6 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as schema from "./schema.js";
+import Database, { type Database as DatabaseType } from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import * as schema from './schema.js';
 
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -73,14 +73,14 @@ function hasColumn(sqlite: DatabaseType, table: string, column: string): boolean
  * table predates the review lifecycle feature and the CHECK must be updated.
  */
 function migrateSchema(sqlite: DatabaseType): void {
-  const needsTasksMigration = !hasColumn(sqlite, "tasks", "pr_branch_name");
+  const needsTasksMigration = !hasColumn(sqlite, 'tasks', 'pr_branch_name');
 
   if (needsTasksMigration) {
     // Temporarily disable FK enforcement so we can drop/rename the tasks table
     // while invocations still references it.
-    sqlite.pragma("foreign_keys = OFF");
+    sqlite.pragma('foreign_keys = OFF');
 
-    sqlite.exec("BEGIN TRANSACTION");
+    sqlite.exec('BEGIN TRANSACTION');
     try {
       // 1. Create the new tasks table with the updated CHECK constraint and new columns.
       sqlite.exec(`
@@ -106,28 +106,28 @@ function migrateSchema(sqlite: DatabaseType): void {
       `);
 
       // 3. Drop old table and rename new one.
-      sqlite.exec("DROP TABLE tasks");
-      sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
+      sqlite.exec('DROP TABLE tasks');
+      sqlite.exec('ALTER TABLE tasks_new RENAME TO tasks');
 
-      sqlite.exec("COMMIT");
+      sqlite.exec('COMMIT');
     } catch (err) {
-      sqlite.exec("ROLLBACK");
+      sqlite.exec('ROLLBACK');
       throw err;
     }
 
     // Re-enable FK enforcement.
-    sqlite.pragma("foreign_keys = ON");
+    sqlite.pragma('foreign_keys = ON');
   } else {
     // Table already has pr_branch_name — check if review_cycle_count is missing
     // (shouldn't happen in practice, but defensive).
-    if (!hasColumn(sqlite, "tasks", "review_cycle_count")) {
-      sqlite.exec("ALTER TABLE tasks ADD COLUMN review_cycle_count INTEGER NOT NULL DEFAULT 0");
+    if (!hasColumn(sqlite, 'tasks', 'review_cycle_count')) {
+      sqlite.exec('ALTER TABLE tasks ADD COLUMN review_cycle_count INTEGER NOT NULL DEFAULT 0');
     }
   }
 
   // invocations: phase
-  if (!hasColumn(sqlite, "invocations", "phase")) {
-    sqlite.exec("ALTER TABLE invocations ADD COLUMN phase TEXT");
+  if (!hasColumn(sqlite, 'invocations', 'phase')) {
+    sqlite.exec('ALTER TABLE invocations ADD COLUMN phase TEXT');
   }
 
   // ---------------------------------------------------------------------------
@@ -136,10 +136,10 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add merge_commit_sha, pr_number, deploy_started_at columns
   //   Sentinel: merge_commit_sha column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "merge_commit_sha")) {
-    sqlite.pragma("foreign_keys = OFF");
+  if (!hasColumn(sqlite, 'tasks', 'merge_commit_sha')) {
+    sqlite.pragma('foreign_keys = OFF');
 
-    sqlite.exec("BEGIN TRANSACTION");
+    sqlite.exec('BEGIN TRANSACTION');
     try {
       sqlite.exec(`
         CREATE TABLE tasks_new (
@@ -165,16 +165,16 @@ function migrateSchema(sqlite: DatabaseType): void {
         FROM tasks
       `);
 
-      sqlite.exec("DROP TABLE tasks");
-      sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
+      sqlite.exec('DROP TABLE tasks');
+      sqlite.exec('ALTER TABLE tasks_new RENAME TO tasks');
 
-      sqlite.exec("COMMIT");
+      sqlite.exec('COMMIT');
     } catch (err) {
-      sqlite.exec("ROLLBACK");
+      sqlite.exec('ROLLBACK');
       throw err;
     }
 
-    sqlite.pragma("foreign_keys = ON");
+    sqlite.pragma('foreign_keys = ON');
   }
 
   // ---------------------------------------------------------------------------
@@ -183,9 +183,11 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Backfill existing done tasks with updated_at as a reasonable timestamp
   //   Sentinel: done_at column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "done_at")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN done_at TEXT");
-    sqlite.exec("UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL");
+  if (!hasColumn(sqlite, 'tasks', 'done_at')) {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN done_at TEXT');
+    sqlite.exec(
+      "UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL"
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -194,9 +196,9 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add is_parent column (1 = has children, skip dispatch)
   //   Sentinel: parent_identifier column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "parent_identifier")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_identifier TEXT");
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0");
+  if (!hasColumn(sqlite, 'tasks', 'parent_identifier')) {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN parent_identifier TEXT');
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0');
   }
 
   // ---------------------------------------------------------------------------
@@ -204,8 +206,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add project_name column to tasks
   //   Sentinel: project_name column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "project_name")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN project_name TEXT");
+  if (!hasColumn(sqlite, 'tasks', 'project_name')) {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN project_name TEXT');
   }
 
   // ---------------------------------------------------------------------------
@@ -213,8 +215,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add ci_started_at column to tasks (tracks when CI polling began)
   //   Sentinel: ci_started_at column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "ci_started_at")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN ci_started_at TEXT");
+  if (!hasColumn(sqlite, 'tasks', 'ci_started_at')) {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN ci_started_at TEXT');
   }
 
   // ---------------------------------------------------------------------------
@@ -222,8 +224,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add model column to invocations (records which Claude model was used)
   //   Sentinel: model column doesn't exist on invocations table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "invocations", "model")) {
-    sqlite.exec("ALTER TABLE invocations ADD COLUMN model TEXT");
+  if (!hasColumn(sqlite, 'invocations', 'model')) {
+    sqlite.exec('ALTER TABLE invocations ADD COLUMN model TEXT');
   }
 
   // ---------------------------------------------------------------------------
@@ -231,8 +233,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   - Add fix_reason column to tasks (records why fix phase was triggered)
   //   Sentinel: fix_reason column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "fix_reason")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN fix_reason TEXT");
+  if (!hasColumn(sqlite, 'tasks', 'fix_reason')) {
+    sqlite.exec('ALTER TABLE tasks ADD COLUMN fix_reason TEXT');
   }
 }
 
@@ -242,9 +244,9 @@ export function createDb(dbPath: string) {
   const sqlite = new Database(dbPath);
 
   // Enable WAL mode for better concurrent reads
-  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma('journal_mode = WAL');
   // Enable foreign key enforcement (off by default in SQLite)
-  sqlite.pragma("foreign_keys = ON");
+  sqlite.pragma('foreign_keys = ON');
 
   const db = drizzle(sqlite, { schema });
 

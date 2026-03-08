@@ -1,10 +1,10 @@
-import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, isAbsolute } from "node:path";
-import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
-import type { OrcaDb } from "../db/index.js";
-import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient, WorkflowStateMap, ProjectMetadata } from "../linear/client.js";
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
+import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
+import type { OrcaDb } from '../db/index.js';
+import type { OrcaConfig } from '../config/index.js';
+import type { LinearClient, WorkflowStateMap, ProjectMetadata } from '../linear/client.js';
 import {
   type Task,
   getAllTasks,
@@ -20,7 +20,7 @@ import {
   updateTaskFields,
   getInvocationStats,
   getRecentErrors,
-} from "../db/queries.js";
+} from '../db/queries.js';
 import {
   orcaEvents,
   emitTaskUpdated,
@@ -28,10 +28,10 @@ import {
   type InvocationStartedPayload,
   type InvocationCompletedPayload,
   type StatusPayload,
-} from "../events.js";
-import { activeHandles } from "../scheduler/index.js";
-import { killSession, invocationLogs } from "../runner/index.js";
-import { writeBackStatus } from "../linear/sync.js";
+} from '../events.js';
+import { activeHandles } from '../scheduler/index.js';
+import { killSession, invocationLogs } from '../runner/index.js';
+import { writeBackStatus } from '../linear/sync.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,12 +57,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/tasks
   // -----------------------------------------------------------------------
-  app.get("/api/tasks", (c) => {
+  app.get('/api/tasks', (c) => {
     const tasks = getAllTasks(db);
     // Sort by priority ASC then createdAt ASC
     tasks.sort((a, b) => {
       if (a.priority !== b.priority) return a.priority - b.priority;
-      return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+      return (a.createdAt ?? '').localeCompare(b.createdAt ?? '');
     });
     // Attach invocation count so the frontend can filter out done tasks with no history
     const withCounts = tasks.map((t) => ({
@@ -75,11 +75,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/tasks/:id
   // -----------------------------------------------------------------------
-  app.get("/api/tasks/:id", (c) => {
-    const taskId = c.req.param("id");
+  app.get('/api/tasks/:id', (c) => {
+    const taskId = c.req.param('id');
     const task = getTask(db, taskId);
     if (!task) {
-      return c.json({ error: "task not found" }, 404);
+      return c.json({ error: 'task not found' }, 404);
     }
     const invocations = getInvocationsByTask(db, taskId);
     return c.json({ ...task, invocations });
@@ -88,7 +88,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/invocations/running
   // -----------------------------------------------------------------------
-  app.get("/api/invocations/running", (c) => {
+  app.get('/api/invocations/running', (c) => {
     const running = getRunningInvocations(db);
     return c.json(running);
   });
@@ -96,15 +96,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/invocations/:id/logs
   // -----------------------------------------------------------------------
-  app.get("/api/invocations/:id/logs", (c) => {
-    const id = Number(c.req.param("id"));
+  app.get('/api/invocations/:id/logs', (c) => {
+    const id = Number(c.req.param('id'));
     if (Number.isNaN(id)) {
-      return c.json({ error: "invalid invocation id" }, 400);
+      return c.json({ error: 'invalid invocation id' }, 400);
     }
 
     const invocation = getInvocation(db, id);
     if (!invocation) {
-      return c.json({ error: "invocation not found" }, 404);
+      return c.json({ error: 'invocation not found' }, 404);
     }
 
     // Resolve log file path: stored as "logs/123.ndjson" (relative) or absolute
@@ -115,16 +115,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         : join(process.cwd(), invocation.logPath);
     } else {
       // Fallback: derive from invocation id
-      logFile = join(process.cwd(), "logs", `${id}.ndjson`);
+      logFile = join(process.cwd(), 'logs', `${id}.ndjson`);
     }
 
     if (!existsSync(logFile)) {
-      return c.json({ error: "log file not found" }, 404);
+      return c.json({ error: 'log file not found' }, 404);
     }
 
-    const raw = readFileSync(logFile, "utf-8");
+    const raw = readFileSync(logFile, 'utf-8');
     const lines: unknown[] = [];
-    for (const line of raw.split("\n")) {
+    for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
         lines.push(JSON.parse(line));
@@ -139,12 +139,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/invocations/:id/logs/stream (SSE)
   // -----------------------------------------------------------------------
-  app.get("/api/invocations/:id/logs/stream", (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "invalid invocation id" }, 400);
+  app.get('/api/invocations/:id/logs/stream', (c) => {
+    const id = Number(c.req.param('id'));
+    if (Number.isNaN(id)) return c.json({ error: 'invalid invocation id' }, 400);
 
     const invocation = getInvocation(db, id);
-    if (!invocation) return c.json({ error: "invocation not found" }, 404);
+    if (!invocation) return c.json({ error: 'invocation not found' }, 404);
 
     return streamSSE(c, async (stream) => {
       const logState = invocationLogs.get(id);
@@ -152,7 +152,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       if (!logState) {
         // No in-memory state: invocation finished before we connected (or never ran via runner)
         // Signal client to fall back to polling endpoint
-        stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+        stream.writeSSE({ event: 'done', data: '' }).catch(() => {});
         return;
       }
 
@@ -165,12 +165,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         const sendDone = () => {
           if (doneSent || streamClosed) return;
           doneSent = true;
-          stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+          stream.writeSSE({ event: 'done', data: '' }).catch(() => {});
         };
 
         const onLine = (line: string) => {
           if (streamClosed || doneSent) return;
-          stream.writeSSE({ event: "log", data: line }).catch(() => {
+          stream.writeSSE({ event: 'log', data: line }).catch(() => {
             streamClosed = true;
             cleanup();
             resolve();
@@ -184,13 +184,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         };
 
         const cleanup = () => {
-          logState.emitter.off("line", onLine);
-          logState.emitter.off("done", onDone);
+          logState.emitter.off('line', onLine);
+          logState.emitter.off('done', onDone);
         };
 
         // Subscribe first — no events can be missed after this point.
-        logState.emitter.on("line", onLine);
-        logState.emitter.on("done", onDone);
+        logState.emitter.on('line', onLine);
+        logState.emitter.on('done', onDone);
 
         stream.onAbort(() => {
           streamClosed = true;
@@ -205,7 +205,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           for (const line of snapshot) {
             if (streamClosed || doneSent) break;
             try {
-              await stream.writeSSE({ event: "log", data: line });
+              await stream.writeSSE({ event: 'log', data: line });
             } catch {
               streamClosed = true;
               cleanup();
@@ -225,18 +225,18 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/invocations/:id/abort
   // -----------------------------------------------------------------------
-  app.post("/api/invocations/:id/abort", async (c) => {
-    const id = Number(c.req.param("id"));
+  app.post('/api/invocations/:id/abort', async (c) => {
+    const id = Number(c.req.param('id'));
     if (Number.isNaN(id)) {
-      return c.json({ error: "invalid invocation id" }, 400);
+      return c.json({ error: 'invalid invocation id' }, 400);
     }
 
     const invocation = getInvocation(db, id);
     if (!invocation) {
-      return c.json({ error: "invocation not found" }, 404);
+      return c.json({ error: 'invocation not found' }, 404);
     }
 
-    if (invocation.status !== "running") {
+    if (invocation.status !== 'running') {
       return c.json({ error: `invocation is "${invocation.status}", not running` }, 409);
     }
 
@@ -255,26 +255,26 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Mark invocation as failed
     updateInvocation(db, id, {
-      status: "failed",
+      status: 'failed',
       endedAt: now,
-      outputSummary: "aborted by user",
+      outputSummary: 'aborted by user',
     });
 
     // Reset task to ready with zeroed counters
     const taskId = invocation.linearIssueId;
-    updateTaskStatus(db, taskId, "ready");
+    updateTaskStatus(db, taskId, 'ready');
     updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0 });
 
     emitTaskUpdated(getTask(db, taskId)!);
     emitInvocationCompleted({
       taskId,
       invocationId: id,
-      status: "failed",
+      status: 'failed',
       costUsd: 0,
     });
 
     // Write back Linear state to "Todo"
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
+    writeBackStatus(client, taskId, 'retry', stateMap).catch(() => {
       // Best-effort — don't fail the abort if Linear write-back fails
     });
 
@@ -284,23 +284,23 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/tasks/:id/status
   // -----------------------------------------------------------------------
-  app.post("/api/tasks/:id/status", async (c) => {
-    const taskId = c.req.param("id");
+  app.post('/api/tasks/:id/status', async (c) => {
+    const taskId = c.req.param('id');
     let body: { status?: string };
     try {
       body = await c.req.json<{ status?: string }>();
     } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
+      return c.json({ error: 'invalid JSON body' }, 400);
     }
     const newStatus = body.status;
 
-    if (newStatus !== "backlog" && newStatus !== "ready" && newStatus !== "done") {
-      return c.json({ error: "status must be one of: backlog, ready, done" }, 400);
+    if (newStatus !== 'backlog' && newStatus !== 'ready' && newStatus !== 'done') {
+      return c.json({ error: 'status must be one of: backlog, ready, done' }, 400);
     }
 
     const task = getTask(db, taskId);
     if (!task) {
-      return c.json({ error: "task not found" }, 404);
+      return c.json({ error: 'task not found' }, 404);
     }
 
     if (task.orcaStatus === newStatus) {
@@ -308,11 +308,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Kill running session if task is active
-    if (task.orcaStatus === "running" || task.orcaStatus === "dispatched" || task.orcaStatus === "in_review") {
+    if (
+      task.orcaStatus === 'running' ||
+      task.orcaStatus === 'dispatched' ||
+      task.orcaStatus === 'in_review'
+    ) {
       const runningInvocations = getRunningInvocations(db);
       for (const [invId, handle] of activeHandles) {
         const matchingInv = runningInvocations.find(
-          (inv) => inv.linearIssueId === taskId && inv.id === invId,
+          (inv) => inv.linearIssueId === taskId && inv.id === invId
         );
         if (matchingInv) {
           try {
@@ -321,7 +325,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             // Process may already be dead
           }
           updateInvocation(db, invId, {
-            status: "failed",
+            status: 'failed',
             endedAt: new Date().toISOString(),
             outputSummary: `aborted by status change to ${newStatus}`,
           });
@@ -329,7 +333,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           emitInvocationCompleted({
             taskId,
             invocationId: invId,
-            status: "failed",
+            status: 'failed',
             costUsd: 0,
           });
           break;
@@ -338,8 +342,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Update DB
-    if (newStatus === "done") {
-      updateTaskStatus(db, taskId, "done");
+    if (newStatus === 'done') {
+      updateTaskStatus(db, taskId, 'done');
     } else {
       updateTaskFields(db, taskId, {
         orcaStatus: newStatus,
@@ -351,7 +355,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back to Linear
-    const linearTransition = newStatus === "ready" ? "retry" : newStatus;
+    const linearTransition = newStatus === 'ready' ? 'retry' : newStatus;
     writeBackStatus(client, taskId, linearTransition, stateMap).catch(() => {});
 
     return c.json({ ok: true });
@@ -360,28 +364,28 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/tasks/:id/retry
   // -----------------------------------------------------------------------
-  app.post("/api/tasks/:id/retry", (c) => {
-    const taskId = c.req.param("id");
+  app.post('/api/tasks/:id/retry', (c) => {
+    const taskId = c.req.param('id');
     const task = getTask(db, taskId);
     if (!task) {
-      return c.json({ error: "task not found" }, 404);
+      return c.json({ error: 'task not found' }, 404);
     }
 
-    if (task.orcaStatus !== "failed") {
+    if (task.orcaStatus !== 'failed') {
       return c.json({ error: `task is "${task.orcaStatus}", not failed` }, 409);
     }
 
     // Reset to ready with fresh retry/review counters
-    updateTaskStatus(db, taskId, "ready");
+    updateTaskStatus(db, taskId, 'ready');
     updateTaskFields(db, taskId, { retryCount: 0, reviewCycleCount: 0 });
 
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back "Todo" to Linear
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+    writeBackStatus(client, taskId, 'retry', stateMap).catch(() => {});
 
     // Post comment to Linear
-    client.createComment(taskId, "Manually retried from Orca dashboard").catch(() => {});
+    client.createComment(taskId, 'Manually retried from Orca dashboard').catch(() => {});
 
     return c.json({ ok: true });
   });
@@ -389,7 +393,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/sync
   // -----------------------------------------------------------------------
-  app.post("/api/sync", async (c) => {
+  app.post('/api/sync', async (c) => {
     try {
       const synced = await syncTasks();
       return c.json({ synced });
@@ -402,13 +406,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/status
   // -----------------------------------------------------------------------
-  app.get("/api/status", (c) => {
+  app.get('/api/status', (c) => {
     const activeSessions = countActiveSessions(db);
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
     const queuedTasks = allTasks.filter(
-      (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
+      (t) =>
+        t.orcaStatus === 'ready' ||
+        t.orcaStatus === 'in_review' ||
+        t.orcaStatus === 'changes_requested'
     ).length;
     const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
 
@@ -429,31 +436,34 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/config
   // -----------------------------------------------------------------------
-  app.post("/api/config", async (c) => {
+  app.post('/api/config', async (c) => {
     let body: Record<string, unknown>;
     try {
       body = await c.req.json<Record<string, unknown>>();
     } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
+      return c.json({ error: 'invalid JSON body' }, 400);
     }
 
-    if ("concurrencyCap" in body) {
+    if ('concurrencyCap' in body) {
       const val = body.concurrencyCap;
-      if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
-        return c.json({ error: "concurrencyCap must be a positive integer" }, 400);
+      if (typeof val !== 'number' || !Number.isInteger(val) || val < 1) {
+        return c.json({ error: 'concurrencyCap must be a positive integer' }, 400);
       }
       config.concurrencyCap = val;
     }
 
-    const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
-    for (const field of ["implementModel", "reviewModel", "fixModel"] as const) {
+    const MODEL_SHORTCUTS = new Set(['opus', 'sonnet', 'haiku']);
+    for (const field of ['implementModel', 'reviewModel', 'fixModel'] as const) {
       if (field in body) {
         const val = body[field];
-        if (typeof val !== "string" || val.length === 0) {
+        if (typeof val !== 'string' || val.length === 0) {
           return c.json({ error: `${field} must be a non-empty string` }, 400);
         }
-        if (!MODEL_SHORTCUTS.has(val) && !val.startsWith("claude-")) {
-          return c.json({ error: `${field} must be one of opus/sonnet/haiku or a full model ID (claude-...)` }, 400);
+        if (!MODEL_SHORTCUTS.has(val) && !val.startsWith('claude-')) {
+          return c.json(
+            { error: `${field} must be one of opus/sonnet/haiku or a full model ID (claude-...)` },
+            400
+          );
         }
         config[field] = val;
       }
@@ -471,7 +481,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/metrics
   // -----------------------------------------------------------------------
-  app.get("/api/metrics", (c) => {
+  app.get('/api/metrics', (c) => {
     const allTasks = getAllTasks(db);
     const tasksByStatus: Record<string, number> = {};
     for (const task of allTasks) {
@@ -496,9 +506,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/logs
   // -----------------------------------------------------------------------
-  app.get("/api/logs", (c) => {
-    const tailParam = c.req.query("tail");
-    const filterParam = c.req.query("filter");
+  app.get('/api/logs', (c) => {
+    const tailParam = c.req.query('tail');
+    const filterParam = c.req.query('filter');
     const tail = tailParam ? Math.min(Math.max(parseInt(tailParam, 10) || 200, 1), 5000) : 200;
 
     const logFile = isAbsolute(config.logPath)
@@ -510,8 +520,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     const sizeBytes = statSync(logFile).size;
-    const raw = readFileSync(logFile, "utf-8");
-    let lines = raw.split("\n").filter((l) => l.length > 0);
+    const raw = readFileSync(logFile, 'utf-8');
+    let lines = raw.split('\n').filter((l) => l.length > 0);
 
     if (filterParam) {
       const lower = filterParam.toLowerCase();
@@ -527,26 +537,32 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/projects
   // -----------------------------------------------------------------------
-  app.get("/api/projects", (c) => {
+  app.get('/api/projects', (c) => {
     return c.json(projectMeta.map((p) => ({ id: p.id, name: p.name })));
   });
 
   // -----------------------------------------------------------------------
   // POST /api/tasks
   // -----------------------------------------------------------------------
-  app.post("/api/tasks", async (c) => {
-    let body: { title?: string; description?: string; projectId?: string; priority?: number; status?: string };
+  app.post('/api/tasks', async (c) => {
+    let body: {
+      title?: string;
+      description?: string;
+      projectId?: string;
+      priority?: number;
+      status?: string;
+    };
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
+      return c.json({ error: 'invalid JSON body' }, 400);
     }
 
-    if (!body.title || typeof body.title !== "string" || body.title.trim() === "") {
-      return c.json({ error: "title is required" }, 400);
+    if (!body.title || typeof body.title !== 'string' || body.title.trim() === '') {
+      return c.json({ error: 'title is required' }, 400);
     }
 
-    if (body.status !== undefined && body.status !== "todo" && body.status !== "backlog") {
+    if (body.status !== undefined && body.status !== 'todo' && body.status !== 'backlog') {
       return c.json({ error: "status must be 'todo' or 'backlog'" }, 400);
     }
 
@@ -554,17 +570,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const targetProjectId = body.projectId ?? config.linearProjectIds[0];
     const project = projectMeta.find((p) => p.id === targetProjectId);
     if (!project || project.teamIds.length === 0) {
-      return c.json({ error: "project not found or has no team" }, 400);
+      return c.json({ error: 'project not found or has no team' }, 400);
     }
     const teamId = project.teamIds[0]!;
 
     // Resolve state ID from stateMap
     let stateId: string | undefined;
-    if (body.status === "backlog") {
-      stateId = stateMap.get("Backlog")?.id;
+    if (body.status === 'backlog') {
+      stateId = stateMap.get('Backlog')?.id;
     } else {
       // Default to "Todo"
-      stateId = stateMap.get("Todo")?.id;
+      stateId = stateMap.get('Todo')?.id;
     }
 
     // Priority: 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low; validate
@@ -599,11 +615,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/events (SSE)
   // -----------------------------------------------------------------------
-  app.get("/api/events", (c) => {
+  app.get('/api/events', (c) => {
     return streamSSE(c, async (stream) => {
       const onTaskUpdated = (data: Task) => {
         try {
-          stream.writeSSE({ event: "task:updated", data: JSON.stringify(data) });
+          stream.writeSSE({ event: 'task:updated', data: JSON.stringify(data) });
         } catch {
           // Connection likely closed; ignore
         }
@@ -611,7 +627,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onInvocationStarted = (data: InvocationStartedPayload) => {
         try {
-          stream.writeSSE({ event: "invocation:started", data: JSON.stringify(data) });
+          stream.writeSSE({ event: 'invocation:started', data: JSON.stringify(data) });
         } catch {
           // Connection likely closed; ignore
         }
@@ -619,7 +635,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onInvocationCompleted = (data: InvocationCompletedPayload) => {
         try {
-          stream.writeSSE({ event: "invocation:completed", data: JSON.stringify(data) });
+          stream.writeSSE({ event: 'invocation:completed', data: JSON.stringify(data) });
         } catch {
           // Connection likely closed; ignore
         }
@@ -627,21 +643,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onStatusUpdated = (data: StatusPayload) => {
         try {
-          stream.writeSSE({ event: "status:updated", data: JSON.stringify(data) });
+          stream.writeSSE({ event: 'status:updated', data: JSON.stringify(data) });
         } catch {
           // Connection likely closed; ignore
         }
       };
 
-      orcaEvents.on("task:updated", onTaskUpdated);
-      orcaEvents.on("invocation:started", onInvocationStarted);
-      orcaEvents.on("invocation:completed", onInvocationCompleted);
-      orcaEvents.on("status:updated", onStatusUpdated);
+      orcaEvents.on('task:updated', onTaskUpdated);
+      orcaEvents.on('invocation:started', onInvocationStarted);
+      orcaEvents.on('invocation:completed', onInvocationCompleted);
+      orcaEvents.on('status:updated', onStatusUpdated);
 
       // Keep-alive ping every 30s
       const keepAlive = setInterval(() => {
         try {
-          stream.writeSSE({ event: "ping", data: "" });
+          stream.writeSSE({ event: 'ping', data: '' });
         } catch {
           // Connection likely closed; ignore
         }
@@ -650,10 +666,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       // Clean up on abort
       stream.onAbort(() => {
         clearInterval(keepAlive);
-        orcaEvents.off("task:updated", onTaskUpdated);
-        orcaEvents.off("invocation:started", onInvocationStarted);
-        orcaEvents.off("invocation:completed", onInvocationCompleted);
-        orcaEvents.off("status:updated", onStatusUpdated);
+        orcaEvents.off('task:updated', onTaskUpdated);
+        orcaEvents.off('invocation:started', onInvocationStarted);
+        orcaEvents.off('invocation:completed', onInvocationCompleted);
+        orcaEvents.off('status:updated', onStatusUpdated);
       });
 
       // Block until aborted

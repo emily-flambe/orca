@@ -2,7 +2,7 @@
 // Dependency graph — in-memory adjacency lists for blocking relations
 // ---------------------------------------------------------------------------
 
-import type { LinearIssue } from "./client.js";
+import type { LinearIssue } from './client.js';
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -40,7 +40,7 @@ export class DependencyGraph {
     for (const issue of issues) {
       // relations where type === "blocks": this issue blocks the related issue
       for (const rel of issue.relations) {
-        if (rel.type === "blocks") {
+        if (rel.type === 'blocks') {
           this.addEdge(issue.id, rel.issueId);
         }
       }
@@ -48,7 +48,7 @@ export class DependencyGraph {
       // inverseRelations where type === "blocks": this issue IS blocked by
       // the source issue
       for (const rel of issue.inverseRelations) {
-        if (rel.type === "blocks") {
+        if (rel.type === 'blocks') {
           this.addEdge(rel.issueId, issue.id);
         }
       }
@@ -63,10 +63,7 @@ export class DependencyGraph {
    * Returns true if the task has no blockers or all blockers have status
    * "done". The `getStatus` callback resolves a task ID to its Orca status.
    */
-  isDispatchable(
-    taskId: string,
-    getStatus: (id: string) => string | undefined,
-  ): boolean {
+  isDispatchable(taskId: string, getStatus: (id: string) => string | undefined): boolean {
     const blockers = this.blockedBy.get(taskId);
     if (!blockers || blockers.size === 0) {
       return true;
@@ -74,7 +71,7 @@ export class DependencyGraph {
 
     for (const blockerId of blockers) {
       const status = getStatus(blockerId);
-      if (status !== "done") {
+      if (status !== 'done') {
         return false;
       }
     }
@@ -95,10 +92,7 @@ export class DependencyGraph {
    * min comparison. If only unprioritized tasks are found, returns the
    * task's own raw priority via `getPriority`.
    */
-  computeEffectivePriority(
-    taskId: string,
-    getPriority: (id: string) => number,
-  ): number {
+  computeEffectivePriority(taskId: string, getPriority: (id: string) => number): number {
     const visited = new Set<string>();
     const minBlocked = this.walkBlocks(taskId, getPriority, visited);
     const own = getPriority(taskId);
@@ -117,7 +111,7 @@ export class DependencyGraph {
   private walkBlocks(
     taskId: string,
     getPriority: (id: string) => number,
-    visited: Set<string>,
+    visited: Set<string>
   ): number {
     visited.add(taskId);
 

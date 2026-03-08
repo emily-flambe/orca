@@ -2,30 +2,18 @@
 // Phase 2 Linear Integration tests (tasks 10.1 - 10.6)
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  type Mock,
-} from "vitest";
-import { createHmac } from "node:crypto";
-import { createDb, type OrcaDb } from "../src/db/index.js";
-import {
-  insertTask,
-  getTask,
-  updateTaskStatus,
-} from "../src/db/queries.js";
-import type { OrcaConfig } from "../src/config/index.js";
+import { describe, test, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { createDb, type OrcaDb } from '../src/db/index.js';
+import { insertTask, getTask, updateTaskStatus } from '../src/db/queries.js';
+import type { OrcaConfig } from '../src/config/index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function freshDb(): OrcaDb {
-  return createDb(":memory:");
+  return createDb(':memory:');
 }
 
 function now(): string {
@@ -38,18 +26,18 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed";
+    orcaStatus: 'ready' | 'dispatched' | 'running' | 'done' | 'failed';
     priority: number;
     retryCount: number;
-  }> = {},
+  }> = {}
 ): string {
   const id = overrides.linearIssueId ?? `TEST-${Date.now().toString(36)}`;
   const ts = now();
   insertTask(db, {
     linearIssueId: id,
-    agentPrompt: overrides.agentPrompt ?? "do something",
-    repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    agentPrompt: overrides.agentPrompt ?? 'do something',
+    repoPath: overrides.repoPath ?? '/tmp/fake-repo',
+    orcaStatus: overrides.orcaStatus ?? 'ready',
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     createdAt: ts,
@@ -61,28 +49,28 @@ function seedTask(
 /** Minimal OrcaConfig for testing. */
 function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
-    defaultCwd: "/tmp/test",
+    defaultCwd: '/tmp/test',
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
     schedulerIntervalSec: 10,
-    claudePath: "claude",
+    claudePath: 'claude',
     defaultMaxTurns: 20,
-    implementSystemPrompt: "",
-    reviewSystemPrompt: "",
-    fixSystemPrompt: "",
+    implementSystemPrompt: '',
+    reviewSystemPrompt: '',
+    fixSystemPrompt: '',
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
-    disallowedTools: "",
+    disallowedTools: '',
     port: 3000,
-    dbPath: ":memory:",
-    linearApiKey: "test-api-key",
-    linearWebhookSecret: "test-webhook-secret",
-    linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
-    tunnelHostname: "test.example.com",
+    dbPath: ':memory:',
+    linearApiKey: 'test-api-key',
+    linearWebhookSecret: 'test-webhook-secret',
+    linearProjectIds: ['proj-1'],
+    linearReadyStateType: 'unstarted',
+    tunnelHostname: 'test.example.com',
     projectRepoMap: new Map(),
     ...overrides,
   };
@@ -92,7 +80,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
 // 10.1 Linear client with mock GraphQL responses
 // ===========================================================================
 
-describe("10.1 - LinearClient with mock GraphQL responses", () => {
+describe('10.1 - LinearClient with mock GraphQL responses', () => {
   let originalFetch: typeof globalThis.fetch;
   let mockFetch: Mock;
 
@@ -101,7 +89,7 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
     mockFetch = vi.fn();
     globalThis.fetch = mockFetch;
     // Suppress console.log noise from the client
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -111,32 +99,32 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 
   // We import LinearClient dynamically to ensure the mock fetch is in place.
   async function getClient() {
-    const { LinearClient } = await import("../src/linear/client.js");
-    return new LinearClient("test-key");
+    const { LinearClient } = await import('../src/linear/client.js');
+    return new LinearClient('test-key');
   }
 
-  test("fetchProjectIssues paginates and flattens relations", async () => {
+  test('fetchProjectIssues paginates and flattens relations', async () => {
     const client = await getClient();
 
     // Page 1: hasNextPage=true, endCursor="cursor1"
     const page1Response = {
       data: {
         issues: {
-          pageInfo: { hasNextPage: true, endCursor: "cursor1" },
+          pageInfo: { hasNextPage: true, endCursor: 'cursor1' },
           nodes: [
             {
-              id: "issue-1",
-              identifier: "PROJ-1",
-              title: "First issue",
+              id: 'issue-1',
+              identifier: 'PROJ-1',
+              title: 'First issue',
               priority: 2,
-              state: { id: "state-1", name: "Todo", type: "unstarted" },
-              team: { id: "team-1" },
-              project: { id: "proj-1" },
+              state: { id: 'state-1', name: 'Todo', type: 'unstarted' },
+              team: { id: 'team-1' },
+              project: { id: 'proj-1' },
               relations: {
                 nodes: [
                   {
-                    type: "blocks",
-                    relatedIssue: { id: "issue-2", identifier: "PROJ-2" },
+                    type: 'blocks',
+                    relatedIssue: { id: 'issue-2', identifier: 'PROJ-2' },
                   },
                 ],
               },
@@ -154,19 +142,19 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
           pageInfo: { hasNextPage: false, endCursor: null },
           nodes: [
             {
-              id: "issue-2",
-              identifier: "PROJ-2",
-              title: "Second issue",
+              id: 'issue-2',
+              identifier: 'PROJ-2',
+              title: 'Second issue',
               priority: 1,
-              state: { id: "state-2", name: "In Progress", type: "started" },
-              team: { id: "team-1" },
-              project: { id: "proj-1" },
+              state: { id: 'state-2', name: 'In Progress', type: 'started' },
+              team: { id: 'team-1' },
+              project: { id: 'proj-1' },
               relations: { nodes: [] },
               inverseRelations: {
                 nodes: [
                   {
-                    type: "blocks",
-                    issue: { id: "issue-1", identifier: "PROJ-1" },
+                    type: 'blocks',
+                    issue: { id: 'issue-1', identifier: 'PROJ-1' },
                   },
                 ],
               },
@@ -180,36 +168,36 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
       .mockResolvedValueOnce(
         new Response(JSON.stringify(page1Response), {
           status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+          headers: { 'Content-Type': 'application/json' },
+        })
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify(page2Response), {
           status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+          headers: { 'Content-Type': 'application/json' },
+        })
       );
 
-    const issues = await client.fetchProjectIssues(["proj-1"]);
+    const issues = await client.fetchProjectIssues(['proj-1']);
 
     // Should have fetched two pages
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(issues).toHaveLength(2);
 
     // Verify first issue
-    expect(issues[0]!.id).toBe("issue-1");
-    expect(issues[0]!.identifier).toBe("PROJ-1");
+    expect(issues[0]!.id).toBe('issue-1');
+    expect(issues[0]!.identifier).toBe('PROJ-1');
     expect(issues[0]!.relations).toHaveLength(1);
-    expect(issues[0]!.relations[0]!.type).toBe("blocks");
-    expect(issues[0]!.relations[0]!.issueId).toBe("issue-2");
+    expect(issues[0]!.relations[0]!.type).toBe('blocks');
+    expect(issues[0]!.relations[0]!.issueId).toBe('issue-2');
 
     // Verify second issue
-    expect(issues[1]!.id).toBe("issue-2");
+    expect(issues[1]!.id).toBe('issue-2');
     expect(issues[1]!.inverseRelations).toHaveLength(1);
-    expect(issues[1]!.inverseRelations[0]!.issueId).toBe("issue-1");
+    expect(issues[1]!.inverseRelations[0]!.issueId).toBe('issue-1');
   });
 
-  test("fetchWorkflowStates returns a Map from state type to state ID", async () => {
+  test('fetchWorkflowStates returns a Map from state type to state ID', async () => {
     const client = await getClient();
 
     mockFetch.mockResolvedValueOnce(
@@ -219,30 +207,30 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
             team: {
               states: {
                 nodes: [
-                  { id: "ws-1", name: "Todo", type: "unstarted" },
-                  { id: "ws-2", name: "In Progress", type: "started" },
-                  { id: "ws-3", name: "Done", type: "completed" },
-                  { id: "ws-4", name: "Canceled", type: "canceled" },
+                  { id: 'ws-1', name: 'Todo', type: 'unstarted' },
+                  { id: 'ws-2', name: 'In Progress', type: 'started' },
+                  { id: 'ws-3', name: 'Done', type: 'completed' },
+                  { id: 'ws-4', name: 'Canceled', type: 'canceled' },
                 ],
               },
             },
           },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
     );
 
-    const stateMap = await client.fetchWorkflowStates(["team-1"]);
+    const stateMap = await client.fetchWorkflowStates(['team-1']);
 
     expect(stateMap).toBeInstanceOf(Map);
-    expect(stateMap.get("Todo")).toEqual({ id: "ws-1", type: "unstarted" });
-    expect(stateMap.get("In Progress")).toEqual({ id: "ws-2", type: "started" });
-    expect(stateMap.get("Done")).toEqual({ id: "ws-3", type: "completed" });
-    expect(stateMap.get("Canceled")).toEqual({ id: "ws-4", type: "canceled" });
+    expect(stateMap.get('Todo')).toEqual({ id: 'ws-1', type: 'unstarted' });
+    expect(stateMap.get('In Progress')).toEqual({ id: 'ws-2', type: 'started' });
+    expect(stateMap.get('Done')).toEqual({ id: 'ws-3', type: 'completed' });
+    expect(stateMap.get('Canceled')).toEqual({ id: 'ws-4', type: 'canceled' });
     expect(stateMap.size).toBe(4);
   });
 
-  test("updateIssueState returns true on success", async () => {
+  test('updateIssueState returns true on success', async () => {
     const client = await getClient();
 
     mockFetch.mockResolvedValueOnce(
@@ -250,32 +238,28 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
         JSON.stringify({
           data: { issueUpdate: { success: true } },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
     );
 
-    const result = await client.updateIssueState("issue-1", "state-2");
+    const result = await client.updateIssueState('issue-1', 'state-2');
     expect(result).toBe(true);
   });
 
-  test("auth error (401) throws without retrying", async () => {
+  test('auth error (401) throws without retrying', async () => {
     const client = await getClient();
 
-    mockFetch.mockResolvedValue(
-      new Response("Unauthorized", { status: 401 }),
-    );
+    mockFetch.mockResolvedValue(new Response('Unauthorized', { status: 401 }));
 
-    await expect(
-      client.fetchProjectIssues(["proj-1"]),
-    ).rejects.toThrow(/authentication failed/);
+    await expect(client.fetchProjectIssues(['proj-1'])).rejects.toThrow(/authentication failed/);
 
     // Should NOT retry on 401
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  test("rate limit warning when remaining requests are low", async () => {
+  test('rate limit warning when remaining requests are low', async () => {
     const client = await getClient();
-    const consoleSpy = vi.spyOn(console, "warn");
+    const consoleSpy = vi.spyOn(console, 'warn');
 
     mockFetch.mockResolvedValueOnce(
       new Response(
@@ -285,19 +269,17 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
         {
           status: 200,
           headers: {
-            "Content-Type": "application/json",
-            "X-RateLimit-Requests-Remaining": "100",
+            'Content-Type': 'application/json',
+            'X-RateLimit-Requests-Remaining': '100',
           },
-        },
-      ),
+        }
+      )
     );
 
-    await client.updateIssueState("issue-1", "state-1");
+    await client.updateIssueState('issue-1', 'state-1');
 
     // 100 < 500 (RATE_LIMIT_WARN_THRESHOLD), so should warn
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("rate limit low"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('rate limit low'));
   });
 });
 
@@ -305,14 +287,14 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 // 10.2 Dependency graph
 // ===========================================================================
 
-describe("10.2 - DependencyGraph", () => {
+describe('10.2 - DependencyGraph', () => {
   // Import synchronously since it has no side effects requiring mocking
-  let DependencyGraph: typeof import("../src/linear/graph.js").DependencyGraph;
+  let DependencyGraph: typeof import('../src/linear/graph.js').DependencyGraph;
 
   beforeEach(async () => {
-    const mod = await import("../src/linear/graph.js");
+    const mod = await import('../src/linear/graph.js');
     DependencyGraph = mod.DependencyGraph;
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -322,16 +304,16 @@ describe("10.2 - DependencyGraph", () => {
   function makeIssue(
     id: string,
     relations: { type: string; issueId: string; issueIdentifier: string }[] = [],
-    inverseRelations: { type: string; issueId: string; issueIdentifier: string }[] = [],
+    inverseRelations: { type: string; issueId: string; issueIdentifier: string }[] = []
   ) {
     return {
       id,
       identifier: id,
       title: `Issue ${id}`,
       priority: 0,
-      state: { id: "s1", name: "Todo", type: "unstarted" },
-      teamId: "team-1",
-      projectId: "proj-1",
+      state: { id: 's1', name: 'Todo', type: 'unstarted' },
+      teamId: 'team-1',
+      projectId: 'proj-1',
       relations,
       inverseRelations,
       parentId: null,
@@ -341,81 +323,69 @@ describe("10.2 - DependencyGraph", () => {
     };
   }
 
-  test("rebuild populates blockedBy and blocks maps from relations", () => {
+  test('rebuild populates blockedBy and blocks maps from relations', () => {
     const graph = new DependencyGraph();
 
     // A blocks B (via A's relations)
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
     // B has no relations of its own
-    const issueB = makeIssue("B");
+    const issueB = makeIssue('B');
 
     graph.rebuild([issueA, issueB]);
 
     // B is blocked by A, so it is not dispatchable when A is not done
-    const getStatus = (id: string) => (id === "A" ? "running" : "ready");
-    expect(graph.isDispatchable("B", getStatus)).toBe(false);
+    const getStatus = (id: string) => (id === 'A' ? 'running' : 'ready');
+    expect(graph.isDispatchable('B', getStatus)).toBe(false);
     // A has no blockers, so it is dispatchable
-    expect(graph.isDispatchable("A", getStatus)).toBe(true);
+    expect(graph.isDispatchable('A', getStatus)).toBe(true);
   });
 
-  test("rebuild handles inverseRelations", () => {
+  test('rebuild handles inverseRelations', () => {
     const graph = new DependencyGraph();
 
     // B is blocked by A (via B's inverseRelations)
-    const issueA = makeIssue("A");
-    const issueB = makeIssue("B", [], [
-      { type: "blocks", issueId: "A", issueIdentifier: "A" },
-    ]);
+    const issueA = makeIssue('A');
+    const issueB = makeIssue('B', [], [{ type: 'blocks', issueId: 'A', issueIdentifier: 'A' }]);
 
     graph.rebuild([issueA, issueB]);
 
     // B should be blocked by A
-    const getStatus = (id: string) => (id === "A" ? "running" : "ready");
-    expect(graph.isDispatchable("B", getStatus)).toBe(false);
+    const getStatus = (id: string) => (id === 'A' ? 'running' : 'ready');
+    expect(graph.isDispatchable('B', getStatus)).toBe(false);
   });
 
-  test("isDispatchable: no blockers returns true", () => {
+  test('isDispatchable: no blockers returns true', () => {
     const graph = new DependencyGraph();
-    graph.rebuild([makeIssue("A")]);
+    graph.rebuild([makeIssue('A')]);
 
-    expect(graph.isDispatchable("A", () => "ready")).toBe(true);
+    expect(graph.isDispatchable('A', () => 'ready')).toBe(true);
   });
 
-  test("isDispatchable: all blockers done returns true", () => {
+  test('isDispatchable: all blockers done returns true', () => {
     const graph = new DependencyGraph();
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
-    graph.rebuild([issueA, makeIssue("B")]);
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
+    graph.rebuild([issueA, makeIssue('B')]);
 
     // B is blocked by A, A is done
-    expect(graph.isDispatchable("B", () => "done")).toBe(true);
+    expect(graph.isDispatchable('B', () => 'done')).toBe(true);
   });
 
-  test("isDispatchable: blocker running returns false", () => {
+  test('isDispatchable: blocker running returns false', () => {
     const graph = new DependencyGraph();
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
-    graph.rebuild([issueA, makeIssue("B")]);
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
+    graph.rebuild([issueA, makeIssue('B')]);
 
     // B is blocked by A, A is running
-    expect(graph.isDispatchable("B", (id) => (id === "A" ? "running" : "ready"))).toBe(false);
+    expect(graph.isDispatchable('B', (id) => (id === 'A' ? 'running' : 'ready'))).toBe(false);
   });
 
-  test("computeEffectivePriority: inherits urgent priority from blocked chain", () => {
+  test('computeEffectivePriority: inherits urgent priority from blocked chain', () => {
     const graph = new DependencyGraph();
 
     // A blocks B, B blocks C
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
-    const issueB = makeIssue("B", [
-      { type: "blocks", issueId: "C", issueIdentifier: "C" },
-    ]);
-    const issueC = makeIssue("C");
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
+    const issueB = makeIssue('B', [{ type: 'blocks', issueId: 'C', issueIdentifier: 'C' }]);
+    const issueC = makeIssue('C');
 
     graph.rebuild([issueA, issueB, issueC]);
 
@@ -424,17 +394,15 @@ describe("10.2 - DependencyGraph", () => {
     const getPriority = (id: string) => priorities[id] ?? 0;
 
     // A's effective priority should be 1 (inherited from C via the chain)
-    expect(graph.computeEffectivePriority("A", getPriority)).toBe(1);
+    expect(graph.computeEffectivePriority('A', getPriority)).toBe(1);
   });
 
-  test("computeEffectivePriority: priority 0 does not inherit", () => {
+  test('computeEffectivePriority: priority 0 does not inherit', () => {
     const graph = new DependencyGraph();
 
     // A blocks B
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
-    const issueB = makeIssue("B");
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
+    const issueB = makeIssue('B');
 
     graph.rebuild([issueA, issueB]);
 
@@ -443,38 +411,31 @@ describe("10.2 - DependencyGraph", () => {
     const getPriority = (id: string) => priorities[id] ?? 0;
 
     // A's effective priority should stay 3 (B's 0 should not override)
-    expect(graph.computeEffectivePriority("A", getPriority)).toBe(3);
+    expect(graph.computeEffectivePriority('A', getPriority)).toBe(3);
   });
 
-  test("cycle detection: does not infinite loop, logs warning", () => {
+  test('cycle detection: does not infinite loop, logs warning', () => {
     const graph = new DependencyGraph();
-    const consoleSpy = vi.spyOn(console, "warn");
+    const consoleSpy = vi.spyOn(console, 'warn');
 
     // A blocks B, B blocks A (cycle)
-    const issueA = makeIssue("A", [
-      { type: "blocks", issueId: "B", issueIdentifier: "B" },
-    ]);
-    const issueB = makeIssue("B", [
-      { type: "blocks", issueId: "A", issueIdentifier: "A" },
-    ]);
+    const issueA = makeIssue('A', [{ type: 'blocks', issueId: 'B', issueIdentifier: 'B' }]);
+    const issueB = makeIssue('B', [{ type: 'blocks', issueId: 'A', issueIdentifier: 'A' }]);
 
     graph.rebuild([issueA, issueB]);
 
     // Should not hang -- compute priority for A
     const priorities: Record<string, number> = { A: 3, B: 2 };
     const getPriority = (id: string) => priorities[id] ?? 0;
-    const result = graph.computeEffectivePriority("A", getPriority);
+    const result = graph.computeEffectivePriority('A', getPriority);
 
     // Result should be valid (2, from B, since A blocks B and B has priority 2)
-    expect(typeof result).toBe("number");
+    expect(typeof result).toBe('number');
     expect(result).toBe(2);
 
     // Should have logged a cycle warning
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("cycle detected"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('cycle detected'));
   });
-
 });
 
 // ===========================================================================
@@ -482,97 +443,97 @@ describe("10.2 - DependencyGraph", () => {
 // ===========================================================================
 
 // Mock the scheduler and runner modules that resolveConflict imports
-vi.mock("../src/scheduler/index.js", () => ({
+vi.mock('../src/scheduler/index.js', () => ({
   activeHandles: new Map(),
 }));
 
-vi.mock("../src/runner/index.js", () => ({
+vi.mock('../src/runner/index.js', () => ({
   killSession: vi.fn().mockResolvedValue({}),
   spawnSession: vi.fn(),
 }));
 
-describe("10.3 - Conflict resolution", () => {
+describe('10.3 - Conflict resolution', () => {
   let db: OrcaDb;
   let config: OrcaConfig;
-  let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
+  let resolveConflict: typeof import('../src/linear/sync.js').resolveConflict;
 
   beforeEach(async () => {
     db = freshDb();
     config = testConfig();
     // Dynamically import so mocks are in place
-    const syncMod = await import("../src/linear/sync.js");
+    const syncMod = await import('../src/linear/sync.js');
     resolveConflict = syncMod.resolveConflict;
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  test("running task, Linear says Todo -> task becomes ready", () => {
+  test('running task, Linear says Todo -> task becomes ready', () => {
     const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-1",
-      orcaStatus: "running",
+      linearIssueId: 'CONFLICT-1',
+      orcaStatus: 'running',
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, 'Todo');
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.orcaStatus).toBe('ready');
   });
 
-  test("ready task, Linear says Done -> task becomes done", () => {
+  test('ready task, Linear says Done -> task becomes done', () => {
     const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-2",
-      orcaStatus: "ready",
+      linearIssueId: 'CONFLICT-2',
+      orcaStatus: 'ready',
     });
 
-    resolveConflict(db, taskId, "Done");
+    resolveConflict(db, taskId, 'Done');
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.orcaStatus).toBe('done');
   });
 
-  test("done task, Linear says Todo -> task becomes ready", () => {
+  test('done task, Linear says Todo -> task becomes ready', () => {
     const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-3",
-      orcaStatus: "done",
+      linearIssueId: 'CONFLICT-3',
+      orcaStatus: 'done',
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, 'Todo');
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.orcaStatus).toBe('ready');
   });
 
-  test("any task, Linear says Canceled -> task becomes failed", () => {
+  test('any task, Linear says Canceled -> task becomes failed', () => {
     const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-4",
-      orcaStatus: "running",
+      linearIssueId: 'CONFLICT-4',
+      orcaStatus: 'running',
     });
 
-    resolveConflict(db, taskId, "Canceled");
+    resolveConflict(db, taskId, 'Canceled');
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("failed");
+    expect(task!.orcaStatus).toBe('failed');
   });
 
-  test("no conflict when states match -> no change", () => {
+  test('no conflict when states match -> no change', () => {
     const taskId = seedTask(db, {
-      linearIssueId: "CONFLICT-5",
-      orcaStatus: "ready",
+      linearIssueId: 'CONFLICT-5',
+      orcaStatus: 'ready',
     });
 
     // Linear says "Todo" which maps to "ready" -- no conflict
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, 'Todo');
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.orcaStatus).toBe('ready');
   });
 });
 
@@ -580,13 +541,13 @@ describe("10.3 - Conflict resolution", () => {
 // 10.4 Write-back loop prevention
 // ===========================================================================
 
-describe("10.4 - Write-back loop prevention", () => {
-  let registerExpectedChange: typeof import("../src/linear/sync.js").registerExpectedChange;
-  let isExpectedChange: typeof import("../src/linear/sync.js").isExpectedChange;
-  let expectedChanges: typeof import("../src/linear/sync.js").expectedChanges;
+describe('10.4 - Write-back loop prevention', () => {
+  let registerExpectedChange: typeof import('../src/linear/sync.js').registerExpectedChange;
+  let isExpectedChange: typeof import('../src/linear/sync.js').isExpectedChange;
+  let expectedChanges: typeof import('../src/linear/sync.js').expectedChanges;
 
   beforeEach(async () => {
-    const syncMod = await import("../src/linear/sync.js");
+    const syncMod = await import('../src/linear/sync.js');
     registerExpectedChange = syncMod.registerExpectedChange;
     isExpectedChange = syncMod.isExpectedChange;
     expectedChanges = syncMod.expectedChanges;
@@ -598,35 +559,35 @@ describe("10.4 - Write-back loop prevention", () => {
     vi.useRealTimers();
   });
 
-  test("register and check immediately -> returns true (consumed)", () => {
-    registerExpectedChange("TASK-1", "In Progress");
-    expect(isExpectedChange("TASK-1", "In Progress")).toBe(true);
+  test('register and check immediately -> returns true (consumed)', () => {
+    registerExpectedChange('TASK-1', 'In Progress');
+    expect(isExpectedChange('TASK-1', 'In Progress')).toBe(true);
   });
 
-  test("check again after consumption -> returns false", () => {
-    registerExpectedChange("TASK-2", "In Progress");
+  test('check again after consumption -> returns false', () => {
+    registerExpectedChange('TASK-2', 'In Progress');
     // First check consumes
-    isExpectedChange("TASK-2", "In Progress");
+    isExpectedChange('TASK-2', 'In Progress');
     // Second check should be false
-    expect(isExpectedChange("TASK-2", "In Progress")).toBe(false);
+    expect(isExpectedChange('TASK-2', 'In Progress')).toBe(false);
   });
 
-  test("expired entry (>10s) -> returns false", () => {
+  test('expired entry (>10s) -> returns false', () => {
     vi.useFakeTimers();
 
-    registerExpectedChange("TASK-3", "In Review");
+    registerExpectedChange('TASK-3', 'In Review');
 
     // Advance time past the 10s expiry
     vi.advanceTimersByTime(11_000);
 
-    expect(isExpectedChange("TASK-3", "In Review")).toBe(false);
+    expect(isExpectedChange('TASK-3', 'In Review')).toBe(false);
 
     vi.useRealTimers();
   });
 
-  test("different stateName than registered -> returns false", () => {
-    registerExpectedChange("TASK-4", "In Progress");
-    expect(isExpectedChange("TASK-4", "In Review")).toBe(false);
+  test('different stateName than registered -> returns false', () => {
+    registerExpectedChange('TASK-4', 'In Progress');
+    expect(isExpectedChange('TASK-4', 'In Review')).toBe(false);
   });
 });
 
@@ -634,22 +595,22 @@ describe("10.4 - Write-back loop prevention", () => {
 // 10.5 Webhook HMAC verification
 // ===========================================================================
 
-describe("10.5 - Webhook HMAC verification", () => {
+describe('10.5 - Webhook HMAC verification', () => {
   // Mock processWebhookEvent to avoid needing real DB/scheduler deps in webhook route
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
+  vi.mock('../src/linear/sync.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/linear/sync.js')>();
     return {
       ...actual,
       processWebhookEvent: vi.fn().mockResolvedValue(undefined),
     };
   });
 
-  let createWebhookRoute: typeof import("../src/linear/webhook.js").createWebhookRoute;
+  let createWebhookRoute: typeof import('../src/linear/webhook.js').createWebhookRoute;
   let app: ReturnType<typeof createWebhookRoute>;
-  const secret = "test-webhook-secret-hmac";
+  const secret = 'test-webhook-secret-hmac';
 
   beforeEach(async () => {
-    const webhookMod = await import("../src/linear/webhook.js");
+    const webhookMod = await import('../src/linear/webhook.js');
     createWebhookRoute = webhookMod.createWebhookRoute;
 
     const config = testConfig({ linearWebhookSecret: secret });
@@ -662,7 +623,7 @@ describe("10.5 - Webhook HMAC verification", () => {
       stateMap: new Map(),
     });
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -670,30 +631,30 @@ describe("10.5 - Webhook HMAC verification", () => {
   });
 
   function computeSignature(body: string): string {
-    return createHmac("sha256", secret).update(body).digest("hex");
+    return createHmac('sha256', secret).update(body).digest('hex');
   }
 
-  test("valid signature returns 200", async () => {
+  test('valid signature returns 200', async () => {
     const payload = {
-      action: "update",
-      type: "Issue",
+      action: 'update',
+      type: 'Issue',
       data: {
-        id: "issue-1",
-        identifier: "PROJ-1",
-        title: "Test",
+        id: 'issue-1',
+        identifier: 'PROJ-1',
+        title: 'Test',
         priority: 1,
-        state: { id: "s1", name: "Todo", type: "unstarted" },
-        projectId: "proj-1",
+        state: { id: 's1', name: 'Todo', type: 'unstarted' },
+        projectId: 'proj-1',
       },
     };
     const body = JSON.stringify(payload);
     const sig = computeSignature(body);
 
-    const res = await app.request("/api/webhooks/linear", {
-      method: "POST",
+    const res = await app.request('/api/webhooks/linear', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "linear-signature": sig,
+        'Content-Type': 'application/json',
+        'linear-signature': sig,
       },
       body,
     });
@@ -703,14 +664,14 @@ describe("10.5 - Webhook HMAC verification", () => {
     expect(json).toEqual({ ok: true });
   });
 
-  test("invalid signature returns 401", async () => {
-    const body = JSON.stringify({ action: "update", type: "Issue", data: {} });
+  test('invalid signature returns 401', async () => {
+    const body = JSON.stringify({ action: 'update', type: 'Issue', data: {} });
 
-    const res = await app.request("/api/webhooks/linear", {
-      method: "POST",
+    const res = await app.request('/api/webhooks/linear', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "linear-signature": "deadbeef",
+        'Content-Type': 'application/json',
+        'linear-signature': 'deadbeef',
       },
       body,
     });
@@ -718,12 +679,12 @@ describe("10.5 - Webhook HMAC verification", () => {
     expect(res.status).toBe(401);
   });
 
-  test("missing signature header returns 401", async () => {
-    const body = JSON.stringify({ action: "update", type: "Issue", data: {} });
+  test('missing signature header returns 401', async () => {
+    const body = JSON.stringify({ action: 'update', type: 'Issue', data: {} });
 
-    const res = await app.request("/api/webhooks/linear", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    const res = await app.request('/api/webhooks/linear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body,
     });
 
@@ -735,10 +696,10 @@ describe("10.5 - Webhook HMAC verification", () => {
 // 10.6 Polling fallback
 // ===========================================================================
 
-describe("10.6 - Polling fallback", () => {
+describe('10.6 - Polling fallback', () => {
   // We need to mock fullSync to track calls without actually running it
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
+  vi.mock('../src/linear/sync.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/linear/sync.js')>();
     return {
       ...actual,
       fullSync: vi.fn().mockResolvedValue(undefined),
@@ -746,21 +707,21 @@ describe("10.6 - Polling fallback", () => {
     };
   });
 
-  let createPoller: typeof import("../src/linear/poller.js").createPoller;
+  let createPoller: typeof import('../src/linear/poller.js').createPoller;
   let fullSyncMock: Mock;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     vi.useFakeTimers();
 
-    const pollerMod = await import("../src/linear/poller.js");
+    const pollerMod = await import('../src/linear/poller.js');
     createPoller = pollerMod.createPoller;
 
-    const syncMod = await import("../src/linear/sync.js");
+    const syncMod = await import('../src/linear/sync.js');
     fullSyncMock = syncMod.fullSync as unknown as Mock;
     fullSyncMock.mockClear();
 
-    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -768,7 +729,7 @@ describe("10.6 - Polling fallback", () => {
     vi.restoreAllMocks();
   });
 
-  test("tunnel connected -> poller does NOT call fullSync", async () => {
+  test('tunnel connected -> poller does NOT call fullSync', async () => {
     const poller = createPoller({
       db: {} as OrcaDb,
       client: {} as any,
@@ -787,7 +748,7 @@ describe("10.6 - Polling fallback", () => {
     poller.stop();
   });
 
-  test("tunnel disconnected -> poller calls fullSync", async () => {
+  test('tunnel disconnected -> poller calls fullSync', async () => {
     const poller = createPoller({
       db: {} as OrcaDb,
       client: {} as any,
@@ -829,9 +790,7 @@ describe("10.6 - Polling fallback", () => {
     // Second tick: tunnel is up -> should log recovery
     await vi.advanceTimersByTimeAsync(30_000);
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("tunnel recovered"),
-    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('tunnel recovered'));
 
     // fullSync should not have been called again
     expect(fullSyncMock).toHaveBeenCalledTimes(1);
@@ -839,8 +798,8 @@ describe("10.6 - Polling fallback", () => {
     poller.stop();
   });
 
-  test("repeated failures trigger exponential backoff", async () => {
-    fullSyncMock.mockRejectedValue(new Error("API down"));
+  test('repeated failures trigger exponential backoff', async () => {
+    fullSyncMock.mockRejectedValue(new Error('API down'));
 
     const poller = createPoller({
       db: {} as OrcaDb,
@@ -879,10 +838,10 @@ describe("10.6 - Polling fallback", () => {
     poller.stop();
   });
 
-  test("backoff resets after successful poll", async () => {
+  test('backoff resets after successful poll', async () => {
     let shouldFail = true;
     fullSyncMock.mockImplementation(() => {
-      if (shouldFail) throw new Error("API down");
+      if (shouldFail) throw new Error('API down');
       return Promise.resolve(5);
     });
 
@@ -912,16 +871,14 @@ describe("10.6 - Polling fallback", () => {
 
     // Logs recovery message
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("recovered after 2 consecutive failure(s)"),
+      expect.stringContaining('recovered after 2 consecutive failure(s)')
     );
 
     poller.stop();
   });
 
-  test("backoff caps at MAX_BACKOFF_MS (5 minutes)", async () => {
-    const { computeBackoffMs, MAX_BACKOFF_MS } = await import(
-      "../src/linear/poller.js"
-    );
+  test('backoff caps at MAX_BACKOFF_MS (5 minutes)', async () => {
+    const { computeBackoffMs, MAX_BACKOFF_MS } = await import('../src/linear/poller.js');
 
     // At 10 failures: 30s * 2^9 = 15360s — must cap at 300s
     expect(computeBackoffMs(10)).toBe(MAX_BACKOFF_MS);
@@ -930,8 +887,8 @@ describe("10.6 - Polling fallback", () => {
     expect(computeBackoffMs(0)).toBe(30_000);
   });
 
-  test("health() exposes last error message", async () => {
-    fullSyncMock.mockRejectedValue(new Error("rate limited"));
+  test('health() exposes last error message', async () => {
+    fullSyncMock.mockRejectedValue(new Error('rate limited'));
 
     const poller = createPoller({
       db: {} as OrcaDb,
@@ -945,13 +902,13 @@ describe("10.6 - Polling fallback", () => {
     expect(poller.health().lastError).toBeNull();
 
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(poller.health().lastError).toContain("rate limited");
+    expect(poller.health().lastError).toContain('rate limited');
 
     poller.stop();
   });
 
-  test("stop() during backoff prevents further ticks", async () => {
-    fullSyncMock.mockRejectedValue(new Error("fail"));
+  test('stop() during backoff prevents further ticks', async () => {
+    fullSyncMock.mockRejectedValue(new Error('fail'));
 
     const poller = createPoller({
       db: {} as OrcaDb,
@@ -980,7 +937,7 @@ describe("10.6 - Polling fallback", () => {
 // EMI-93 - writeBackStatus "backlog" transition
 // ===========================================================================
 
-describe("EMI-93 - writeBackStatus backlog transition", () => {
+describe('EMI-93 - writeBackStatus backlog transition', () => {
   let originalFetch: typeof globalThis.fetch;
   let mockFetch: Mock;
 
@@ -988,7 +945,7 @@ describe("EMI-93 - writeBackStatus backlog transition", () => {
     originalFetch = globalThis.fetch;
     mockFetch = vi.fn();
     globalThis.fetch = mockFetch;
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -997,9 +954,9 @@ describe("EMI-93 - writeBackStatus backlog transition", () => {
   });
 
   async function getClientAndWriteBack() {
-    const { LinearClient } = await import("../src/linear/client.js");
-    const { writeBackStatus } = await import("../src/linear/sync.js");
-    const client = new LinearClient("test-key");
+    const { LinearClient } = await import('../src/linear/client.js');
+    const { writeBackStatus } = await import('../src/linear/sync.js');
+    const client = new LinearClient('test-key');
     return { client, writeBackStatus };
   }
 
@@ -1012,38 +969,38 @@ describe("EMI-93 - writeBackStatus backlog transition", () => {
         JSON.stringify({
           data: { issueUpdate: { success: true } },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
     );
 
     const stateMap = new Map([
-      ["Backlog", { id: "state-backlog-id", type: "backlog" }],
-      ["Todo", { id: "state-todo-id", type: "unstarted" }],
-      ["Done", { id: "state-done-id", type: "completed" }],
+      ['Backlog', { id: 'state-backlog-id', type: 'backlog' }],
+      ['Todo', { id: 'state-todo-id', type: 'unstarted' }],
+      ['Done', { id: 'state-done-id', type: 'completed' }],
     ]);
 
-    await writeBackStatus(client, "TASK-BL", "backlog", stateMap);
+    await writeBackStatus(client, 'TASK-BL', 'backlog', stateMap);
 
     // Should have called updateIssueState with the Backlog state ID
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [, fetchInit] = mockFetch.mock.calls[0];
     const body = JSON.parse(fetchInit.body);
     // The GraphQL mutation should reference state-backlog-id
-    expect(body.variables.stateId).toBe("state-backlog-id");
-    expect(body.variables.issueId).toBe("TASK-BL");
+    expect(body.variables.stateId).toBe('state-backlog-id');
+    expect(body.variables.issueId).toBe('TASK-BL');
   });
 
-  test("backlog transition silently fails if Backlog state not in stateMap", async () => {
+  test('backlog transition silently fails if Backlog state not in stateMap', async () => {
     const { client, writeBackStatus } = await getClientAndWriteBack();
 
     // State map WITHOUT Backlog
     const stateMap = new Map([
-      ["Todo", { id: "state-todo-id", type: "unstarted" }],
-      ["Done", { id: "state-done-id", type: "completed" }],
+      ['Todo', { id: 'state-todo-id', type: 'unstarted' }],
+      ['Done', { id: 'state-done-id', type: 'completed' }],
     ]);
 
     // Should not throw, just log a warning
-    await writeBackStatus(client, "TASK-NO-BL", "backlog", stateMap);
+    await writeBackStatus(client, 'TASK-NO-BL', 'backlog', stateMap);
 
     // No fetch call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
@@ -1057,21 +1014,21 @@ describe("EMI-93 - writeBackStatus backlog transition", () => {
         JSON.stringify({
           data: { issueUpdate: { success: true } },
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
     );
 
     const stateMap = new Map([
-      ["Backlog", { id: "state-backlog-id", type: "backlog" }],
-      ["Todo", { id: "state-todo-id", type: "unstarted" }],
+      ['Backlog', { id: 'state-backlog-id', type: 'backlog' }],
+      ['Todo', { id: 'state-todo-id', type: 'unstarted' }],
     ]);
 
-    await writeBackStatus(client, "TASK-RETRY", "retry", stateMap);
+    await writeBackStatus(client, 'TASK-RETRY', 'retry', stateMap);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [, fetchInit] = mockFetch.mock.calls[0];
     const body = JSON.parse(fetchInit.body);
     // retry -> "Todo", NOT "Backlog"
-    expect(body.variables.stateId).toBe("state-todo-id");
+    expect(body.variables.stateId).toBe('state-todo-id');
   });
 });
