@@ -1315,4 +1315,103 @@ describe("POST /api/invocations/:id/abort", () => {
     const task = getTask(db, "ABORT-TASK-2");
     expect(task!.orcaStatus).toBe("ready");
   });
+
+  it("resets staleSessionRetryCount when aborting", async () => {
+    insertTask(db, makeTask({ linearIssueId: "ABORT-TASK-3", orcaStatus: "running" as const }));
+    insertInvocation(db, {
+      linearIssueId: "ABORT-TASK-3",
+      startedAt: now(),
+      status: "running",
+    });
+
+    const { getInvocationsByTask, getTask, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
+    incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
+
+    const before = getTask(db, "ABORT-TASK-3");
+    expect(before!.staleSessionRetryCount).toBe(2);
+
+    const invocations = getInvocationsByTask(db, "ABORT-TASK-3");
+    const id = invocations[0].id;
+
+    const res = await postAbort(id);
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "ABORT-TASK-3");
+    expect(task!.staleSessionRetryCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/tasks/:id/retry
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tasks/:id/retry", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: { updateIssueState: vi.fn().mockResolvedValue(true), createComment: vi.fn().mockResolvedValue({}) } as any,
+      stateMap: new Map([["Todo", { id: "state-todo", type: "unstarted" }]]),
+      projectMeta: [],
+    });
+  });
+
+  function postRetry(taskId: string) {
+    return app.request(`/api/tasks/${taskId}/retry`, { method: "POST" });
+  }
+
+  it("returns 404 when task not found", async () => {
+    const res = await postRetry("NONEXISTENT");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/not found/i);
+  });
+
+  it("returns 409 when task is not failed", async () => {
+    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-1", orcaStatus: "ready" as const }));
+    const res = await postRetry("RETRY-TASK-1");
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/not failed/i);
+  });
+
+  it("resets counters and moves failed task to ready", async () => {
+    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-2", orcaStatus: "failed" as const, retryCount: 3 }));
+    const { getTask, updateTaskFields } = await import("../src/db/queries.js");
+    updateTaskFields(db, "RETRY-TASK-2", { reviewCycleCount: 2 });
+
+    const res = await postRetry("RETRY-TASK-2");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const task = getTask(db, "RETRY-TASK-2");
+    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.retryCount).toBe(0);
+    expect(task!.reviewCycleCount).toBe(0);
+  });
+
+  it("resets staleSessionRetryCount when retrying a failed task", async () => {
+    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-3", orcaStatus: "failed" as const }));
+
+    const { getTask, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
+    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
+    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
+
+    const before = getTask(db, "RETRY-TASK-3");
+    expect(before!.staleSessionRetryCount).toBe(3);
+
+    const res = await postRetry("RETRY-TASK-3");
+    expect(res.status).toBe(200);
+
+    const task = getTask(db, "RETRY-TASK-3");
+    expect(task!.staleSessionRetryCount).toBe(0);
+  });
 });
