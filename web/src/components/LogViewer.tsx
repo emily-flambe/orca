@@ -17,6 +17,8 @@ interface ContentBlock {
   thinking?: string;
   name?: string;
   input?: unknown;
+  content?: string | ContentBlock[];
+  tool_use_id?: string;
 }
 
 interface Message {
@@ -27,6 +29,8 @@ interface LogLine {
   type?: string;
   subtype?: string;
   message?: Message;
+  timestamp?: string;
+  error?: string;
   // result fields
   total_cost_usd?: number;
   cost_usd?: number;
@@ -38,9 +42,17 @@ interface LogLine {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+function Timestamp({ value }: { value: string }) {
+  return (
+    <span className="font-mono text-xs text-gray-600 mr-2 select-none">
+      {value}
+    </span>
+  );
+}
+
 function TextBlock({ text }: { text: string }) {
   return (
-    <pre className="whitespace-pre-wrap text-sm text-gray-200 leading-relaxed">
+    <pre className="whitespace-pre-wrap text-sm text-green-400 leading-relaxed font-mono">
       {text}
     </pre>
   );
@@ -52,14 +64,44 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700 text-cyan-400 hover:text-cyan-200 transition-colors font-mono"
       >
-        <span className="font-mono">{name}</span>
+        <span className="font-bold">{name}</span>
         <span>{open ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-gray-400 overflow-x-auto max-h-60 overflow-y-auto">
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-gray-400 overflow-x-auto max-h-60 overflow-y-auto font-mono">
           {typeof input === "string" ? input : JSON.stringify(input, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function ToolResultBlock({ content }: { content: string | ContentBlock[] | undefined }) {
+  const [open, setOpen] = useState(false);
+
+  const displayText =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+      ? content
+          .map((b) => (typeof b === "string" ? b : b.text ?? ""))
+          .join("\n")
+      : "";
+
+  return (
+    <div className="my-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700/50 text-cyan-300/70 hover:text-cyan-300 transition-colors font-mono"
+      >
+        <span>tool result</span>
+        <span>{open ? "\u25B4" : "\u25BE"}</span>
+      </button>
+      {open && (
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-cyan-300/70 whitespace-pre-wrap max-h-60 overflow-y-auto font-mono">
+          {displayText}
         </pre>
       )}
     </div>
@@ -72,12 +114,12 @@ function ThinkingBlock({ text }: { text: string }) {
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-mono"
       >
         {open ? "▼" : "▶"} Thinking...
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto">
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-purple-300/70 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">
           {text}
         </pre>
       )}
@@ -88,7 +130,7 @@ function ThinkingBlock({ text }: { text: string }) {
 function ResultFooter({ line }: { line: LogLine }) {
   const cost = line.total_cost_usd ?? line.cost_usd;
   return (
-    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 flex gap-4">
+    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 flex gap-4 font-mono">
       <span>Result: {line.subtype ?? "unknown"}</span>
       {cost != null && <span>Cost: ${cost.toFixed(2)}</span>}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
@@ -221,7 +263,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
           <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed font-mono">
             {outputSummary}
           </pre>
         </div>
@@ -237,7 +279,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
           <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed font-mono">
             {outputSummary}
           </pre>
         </div>
@@ -252,15 +294,62 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
+      className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono"
     >
       {lines.map((line, idx) => {
-        // Skip system messages
-        if (line.type === "system") return null;
+        // Error lines
+        if (line.type === "error") {
+          return (
+            <div key={idx} className="text-sm text-red-400 font-mono">
+              {line.timestamp && <Timestamp value={line.timestamp} />}
+              <span>{line.error ?? "Unknown error"}</span>
+            </div>
+          );
+        }
+
+        // System messages — only render if there's meaningful text content
+        if (line.type === "system") {
+          const content = line.message?.content;
+          const hasText =
+            Array.isArray(content) &&
+            content.some((b) => b.type === "text" && b.text && b.text.trim().length > 0);
+          if (!hasText) return null;
+
+          const textContent = Array.isArray(content)
+            ? content
+                .filter((b) => b.type === "text" && b.text)
+                .map((b) => b.text)
+                .join("\n")
+            : "";
+
+          return (
+            <div key={idx} className="text-xs text-yellow-400 font-mono">
+              {line.timestamp && <Timestamp value={line.timestamp} />}
+              <span className="mr-1 opacity-60">[system]</span>
+              <span>{textContent}</span>
+            </div>
+          );
+        }
 
         // Result footer
         if (line.type === "result") {
           return <ResultFooter key={idx} line={line} />;
+        }
+
+        // Tool result lines — Claude stream-json wraps tool results in type:"user"
+        if (line.type === "user" && line.message?.content) {
+          const toolResultBlocks = line.message.content.filter(
+            (b) => b.type === "tool_result"
+          );
+          if (toolResultBlocks.length === 0) return null;
+          return (
+            <div key={idx} className="space-y-1">
+              {line.timestamp && <Timestamp value={line.timestamp} />}
+              {toolResultBlocks.map((block, bi) => (
+                <ToolResultBlock key={bi} content={block.content} />
+              ))}
+            </div>
+          );
         }
 
         // Assistant messages
@@ -276,6 +365,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
 
           return (
             <div key={idx} className="space-y-1">
+              {line.timestamp && <Timestamp value={line.timestamp} />}
               {blocks.map((block, bi) => {
                 if (block.type === "text" && block.text) {
                   return <TextBlock key={bi} text={block.text} />;
@@ -298,7 +388,17 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           );
         }
 
-        // Skip other message types
+        // Info / stdout — plain string lines or unrecognized types with text
+        if (line.type === "info" || line.type === "stdout") {
+          return (
+            <div key={idx} className="text-sm text-gray-400 font-mono">
+              {line.timestamp && <Timestamp value={line.timestamp} />}
+              <span>{(line as unknown as Record<string, string>).text ?? String(line)}</span>
+            </div>
+          );
+        }
+
+        // Skip other message types (tool_progress, stream_event, etc.)
         return null;
       })}
       {isRunning && (
