@@ -49,11 +49,26 @@ export function incrementRetryCount(
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
       orcaStatus: resetStatus,
+      mergeAttemptCount: 0,
       doneAt: null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
+}
+
+/** Increment merge_attempt_count by 1. Returns the new count. */
+export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): number {
+  const task = db.select({ mergeAttemptCount: tasks.mergeAttemptCount })
+    .from(tasks)
+    .where(eq(tasks.linearIssueId, taskId))
+    .get();
+  const newCount = (task?.mergeAttemptCount ?? 0) + 1;
+  db.update(tasks)
+    .set({ mergeAttemptCount: newCount, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+  return newCount;
 }
 
 /** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */

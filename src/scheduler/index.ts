@@ -20,6 +20,7 @@ import {
   budgetWindowStart,
   updateInvocation,
   updateTaskCiInfo,
+  incrementMergeAttemptCount,
   updateTaskDeployInfo,
   updateTaskFixReason,
   updateTaskPrBranch,
@@ -1246,6 +1247,9 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   }
 }
 
+/** Maximum consecutive merge attempts before giving up and requiring manual intervention. */
+const MAX_MERGE_ATTEMPTS = 3;
+
 /**
  * Merge a PR programmatically and transition the task to done/deploying.
  */
@@ -1318,22 +1322,37 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
       }
 
       if (!alreadyMerged) {
-        // Genuine merge failure
+        // Genuine merge failure — retry up to MAX_MERGE_ATTEMPTS before giving up.
+        // Do NOT set failed_permanent (which maps to Canceled in Linear and triggers
+        // PR closure). Instead keep the task in awaiting_ci so checkPrCi retries.
+        const attemptCount = incrementMergeAttemptCount(db, taskId);
+
+        if (attemptCount < MAX_MERGE_ATTEMPTS) {
+          client.createComment(
+            taskId,
+            `Merge attempt ${attemptCount}/${MAX_MERGE_ATTEMPTS} failed for PR #${task.prNumber}: ${mergeResult.error}\n\nWill retry automatically on the next scheduler tick.`,
+          ).catch((err) => {
+            log(`comment failed on merge retry for task ${taskId}: ${err}`);
+          });
+
+          log(`task ${taskId} merge failed (attempt ${attemptCount}/${MAX_MERGE_ATTEMPTS}) — keeping in awaiting_ci for retry`);
+          // Keep task in awaiting_ci — do not change status. checkPrCi will retry.
+          return;
+        }
+
+        // All retries exhausted — block the task but preserve the PR.
+        // Do NOT write failed_permanent (Canceled) to Linear — that would close the PR.
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
 
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on merge failure for task ${taskId}: ${err}`);
-        });
-
         client.createComment(
           taskId,
-          `Failed to merge PR #${task.prNumber}: ${mergeResult.error}`,
+          `PR #${task.prNumber} failed to merge after ${MAX_MERGE_ATTEMPTS} attempts.\n\nLast error: ${mergeResult.error}\n\nThe PR has been preserved. Manual intervention is required — please check branch protection rules or merge the PR manually.`,
         ).catch((err) => {
-          log(`comment failed on merge failure for task ${taskId}: ${err}`);
+          log(`comment failed on merge exhaustion for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} merge failed: ${mergeResult.error}`);
+        log(`task ${taskId} merge failed ${MAX_MERGE_ATTEMPTS} times — blocked, PR preserved, needs manual intervention`);
         return;
       }
       // PR was already merged by someone else — continue normally

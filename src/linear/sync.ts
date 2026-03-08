@@ -204,7 +204,7 @@ function upsertTask(
       parentIdentifier,
       isParent,
       ...(issue.projectName ? { projectName: issue.projectName } : {}),
-      ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
+      ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0 } : {}),
     });
   }
 }
