@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
+import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus, promptInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
@@ -36,6 +36,9 @@ export default function TaskDetail({ taskId }: Props) {
   const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+  const [promptInputs, setPromptInputs] = useState<Record<number, string>>({});
+  const [promptSending, setPromptSending] = useState<Record<number, boolean>>({});
+  const [promptFeedback, setPromptFeedback] = useState<Record<number, string>>({});
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -52,6 +55,25 @@ export default function TaskDetail({ taskId }: Props) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  function handlePromptSubmit(invId: number) {
+    const text = promptInputs[invId]?.trim();
+    if (!text) return;
+    setPromptSending((s) => ({ ...s, [invId]: true }));
+    setPromptFeedback((s) => ({ ...s, [invId]: "" }));
+    promptInvocation(invId, text)
+      .then(() => {
+        setPromptInputs((s) => ({ ...s, [invId]: "" }));
+        setPromptFeedback((s) => ({ ...s, [invId]: "Sent" }));
+        setTimeout(() => setPromptFeedback((s) => ({ ...s, [invId]: "" })), 3000);
+      })
+      .catch((err: Error) => {
+        setPromptFeedback((s) => ({ ...s, [invId]: `Error: ${err.message}` }));
+      })
+      .finally(() => {
+        setPromptSending((s) => ({ ...s, [invId]: false }));
+      });
+  }
 
   if (!detail) {
     return <Skeleton lines={3} className="m-4" />;
@@ -146,7 +168,7 @@ export default function TaskDetail({ taskId }: Props) {
                     )}
                   </button>
                   {inv.status === "running" && (
-                    <div className="px-3 pb-2">
+                    <div className="px-3 pb-3 space-y-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -160,6 +182,30 @@ export default function TaskDetail({ taskId }: Props) {
                       >
                         Abort
                       </button>
+                      <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                        <textarea
+                          rows={2}
+                          value={promptInputs[inv.id] ?? ""}
+                          onChange={(e) => setPromptInputs((s) => ({ ...s, [inv.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); handlePromptSubmit(inv.id); } }}
+                          placeholder="Send a message to the agent..."
+                          className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 resize-none focus:outline-none focus:border-gray-500"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handlePromptSubmit(inv.id)}
+                            disabled={promptSending[inv.id] || !promptInputs[inv.id]?.trim()}
+                            className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {promptSending[inv.id] ? "Sending..." : "Send"}
+                          </button>
+                          {promptFeedback[inv.id] && (
+                            <span className={`text-xs ${promptFeedback[inv.id].startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+                              {promptFeedback[inv.id]}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
                   {selectedInvocationId === inv.id && (
@@ -204,19 +250,45 @@ export default function TaskDetail({ taskId }: Props) {
                         <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
                         <td className="py-2">
                           {inv.status === "running" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                                abortInvocation(inv.id)
-                                  .then(() => fetchTaskDetail(taskId))
-                                  .then((d) => setDetail(d))
-                                  .catch(console.error);
-                              }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                            >
-                              Abort
-                            </button>
+                            <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+                                  abortInvocation(inv.id)
+                                    .then(() => fetchTaskDetail(taskId))
+                                    .then((d) => setDetail(d))
+                                    .catch(console.error);
+                                }}
+                                className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                              >
+                                Abort
+                              </button>
+                              <div className="flex items-start gap-1.5 min-w-[200px]">
+                                <textarea
+                                  rows={2}
+                                  value={promptInputs[inv.id] ?? ""}
+                                  onChange={(e) => setPromptInputs((s) => ({ ...s, [inv.id]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); handlePromptSubmit(inv.id); } }}
+                                  placeholder="Message agent... (Ctrl+Enter)"
+                                  className="flex-1 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 resize-none focus:outline-none focus:border-gray-500"
+                                />
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    onClick={() => handlePromptSubmit(inv.id)}
+                                    disabled={promptSending[inv.id] || !promptInputs[inv.id]?.trim()}
+                                    className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                                  >
+                                    {promptSending[inv.id] ? "..." : "Send"}
+                                  </button>
+                                  {promptFeedback[inv.id] && (
+                                    <span className={`text-xs whitespace-nowrap ${promptFeedback[inv.id].startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+                                      {promptFeedback[inv.id]}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </td>
                       </tr>

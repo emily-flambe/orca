@@ -18,6 +18,13 @@ interface InvocationLogState {
 export const invocationLogs = new Map<number, InvocationLogState>();
 
 // ---------------------------------------------------------------------------
+// Active process registry for stdin injection
+// ---------------------------------------------------------------------------
+
+/** Maps invocationId → ChildProcess for currently running sessions. */
+export const activeProcesses = new Map<number, ChildProcess>();
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -291,11 +298,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
+
+  // Register the process so stdin injection can reach it.
+  activeProcesses.set(options.invocationId, proc);
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -551,6 +561,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       exitSignal = signal;
       exitReceived = true;
 
+      // Remove from active process registry to prevent stale stdin writes.
+      activeProcesses.delete(options.invocationId);
+
       // Log exit details to the log file for post-mortem analysis.
       const exitEntry = JSON.stringify({
         type: "process_exit",
@@ -628,6 +641,26 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   });
 
   return handle;
+}
+
+/**
+ * Inject a human-turn prompt into a running Claude Code session via stdin.
+ * Returns { ok: true } if the write was initiated, or { ok: false, error: string } on failure.
+ */
+export function promptSession(invocationId: number, prompt: string): { ok: boolean; error?: string } {
+  const proc = activeProcesses.get(invocationId);
+  if (!proc) {
+    return { ok: false, error: "no active process for this invocation" };
+  }
+  if (!proc.stdin || proc.stdin.destroyed || proc.killed || proc.exitCode !== null) {
+    return { ok: false, error: "process stdin is not writable" };
+  }
+  try {
+    proc.stdin.write(prompt + "\n");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /**
