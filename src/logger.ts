@@ -89,7 +89,7 @@ export function initFileLogger(config: FileLoggerConfig): void {
     ...rest: unknown[]
   ) {
     writeToFile(data);
-    return (origStdout as Function)(data, ...rest);
+    return (origStdout as (...args: unknown[]) => boolean)(data, ...rest);
   } as typeof process.stdout.write;
   (patchedStdout as unknown as Record<symbol, boolean>)[PATCHED] = true;
 
@@ -98,7 +98,7 @@ export function initFileLogger(config: FileLoggerConfig): void {
     ...rest: unknown[]
   ) {
     writeToFile(data);
-    return (origStderr as Function)(data, ...rest);
+    return (origStderr as (...args: unknown[]) => boolean)(data, ...rest);
   } as typeof process.stderr.write;
   (patchedStderr as unknown as Record<symbol, boolean>)[PATCHED] = true;
 

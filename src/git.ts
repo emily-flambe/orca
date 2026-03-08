@@ -65,7 +65,11 @@ export function isTransientGitError(err: unknown): boolean {
 
   // Windows DLL init failure — transient resource exhaustion
   // Check both unsigned and signed representations of 0xC0000142
-  if (execErr.status === WIN_DLL_INIT_FAILED || execErr.status === WIN_DLL_INIT_FAILED_SIGNED) return true;
+  if (
+    execErr.status === WIN_DLL_INIT_FAILED ||
+    execErr.status === WIN_DLL_INIT_FAILED_SIGNED
+  )
+    return true;
 
   // Signal-killed process (OOM killer, etc.)
   if (execErr.signal) return true;
@@ -81,9 +85,10 @@ export function isTransientGitError(err: unknown): boolean {
 export function isDllInitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const status = (err as ExecError).status;
-  return status === WIN_DLL_INIT_FAILED || status === WIN_DLL_INIT_FAILED_SIGNED;
+  return (
+    status === WIN_DLL_INIT_FAILED || status === WIN_DLL_INIT_FAILED_SIGNED
+  );
 }
-
 
 /**
  * Remove stale .git/index.lock files that are older than `maxAgeMs`.
@@ -98,7 +103,9 @@ export function cleanStaleLockFiles(repoPath: string, maxAgeMs = 60_000): void {
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age > maxAgeMs) {
       unlinkSync(lockPath);
-      console.warn(`[orca/git] removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`);
+      console.warn(
+        `[orca/git] removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`,
+      );
     }
   } catch (err) {
     console.warn(`[orca/git] failed to clean lock file ${lockPath}: ${err}`);

@@ -102,9 +102,7 @@ export function loadConfig(): OrcaConfig {
   let defaultCwd: string | undefined;
   if (defaultCwdRaw) {
     if (!existsSync(defaultCwdRaw) || !statSync(defaultCwdRaw).isDirectory()) {
-      exitWithError(
-        "ORCA_DEFAULT_CWD must be a valid directory path",
-      );
+      exitWithError("ORCA_DEFAULT_CWD must be a valid directory path");
     }
     defaultCwd = defaultCwdRaw;
   }
@@ -133,14 +131,12 @@ export function loadConfig(): OrcaConfig {
       );
     }
     if (!parsed.every((item: unknown) => typeof item === "string")) {
-      exitWithError(
-        "ORCA_LINEAR_PROJECT_IDS must be a JSON array of strings",
-      );
+      exitWithError("ORCA_LINEAR_PROJECT_IDS must be a JSON array of strings");
     }
     linearProjectIds = parsed as string[];
   } catch {
     exitWithError(
-      "ORCA_LINEAR_PROJECT_IDS must be valid JSON (e.g. [\"project-uuid\"])",
+      'ORCA_LINEAR_PROJECT_IDS must be valid JSON (e.g. ["project-uuid"])',
     );
   }
 
@@ -264,10 +260,19 @@ Steps:
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     implementSystemPrompt: readEnvOrDefault(
       "ORCA_IMPLEMENT_SYSTEM_PROMPT",
-      readEnvOrDefault("ORCA_APPEND_SYSTEM_PROMPT", DEFAULT_IMPLEMENT_SYSTEM_PROMPT),
+      readEnvOrDefault(
+        "ORCA_APPEND_SYSTEM_PROMPT",
+        DEFAULT_IMPLEMENT_SYSTEM_PROMPT,
+      ),
     ),
-    reviewSystemPrompt: readEnvOrDefault("ORCA_REVIEW_SYSTEM_PROMPT", DEFAULT_REVIEW_SYSTEM_PROMPT),
-    fixSystemPrompt: readEnvOrDefault("ORCA_FIX_SYSTEM_PROMPT", DEFAULT_FIX_SYSTEM_PROMPT),
+    reviewSystemPrompt: readEnvOrDefault(
+      "ORCA_REVIEW_SYSTEM_PROMPT",
+      DEFAULT_REVIEW_SYSTEM_PROMPT,
+    ),
+    fixSystemPrompt: readEnvOrDefault(
+      "ORCA_FIX_SYSTEM_PROMPT",
+      DEFAULT_FIX_SYSTEM_PROMPT,
+    ),
     maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),
     reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
     implementModel: readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
@@ -277,14 +282,22 @@ Steps:
     deployStrategy: (() => {
       const val = readEnvOrDefault("ORCA_DEPLOY_STRATEGY", "none");
       if (val !== "none" && val !== "github_actions") {
-        exitWithError('ORCA_DEPLOY_STRATEGY must be "none" or "github_actions"');
+        exitWithError(
+          'ORCA_DEPLOY_STRATEGY must be "none" or "github_actions"',
+        );
       }
       return val as "none" | "github_actions";
     })(),
-    deployPollIntervalSec: readIntOrDefault("ORCA_DEPLOY_POLL_INTERVAL_SEC", 30),
+    deployPollIntervalSec: readIntOrDefault(
+      "ORCA_DEPLOY_POLL_INTERVAL_SEC",
+      30,
+    ),
     deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
     cleanupIntervalMin: readIntOrDefault("ORCA_CLEANUP_INTERVAL_MIN", 10),
-    cleanupBranchMaxAgeMin: readIntOrDefault("ORCA_CLEANUP_BRANCH_MAX_AGE_MIN", 60),
+    cleanupBranchMaxAgeMin: readIntOrDefault(
+      "ORCA_CLEANUP_BRANCH_MAX_AGE_MIN",
+      60,
+    ),
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),
     port: readIntOrDefault("ORCA_PORT", 3000),
@@ -325,16 +338,12 @@ export function validateProjectRepoPaths(config: OrcaConfig): void {
   const errors: string[] = [];
 
   for (const projectId of config.linearProjectIds) {
-    const repoPath =
-      config.projectRepoMap.get(projectId) ?? config.defaultCwd;
+    const repoPath = config.projectRepoMap.get(projectId) ?? config.defaultCwd;
     if (!repoPath) {
       errors.push(
         `project ${projectId}: no repo: line in description and no ORCA_DEFAULT_CWD fallback`,
       );
-    } else if (
-      !existsSync(repoPath) ||
-      !statSync(repoPath).isDirectory()
-    ) {
+    } else if (!existsSync(repoPath) || !statSync(repoPath).isDirectory()) {
       errors.push(
         `project ${projectId}: path "${repoPath}" is not a valid directory`,
       );

@@ -1,11 +1,18 @@
-import { eq, gte, asc, desc, sql, count, sum, inArray, and, isNotNull, avg } from "drizzle-orm";
-import type { InferInsertModel } from "drizzle-orm";
 import {
-  tasks,
-  invocations,
-  budgetEvents,
-  type TaskStatus,
-} from "./schema.js";
+  eq,
+  gte,
+  asc,
+  desc,
+  sql,
+  count,
+  sum,
+  inArray,
+  and,
+  isNotNull,
+  avg,
+} from "drizzle-orm";
+import type { InferInsertModel } from "drizzle-orm";
+import { tasks, invocations, budgetEvents, type TaskStatus } from "./schema.js";
 import type { OrcaDb } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -57,7 +64,10 @@ export function incrementRetryCount(
 }
 
 /** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */
-export function getDispatchableTasks(db: OrcaDb, statuses: TaskStatus[]): Task[] {
+export function getDispatchableTasks(
+  db: OrcaDb,
+  statuses: TaskStatus[],
+): Task[] {
   return db
     .select()
     .from(tasks)
@@ -67,7 +77,11 @@ export function getDispatchableTasks(db: OrcaDb, statuses: TaskStatus[]): Task[]
 }
 
 /** Set the PR branch name on a task. */
-export function updateTaskPrBranch(db: OrcaDb, taskId: string, branchName: string): void {
+export function updateTaskPrBranch(
+  db: OrcaDb,
+  taskId: string,
+  branchName: string,
+): void {
   db.update(tasks)
     .set({ prBranchName: branchName, updatedAt: new Date().toISOString() })
     .where(eq(tasks.linearIssueId, taskId))
@@ -75,7 +89,11 @@ export function updateTaskPrBranch(db: OrcaDb, taskId: string, branchName: strin
 }
 
 /** Set the fix_reason on a task (used to customize fix-phase agent prompt). */
-export function updateTaskFixReason(db: OrcaDb, taskId: string, fixReason: string | null): void {
+export function updateTaskFixReason(
+  db: OrcaDb,
+  taskId: string,
+  fixReason: string | null,
+): void {
   db.update(tasks)
     .set({ fixReason, updatedAt: new Date().toISOString() })
     .where(eq(tasks.linearIssueId, taskId))
@@ -106,11 +124,7 @@ export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
 
 /** Get all tasks with orca_status="deploying". */
 export function getDeployingTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.orcaStatus, "deploying"))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.orcaStatus, "deploying")).all();
 }
 
 /** Get all tasks with orca_status="awaiting_ci". */
@@ -138,7 +152,11 @@ export function updateTaskCiInfo(
 export function updateTaskDeployInfo(
   db: OrcaDb,
   taskId: string,
-  info: { mergeCommitSha?: string | null; prNumber?: number | null; deployStartedAt?: string | null },
+  info: {
+    mergeCommitSha?: string | null;
+    prNumber?: number | null;
+    deployStartedAt?: string | null;
+  },
 ): void {
   db.update(tasks)
     .set({ ...info, updatedAt: new Date().toISOString() })
@@ -148,11 +166,7 @@ export function updateTaskDeployInfo(
 
 /** Get a single task by its linear_issue_id. */
 export function getTask(db: OrcaDb, taskId: string): Task | undefined {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.linearIssueId, taskId))
-    .get();
+  return db.select().from(tasks).where(eq(tasks.linearIssueId, taskId)).get();
 }
 
 /** Get all tasks. */
@@ -171,21 +185,22 @@ export function getChildTasks(db: OrcaDb, parentIdentifier: string): Task[] {
 
 /** Get all parent tasks (isParent = 1). */
 export function getParentTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.isParent, 1))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.isParent, 1)).all();
 }
 
 /** Delete a task and its invocations/budget events by linear_issue_id. */
 export function deleteTask(db: OrcaDb, taskId: string): void {
   // Delete budget events for this task's invocations first (FK chain)
-  const taskInvocations = db.select({ id: invocations.id }).from(invocations)
-    .where(eq(invocations.linearIssueId, taskId)).all();
+  const taskInvocations = db
+    .select({ id: invocations.id })
+    .from(invocations)
+    .where(eq(invocations.linearIssueId, taskId))
+    .all();
   if (taskInvocations.length > 0) {
     const invIds = taskInvocations.map((i) => i.id);
-    db.delete(budgetEvents).where(inArray(budgetEvents.invocationId, invIds)).run();
+    db.delete(budgetEvents)
+      .where(inArray(budgetEvents.invocationId, invIds))
+      .run();
   }
   db.delete(invocations).where(eq(invocations.linearIssueId, taskId)).run();
   db.delete(tasks).where(eq(tasks.linearIssueId, taskId)).run();
@@ -197,11 +212,15 @@ export function updateTaskFields(
   taskId: string,
   updates: Partial<Omit<NewTask, "linearIssueId" | "createdAt">>,
 ): void {
-  const setValues: Record<string, unknown> = { ...updates, updatedAt: new Date().toISOString() };
+  const setValues: Record<string, unknown> = {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
 
   // Automatically manage doneAt when orcaStatus is being updated
   if ("orcaStatus" in updates) {
-    setValues.doneAt = updates.orcaStatus === "done" ? new Date().toISOString() : null;
+    setValues.doneAt =
+      updates.orcaStatus === "done" ? new Date().toISOString() : null;
   }
 
   db.update(tasks)
@@ -217,9 +236,7 @@ type NewInvocation = InferInsertModel<typeof invocations>;
 type Invocation = typeof invocations.$inferSelect;
 
 // Partial update type: all fields except id and linear_issue_id are optional
-type InvocationUpdate = Partial<
-  Omit<Invocation, "id" | "linearIssueId">
->;
+type InvocationUpdate = Partial<Omit<Invocation, "id" | "linearIssueId">>;
 
 // ---------------------------------------------------------------------------
 // Invocation queries
@@ -241,7 +258,10 @@ export function countActiveSessions(db: OrcaDb): number {
 }
 
 /** Insert a new invocation and return its auto-generated id. */
-export function insertInvocation(db: OrcaDb, invocation: NewInvocation): number {
+export function insertInvocation(
+  db: OrcaDb,
+  invocation: NewInvocation,
+): number {
   const result = db
     .insert(invocations)
     .values(invocation)
@@ -256,17 +276,11 @@ export function updateInvocation(
   id: number,
   updates: InvocationUpdate,
 ): void {
-  db.update(invocations)
-    .set(updates)
-    .where(eq(invocations.id, id))
-    .run();
+  db.update(invocations).set(updates).where(eq(invocations.id, id)).run();
 }
 
 /** Get all invocations for a given task. */
-export function getInvocationsByTask(
-  db: OrcaDb,
-  taskId: string,
-): Invocation[] {
+export function getInvocationsByTask(db: OrcaDb, taskId: string): Invocation[] {
   return db
     .select()
     .from(invocations)

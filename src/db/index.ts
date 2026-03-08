@@ -53,7 +53,11 @@ CREATE TABLE IF NOT EXISTS budget_events (
 /**
  * Check if a column exists in a table using PRAGMA table_info.
  */
-function hasColumn(sqlite: DatabaseType, table: string, column: string): boolean {
+function hasColumn(
+  sqlite: DatabaseType,
+  table: string,
+  column: string,
+): boolean {
   const cols = sqlite.pragma(`table_info(${table})`) as { name: string }[];
   return cols.some((c) => c.name === column);
 }
@@ -121,7 +125,9 @@ function migrateSchema(sqlite: DatabaseType): void {
     // Table already has pr_branch_name — check if review_cycle_count is missing
     // (shouldn't happen in practice, but defensive).
     if (!hasColumn(sqlite, "tasks", "review_cycle_count")) {
-      sqlite.exec("ALTER TABLE tasks ADD COLUMN review_cycle_count INTEGER NOT NULL DEFAULT 0");
+      sqlite.exec(
+        "ALTER TABLE tasks ADD COLUMN review_cycle_count INTEGER NOT NULL DEFAULT 0",
+      );
     }
   }
 
@@ -185,7 +191,9 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "done_at")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN done_at TEXT");
-    sqlite.exec("UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL");
+    sqlite.exec(
+      "UPDATE tasks SET done_at = updated_at WHERE orca_status = 'done' AND done_at IS NULL",
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -196,7 +204,9 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "parent_identifier")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN parent_identifier TEXT");
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0");
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN is_parent INTEGER NOT NULL DEFAULT 0",
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -242,7 +252,9 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   Sentinel: merge_attempt_count column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "merge_attempt_count")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN merge_attempt_count INTEGER NOT NULL DEFAULT 0");
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN merge_attempt_count INTEGER NOT NULL DEFAULT 0",
+    );
   }
 }
 

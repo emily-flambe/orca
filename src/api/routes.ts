@@ -4,7 +4,11 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
-import type { LinearClient, WorkflowStateMap, ProjectMetadata } from "../linear/client.js";
+import type {
+  LinearClient,
+  WorkflowStateMap,
+  ProjectMetadata,
+} from "../linear/client.js";
 import {
   type Task,
   getAllTasks,
@@ -141,7 +145,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.get("/api/invocations/:id/logs/stream", (c) => {
     const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) return c.json({ error: "invalid invocation id" }, 400);
+    if (Number.isNaN(id))
+      return c.json({ error: "invalid invocation id" }, 400);
 
     const invocation = getInvocation(db, id);
     if (!invocation) return c.json({ error: "invocation not found" }, 404);
@@ -237,7 +242,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     if (invocation.status !== "running") {
-      return c.json({ error: `invocation is "${invocation.status}", not running` }, 409);
+      return c.json(
+        { error: `invocation is "${invocation.status}", not running` },
+        409,
+      );
     }
 
     // Kill the Claude session if a handle exists
@@ -294,8 +302,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const newStatus = body.status;
 
-    if (newStatus !== "backlog" && newStatus !== "ready" && newStatus !== "done") {
-      return c.json({ error: "status must be one of: backlog, ready, done" }, 400);
+    if (
+      newStatus !== "backlog" &&
+      newStatus !== "ready" &&
+      newStatus !== "done"
+    ) {
+      return c.json(
+        { error: "status must be one of: backlog, ready, done" },
+        400,
+      );
     }
 
     const task = getTask(db, taskId);
@@ -308,7 +323,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Kill running session if task is active
-    if (task.orcaStatus === "running" || task.orcaStatus === "dispatched" || task.orcaStatus === "in_review") {
+    if (
+      task.orcaStatus === "running" ||
+      task.orcaStatus === "dispatched" ||
+      task.orcaStatus === "in_review"
+    ) {
       const runningInvocations = getRunningInvocations(db);
       for (const [invId, handle] of activeHandles) {
         const matchingInv = runningInvocations.find(
@@ -381,7 +400,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
 
     // Post comment to Linear
-    client.createComment(taskId, "Manually retried from Orca dashboard").catch(() => {});
+    client
+      .createComment(taskId, "Manually retried from Orca dashboard")
+      .catch(() => {});
 
     return c.json({ ok: true });
   });
@@ -408,9 +429,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
     const queuedTasks = allTasks.filter(
-      (t) => t.orcaStatus === "ready" || t.orcaStatus === "in_review" || t.orcaStatus === "changes_requested",
+      (t) =>
+        t.orcaStatus === "ready" ||
+        t.orcaStatus === "in_review" ||
+        t.orcaStatus === "changes_requested",
     ).length;
-    const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
+    const costInWindow = sumCostInWindow(
+      db,
+      budgetWindowStart(config.budgetWindowHours),
+    );
 
     return c.json({
       activeSessions,
@@ -440,20 +467,32 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if ("concurrencyCap" in body) {
       const val = body.concurrencyCap;
       if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
-        return c.json({ error: "concurrencyCap must be a positive integer" }, 400);
+        return c.json(
+          { error: "concurrencyCap must be a positive integer" },
+          400,
+        );
       }
       config.concurrencyCap = val;
     }
 
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
-    for (const field of ["implementModel", "reviewModel", "fixModel"] as const) {
+    for (const field of [
+      "implementModel",
+      "reviewModel",
+      "fixModel",
+    ] as const) {
       if (field in body) {
         const val = body[field];
         if (typeof val !== "string" || val.length === 0) {
           return c.json({ error: `${field} must be a non-empty string` }, 400);
         }
         if (!MODEL_SHORTCUTS.has(val) && !val.startsWith("claude-")) {
-          return c.json({ error: `${field} must be one of opus/sonnet/haiku or a full model ID (claude-...)` }, 400);
+          return c.json(
+            {
+              error: `${field} must be one of opus/sonnet/haiku or a full model ID (claude-...)`,
+            },
+            400,
+          );
         }
         config[field] = val;
       }
@@ -475,7 +514,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const allTasks = getAllTasks(db);
     const tasksByStatus: Record<string, number> = {};
     for (const task of allTasks) {
-      tasksByStatus[task.orcaStatus] = (tasksByStatus[task.orcaStatus] ?? 0) + 1;
+      tasksByStatus[task.orcaStatus] =
+        (tasksByStatus[task.orcaStatus] ?? 0) + 1;
     }
 
     const invocationStats = getInvocationStats(db);
@@ -499,7 +539,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   app.get("/api/logs", (c) => {
     const tailParam = c.req.query("tail");
     const filterParam = c.req.query("filter");
-    const tail = tailParam ? Math.min(Math.max(parseInt(tailParam, 10) || 200, 1), 5000) : 200;
+    const tail = tailParam
+      ? Math.min(Math.max(parseInt(tailParam, 10) || 200, 1), 5000)
+      : 200;
 
     const logFile = isAbsolute(config.logPath)
       ? config.logPath
@@ -535,18 +577,32 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // POST /api/tasks
   // -----------------------------------------------------------------------
   app.post("/api/tasks", async (c) => {
-    let body: { title?: string; description?: string; projectId?: string; priority?: number; status?: string };
+    let body: {
+      title?: string;
+      description?: string;
+      projectId?: string;
+      priority?: number;
+      status?: string;
+    };
     try {
       body = await c.req.json();
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
 
-    if (!body.title || typeof body.title !== "string" || body.title.trim() === "") {
+    if (
+      !body.title ||
+      typeof body.title !== "string" ||
+      body.title.trim() === ""
+    ) {
       return c.json({ error: "title is required" }, 400);
     }
 
-    if (body.status !== undefined && body.status !== "todo" && body.status !== "backlog") {
+    if (
+      body.status !== undefined &&
+      body.status !== "todo" &&
+      body.status !== "backlog"
+    ) {
       return c.json({ error: "status must be 'todo' or 'backlog'" }, 400);
     }
 
@@ -603,7 +659,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return streamSSE(c, async (stream) => {
       const onTaskUpdated = (data: Task) => {
         try {
-          stream.writeSSE({ event: "task:updated", data: JSON.stringify(data) });
+          stream.writeSSE({
+            event: "task:updated",
+            data: JSON.stringify(data),
+          });
         } catch {
           // Connection likely closed; ignore
         }
@@ -611,7 +670,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onInvocationStarted = (data: InvocationStartedPayload) => {
         try {
-          stream.writeSSE({ event: "invocation:started", data: JSON.stringify(data) });
+          stream.writeSSE({
+            event: "invocation:started",
+            data: JSON.stringify(data),
+          });
         } catch {
           // Connection likely closed; ignore
         }
@@ -619,7 +681,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onInvocationCompleted = (data: InvocationCompletedPayload) => {
         try {
-          stream.writeSSE({ event: "invocation:completed", data: JSON.stringify(data) });
+          stream.writeSSE({
+            event: "invocation:completed",
+            data: JSON.stringify(data),
+          });
         } catch {
           // Connection likely closed; ignore
         }
@@ -627,7 +692,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       const onStatusUpdated = (data: StatusPayload) => {
         try {
-          stream.writeSSE({ event: "status:updated", data: JSON.stringify(data) });
+          stream.writeSSE({
+            event: "status:updated",
+            data: JSON.stringify(data),
+          });
         } catch {
           // Connection likely closed; ignore
         }

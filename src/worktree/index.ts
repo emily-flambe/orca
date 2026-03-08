@@ -111,7 +111,9 @@ function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
  */
 function branchExists(repoPath: string, branchName: string): boolean {
   try {
-    git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], { cwd: repoPath });
+    git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
+      cwd: repoPath,
+    });
     return true;
   } catch {
     return false;
@@ -191,7 +193,10 @@ export function createWorktree(
   git(["fetch", "origin"], { cwd: repoPath });
 
   // If worktree already exists at target path, reuse it (retry scenario)
-  if (existsSync(worktreePath) && worktreeExistsAtPath(repoPath, worktreePath)) {
+  if (
+    existsSync(worktreePath) &&
+    worktreeExistsAtPath(repoPath, worktreePath)
+  ) {
     if (baseRef) {
       // For review/fix phases, reset to the remote tracking branch
       git(["fetch", "origin"], { cwd: worktreePath });
@@ -214,14 +219,18 @@ export function createWorktree(
     if (branchExists(repoPath, baseRef)) {
       git(["branch", "-D", baseRef], { cwd: repoPath });
     }
-    git(["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`], { cwd: repoPath });
+    git(["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`], {
+      cwd: repoPath,
+    });
   } else {
     // If branch already exists, delete it first
     if (branchExists(repoPath, branchName)) {
       git(["branch", "-D", branchName], { cwd: repoPath });
     }
     // Create worktree with new branch based on origin/main
-    git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], { cwd: repoPath });
+    git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
+      cwd: repoPath,
+    });
   }
 
   // Copy .env* files from base repo
@@ -236,7 +245,9 @@ export function createWorktree(
   // If ORCA_EXTRA_INSTALL_DIRS is set (comma-separated), install only those dirs.
   // Otherwise, auto-discover by walking one level of subdirectories.
   const extraInstallDirs = process.env.ORCA_EXTRA_INSTALL_DIRS
-    ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",").map((d) => d.trim()).filter(Boolean)
+    ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",")
+        .map((d) => d.trim())
+        .filter(Boolean)
     : null;
 
   if (extraInstallDirs) {
@@ -306,7 +317,9 @@ export function removeWorktree(worktreePath: string): void {
   // ghost-ref cleanup below). Detached HEAD or missing worktree returns null.
   let worktreeBranchName: string | null = null;
   try {
-    const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: worktreePath }).trim();
+    const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: worktreePath,
+    }).trim();
     if (branchRef && branchRef !== "HEAD") {
       worktreeBranchName = branchRef;
     }
@@ -349,7 +362,9 @@ export function removeWorktree(worktreePath: string): void {
   }
 
   // Level 3: brute-force removal + prune
-  console.warn(`[orca/worktree] falling back to rmSync + prune for ${worktreePath}`);
+  console.warn(
+    `[orca/worktree] falling back to rmSync + prune for ${worktreePath}`,
+  );
   if (existsSync(worktreePath)) {
     rmSyncWithRetry(worktreePath);
   }
@@ -366,7 +381,9 @@ export function removeWorktree(worktreePath: string): void {
     // is checked out in worktree". git update-ref -d bypasses that check.
     if (worktreeBranchName) {
       try {
-        git(["update-ref", "-d", `refs/heads/${worktreeBranchName}`], { cwd: repoRoot });
+        git(["update-ref", "-d", `refs/heads/${worktreeBranchName}`], {
+          cwd: repoRoot,
+        });
       } catch {
         // Branch may not exist or was already cleaned up by worktree prune
       }

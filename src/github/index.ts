@@ -69,11 +69,24 @@ export function findPrForBranch(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const output = gh(
-        ["pr", "list", "--head", branchName, "--json", "url,number,state", "--limit", "1"],
+        [
+          "pr",
+          "list",
+          "--head",
+          branchName,
+          "--json",
+          "url,number,state",
+          "--limit",
+          "1",
+        ],
         { cwd },
       );
 
-      const prs = JSON.parse(output) as { url: string; number: number; state: string }[];
+      const prs = JSON.parse(output) as {
+        url: string;
+        number: number;
+        state: string;
+      }[];
       if (prs.length === 0) {
         return { exists: false };
       }
@@ -97,7 +110,8 @@ export function findPrForBranch(
       }
     }
   }
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  const msg =
+    lastError instanceof Error ? lastError.message : String(lastError);
   console.error(
     `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
   );
@@ -113,7 +127,16 @@ export function findPrForBranch(
 export function listOpenPrBranches(cwd: string): Set<string> {
   try {
     const output = gh(
-      ["pr", "list", "--state", "open", "--json", "headRefName", "--limit", "200"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--json",
+        "headRefName",
+        "--limit",
+        "200",
+      ],
       { cwd },
     );
     const prs = JSON.parse(output) as { headRefName: string }[];
@@ -129,7 +152,10 @@ export function listOpenPrBranches(cwd: string): Set<string> {
 // Async helpers for deploy monitoring
 // ---------------------------------------------------------------------------
 
-async function ghAsync(args: string[], options?: { cwd?: string }): Promise<string> {
+async function ghAsync(
+  args: string[],
+  options?: { cwd?: string },
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync("gh", args, {
       encoding: "utf-8",
@@ -182,9 +208,12 @@ export function closePr(prNumber: number, cwd: string): boolean {
   try {
     gh(
       [
-        "pr", "close", String(prNumber),
+        "pr",
+        "close",
+        String(prNumber),
         "--delete-branch",
-        "--comment", "Closed by Orca cleanup: orphaned PR with no running invocation or active task.",
+        "--comment",
+        "Closed by Orca cleanup: orphaned PR with no running invocation or active task.",
       ],
       { cwd },
     );
@@ -213,7 +242,16 @@ export function closeSupersededPrs(
   let prs: { headRefName: string; number: number }[];
   try {
     const output = gh(
-      ["pr", "list", "--state", "open", "--json", "headRefName,number", "--limit", "200"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--json",
+        "headRefName,number",
+        "--limit",
+        "200",
+      ],
       { cwd },
     );
     prs = JSON.parse(output) as { headRefName: string; number: number }[];
@@ -233,7 +271,9 @@ export function closeSupersededPrs(
     try {
       gh(
         [
-          "pr", "close", String(pr.number),
+          "pr",
+          "close",
+          String(pr.number),
           "--delete-branch",
           "--comment",
           `Superseded by PR #${newPrNumber} (invocation #${newInvocationId}).`,
@@ -265,7 +305,16 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
   let prs: { headRefName: string; number: number }[];
   try {
     const output = gh(
-      ["pr", "list", "--state", "open", "--json", "headRefName,number", "--limit", "200"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--json",
+        "headRefName,number",
+        "--limit",
+        "200",
+      ],
       { cwd },
     );
     prs = JSON.parse(output) as { headRefName: string; number: number }[];
@@ -284,7 +333,9 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
     try {
       gh(
         [
-          "pr", "close", String(pr.number),
+          "pr",
+          "close",
+          String(pr.number),
           "--delete-branch",
           "--comment",
           `Closed automatically: Linear issue ${taskId} was canceled.`,
@@ -327,7 +378,16 @@ export function closeOrphanedPrs(
   let prs: { headRefName: string; number: number; updatedAt: string }[];
   try {
     const output = gh(
-      ["pr", "list", "--state", "open", "--json", "headRefName,number,updatedAt", "--limit", "200"],
+      [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--json",
+        "headRefName,number,updatedAt",
+        "--limit",
+        "200",
+      ],
       { cwd },
     );
     prs = JSON.parse(output);
@@ -344,10 +404,13 @@ export function closeOrphanedPrs(
     if (opts.activeBranches.has(pr.headRefName)) continue;
 
     const updatedMs = new Date(pr.updatedAt).getTime();
-    if (Number.isNaN(updatedMs) || opts.now - updatedMs < opts.maxAgeMs) continue;
+    if (Number.isNaN(updatedMs) || opts.now - updatedMs < opts.maxAgeMs)
+      continue;
 
     if (closePr(pr.number, cwd)) {
-      console.log(`[orca/github] closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`);
+      console.log(
+        `[orca/github] closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
+      );
       closed++;
     }
   }
@@ -374,7 +437,11 @@ export async function getPrCheckStatus(
       ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
       { cwd },
     );
-    const checks = JSON.parse(output) as { name: string; state: string; bucket: string }[];
+    const checks = JSON.parse(output) as {
+      name: string;
+      state: string;
+      bucket: string;
+    }[];
 
     if (checks.length === 0) return "no_checks";
 
@@ -413,7 +480,7 @@ export async function mergePr(
 }
 
 export type PrMergeState = {
-  mergeable: string;      // "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+  mergeable: string; // "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
   mergeStateStatus: string; // "CLEAN" | "BEHIND" | "CONFLICTING" | "BLOCKED" | "UNKNOWN"
 };
 
@@ -430,8 +497,14 @@ export async function getPrMergeState(
       ["pr", "view", String(prNumber), "--json", "mergeable,mergeStateStatus"],
       { cwd },
     );
-    const data = JSON.parse(output) as { mergeable: string; mergeStateStatus: string };
-    return { mergeable: data.mergeable, mergeStateStatus: data.mergeStateStatus };
+    const data = JSON.parse(output) as {
+      mergeable: string;
+      mergeStateStatus: string;
+    };
+    return {
+      mergeable: data.mergeable,
+      mergeStateStatus: data.mergeStateStatus,
+    };
   } catch {
     return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" };
   }
@@ -469,22 +542,41 @@ export async function getWorkflowRunStatus(
 ): Promise<WorkflowRunStatus> {
   try {
     const output = await ghAsync(
-      ["run", "list", "--commit", commitSha, "--json", "status,conclusion", "--limit", "20"],
+      [
+        "run",
+        "list",
+        "--commit",
+        commitSha,
+        "--json",
+        "status,conclusion",
+        "--limit",
+        "20",
+      ],
       { cwd },
     );
-    const runs = JSON.parse(output) as { status: string; conclusion: string | null }[];
+    const runs = JSON.parse(output) as {
+      status: string;
+      conclusion: string | null;
+    }[];
 
     if (runs.length === 0) return "no_runs";
 
     // If any run is still in progress or queued, overall is in_progress
     const hasInProgress = runs.some(
-      (r) => r.status === "in_progress" || r.status === "queued" || r.status === "waiting" || r.status === "pending",
+      (r) =>
+        r.status === "in_progress" ||
+        r.status === "queued" ||
+        r.status === "waiting" ||
+        r.status === "pending",
     );
     if (hasInProgress) return "in_progress";
 
     // All runs completed — check conclusions
     const hasFailed = runs.some(
-      (r) => r.conclusion === "failure" || r.conclusion === "cancelled" || r.conclusion === "timed_out",
+      (r) =>
+        r.conclusion === "failure" ||
+        r.conclusion === "cancelled" ||
+        r.conclusion === "timed_out",
     );
     if (hasFailed) return "failure";
 

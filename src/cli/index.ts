@@ -48,12 +48,7 @@ program
   .option("--priority <n>", "Priority level 0-4 (lower runs first)", "0")
   .option("--id <text>", "Custom task ID (auto-generated if omitted)")
   .action(
-    (opts: {
-      prompt: string;
-      repo: string;
-      priority: string;
-      id?: string;
-    }) => {
+    (opts: { prompt: string; repo: string; priority: string; id?: string }) => {
       const priority = Number(opts.priority);
       if (!Number.isInteger(priority) || priority < 0 || priority > 4) {
         console.error("orca: --priority must be an integer between 0 and 4");
@@ -159,9 +154,7 @@ program
     await fullSync(db, client, graph, config);
 
     // Fetch workflow states for write-back (state name → state UUID)
-    const teamIds = [
-      ...new Set(projectMeta.flatMap((pm) => pm.teamIds)),
-    ];
+    const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
     const stateMap = await client.fetchWorkflowStates(teamIds);
 
     // Start Hono HTTP server with webhook endpoint
@@ -286,7 +279,10 @@ program
     ).length;
 
     // Budget
-    const costInWindow = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
+    const costInWindow = sumCostInWindow(
+      db,
+      budgetWindowStart(config.budgetWindowHours),
+    );
 
     console.log("=== Orca Status ===");
     console.log();

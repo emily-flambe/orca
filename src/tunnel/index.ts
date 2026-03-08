@@ -84,9 +84,7 @@ export function startTunnel(options?: TunnelOptions): TunnelHandle {
   let proc: ChildProcess | null = null;
   let stopped = false;
 
-  const args = token
-    ? ["tunnel", "run", "--token", token]
-    : ["tunnel", "run"];
+  const args = token ? ["tunnel", "run", "--token", token] : ["tunnel", "run"];
 
   log(`spawning: ${bin} ${args.join(" ").replace(token ?? "", "<redacted>")}`);
 

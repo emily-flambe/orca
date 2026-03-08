@@ -5,7 +5,11 @@ import { removeWorktree } from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
-import { getAllTasks, getLastMaxTurnsInvocation, getRunningInvocations } from "../db/queries.js";
+import {
+  getAllTasks,
+  getLastMaxTurnsInvocation,
+  getRunningInvocations,
+} from "../db/queries.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,15 +36,9 @@ function log(message: string): void {
  * Get the commit date of the latest commit on a branch, in ms since epoch.
  * Returns null if the branch or log command fails.
  */
-function getBranchLastCommitMs(
-  branchName: string,
-  cwd: string,
-): number | null {
+function getBranchLastCommitMs(branchName: string, cwd: string): number | null {
   try {
-    const dateStr = git(
-      ["log", "-1", "--format=%ci", branchName],
-      { cwd },
-    );
+    const dateStr = git(["log", "-1", "--format=%ci", branchName], { cwd });
     if (!dateStr) return null;
     const ms = new Date(dateStr).getTime();
     return Number.isNaN(ms) ? null : ms;
@@ -230,7 +228,8 @@ function cleanupRepo(
   try {
     const siblings = readdirSync(parentDir);
     for (const entry of siblings) {
-      if (!normalizePath(entry).startsWith(`${normalizedRepoDirname}-`)) continue;
+      if (!normalizePath(entry).startsWith(`${normalizedRepoDirname}-`))
+        continue;
       // Skip the base repo itself
       if (normalizePath(entry) === normalizedRepoDirname) continue;
 

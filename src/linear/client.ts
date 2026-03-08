@@ -91,7 +91,9 @@ export class LinearClient {
       if (attempt > 0) {
         // Exponential backoff: 1s, 2s, 4s
         const delayMs = Math.pow(2, attempt - 1) * 1000;
-        log(`retrying request (attempt ${attempt}/${MAX_RETRIES}) after ${delayMs}ms`);
+        log(
+          `retrying request (attempt ${attempt}/${MAX_RETRIES}) after ${delayMs}ms`,
+        );
         await sleep(delayMs);
       }
 
@@ -120,7 +122,10 @@ export class LinearClient {
       const remaining = response.headers.get("X-RateLimit-Requests-Remaining");
       if (remaining !== null) {
         const remainingNum = parseInt(remaining, 10);
-        if (!Number.isNaN(remainingNum) && remainingNum < RATE_LIMIT_WARN_THRESHOLD) {
+        if (
+          !Number.isNaN(remainingNum) &&
+          remainingNum < RATE_LIMIT_WARN_THRESHOLD
+        ) {
           warn(`rate limit low (${remainingNum} remaining)`);
         }
       }
@@ -149,9 +154,7 @@ export class LinearClient {
       // Other client errors -- do NOT retry
       if (!response.ok) {
         const body = await response.text().catch(() => "(unreadable body)");
-        throw new Error(
-          `LinearClient: HTTP ${response.status}: ${body}`,
-        );
+        throw new Error(`LinearClient: HTTP ${response.status}: ${body}`);
       }
 
       // Parse JSON response
@@ -286,7 +289,9 @@ export class LinearClient {
       cursor = data.issues.pageInfo.endCursor;
     }
 
-    log(`fetched ${allIssues.length} issues from ${projectIds.length} project(s)`);
+    log(
+      `fetched ${allIssues.length} issues from ${projectIds.length} project(s)`,
+    );
     return allIssues;
   }
 
@@ -298,9 +303,7 @@ export class LinearClient {
    * Fetch project descriptions and team IDs in a single query.
    * Used at startup to build the per-project repo map and resolve team IDs.
    */
-  async fetchProjectMetadata(
-    projectIds: string[],
-  ): Promise<ProjectMetadata[]> {
+  async fetchProjectMetadata(projectIds: string[]): Promise<ProjectMetadata[]> {
     if (projectIds.length === 0) return [];
 
     const graphql = `
@@ -404,7 +407,11 @@ export class LinearClient {
     return data.commentCreate.success;
   }
 
-  async createAttachment(issueId: string, url: string, title: string): Promise<boolean> {
+  async createAttachment(
+    issueId: string,
+    url: string,
+    title: string,
+  ): Promise<boolean> {
     const graphql = `
       mutation($issueId: String!, $url: String!, $title: String!) {
         attachmentCreate(input: { issueId: $issueId, url: $url, title: $title }) {
@@ -453,7 +460,10 @@ export class LinearClient {
       }
     `;
     const data = await this.query<{
-      issueCreate: { success: boolean; issue: { id: string; identifier: string } };
+      issueCreate: {
+        success: boolean;
+        issue: { id: string; identifier: string };
+      };
     }>(graphql, { input });
     if (!data.issueCreate.success || !data.issueCreate.issue) {
       throw new Error("LinearClient: issueCreate returned success=false");

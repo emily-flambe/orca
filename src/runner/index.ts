@@ -113,7 +113,7 @@ const WINDOWS_EXIT_CODES: Record<number, string> = {
 /** Signed 32-bit equivalents (Node sometimes reports signed values). */
 const WINDOWS_EXIT_CODES_SIGNED: Record<number, string> = {};
 for (const [code, name] of Object.entries(WINDOWS_EXIT_CODES)) {
-  const signed = (Number(code) | 0); // Convert to signed 32-bit
+  const signed = Number(code) | 0; // Convert to signed 32-bit
   if (signed < 0) WINDOWS_EXIT_CODES_SIGNED[signed] = name;
 }
 
@@ -177,7 +177,10 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
  * This deletes conversation transcripts (jsonl files) for the main repo too,
  * but that's acceptable — agent sessions are ephemeral.
  */
-function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): void {
+function cleanStaleClaudeProjectDirs(
+  worktreePath: string,
+  repoPath?: string,
+): void {
   try {
     const projectsDir = join(homedir(), ".claude", "projects");
 
@@ -203,7 +206,11 @@ function cleanStaleClaudeProjectDirs(worktreePath: string, repoPath?: string): v
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       // Match the main repo dir exactly OR any worktree dir (has - suffix)
-      if (entry.name !== mainRepoKey && !entry.name.startsWith(mainRepoKey + "-")) continue;
+      if (
+        entry.name !== mainRepoKey &&
+        !entry.name.startsWith(mainRepoKey + "-")
+      )
+        continue;
 
       const fullPath = join(projectsDir, entry.name);
       rmSync(fullPath, { recursive: true, force: true });
@@ -450,8 +457,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       if (type === "rate_limit_event") {
         if (msg.overageStatus === "rejected") {
           rateLimitDetected = true;
-          rateLimitType = typeof msg.rateLimitType === "string" ? msg.rateLimitType : null;
-          rateLimitResetsAt = typeof msg.resetsAt === "string" ? msg.resetsAt : null;
+          rateLimitType =
+            typeof msg.rateLimitType === "string" ? msg.rateLimitType : null;
+          rateLimitResetsAt =
+            typeof msg.resetsAt === "string" ? msg.resetsAt : null;
         }
         return;
       }
@@ -471,27 +480,27 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
         // The SDK uses `total_cost_usd`; older CLI versions used `cost_usd`.
         const costRaw = msg.total_cost_usd ?? msg.cost_usd ?? null;
-        const costUsd =
-          typeof costRaw === "number" ? costRaw : null;
+        const costUsd = typeof costRaw === "number" ? costRaw : null;
 
         const numTurnsRaw = msg.num_turns ?? null;
-        const numTurns =
-          typeof numTurnsRaw === "number" ? numTurnsRaw : null;
+        const numTurns = typeof numTurnsRaw === "number" ? numTurnsRaw : null;
 
         // Build a human-readable summary.
         let outputSummary: string;
         if (subtype === "success") {
-          const resultText =
-            typeof msg.result === "string" ? msg.result : "";
+          const resultText = typeof msg.result === "string" ? msg.result : "";
           // Extract REVIEW_RESULT marker before truncation — the scheduler
           // parses it from outputSummary and it's often at the end of long reviews.
-          const markerMatch = resultText.match(/REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/);
+          const markerMatch = resultText.match(
+            /REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/,
+          );
           const truncated = resultText
             ? resultText.slice(0, 500)
             : "completed successfully";
-          outputSummary = markerMatch && !truncated.includes(markerMatch[0])
-            ? `${markerMatch[0]}\n\n${truncated}`
-            : truncated;
+          outputSummary =
+            markerMatch && !truncated.includes(markerMatch[0])
+              ? `${markerMatch[0]}\n\n${truncated}`
+              : truncated;
         } else if (subtype === "error_max_turns") {
           outputSummary = "max turns reached";
         } else if (subtype === "error_during_execution") {
@@ -642,7 +651,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
  * @param handle - The session handle returned by {@link spawnSession}.
  * @returns The final {@link SessionResult}.
  */
-export async function killSession(handle: SessionHandle): Promise<SessionResult> {
+export async function killSession(
+  handle: SessionHandle,
+): Promise<SessionResult> {
   const proc = handle.process;
 
   // If already exited, just return the result.

@@ -110,7 +110,13 @@ export function createPoller(deps: PollerDeps): PollerHandle {
       }
 
       // 7.3 Reuse fullSync for simplicity — it's idempotent
-      await fullSync(deps.db, deps.client, deps.graph, deps.config, deps.stateMap);
+      await fullSync(
+        deps.db,
+        deps.client,
+        deps.graph,
+        deps.config,
+        deps.stateMap,
+      );
 
       // Success — reset backoff
       if (consecutiveFailures > 0) {

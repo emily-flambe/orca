@@ -43,7 +43,9 @@ export function emitInvocationStarted(payload: InvocationStartedPayload): void {
   orcaEvents.emit("invocation:started", payload);
 }
 
-export function emitInvocationCompleted(payload: InvocationCompletedPayload): void {
+export function emitInvocationCompleted(
+  payload: InvocationCompletedPayload,
+): void {
   orcaEvents.emit("invocation:completed", payload);
 }
 
