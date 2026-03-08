@@ -16,7 +16,8 @@
     "format": "prettier --write src",
     "format:check": "prettier --check src web/src",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "test:e2e": "playwright test"
   },
   "keywords": [
     "ai",
@@ -35,6 +36,7 @@
     "hono": "^4.12.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.3.2",
     "drizzle-kit": "^0.31.9",
