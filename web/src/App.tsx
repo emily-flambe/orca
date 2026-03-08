@@ -9,11 +9,38 @@ import {
 import { useSSE } from "./hooks/useSSE";
 import Sidebar from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
+import Header from "./components/Header";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
+
+function getStoredTheme(): "dark" | "light" {
+  try {
+    const stored = localStorage.getItem("orca-theme");
+    if (stored === "light") return "light";
+  } catch {
+    // ignore
+  }
+  return "dark";
+}
+
+function applyTheme(theme: "dark" | "light") {
+  if (theme === "dark") {
+    document.documentElement.classList.add("dark");
+  } else {
+    document.documentElement.classList.remove("dark");
+  }
+  try {
+    localStorage.setItem("orca-theme", theme);
+  } catch {
+    // ignore
+  }
+}
+
+// Apply theme synchronously before first render to avoid flash
+applyTheme(getStoredTheme());
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
@@ -260,6 +287,15 @@ export default function App() {
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">(getStoredTheme);
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
 
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -398,18 +434,12 @@ export default function App() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile hamburger header */}
-        <div className="md:hidden flex items-center px-4 h-12 border-b border-gray-800 shrink-0 bg-gray-950">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="text-gray-400 hover:text-gray-200 transition-colors text-lg"
-          >
-            ☰
-          </button>
-          <span className="ml-3 text-sm font-bold tracking-widest uppercase text-gray-100">
-            Orca
-          </span>
-        </div>
+        <Header
+          activePage={activePage}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
 
         {/* Orchestrator bar — persistent status/action bar */}
         <OrchestratorBar
