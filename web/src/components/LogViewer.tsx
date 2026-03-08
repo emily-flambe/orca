@@ -1,4 +1,10 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+} from "react";
 import { fetchInvocationLogs } from "../hooks/useApi";
 
 interface Props {
@@ -243,8 +249,7 @@ export default function LogViewer({
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    const distanceFromBottom =
-      el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     pinnedRef.current = distanceFromBottom < 50;
     setShowJump(distanceFromBottom >= 50);
   }, []);
@@ -347,7 +352,9 @@ export default function LogViewer({
   }, [invocationId, isRunning]);
 
   if (loading) {
-    return <div className="p-4 text-sm text-gray-500 font-mono">Loading logs...</div>;
+    return (
+      <div className="p-4 text-sm text-gray-500 font-mono">Loading logs...</div>
+    );
   }
 
   if (error) {
@@ -388,120 +395,120 @@ export default function LogViewer({
 
   return (
     <div className="relative">
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className={`overflow-y-auto overflow-x-hidden p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono ${compact ? "max-h-64" : "max-h-[32rem]"}`}
-    >
-      {lines.map((line, idx) => {
-        const type = line.type;
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className={`overflow-y-auto overflow-x-hidden p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono ${compact ? "max-h-64" : "max-h-[32rem]"}`}
+      >
+        {lines.map((line, idx) => {
+          const type = line.type;
 
-        // System messages — show non-init ones as yellow, skip init
-        if (type === "system") {
-          return <SystemLine key={idx} line={line} />;
-        }
+          // System messages — show non-init ones as yellow, skip init
+          if (type === "system") {
+            return <SystemLine key={idx} line={line} />;
+          }
 
-        // Stderr output — red
-        if (type === "stderr") {
-          return <StderrLine key={idx} line={line} />;
-        }
+          // Stderr output — red
+          if (type === "stderr") {
+            return <StderrLine key={idx} line={line} />;
+          }
 
-        // Stdout / info — gray
-        if (type === "stdout" || type === "info") {
-          return <StdoutLine key={idx} line={line} />;
-        }
+          // Stdout / info — gray
+          if (type === "stdout" || type === "info") {
+            return <StdoutLine key={idx} line={line} />;
+          }
 
-        // Process exit — gray (normal) or yellow (abnormal)
-        if (type === "process_exit") {
-          return <ProcessExitLine key={idx} line={line} />;
-        }
+          // Process exit — gray (normal) or yellow (abnormal)
+          if (type === "process_exit") {
+            return <ProcessExitLine key={idx} line={line} />;
+          }
 
-        // Result footer
-        if (type === "result") {
-          return <ResultFooter key={idx} line={line} />;
-        }
+          // Result footer
+          if (type === "result") {
+            return <ResultFooter key={idx} line={line} />;
+          }
 
-        // Assistant messages — green text, cyan tool calls, purple thinking
-        if (type === "assistant" && line.message?.content) {
-          const blocks = line.message.content;
-          const hasContent = blocks.some(
-            (b) =>
-              (b.type === "text" && b.text) ||
-              b.type === "tool_use" ||
-              (b.type === "thinking" && b.thinking),
-          );
-          if (!hasContent) return null;
+          // Assistant messages — green text, cyan tool calls, purple thinking
+          if (type === "assistant" && line.message?.content) {
+            const blocks = line.message.content;
+            const hasContent = blocks.some(
+              (b) =>
+                (b.type === "text" && b.text) ||
+                b.type === "tool_use" ||
+                (b.type === "thinking" && b.thinking),
+            );
+            if (!hasContent) return null;
 
-          return (
-            <div key={idx} className="space-y-1">
-              {blocks.map((block, bi) => {
-                if (block.type === "text" && block.text) {
-                  return <TextBlock key={bi} text={block.text} />;
-                }
-                if (block.type === "tool_use" && block.name) {
+            return (
+              <div key={idx} className="space-y-1">
+                {blocks.map((block, bi) => {
+                  if (block.type === "text" && block.text) {
+                    return <TextBlock key={bi} text={block.text} />;
+                  }
+                  if (block.type === "tool_use" && block.name) {
+                    return (
+                      <ToolUseBlock
+                        key={bi}
+                        name={block.name}
+                        input={block.input}
+                      />
+                    );
+                  }
+                  if (block.type === "thinking" && block.thinking) {
+                    return <ThinkingBlock key={bi} text={block.thinking} />;
+                  }
+                  return null;
+                })}
+              </div>
+            );
+          }
+
+          // User messages — render tool_result blocks in cyan-dimmer
+          if (type === "user" && line.message?.content) {
+            const blocks = line.message.content;
+            const resultBlocks = blocks.filter((b) => b.type === "tool_result");
+            if (resultBlocks.length === 0) return null;
+
+            return (
+              <div key={idx} className="space-y-1">
+                {resultBlocks.map((block, bi) => {
+                  if (block.content == null) return null;
                   return (
-                    <ToolUseBlock
+                    <ToolResultBlock
                       key={bi}
-                      name={block.name}
-                      input={block.input}
+                      content={
+                        block.content as
+                          | string
+                          | Array<{ type: string; text?: string }>
+                      }
                     />
                   );
-                }
-                if (block.type === "thinking" && block.thinking) {
-                  return <ThinkingBlock key={bi} text={block.thinking} />;
-                }
-                return null;
-              })}
-            </div>
-          );
-        }
+                })}
+              </div>
+            );
+          }
 
-        // User messages — render tool_result blocks in cyan-dimmer
-        if (type === "user" && line.message?.content) {
-          const blocks = line.message.content;
-          const resultBlocks = blocks.filter((b) => b.type === "tool_result");
-          if (resultBlocks.length === 0) return null;
-
-          return (
-            <div key={idx} className="space-y-1">
-              {resultBlocks.map((block, bi) => {
-                if (block.content == null) return null;
-                return (
-                  <ToolResultBlock
-                    key={bi}
-                    content={
-                      block.content as
-                        | string
-                        | Array<{ type: string; text?: string }>
-                    }
-                  />
-                );
-              })}
-            </div>
-          );
-        }
-
-        // Skip other message types
-        return null;
-      })}
-      {isRunning && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-          </span>
-          Session running...
-        </div>
+          // Skip other message types
+          return null;
+        })}
+        {isRunning && (
+          <div className="flex items-center gap-2 text-xs text-gray-500 font-mono">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+            </span>
+            Session running...
+          </div>
+        )}
+      </div>
+      {showJump && (
+        <button
+          onClick={handleJumpToBottom}
+          className="absolute bottom-4 right-4 flex items-center gap-1 px-3 py-1.5 text-xs font-mono bg-gray-800 border border-gray-600 text-gray-300 rounded-full shadow-lg hover:bg-gray-700 hover:text-white transition-colors"
+        >
+          ↓ Jump to bottom
+        </button>
       )}
-    </div>
-    {showJump && (
-      <button
-        onClick={handleJumpToBottom}
-        className="absolute bottom-4 right-4 flex items-center gap-1 px-3 py-1.5 text-xs font-mono bg-gray-800 border border-gray-600 text-gray-300 rounded-full shadow-lg hover:bg-gray-700 hover:text-white transition-colors"
-      >
-        ↓ Jump to bottom
-      </button>
-    )}
     </div>
   );
 }

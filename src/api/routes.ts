@@ -337,10 +337,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const delivered = sendPrompt(handle, prompt.trim());
     if (!delivered) {
-      return c.json(
-        { error: "session process is not accepting input" },
-        409,
-      );
+      return c.json({ error: "session process is not accepting input" }, 409);
     }
 
     return c.json({ ok: true });
@@ -584,7 +581,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
     const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
 
-    const prev24hStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const prev24hStart = new Date(
+      Date.now() - 48 * 60 * 60 * 1000,
+    ).toISOString();
     const prev24hEnd = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
 

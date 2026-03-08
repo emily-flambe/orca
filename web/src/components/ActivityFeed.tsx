@@ -13,21 +13,31 @@ function timeAgo(iso: string): string {
 
 function statusColor(s: string): string {
   switch (s) {
-    case "completed": return "text-green-400";
-    case "running": return "text-blue-400";
-    case "failed": return "text-red-400";
-    case "timed_out": return "text-orange-400";
-    default: return "text-gray-400";
+    case "completed":
+      return "text-green-400";
+    case "running":
+      return "text-blue-400";
+    case "failed":
+      return "text-red-400";
+    case "timed_out":
+      return "text-orange-400";
+    default:
+      return "text-gray-400";
   }
 }
 
 function statusDot(s: string): string {
   switch (s) {
-    case "completed": return "bg-green-400";
-    case "running": return "bg-blue-400";
-    case "failed": return "bg-red-400";
-    case "timed_out": return "bg-orange-400";
-    default: return "bg-gray-500";
+    case "completed":
+      return "bg-green-400";
+    case "running":
+      return "bg-blue-400";
+    case "failed":
+      return "bg-red-400";
+    case "timed_out":
+      return "bg-orange-400";
+    default:
+      return "bg-gray-500";
   }
 }
 
@@ -53,17 +63,29 @@ export default function ActivityFeed({ entries, onNavigate }: Props) {
           onClick={() => onNavigate?.(entry.linearIssueId, entry.id)}
           className={`flex items-center gap-3 py-2.5 px-1 rounded transition-colors${onNavigate ? " cursor-pointer hover:bg-gray-800/60" : ""}`}
         >
-          <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot(entry.status)}`} />
-          <span className="font-mono text-sm text-gray-200 shrink-0">{entry.linearIssueId}</span>
+          <span
+            className={`inline-block h-2 w-2 rounded-full shrink-0 ${statusDot(entry.status)}`}
+          />
+          <span className="font-mono text-sm text-gray-200 shrink-0">
+            {entry.linearIssueId}
+          </span>
           {entry.phase && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">{entry.phase}</span>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
+              {entry.phase}
+            </span>
           )}
-          <span className={`text-xs ${statusColor(entry.status)}`}>{entry.status}</span>
+          <span className={`text-xs ${statusColor(entry.status)}`}>
+            {entry.status}
+          </span>
           <span className="flex-1" />
           {entry.costUsd != null && (
-            <span className="text-xs text-gray-500 font-mono tabular-nums">${entry.costUsd.toFixed(2)}</span>
+            <span className="text-xs text-gray-500 font-mono tabular-nums">
+              ${entry.costUsd.toFixed(2)}
+            </span>
           )}
-          <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">{timeAgo(entry.startedAt)}</span>
+          <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">
+            {timeAgo(entry.startedAt)}
+          </span>
         </div>
       ))}
     </div>

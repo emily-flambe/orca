@@ -1,5 +1,11 @@
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, readdirSync, copyFileSync, rmSync, renameSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  copyFileSync,
+  rmSync,
+  renameSync,
+} from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
 import { git, cleanStaleLockFiles } from "../git.js";

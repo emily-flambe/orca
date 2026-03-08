@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Task, OrcaStatus } from "./types";
-import { fetchTasks, fetchStatus, triggerSync, updateConfig } from "./hooks/useApi";
+import {
+  fetchTasks,
+  fetchStatus,
+  triggerSync,
+  updateConfig,
+} from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
 import Sidebar from "./components/Sidebar";
 import type { Page } from "./components/Sidebar";
@@ -149,8 +154,10 @@ function SettingsPage({
           Models
         </div>
         {(["implement", "review", "fix"] as const).map((phase) => {
-          const field =
-            `${phase}Model` as "implementModel" | "reviewModel" | "fixModel";
+          const field = `${phase}Model` as
+            | "implementModel"
+            | "reviewModel"
+            | "fixModel";
           return (
             <div key={phase} className="flex items-center gap-3">
               <span className="text-sm text-gray-400 w-20 capitalize">
@@ -223,7 +230,11 @@ function TasksPage({
           ← Tasks
         </button>
         {selectedTaskId ? (
-          <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} initialInvocationId={expandedInvocationId ?? undefined} />
+          <TaskDetail
+            key={`${selectedTaskId}-${detailKey}`}
+            taskId={selectedTaskId}
+            initialInvocationId={expandedInvocationId ?? undefined}
+          />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500">
             Select a task to view details
@@ -243,7 +254,9 @@ export default function App() {
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
-  const [expandedInvocationId, setExpandedInvocationId] = useState<number | null>(null);
+  const [expandedInvocationId, setExpandedInvocationId] = useState<
+    number | null
+  >(null);
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -286,7 +299,7 @@ export default function App() {
         setDetailKey((k) => k + 1);
       }
     },
-    [selectedTaskId]
+    [selectedTaskId],
   );
 
   const handleTasksRefreshed = useCallback(() => {
@@ -319,14 +332,14 @@ export default function App() {
       const newStatus = await fetchStatus();
       setStatus(newStatus);
     },
-    []
+    [],
   );
 
   const handleNewTicket = useCallback(
     async (_identifier: string) => {
       await handleSync();
     },
-    [handleSync]
+    [handleSync],
   );
 
   useSSE({
@@ -353,17 +366,14 @@ export default function App() {
       setMobileView("detail");
       setSidebarOpen(false);
     },
-    [tasks]
+    [tasks],
   );
 
-  const handleNavigate = useCallback(
-    (page: Page) => {
-      setActivePage(page);
-      setSidebarOpen(false);
-      if (page === "tasks") setMobileView("list");
-    },
-    []
-  );
+  const handleNavigate = useCallback((page: Page) => {
+    setActivePage(page);
+    setSidebarOpen(false);
+    if (page === "tasks") setMobileView("list");
+  }, []);
 
   return (
     <div className="h-screen flex bg-gray-950 text-gray-100">
@@ -422,7 +432,9 @@ export default function App() {
           />
         )}
 
-        {activePage === "dashboard" && <Dashboard onNavigateToInvocation={handleNavigateToInvocation} />}
+        {activePage === "dashboard" && (
+          <Dashboard onNavigateToInvocation={handleNavigateToInvocation} />
+        )}
 
         {activePage === "logs" && (
           <div className="flex-1 overflow-hidden flex flex-col">

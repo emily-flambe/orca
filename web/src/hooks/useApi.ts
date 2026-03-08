@@ -27,7 +27,9 @@ export async function triggerSync(): Promise<{ synced: number }> {
   return fetchJson<{ synced: number }>("/sync", { method: "POST" });
 }
 
-export function fetchRunningInvocations(): Promise<import("../types").Invocation[]> {
+export function fetchRunningInvocations(): Promise<
+  import("../types").Invocation[]
+> {
   return fetchJson<import("../types").Invocation[]>("/invocations/running");
 }
 
@@ -36,14 +38,21 @@ export function fetchInvocationLogs(id: number): Promise<{ lines: unknown[] }> {
 }
 
 export function abortInvocation(id: number): Promise<{ ok: boolean }> {
-  return fetchJson<{ ok: boolean }>(`/invocations/${id}/abort`, { method: "POST" });
+  return fetchJson<{ ok: boolean }>(`/invocations/${id}/abort`, {
+    method: "POST",
+  });
 }
 
 export function retryTask(id: string): Promise<{ ok: boolean }> {
-  return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/retry`, {
+    method: "POST",
+  });
 }
 
-export function updateTaskStatus(id: string, status: string): Promise<{ ok: boolean }> {
+export function updateTaskStatus(
+  id: string,
+  status: string,
+): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -56,8 +65,20 @@ export function updateConfig(config: {
   implementModel?: string;
   reviewModel?: string;
   fixModel?: string;
-}): Promise<{ ok: boolean; concurrencyCap: number; implementModel: string; reviewModel: string; fixModel: string }> {
-  return fetchJson<{ ok: boolean; concurrencyCap: number; implementModel: string; reviewModel: string; fixModel: string }>("/config", {
+}): Promise<{
+  ok: boolean;
+  concurrencyCap: number;
+  implementModel: string;
+  reviewModel: string;
+  fixModel: string;
+}> {
+  return fetchJson<{
+    ok: boolean;
+    concurrencyCap: number;
+    implementModel: string;
+    reviewModel: string;
+    fixModel: string;
+  }>("/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
@@ -123,7 +144,10 @@ export interface SystemLogsData {
   sizeBytes: number;
 }
 
-export function fetchSystemLogs(params?: { tail?: number; filter?: string }): Promise<SystemLogsData> {
+export function fetchSystemLogs(params?: {
+  tail?: number;
+  filter?: string;
+}): Promise<SystemLogsData> {
   const qs = new URLSearchParams();
   if (params?.tail != null) qs.set("tail", String(params.tail));
   if (params?.filter) qs.set("filter", params.filter);
@@ -154,7 +178,10 @@ export function createTask(data: {
   });
 }
 
-export function sendInvocationPrompt(id: number, prompt: string): Promise<{ ok: boolean }> {
+export function sendInvocationPrompt(
+  id: number,
+  prompt: string,
+): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/invocations/${id}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

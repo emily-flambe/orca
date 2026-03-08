@@ -68,7 +68,9 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
@@ -84,7 +86,9 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
         <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
           {/* Title */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Title <span className="text-red-400">*</span></label>
+            <label className="block text-xs text-gray-400 mb-1">
+              Title <span className="text-red-400">*</span>
+            </label>
             <input
               ref={titleRef}
               type="text"
@@ -98,7 +102,9 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
 
           {/* Description */}
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Description</label>
+            <label className="block text-xs text-gray-400 mb-1">
+              Description
+            </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -112,28 +118,36 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
           <div className="flex gap-3">
             {/* Project */}
             <div className="flex-1">
-              <label className="block text-xs text-gray-400 mb-1">Project</label>
+              <label className="block text-xs text-gray-400 mb-1">
+                Project
+              </label>
               <select
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
               >
                 {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </select>
             </div>
 
             {/* Priority */}
             <div className="w-36">
-              <label className="block text-xs text-gray-400 mb-1">Priority</label>
+              <label className="block text-xs text-gray-400 mb-1">
+                Priority
+              </label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(Number(e.target.value))}
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
               >
                 {PRIORITY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -143,7 +157,9 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
               <label className="block text-xs text-gray-400 mb-1">Status</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as "todo" | "backlog")}
+                onChange={(e) =>
+                  setStatus(e.target.value as "todo" | "backlog")
+                }
                 className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
               >
                 <option value="todo">Todo</option>
@@ -152,9 +168,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
             </div>
           </div>
 
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
 
           <div className="flex justify-end gap-3 pt-1">
             <button

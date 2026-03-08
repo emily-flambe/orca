@@ -2,7 +2,17 @@ export interface Task {
   linearIssueId: string;
   agentPrompt: string;
   repoPath: string;
-  orcaStatus: "backlog" | "ready" | "dispatched" | "running" | "done" | "failed" | "in_review" | "changes_requested" | "deploying" | "awaiting_ci";
+  orcaStatus:
+    | "backlog"
+    | "ready"
+    | "dispatched"
+    | "running"
+    | "done"
+    | "failed"
+    | "in_review"
+    | "changes_requested"
+    | "deploying"
+    | "awaiting_ci";
   priority: number;
   retryCount: number;
   prBranchName: string | null;

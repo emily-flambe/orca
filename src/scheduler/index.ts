@@ -678,8 +678,12 @@ function onImplementSuccess(
     // Claude made no changes — the task was already complete.
     const noChanges = worktreeHasNoChanges(worktreePath);
     if (noChanges || isAlreadyDone) {
-      const reason = noChanges ? "no local commits on worktree" : "output summary indicates already done";
-      log(`task ${taskId}: work already complete on main (${reason}) — marking done`);
+      const reason = noChanges
+        ? "no local commits on worktree"
+        : "output summary indicates already done";
+      log(
+        `task ${taskId}: work already complete on main (${reason}) — marking done`,
+      );
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
@@ -687,9 +691,18 @@ function onImplementSuccess(
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
       try {
-        const closedCount = closeSupersededPrs(taskId, 0, 0, "", task.repoPath, "Closed: the task was already complete on the main branch — no changes were needed.");
+        const closedCount = closeSupersededPrs(
+          taskId,
+          0,
+          0,
+          "",
+          task.repoPath,
+          "Closed: the task was already complete on the main branch — no changes were needed.",
+        );
         if (closedCount > 0) {
-          log(`closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`);
+          log(
+            `closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`,
+          );
         }
       } catch (err) {
         log(`PR cleanup for already-done task ${taskId}: ${err}`);
@@ -736,12 +749,13 @@ function onImplementSuccess(
       // hijacking Gate 2 (e.g. a reference PR from another org/repo).
       let repoUrlPrefix: string | null = null;
       try {
-        const remoteUrl = git(
-          ["remote", "get-url", "origin"],
-          { cwd: task.repoPath },
-        ).trim();
+        const remoteUrl = git(["remote", "get-url", "origin"], {
+          cwd: task.repoPath,
+        }).trim();
         // Normalize SSH → HTTPS: git@github.com:owner/repo.git → https://github.com/owner/repo
-        const sshMatch = remoteUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+        const sshMatch = remoteUrl.match(
+          /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
+        );
         if (sshMatch) {
           repoUrlPrefix = `https://github.com/${sshMatch[1]}/pull/`;
         }
@@ -774,8 +788,12 @@ function onImplementSuccess(
     // Check objectively (git diff) or via text patterns if no PR was opened
     const noChanges = worktreeHasNoChanges(worktreePath);
     if (noChanges || isAlreadyDone) {
-      const reason = noChanges ? "no local commits on worktree" : "output summary indicates already done";
-      log(`task ${taskId}: work already complete on main (no PR needed, ${reason}) — marking done`);
+      const reason = noChanges
+        ? "no local commits on worktree"
+        : "output summary indicates already done";
+      log(
+        `task ${taskId}: work already complete on main (no PR needed, ${reason}) — marking done`,
+      );
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
@@ -783,9 +801,18 @@ function onImplementSuccess(
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
       try {
-        const closedCount = closeSupersededPrs(taskId, 0, 0, "", task.repoPath, "Closed: the task was already complete on the main branch — no changes were needed.");
+        const closedCount = closeSupersededPrs(
+          taskId,
+          0,
+          0,
+          "",
+          task.repoPath,
+          "Closed: the task was already complete on the main branch — no changes were needed.",
+        );
         if (closedCount > 0) {
-          log(`closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`);
+          log(
+            `closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`,
+          );
         }
       } catch (err) {
         log(`PR cleanup for already-done task ${taskId}: ${err}`);
@@ -1127,7 +1154,9 @@ function onSessionFailure(
   }
 
   // Content filtering: permanent failure — retries are futile (same prompt → same block)
-  if (result.outputSummary?.includes("Output blocked by content filtering policy")) {
+  if (
+    result.outputSummary?.includes("Output blocked by content filtering policy")
+  ) {
     log(
       `task ${taskId}: content filtering — permanently failing without retries (retries would be futile)`,
     );
@@ -1143,9 +1172,7 @@ function onSessionFailure(
     terminalWriteBackTasks.add(taskId);
     writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
       (err) => {
-        log(
-          `write-back failed on content filter for task ${taskId}: ${err}`,
-        );
+        log(`write-back failed on content filter for task ${taskId}: ${err}`);
       },
     );
     client
