@@ -21,6 +21,7 @@ import {
   updateInvocation,
   updateTaskCiInfo,
   updateTaskDeployInfo,
+  updateTaskFixReason,
   updateTaskPrBranch,
   updateTaskStatus,
 } from "../db/queries.js";
@@ -42,7 +43,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError } from "../git.js";
-import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, closeSupersededPrs } from "../github/index.js";
+import { findPrForBranch, getMergeCommitSha, getPrCheckStatus, getWorkflowRunStatus, mergePr, getPrMergeState, updatePrBranch, closeSupersededPrs } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
@@ -340,9 +341,15 @@ async function dispatch(
     maxTurns = config.reviewMaxTurns;
   } else if (useExistingBranch) {
     // Fix phase (implement on changes_requested)
-    agentPrompt = isResume
-      ? `You previously implemented this task. The code review requested changes — fix the issues raised in the review.`
-      : `${task.agentPrompt}\n\nFix issues from code review.`;
+    if (task.fixReason === "merge_conflict") {
+      agentPrompt = `${task.agentPrompt}\n\nThe PR branch has merge conflicts. Run \`git fetch origin && git rebase origin/main\` to rebase onto main, resolve any conflicts, then force-push the branch.`;
+      // Clear the fix reason so subsequent fix cycles (if needed) use the normal prompt
+      updateTaskFixReason(db, taskId, null);
+    } else {
+      agentPrompt = isResume
+        ? `You previously implemented this task. The code review requested changes — fix the issues raised in the review.`
+        : `${task.agentPrompt}\n\nFix issues from code review.`;
+    }
     systemPrompt = config.fixSystemPrompt || undefined;
   } else if (isResume) {
     // Resume: continuation prompt instead of full task prompt
@@ -1248,6 +1255,58 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
   if (!task) return;
 
   if (task.prNumber) {
+    // Pre-flight: check merge state before attempting merge
+    const mergeState = await getPrMergeState(task.prNumber, task.repoPath);
+    log(`task ${taskId} PR #${task.prNumber} mergeStateStatus: ${mergeState.mergeStateStatus}`);
+
+    if (mergeState.mergeStateStatus === "BEHIND") {
+      // Branch is behind main but has no conflicts — update it
+      log(`task ${taskId} PR #${task.prNumber} is BEHIND — updating branch`);
+      const updated = await updatePrBranch(task.prNumber, task.repoPath);
+      if (!updated) {
+        log(`task ${taskId} PR #${task.prNumber} branch update failed — proceeding with merge anyway`);
+      } else {
+        log(`task ${taskId} PR #${task.prNumber} branch updated successfully`);
+      }
+    } else if (mergeState.mergeStateStatus === "CONFLICTING") {
+      // Merge conflicts — trigger a fix-phase invocation to rebase and resolve
+      log(`task ${taskId} PR #${task.prNumber} has CONFLICTING state — triggering conflict resolution fix phase`);
+
+      if (task.reviewCycleCount < config.maxReviewCycles) {
+        incrementReviewCycleCount(db, taskId);
+        updateTaskFixReason(db, taskId, "merge_conflict");
+        updateTaskStatus(db, taskId, "changes_requested");
+        emitTaskUpdated(getTask(db, taskId)!);
+
+        client.createComment(
+          taskId,
+          `PR #${task.prNumber} has merge conflicts — dispatching fix phase to rebase and resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+        ).catch((err) => {
+          log(`comment failed on merge conflict for task ${taskId}: ${err}`);
+        });
+
+        log(`task ${taskId} → changes_requested (merge conflict, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`);
+      } else {
+        // Review cycles exhausted — fail the task
+        updateTaskStatus(db, taskId, "failed");
+        emitTaskUpdated(getTask(db, taskId)!);
+
+        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
+          log(`write-back failed on merge conflict exhaustion for task ${taskId}: ${err}`);
+        });
+
+        client.createComment(
+          taskId,
+          `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
+        ).catch((err) => {
+          log(`comment failed on merge conflict exhaustion for task ${taskId}: ${err}`);
+        });
+
+        log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
+      }
+      return;
+    }
+
     const mergeResult = await mergePr(task.prNumber, task.repoPath);
 
     if (!mergeResult.merged) {
