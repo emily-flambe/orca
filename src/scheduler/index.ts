@@ -934,7 +934,7 @@ function onSessionFailure(
   phase: DispatchPhase,
   isFixPhase = false,
 ): void {
-  const { db, config, client } = deps;
+  const { db, config, client, stateMap } = deps;
 
   log(
     `task ${taskId} failed (invocation ${invocationId}, ` +
@@ -1000,6 +1000,39 @@ function onSessionFailure(
         `worktree removal on stale session for invocation ${invocationId}: ${err}`,
       );
     }
+    return;
+  }
+
+  // Content filtering: permanent failure — retries are futile (same prompt → same block)
+  if (result.outputSummary?.includes("Output blocked by content filtering policy")) {
+    log(
+      `task ${taskId}: content filtering — permanently failing without retries (retries would be futile)`,
+    );
+    updateTaskStatus(db, taskId, "failed");
+    emitTaskUpdated(getTask(db, taskId)!);
+    try {
+      removeWorktree(worktreePath);
+    } catch (err) {
+      log(
+        `worktree removal on content filter for invocation ${invocationId}: ${err}`,
+      );
+    }
+    terminalWriteBackTasks.add(taskId);
+    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+      (err) => {
+        log(
+          `write-back failed on content filter for task ${taskId}: ${err}`,
+        );
+      },
+    );
+    client
+      .createComment(
+        taskId,
+        `Task permanently failed: output blocked by Claude's content filtering policy. Retries skipped — the same prompt would produce the same result.`,
+      )
+      .catch((err) => {
+        log(`comment failed on content filter for task ${taskId}: ${err}`);
+      });
     return;
   }
 
