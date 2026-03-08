@@ -298,11 +298,16 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
+
+  // Attach a no-op error handler on stdin to prevent unhandled 'error' events
+  // (e.g. EPIPE) from crashing the server if the child closes its stdin end
+  // while the process is still alive.
+  proc.stdin?.on("error", () => {});
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -698,4 +703,30 @@ export async function killSession(
   }
 
   return handle.done;
+}
+
+/**
+ * Send a user prompt to a running Claude CLI session via stdin.
+ *
+ * Returns true if the write succeeded, false if the process is no longer alive.
+ */
+export function sendPrompt(handle: SessionHandle, text: string): boolean {
+  const proc = handle.process;
+  if (proc.exitCode !== null || proc.killed || !proc.stdin || proc.stdin.destroyed) {
+    return false;
+  }
+  try {
+    // Claude CLI in stream-json mode accepts user turns as JSON on stdin.
+    // Format: {"type":"user","message":"text"} followed by newline.
+    const payload = JSON.stringify({ type: "user", message: text }) + "\n";
+    const accepted = proc.stdin.write(payload);
+    // write() returns false when the pipe buffer is full (backpressure).
+    // The data is still queued in Node's internal buffer and will be flushed
+    // once the child drains stdin, so this is not data loss. We still return
+    // true because the prompt was accepted into the write queue.
+    void accepted;
+    return true;
+  } catch {
+    return false;
+  }
 }
