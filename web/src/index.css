@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg-primary: theme(colors.gray.950);
+    --color-bg-card: theme(colors.gray.900);
+    --color-bg-interactive: theme(colors.gray.800);
+    --color-border: theme(colors.gray.800);
+    --color-text-primary: theme(colors.gray.100);
+    --color-text-secondary: theme(colors.gray.300);
+    --color-text-muted: theme(colors.gray.500);
+  }
+}
