@@ -1081,10 +1081,15 @@ function onSessionFailure(
       sessionId: null,
     });
     // Re-queue without burning a retry
+    const staleTask = getTask(db, taskId);
     const requeueStatus =
-      phase === "review" ? ("in_review" as const) : ("ready" as const);
+      phase === "review"
+        ? ("in_review" as const)
+        : staleTask && staleTask.reviewCycleCount > 0
+          ? ("changes_requested" as const)
+          : ("ready" as const);
     updateTaskStatus(db, taskId, requeueStatus);
-    emitTaskUpdated(getTask(db, taskId)!);
+    emitTaskUpdated(staleTask!);
     try {
       removeWorktree(worktreePath);
     } catch (err) {
