@@ -12,6 +12,7 @@ import {
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
+  incrementMergeAttemptCount,
   incrementRetryCount,
   incrementReviewCycleCount,
   insertBudgetEvent,
@@ -1318,22 +1319,48 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
       }
 
       if (!alreadyMerged) {
-        // Genuine merge failure
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
+        // Genuine merge failure — increment attempt count and retry instead of failing
+        incrementMergeAttemptCount(db, taskId);
+        const updatedTask = getTask(db, taskId)!;
+        const attemptCount = updatedTask.mergeAttemptCount;
+        const MAX_MERGE_ATTEMPTS = 3;
 
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on merge failure for task ${taskId}: ${err}`);
-        });
+        if (attemptCount < MAX_MERGE_ATTEMPTS) {
+          // Keep in_review so the next scheduler tick will retry the merge
+          // (with EMI-133's pre-merge branch update logic to fix BEHIND issues)
+          updateTaskStatus(db, taskId, "in_review");
+          emitTaskUpdated(getTask(db, taskId)!);
 
-        client.createComment(
-          taskId,
-          `Failed to merge PR #${task.prNumber}: ${mergeResult.error}`,
-        ).catch((err) => {
-          log(`comment failed on merge failure for task ${taskId}: ${err}`);
-        });
+          writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+            log(`write-back failed on merge retry for task ${taskId}: ${err}`);
+          });
 
-        log(`task ${taskId} merge failed: ${mergeResult.error}`);
+          client.createComment(
+            taskId,
+            `Merge attempt ${attemptCount}/${MAX_MERGE_ATTEMPTS} failed for PR #${task.prNumber}: ${mergeResult.error}\n\nWill retry on next scheduler tick.`,
+          ).catch((err) => {
+            log(`comment failed on merge retry for task ${taskId}: ${err}`);
+          });
+
+          log(`task ${taskId} merge failed (attempt ${attemptCount}/${MAX_MERGE_ATTEMPTS}) — keeping in_review for retry`);
+        } else {
+          // Exhausted retries — escalate to permanent failure
+          updateTaskStatus(db, taskId, "failed");
+          emitTaskUpdated(getTask(db, taskId)!);
+
+          writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
+            log(`write-back failed on merge failure (exhausted) for task ${taskId}: ${err}`);
+          });
+
+          client.createComment(
+            taskId,
+            `Failed to merge PR #${task.prNumber} after ${MAX_MERGE_ATTEMPTS} attempts: ${mergeResult.error}`,
+          ).catch((err) => {
+            log(`comment failed on merge failure (exhausted) for task ${taskId}: ${err}`);
+          });
+
+          log(`task ${taskId} merge failed after ${MAX_MERGE_ATTEMPTS} attempts — marking failed`);
+        }
         return;
       }
       // PR was already merged by someone else — continue normally

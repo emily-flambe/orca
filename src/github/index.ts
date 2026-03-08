@@ -255,11 +255,31 @@ export function closeSupersededPrs(
 }
 
 /**
+ * Check if a PR has at least one approved review.
+ * Returns false on error (conservative: if we can't verify, assume no approval).
+ */
+function prHasApprovedReview(prNumber: number, cwd: string): boolean {
+  try {
+    const output = gh(
+      ["pr", "view", String(prNumber), "--json", "reviews"],
+      { cwd },
+    );
+    const data = JSON.parse(output) as { reviews: { state: string }[] };
+    return data.reviews.some((r) => r.state === "APPROVED");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Close all open PRs for a canceled Linear issue.
  *
  * Finds all open PRs on branches matching `orca/<taskId>-*` and closes each
  * with a comment explaining the Linear issue was canceled. Also deletes the
  * remote branch. Returns the number of PRs closed.
+ *
+ * PRs with an approved review are preserved — these represent completed work
+ * and closing them would destroy it. A human should handle them explicitly.
  */
 export function closePrsForCanceledTask(taskId: string, cwd: string): number {
   let prs: { headRefName: string; number: number }[];
@@ -281,6 +301,15 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
   let closed = 0;
   for (const pr of prs) {
     if (!pr.headRefName.startsWith(prefix)) continue;
+
+    // Preserve PRs with approved reviews — completed work must not be destroyed
+    if (prHasApprovedReview(pr.number, cwd)) {
+      console.log(
+        `[orca/github] preserving PR #${pr.number} for ${taskId} — has approved review`,
+      );
+      continue;
+    }
+
     try {
       gh(
         [
