@@ -215,7 +215,9 @@ export default function Sidebar({
                     <span className="text-gray-500 font-mono tabular-nums shrink-0">
                       {task.linearIssueId}
                     </span>
-                    <span className="truncate text-gray-400">{task.agentPrompt}</span>
+                    <span className="truncate text-gray-400">
+                      {task.agentPrompt}
+                    </span>
                   </div>
                 ))}
                 {queuedTasks.length > 5 && (
