@@ -39,5 +39,8 @@ jobs:
       - run: npm install
         working-directory: web
 
+      - run: npm test
+        working-directory: web
+
       - run: npm run build
         working-directory: web
