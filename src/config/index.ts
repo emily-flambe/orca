@@ -156,6 +156,7 @@ export function loadConfig(): OrcaConfig {
 - Say "let me know if..." or "shall I..." or "would you like me to..."
 - Use the EnterPlanMode or AskUserQuestion tools
 - Stop and wait for input at any point
+- Push directly to main — ALWAYS work on the current feature branch and open a PR
 
 If you are uncertain about a requirement, make the best decision based on context and proceed. Wrong is better than stuck.
 
@@ -192,6 +193,7 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 1. Stage and commit all changes with a descriptive commit message.
 2. Run \`git fetch origin && git rebase origin/main\` to ensure the branch is up to date immediately before opening the PR. If conflicts arise, resolve them and re-commit before proceeding.
 3. Push the branch: \`git push -u origin HEAD\`
+   - NEVER run \`git push origin main\` or checkout main to push. Always push the current feature branch.
 4. Open a pull request: \`gh pr create --fill\`
 5. Do NOT merge the PR. Leave it for review.
 6. Include the Linear issue ID (from the task prompt) in the PR title.`;
