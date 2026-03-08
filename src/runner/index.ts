@@ -298,7 +298,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
@@ -637,6 +637,29 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   });
 
   return handle;
+}
+
+/**
+ * Send a prompt to a running Claude CLI session by writing to its stdin.
+ *
+ * The Claude Code CLI reads user messages from stdin when stdin is connected
+ * to a pipe. The message is written as a plain text line followed by a newline,
+ * which the CLI processes as a follow-up user turn.
+ *
+ * Returns `true` if the write was accepted, or `false` if the process has
+ * already exited or stdin is not writable.
+ */
+export function sendPrompt(handle: SessionHandle, text: string): boolean {
+  const { process: proc } = handle;
+  if (!proc.stdin || proc.stdin.destroyed || proc.exitCode !== null || proc.killed) {
+    return false;
+  }
+  try {
+    proc.stdin.write(text + "\n");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
