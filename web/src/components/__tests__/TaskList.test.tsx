@@ -70,8 +70,16 @@ describe("TaskList", () => {
 
   it("filters tasks by linearIssueId search", () => {
     const tasks = [
-      makeTask({ linearIssueId: "ENG-100", orcaStatus: "ready", agentPrompt: "Alpha task" }),
-      makeTask({ linearIssueId: "ENG-200", orcaStatus: "ready", agentPrompt: "Beta task" }),
+      makeTask({
+        linearIssueId: "ENG-100",
+        orcaStatus: "ready",
+        agentPrompt: "Alpha task",
+      }),
+      makeTask({
+        linearIssueId: "ENG-200",
+        orcaStatus: "ready",
+        agentPrompt: "Beta task",
+      }),
     ];
     render(<TaskList {...defaultProps} tasks={tasks} />);
 
@@ -84,8 +92,16 @@ describe("TaskList", () => {
 
   it("filters tasks by agentPrompt (title) search", () => {
     const tasks = [
-      makeTask({ linearIssueId: "ENG-100", orcaStatus: "ready", agentPrompt: "Fix login bug" }),
-      makeTask({ linearIssueId: "ENG-200", orcaStatus: "ready", agentPrompt: "Add dark mode" }),
+      makeTask({
+        linearIssueId: "ENG-100",
+        orcaStatus: "ready",
+        agentPrompt: "Fix login bug",
+      }),
+      makeTask({
+        linearIssueId: "ENG-200",
+        orcaStatus: "ready",
+        agentPrompt: "Add dark mode",
+      }),
     ];
     render(<TaskList {...defaultProps} tasks={tasks} />);
 
@@ -119,8 +135,17 @@ describe("TaskList", () => {
 
   it("hides done tasks with zero invocations", () => {
     const tasks = [
-      makeTask({ linearIssueId: "ENG-ZERO", orcaStatus: "done", invocationCount: 0 }),
-      makeTask({ linearIssueId: "ENG-ONE", orcaStatus: "done", invocationCount: 1, doneAt: new Date().toISOString() }),
+      makeTask({
+        linearIssueId: "ENG-ZERO",
+        orcaStatus: "done",
+        invocationCount: 0,
+      }),
+      makeTask({
+        linearIssueId: "ENG-ONE",
+        orcaStatus: "done",
+        invocationCount: 1,
+        doneAt: new Date().toISOString(),
+      }),
     ];
     render(<TaskList {...defaultProps} tasks={tasks} />);
 

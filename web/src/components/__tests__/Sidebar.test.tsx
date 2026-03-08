@@ -121,9 +121,7 @@ describe("Sidebar", () => {
   });
 
   it("shows 'No projects' when no tasks have a projectName", () => {
-    const tasks = [
-      makeTask({ linearIssueId: "ENG-1", projectName: null }),
-    ];
+    const tasks = [makeTask({ linearIssueId: "ENG-1", projectName: null })];
     render(<Sidebar {...defaultProps} tasks={tasks} />);
 
     expect(screen.getByText("No projects")).toBeInTheDocument();

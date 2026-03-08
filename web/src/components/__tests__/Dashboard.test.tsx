@@ -83,14 +83,16 @@ describe("Dashboard", () => {
   });
 
   it("shows total cost formatted as $X.XX", async () => {
-    mockFetchMetrics.mockResolvedValue(makeMetrics({
-      invocationStats: {
-        byStatus: [{ status: "completed", count: 5 }],
-        avgDurationSecs: null,
-        avgCostUsd: null,
-        totalCostUsd: 12.34,
-      },
-    }));
+    mockFetchMetrics.mockResolvedValue(
+      makeMetrics({
+        invocationStats: {
+          byStatus: [{ status: "completed", count: 5 }],
+          avgDurationSecs: null,
+          avgCostUsd: null,
+          totalCostUsd: 12.34,
+        },
+      }),
+    );
     render(<Dashboard />);
 
     await waitFor(() => {
@@ -99,17 +101,19 @@ describe("Dashboard", () => {
   });
 
   it("shows active sessions count", async () => {
-    mockFetchMetrics.mockResolvedValue(makeMetrics({
-      invocationStats: {
-        byStatus: [
-          { status: "running", count: 4 },
-          { status: "completed", count: 20 },
-        ],
-        avgDurationSecs: 90,
-        avgCostUsd: 0.03,
-        totalCostUsd: 3.0,
-      },
-    }));
+    mockFetchMetrics.mockResolvedValue(
+      makeMetrics({
+        invocationStats: {
+          byStatus: [
+            { status: "running", count: 4 },
+            { status: "completed", count: 20 },
+          ],
+          avgDurationSecs: 90,
+          avgCostUsd: 0.03,
+          totalCostUsd: 3.0,
+        },
+      }),
+    );
     render(<Dashboard />);
 
     await waitFor(() => {
