@@ -3,6 +3,19 @@ import { createInterface } from "node:readline";
 import { createWriteStream, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir, platform } from "node:os";
+import { EventEmitter } from "node:events";
+
+// ---------------------------------------------------------------------------
+// In-memory per-invocation log state for SSE streaming
+// ---------------------------------------------------------------------------
+
+interface InvocationLogState {
+  buffer: string[]; // raw NDJSON lines (last 100)
+  emitter: EventEmitter;
+  done: boolean;
+}
+
+export const invocationLogs = new Map<number, InvocationLogState>();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,6 +268,16 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
   const logStream = createWriteStream(logPath, { flags: "w" });
 
+  // Create in-memory log state for SSE streaming.
+  const logState: InvocationLogState = {
+    buffer: [],
+    emitter: new EventEmitter(),
+    done: false,
+  };
+  // Unlimited listeners so multiple browser tabs don't trigger Node's warning.
+  logState.emitter.setMaxListeners(0);
+  invocationLogs.set(options.invocationId, logState);
+
   // Clean stale Claude Code project dirs for other worktrees of the same repo.
   // Claude Code identifies projects by path, but resolves git worktrees to the
   // first-seen path — causing sessions to run in the wrong directory. Removing
@@ -372,7 +395,20 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
       // Wait for the log stream to flush before resolving so callers
       // can rely on the log file existing on disk after `await handle.done`.
-      logStream.end(() => resolve(finalResult));
+      logStream.end(() => {
+        if (!logState.done) {
+          logState.done = true;
+          logState.emitter.emit("done");
+        }
+        // Only delete if this invocation's state is still in the map
+        // (guards against ID reuse before the timer fires).
+        setTimeout(() => {
+          if (invocationLogs.get(options.invocationId) === logState) {
+            invocationLogs.delete(options.invocationId);
+          }
+        }, 60_000).unref();
+        resolve(finalResult);
+      });
     }
 
     // ------------------------------------------------------------------
@@ -383,6 +419,11 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     rl.on("line", (line: string) => {
       // Tee every raw line to the log file.
       logStream.write(line + "\n");
+
+      // Buffer and emit for SSE streaming.
+      logState.buffer.push(line);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", line);
 
       // Parse JSON defensively.
       let msg: Record<string, unknown>;
@@ -543,9 +584,25 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       }
     });
 
+    // Handle write errors on the log stream (e.g. disk full). Mark done so
+    // SSE clients are not left hanging waiting for an event that never arrives.
+    logStream.on("error", (err: Error) => {
+      process.stderr.write(
+        `[orca/runner] warning: log stream error for invocation ${options.invocationId}: ${err.message}\n`,
+      );
+      if (!logState.done) {
+        logState.done = true;
+        logState.emitter.emit("done");
+        setTimeout(() => {
+          if (invocationLogs.get(options.invocationId) === logState) {
+            invocationLogs.delete(options.invocationId);
+          }
+        }, 60_000).unref();
+      }
+    });
+
     // Handle spawn errors (e.g. executable not found).
     proc.on("error", (err: Error) => {
-      logStream.end();
       const result: SessionResult = {
         subtype: "process_error",
         costUsd: null,
@@ -555,7 +612,18 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         outputSummary: `spawn error: ${err.message}`,
       };
       handle.result = result;
-      resolve(result);
+      logStream.end(() => {
+        if (!logState.done) {
+          logState.done = true;
+          logState.emitter.emit("done");
+        }
+        setTimeout(() => {
+          if (invocationLogs.get(options.invocationId) === logState) {
+            invocationLogs.delete(options.invocationId);
+          }
+        }, 60_000).unref();
+        resolve(result);
+      });
     });
   });
 

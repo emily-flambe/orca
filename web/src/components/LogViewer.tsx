@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchInvocationLogs } from "../hooks/useApi";
 
 interface Props {
@@ -55,7 +55,7 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
         className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
       >
         <span className="font-mono">{name}</span>
-        <span>{open ? "\u25B4" : "\u25BE"}</span>
+        <span>{open ? "▴" : "▾"}</span>
       </button>
       {open && (
         <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-gray-400 overflow-x-auto max-h-60 overflow-y-auto">
@@ -74,7 +74,7 @@ function ThinkingBlock({ text }: { text: string }) {
         onClick={() => setOpen(!open)}
         className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
       >
-        {open ? "\u25BC" : "\u25B6"} Thinking...
+        {open ? "▼" : "▶"} Thinking...
       </button>
       {open && (
         <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto">
@@ -110,13 +110,87 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const prevLineCountRef = useRef(0);
+  const pinnedRef = useRef(true); // true = auto-scroll to bottom
+
+  // Auto-scroll logic: scroll to bottom when pinned and new lines arrive
+  const scrollToBottom = useCallback(() => {
+    if (containerRef.current && pinnedRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, []);
+
+  // Track user scroll to disengage/re-engage pin
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    pinnedRef.current = distanceFromBottom < 50;
+  }, []);
+
+  // Scroll to bottom when lines change (if pinned)
+  useEffect(() => {
+    scrollToBottom();
+  }, [lines, scrollToBottom]);
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
 
-    const load = () => {
+    if (isRunning) {
+      // SSE streaming mode
+      const es = new EventSource(`/api/invocations/${invocationId}/logs/stream`);
+
+      es.addEventListener("log", (e) => {
+        if (cancelled) return;
+        try {
+          const parsed = JSON.parse(e.data) as LogLine;
+          setLines((prev) => [...prev, parsed]);
+          setLoading(false);
+          setError(null);
+        } catch {
+          // ignore parse errors
+        }
+      });
+
+      es.addEventListener("done", () => {
+        // Set cancelled before closing so the "error" event that browsers
+        // sometimes fire after a server-initiated close is ignored.
+        cancelled = true;
+        setLoading(false);
+        es.close();
+      });
+
+      es.addEventListener("error", () => {
+        if (cancelled) return;
+        // SSE error — connection dropped. Fall back to polling endpoint once.
+        cancelled = true;
+        es.close();
+        fetchInvocationLogs(invocationId)
+          .then((data) => {
+            if (cancelled) return;
+            setLines(data.lines as LogLine[]);
+            setLoading(false);
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            setError(err instanceof Error ? err.message : String(err));
+            setLoading(false);
+          });
+      });
+
+      // Initial loading state — hide spinner once first log line arrives
+      // (handled by the "log" listener above setting loading=false)
+      // Set a short timeout so we don't show spinner forever if no lines arrive yet
+      const loadingTimeout = setTimeout(() => {
+        if (!cancelled) setLoading(false);
+      }, 2000);
+
+      return () => {
+        cancelled = true;
+        clearTimeout(loadingTimeout);
+        es.close();
+      };
+    } else {
+      // Polling / completed mode — fetch once
       fetchInvocationLogs(invocationId)
         .then((data) => {
           if (cancelled) return;
@@ -129,27 +203,12 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           setError(err instanceof Error ? err.message : String(err));
           setLoading(false);
         });
-    };
 
-    load();
-
-    if (isRunning) {
-      timer = setInterval(load, 3000);
+      return () => {
+        cancelled = true;
+      };
     }
-
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-    };
   }, [invocationId, isRunning]);
-
-  // Auto-scroll when new lines arrive
-  useEffect(() => {
-    if (lines.length > prevLineCountRef.current && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-    prevLineCountRef.current = lines.length;
-  }, [lines]);
 
   if (loading) {
     return (
@@ -192,6 +251,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
   return (
     <div
       ref={containerRef}
+      onScroll={handleScroll}
       className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
     >
       {lines.map((line, idx) => {
@@ -206,7 +266,6 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
         // Assistant messages
         if (line.type === "assistant" && line.message?.content) {
           const blocks = line.message.content;
-          // Skip empty assistant messages (no meaningful content)
           const hasContent = blocks.some(
             (b) =>
               (b.type === "text" && b.text) ||
@@ -239,7 +298,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           );
         }
 
-        // Skip other message types (tool_progress, stream_event, etc.)
+        // Skip other message types
         return null;
       })}
       {isRunning && (
@@ -248,7 +307,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
           </span>
-          Session running... polling for updates
+          Session running...
         </div>
       )}
     </div>
