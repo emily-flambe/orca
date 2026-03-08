@@ -225,6 +225,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "invocations", "model")) {
     sqlite.exec("ALTER TABLE invocations ADD COLUMN model TEXT");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 8 (fix reason tracking):
+  //   - Add fix_reason column to tasks (records why fix phase was triggered)
+  //   Sentinel: fix_reason column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "fix_reason")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN fix_reason TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

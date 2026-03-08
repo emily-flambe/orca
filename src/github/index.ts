@@ -412,6 +412,47 @@ export async function mergePr(
   }
 }
 
+export type PrMergeState = {
+  mergeable: string;      // "MERGEABLE" | "CONFLICTING" | "UNKNOWN"
+  mergeStateStatus: string; // "CLEAN" | "BEHIND" | "CONFLICTING" | "BLOCKED" | "UNKNOWN"
+};
+
+/**
+ * Get the mergeable state and mergeStateStatus of a PR by number.
+ * Returns { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" } on failure.
+ */
+export async function getPrMergeState(
+  prNumber: number,
+  cwd: string,
+): Promise<PrMergeState> {
+  try {
+    const output = await ghAsync(
+      ["pr", "view", String(prNumber), "--json", "mergeable,mergeStateStatus"],
+      { cwd },
+    );
+    const data = JSON.parse(output) as { mergeable: string; mergeStateStatus: string };
+    return { mergeable: data.mergeable, mergeStateStatus: data.mergeStateStatus };
+  } catch {
+    return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" };
+  }
+}
+
+/**
+ * Update a PR branch to be up-to-date with its base branch using `gh pr update-branch`.
+ * Returns true on success, false on failure.
+ */
+export async function updatePrBranch(
+  prNumber: number,
+  cwd: string,
+): Promise<boolean> {
+  try {
+    await ghAsync(["pr", "update-branch", String(prNumber)], { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"

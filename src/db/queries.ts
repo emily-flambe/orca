@@ -74,6 +74,14 @@ export function updateTaskPrBranch(db: OrcaDb, taskId: string, branchName: strin
     .run();
 }
 
+/** Set the fix_reason on a task (used to customize fix-phase agent prompt). */
+export function updateTaskFixReason(db: OrcaDb, taskId: string, fixReason: string | null): void {
+  db.update(tasks)
+    .set({ fixReason, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Increment review_cycle_count by 1. */
 export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)
