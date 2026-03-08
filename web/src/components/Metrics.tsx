@@ -214,7 +214,7 @@ export default function Metrics() {
   const { invocationStats } = data;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 sm:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-300">Metrics</h2>
         <Button variant="secondary" size="sm" onClick={load}>Refresh</Button>

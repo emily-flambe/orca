@@ -368,7 +368,7 @@ export default function LogViewer({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className={`overflow-y-auto overflow-x-hidden p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono ${compact ? "max-h-64" : "max-h-[32rem]"}`}
+      className={`overflow-y-auto overflow-x-hidden p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3 font-mono ${compact ? "max-h-64" : "max-h-[50vh] sm:max-h-[32rem]"}`}
     >
       {lines.map((line, idx) => {
         const type = line.type;

@@ -145,14 +145,14 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewT
       <div className="ml-auto flex items-center gap-2">
         <button
           onClick={() => setShowModal(true)}
-          className="px-3 py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
+          className="px-3 py-2.5 sm:py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm min-h-[44px] sm:min-h-0 flex items-center"
         >
           + New ticket
         </button>
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-2.5 sm:py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px] sm:min-h-0 flex items-center"
         >
           {syncing ? "Syncing..." : "Sync"}
         </button>

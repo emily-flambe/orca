@@ -77,7 +77,7 @@ export default function App() {
       <OrchestratorBar status={status} onSync={handleSync} onConfigUpdate={handleConfigUpdate} onNewTicket={handleNewTicket} />
 
       {/* Tab bar */}
-      <div className="flex gap-1 px-4 pt-2 border-b border-gray-800 bg-gray-950 shrink-0">
+      <div className="flex gap-0 sm:gap-1 sm:px-4 sm:pt-2 border-b border-gray-800 bg-gray-950 shrink-0">
         {(["tasks", "active", "metrics", "logs"] as Tab[]).map((tab) => (
           <button
             key={tab}
@@ -85,9 +85,9 @@ export default function App() {
               setActiveTab(tab);
               if (tab === "tasks") setMobileView("list");
             }}
-            className={`px-4 py-1.5 text-sm rounded-t transition-colors ${
+            className={`flex-1 sm:flex-none px-2 sm:px-4 py-3 sm:py-1.5 text-sm sm:rounded-t transition-colors min-h-[44px] sm:min-h-0 flex items-center justify-center ${
               activeTab === tab
-                ? "bg-gray-800 text-gray-100 border border-b-gray-800 border-gray-700"
+                ? "bg-gray-800 text-gray-100 sm:border sm:border-b-gray-800 sm:border-gray-700 border-b-2 border-b-purple-500"
                 : "text-gray-500 hover:text-gray-300"
             }`}
           >

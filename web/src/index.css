@@ -12,4 +12,23 @@
     --color-text-secondary: theme(colors.gray.300);
     --color-text-muted: theme(colors.gray.500);
   }
+
+  body {
+    /* Safe area insets for notched/island devices */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

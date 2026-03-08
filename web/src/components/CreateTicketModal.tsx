@@ -109,7 +109,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
           </div>
 
           {/* Project + Priority + Status row */}
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             {/* Project */}
             <div className="flex-1">
               <label className="block text-xs text-gray-400 mb-1">Project</label>
@@ -125,7 +125,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
             </div>
 
             {/* Priority */}
-            <div className="w-36">
+            <div className="sm:w-36">
               <label className="block text-xs text-gray-400 mb-1">Priority</label>
               <select
                 value={priority}
@@ -139,7 +139,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
             </div>
 
             {/* Status */}
-            <div className="w-28">
+            <div className="sm:w-28">
               <label className="block text-xs text-gray-400 mb-1">Status</label>
               <select
                 value={status}
