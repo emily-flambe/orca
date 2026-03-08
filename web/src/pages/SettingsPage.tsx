@@ -131,7 +131,7 @@ export default function SettingsPage({ status, onSync, onConfigUpdate }: Setting
                 <label className="text-sm text-gray-300 capitalize">{phase}</label>
                 <select
                   value={status[field]}
-                  onChange={(e) => onConfigUpdate({ [field]: e.target.value })}
+                  onChange={(e) => onConfigUpdate({ [field]: e.target.value }).catch(console.error)}
                   className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
                 >
                   {MODEL_OPTIONS.map((m) => (
