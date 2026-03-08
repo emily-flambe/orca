@@ -306,6 +306,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     cwd: options.worktreePath,
     stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
+    // On Windows, shell: true is needed to resolve .cmd shims (e.g. npm global installs).
+    shell: process.platform === "win32",
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
   });
