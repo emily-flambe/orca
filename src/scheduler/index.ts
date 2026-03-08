@@ -1447,7 +1447,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         client
           .createComment(
             taskId,
-            `Task failed permanently after ${config.maxRetries} retries: deploy timed out after ${config.deployTimeoutMin}min`,
+            `Deploy CI monitoring timed out after ${config.deployTimeoutMin}min — task failed permanently`,
           )
           .catch((err) => {
             log(`comment failed on deploy timeout for task ${taskId}: ${err}`);

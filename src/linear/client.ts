@@ -443,6 +443,10 @@ export class LinearClient {
     return data.issueUpdate.success;
   }
 
+  // -------------------------------------------------------------------------
+  // 2.5 createIssue
+  // -------------------------------------------------------------------------
+
   async createIssue(input: {
     title: string;
     teamId: string;
