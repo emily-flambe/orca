@@ -9,6 +9,7 @@ export interface Task {
   reviewCycleCount: number;
   mergeCommitSha: string | null;
   prNumber: number | null;
+  prUrl: string | null;
   deployStartedAt: string | null;
   ciStartedAt: string | null;
   doneAt: string | null;

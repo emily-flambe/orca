@@ -36,6 +36,7 @@ import {
   type InvocationCompletedPayload,
   type StatusPayload,
 } from "../events.js";
+import { getRepoGithubBase } from "../git.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
@@ -72,10 +73,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     });
     // Attach invocation count so the frontend can filter out done tasks with no history
-    const withCounts = tasks.map((t) => ({
-      ...t,
-      invocationCount: getInvocationsByTask(db, t.linearIssueId).length,
-    }));
+    const withCounts = tasks.map((t) => {
+      const githubBase = t.prNumber != null ? getRepoGithubBase(t.repoPath) : null;
+      return {
+        ...t,
+        invocationCount: getInvocationsByTask(db, t.linearIssueId).length,
+        prUrl: githubBase != null && t.prNumber != null
+          ? `${githubBase}/pull/${t.prNumber}`
+          : null,
+      };
+    });
     return c.json(withCounts);
   });
 
@@ -89,7 +96,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "task not found" }, 404);
     }
     const invocations = getInvocationsByTask(db, taskId);
-    return c.json({ ...task, invocations });
+    const githubBase = task.prNumber != null ? getRepoGithubBase(task.repoPath) : null;
+    const prUrl = githubBase != null && task.prNumber != null
+      ? `${githubBase}/pull/${task.prNumber}`
+      : null;
+    return c.json({ ...task, invocations, prUrl });
   });
 
   // -----------------------------------------------------------------------

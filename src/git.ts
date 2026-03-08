@@ -116,6 +116,30 @@ export function isDllInitError(err: unknown): boolean {
 }
 
 /**
+ * Derive the GitHub HTTPS base URL for a repo from its git remote URL.
+ *
+ * Handles both HTTPS and SSH remote formats:
+ *   https://github.com/owner/repo.git → https://github.com/owner/repo
+ *   git@github.com:owner/repo.git     → https://github.com/owner/repo
+ *
+ * Returns null if the remote can't be read or isn't a GitHub remote.
+ */
+export function getRepoGithubBase(repoPath: string): string | null {
+  try {
+    const remoteUrl = git(["remote", "get-url", "origin"], {
+      cwd: repoPath,
+    }).trim();
+    const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (match) {
+      return `https://github.com/${match[1]}`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Remove stale .git/index.lock files that are older than `maxAgeMs`.
  *
  * Git leaves index.lock behind when a process is killed mid-operation.

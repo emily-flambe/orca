@@ -108,6 +108,7 @@ export default function TaskDetail({ taskId }: Props) {
         {/* Invocation Timeline */}
         <InvocationTimeline
           invocations={detail.invocations || []}
+          task={detail}
           taskId={taskId}
           onAbort={handleAbort}
         />

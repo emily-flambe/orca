@@ -151,7 +151,18 @@ export default function PropertiesPanel({ task, isOpen, onToggle, onTaskUpdate }
           {/* PR */}
           <Row label="PR">
             {task.prNumber != null ? (
-              <span className="text-gray-200 font-mono">#{task.prNumber}</span>
+              task.prUrl ? (
+                <a
+                  href={task.prUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-cyan-400 hover:text-cyan-300 transition-colors font-mono text-xs"
+                >
+                  #{task.prNumber} ↗
+                </a>
+              ) : (
+                <span className="text-gray-200 font-mono">#{task.prNumber}</span>
+              )
             ) : (
               <span className="text-gray-500">—</span>
             )}

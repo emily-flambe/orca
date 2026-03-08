@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { Invocation } from "../types";
+import type { Invocation, TaskWithInvocations } from "../types";
 import LogViewer from "./LogViewer";
 import LiveRunWidget from "./LiveRunWidget";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 
 interface Props {
   invocations: Invocation[];
+  task?: TaskWithInvocations;
   taskId: string;
   onAbort: (invId: number) => void;
 }
@@ -174,8 +175,20 @@ interface ActivityEvent {
   colorClass: string;
 }
 
-function deriveActivityEvents(invocations: Invocation[]): ActivityEvent[] {
+function deriveActivityEvents(
+  invocations: Invocation[],
+  task?: TaskWithInvocations,
+): ActivityEvent[] {
   const events: ActivityEvent[] = [];
+
+  // Task created / synced event
+  if (task) {
+    events.push({
+      timestamp: task.createdAt,
+      label: "Task synced",
+      colorClass: "bg-gray-500",
+    });
+  }
 
   for (const inv of invocations) {
     // Dispatch event
@@ -184,6 +197,15 @@ function deriveActivityEvents(invocations: Invocation[]): ActivityEvent[] {
       label: `Dispatched${inv.phase ? ` (${inv.phase})` : ""}`,
       colorClass: "bg-cyan-500",
     });
+
+    if (inv.phase === "review") {
+      // Review start event — use the invocation start time
+      events.push({
+        timestamp: inv.startedAt,
+        label: "Review started",
+        colorClass: "bg-purple-500",
+      });
+    }
 
     if (inv.endedAt) {
       if (inv.phase === "review") {
@@ -214,6 +236,20 @@ function deriveActivityEvents(invocations: Invocation[]): ActivityEvent[] {
     }
   }
 
+  // PR created event — use the earliest invocation end time as a proxy timestamp
+  // (the PR is created at the end of the first successful implement phase)
+  if (task?.prNumber != null) {
+    const firstCompletedImpl = invocations
+      .filter((inv) => inv.phase !== "review" && inv.status === "completed" && inv.endedAt)
+      .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())[0];
+    const prTimestamp = firstCompletedImpl?.endedAt ?? task.createdAt;
+    events.push({
+      timestamp: prTimestamp,
+      label: `PR #${task.prNumber} created`,
+      colorClass: "bg-yellow-500",
+    });
+  }
+
   return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 }
 
@@ -229,8 +265,8 @@ function formatRelativeTime(iso: string): string {
   return `${diffDays}d ago`;
 }
 
-function ActivityFeed({ invocations }: { invocations: Invocation[] }) {
-  const events = deriveActivityEvents(invocations);
+function ActivityFeed({ invocations, task }: { invocations: Invocation[]; task?: TaskWithInvocations }) {
+  const events = deriveActivityEvents(invocations, task);
 
   if (events.length === 0) return null;
 
@@ -254,7 +290,7 @@ function ActivityFeed({ invocations }: { invocations: Invocation[] }) {
 // Main export
 // ---------------------------------------------------------------------------
 
-export default function InvocationTimeline({ invocations, taskId: _taskId, onAbort }: Props) {
+export default function InvocationTimeline({ invocations, task, taskId: _taskId, onAbort }: Props) {
   // Sort oldest first
   const sorted = [...invocations].sort(
     (a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
@@ -287,7 +323,7 @@ export default function InvocationTimeline({ invocations, taskId: _taskId, onAbo
       </div>
 
       {/* Activity feed */}
-      <ActivityFeed invocations={sorted} />
+      <ActivityFeed invocations={sorted} task={task} />
     </div>
   );
 }
