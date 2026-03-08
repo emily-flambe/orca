@@ -42,6 +42,8 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
     implementModel: "claude-3-5-sonnet",
     reviewModel: "claude-3-5-sonnet",
     fixModel: "claude-3-5-sonnet",
+    draining: false,
+    drainSessionCount: 0,
     ...overrides,
   };
 }
