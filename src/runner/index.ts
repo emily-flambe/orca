@@ -51,6 +51,11 @@ export interface SessionHandle {
   result: SessionResult | null;
   /** Resolves when the process exits (normally or via kill). */
   done: Promise<SessionResult>;
+  /**
+   * Write a follow-up prompt to the running session's stdin.
+   * Returns true if the text was written, false if stdin is not available or writable.
+   */
+  sendPrompt: (text: string) => boolean;
 }
 
 /** Options accepted by {@link spawnSession}. */
@@ -291,7 +296,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   const proc = spawn(claudePath, args, {
     cwd: options.worktreePath,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     // Prevent the child from keeping the parent alive after we're done.
     detached: false,
@@ -305,6 +310,15 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     result: null,
     // Placeholder — replaced immediately below.
     done: undefined as unknown as Promise<SessionResult>,
+    sendPrompt(text: string): boolean {
+      if (!proc.stdin || proc.stdin.destroyed || !proc.stdin.writable) return false;
+      try {
+        proc.stdin.write(text + "\n");
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 
   // The `done` promise is resolved once both:

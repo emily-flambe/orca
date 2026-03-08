@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Invocation } from "../types";
-import { abortInvocation } from "../hooks/useApi";
+import { abortInvocation, sendPromptToInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
 interface Props {
@@ -34,10 +34,32 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const [cost, setCost] = useState<number | null>(invocation.costUsd);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [sendingPrompt, setSendingPrompt] = useState(false);
+  const [promptFeedback, setPromptFeedback] = useState<{ ok: boolean; delivered: boolean } | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
+
+  const handleSendPrompt = useCallback(async () => {
+    const text = promptText.trim();
+    if (!text || sendingPrompt) return;
+    setSendingPrompt(true);
+    setPromptFeedback(null);
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    try {
+      const result = await sendPromptToInvocation(invocation.id, text);
+      setPromptFeedback(result);
+      setPromptText("");
+    } catch {
+      setPromptFeedback({ ok: false, delivered: false });
+    } finally {
+      setSendingPrompt(false);
+      feedbackTimerRef.current = setTimeout(() => setPromptFeedback(null), 4000);
+    }
+  }, [invocation.id, promptText, sendingPrompt]);
 
   const handleCancel = useCallback(async () => {
     if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
@@ -117,6 +139,39 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         compact
         onCostUpdate={handleCostUpdate}
       />
+
+      {/* Prompt input — only when session is running */}
+      {effectivelyRunning && (
+        <div className="border-t border-gray-800 px-3 py-2 flex flex-col gap-1">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendPrompt(); } }}
+              placeholder="Send a message to the agent…"
+              disabled={sendingPrompt}
+              className="flex-1 bg-gray-800 text-gray-100 text-xs rounded px-2 py-1 border border-gray-700 placeholder-gray-500 focus:outline-none focus:border-cyan-700 disabled:opacity-50"
+            />
+            <button
+              onClick={handleSendPrompt}
+              disabled={sendingPrompt || !promptText.trim()}
+              className="text-xs px-3 py-1 rounded bg-cyan-700/30 text-cyan-300 hover:bg-cyan-700/50 transition-colors disabled:opacity-40"
+            >
+              {sendingPrompt ? "…" : "Send"}
+            </button>
+          </div>
+          {promptFeedback && (
+            <p className={`text-xs ${promptFeedback.delivered ? "text-green-400" : promptFeedback.ok ? "text-yellow-400" : "text-red-400"}`}>
+              {promptFeedback.delivered
+                ? "Prompt delivered to agent."
+                : promptFeedback.ok
+                ? "Sent, but stdin was not writable — agent may not receive it."
+                : "Failed to send prompt."}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
