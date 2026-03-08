@@ -30,7 +30,7 @@ import {
   type StatusPayload,
 } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
-import { killSession } from "../runner/index.js";
+import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
@@ -126,6 +126,92 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     return c.json({ lines });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/invocations/:id/logs/stream (SSE)
+  // -----------------------------------------------------------------------
+  app.get("/api/invocations/:id/logs/stream", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "invalid invocation id" }, 400);
+
+    const invocation = getInvocation(db, id);
+    if (!invocation) return c.json({ error: "invocation not found" }, 404);
+
+    return streamSSE(c, async (stream) => {
+      const logState = invocationLogs.get(id);
+
+      if (!logState) {
+        // No in-memory state: invocation finished before we connected (or never ran via runner)
+        // Signal client to fall back to polling endpoint
+        stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+        return;
+      }
+
+      // Subscribe to live events BEFORE replaying the buffer to eliminate the
+      // TOCTOU window where "done" fires between buffer replay and subscription.
+      await new Promise<void>((resolve) => {
+        let doneSent = false;
+        let streamClosed = false;
+
+        const sendDone = () => {
+          if (doneSent || streamClosed) return;
+          doneSent = true;
+          stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+        };
+
+        const onLine = (line: string) => {
+          if (streamClosed || doneSent) return;
+          stream.writeSSE({ event: "log", data: line }).catch(() => {
+            streamClosed = true;
+            cleanup();
+            resolve();
+          });
+        };
+
+        const onDone = () => {
+          sendDone();
+          cleanup();
+          resolve();
+        };
+
+        const cleanup = () => {
+          logState.emitter.off("line", onLine);
+          logState.emitter.off("done", onDone);
+        };
+
+        // Subscribe first — no events can be missed after this point.
+        logState.emitter.on("line", onLine);
+        logState.emitter.on("done", onDone);
+
+        stream.onAbort(() => {
+          streamClosed = true;
+          cleanup();
+          resolve();
+        });
+
+        // Replay buffered lines (snapshot taken after subscription so any new
+        // lines arriving during replay go through onLine above).
+        const snapshot = [...logState.buffer];
+        (async () => {
+          for (const line of snapshot) {
+            if (streamClosed || doneSent) break;
+            try {
+              await stream.writeSSE({ event: "log", data: line });
+            } catch {
+              streamClosed = true;
+              cleanup();
+              resolve();
+              return;
+            }
+          }
+          // If done was set before we subscribed, onDone was never called.
+          if (logState.done && !doneSent && !streamClosed) {
+            onDone();
+          }
+        })();
+      });
+    });
   });
 
   // -----------------------------------------------------------------------
