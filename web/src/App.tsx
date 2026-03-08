@@ -183,6 +183,7 @@ function TasksPage({
   selectedTaskId,
   mobileView,
   detailKey,
+  expandedInvocationId,
   onSelect,
   onMobileBack,
 }: {
@@ -190,6 +191,7 @@ function TasksPage({
   selectedTaskId: string | null;
   mobileView: "list" | "detail";
   detailKey: number;
+  expandedInvocationId: number | null;
   onSelect: (id: string) => void;
   onMobileBack: () => void;
 }) {
@@ -220,7 +222,7 @@ function TasksPage({
           ← Tasks
         </button>
         {selectedTaskId ? (
-          <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} />
+          <TaskDetail key={`${selectedTaskId}-${detailKey}`} taskId={selectedTaskId} initialInvocationId={expandedInvocationId ?? undefined} />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500">
             Select a task to view details
@@ -240,6 +242,7 @@ export default function App() {
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [expandedInvocationId, setExpandedInvocationId] = useState<number | null>(null);
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -311,6 +314,20 @@ export default function App() {
     setMobileView("detail");
   }, []);
 
+  const handleNavigateToInvocation = useCallback(
+    (linearIssueId: string, invocationId: number) => {
+      const task = tasks.find((t) => t.linearIssueId === linearIssueId);
+      if (!task) return;
+      setSelectedTaskId(linearIssueId);
+      setExpandedInvocationId(invocationId);
+      setDetailKey((k) => k + 1);
+      setActivePage("tasks");
+      setMobileView("detail");
+      setSidebarOpen(false);
+    },
+    [tasks]
+  );
+
   const handleNavigate = useCallback(
     (page: Page) => {
       setActivePage(page);
@@ -363,12 +380,13 @@ export default function App() {
             selectedTaskId={selectedTaskId}
             mobileView={mobileView}
             detailKey={detailKey}
+            expandedInvocationId={expandedInvocationId}
             onSelect={handleSelectTask}
             onMobileBack={() => setMobileView("list")}
           />
         )}
 
-        {activePage === "dashboard" && <Dashboard />}
+        {activePage === "dashboard" && <Dashboard onNavigateToInvocation={handleNavigateToInvocation} />}
 
         {activePage === "logs" && (
           <div className="flex-1 overflow-hidden flex flex-col">

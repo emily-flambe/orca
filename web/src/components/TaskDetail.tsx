@@ -10,6 +10,7 @@ import EmptyState from "./ui/EmptyState";
 
 interface Props {
   taskId: string;
+  initialInvocationId?: number;
 }
 
 function formatDuration(start: string, end: string | null): string {
@@ -32,7 +33,7 @@ const MANUAL_STATUSES = [
   { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
 ] as const;
 
-export default function TaskDetail({ taskId }: Props) {
+export default function TaskDetail({ taskId, initialInvocationId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
@@ -43,6 +44,12 @@ export default function TaskDetail({ taskId }: Props) {
       .then((d) => setDetail(d))
       .catch(console.error);
   }, [taskId]);
+
+  useEffect(() => {
+    if (detail && initialInvocationId != null) {
+      setSelectedInvocationId(initialInvocationId);
+    }
+  }, [detail, initialInvocationId]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
