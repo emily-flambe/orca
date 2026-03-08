@@ -2,7 +2,9 @@
 
 AI agent scheduler that dispatches and manages Claude Code CLI sessions. Pulls tasks from Linear, manages concurrency, enforces budgets, and provides a real-time web dashboard.
 
-<img width="1741" height="949" alt="image" src="https://github.com/user-attachments/assets/010aac38-a141-4914-8c4f-c82fb1e80f04" />
+<img width="1736" height="1129" alt="image" src="https://github.com/user-attachments/assets/8c42f8f5-e5b9-4c32-b35b-ecc488c816f9" />
+
+To me, she's beautiful... Rubenesque.
 
 ## How It Works
 
