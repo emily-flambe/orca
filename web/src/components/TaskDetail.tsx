@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
+import { fetchTaskDetail, retryTask, updateTaskStatus } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import LiveRunWidget from "./LiveRunWidget";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
@@ -61,6 +62,9 @@ export default function TaskDetail({ taskId }: Props) {
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
   );
 
+  const runningInvocation = invocations.find((inv) => inv.status === "running") ?? null;
+  const nonRunningInvocations = invocations.filter((inv) => inv.status !== "running");
+
   return (
     <div className="p-4 space-y-6">
       {/* Header */}
@@ -117,16 +121,31 @@ export default function TaskDetail({ taskId }: Props) {
         </pre>
       </div>
 
+      {/* Active invocation — LiveRunWidget */}
+      {runningInvocation && (
+        <div>
+          <h3 className="text-sm text-gray-400 mb-2">Active Session</h3>
+          <LiveRunWidget
+            invocation={runningInvocation}
+            onAborted={() => {
+              fetchTaskDetail(taskId)
+                .then((d) => setDetail(d))
+                .catch(console.error);
+            }}
+          />
+        </div>
+      )}
+
       {/* Invocation history */}
       <div>
         <h3 className="text-sm text-gray-400 mb-2">Invocation History</h3>
         {invocations.length === 0 ? (
           <EmptyState message="No invocations yet" />
-        ) : (
+        ) : nonRunningInvocations.length === 0 ? null : (
           <>
             {/* Mobile: card layout */}
             <div className="md:hidden space-y-2">
-              {invocations.map((inv) => (
+              {nonRunningInvocations.map((inv) => (
                 <div key={inv.id} className="border border-gray-800 rounded-lg overflow-hidden">
                   <button
                     onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
@@ -145,23 +164,6 @@ export default function TaskDetail({ taskId }: Props) {
                       <p className="text-xs text-gray-500 mt-1 line-clamp-2">{inv.outputSummary}</p>
                     )}
                   </button>
-                  {inv.status === "running" && (
-                    <div className="px-3 pb-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                          abortInvocation(inv.id)
-                            .then(() => fetchTaskDetail(taskId))
-                            .then((d) => setDetail(d))
-                            .catch(console.error);
-                        }}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                      >
-                        Abort
-                      </button>
-                    </div>
-                  )}
                   {selectedInvocationId === inv.id && (
                     <div className="border-t border-gray-800">
                       <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
@@ -186,7 +188,7 @@ export default function TaskDetail({ taskId }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {invocations.map((inv) => (
+                  {nonRunningInvocations.map((inv) => (
                     <Fragment key={inv.id}>
                       <tr
                         onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
@@ -202,28 +204,12 @@ export default function TaskDetail({ taskId }: Props) {
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
                         <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                        <td className="py-2">
-                          {inv.status === "running" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                                abortInvocation(inv.id)
-                                  .then(() => fetchTaskDetail(taskId))
-                                  .then((d) => setDetail(d))
-                                  .catch(console.error);
-                              }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                            >
-                              Abort
-                            </button>
-                          )}
-                        </td>
+                        <td className="py-2"></td>
                       </tr>
                       {selectedInvocationId === inv.id && (
                         <tr>
                           <td colSpan={7} className="py-2">
-                            <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
+                            <LogViewer invocationId={inv.id} isRunning={false} outputSummary={inv.outputSummary} />
                           </td>
                         </tr>
                       )}
