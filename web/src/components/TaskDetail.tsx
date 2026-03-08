@@ -1,42 +1,37 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { TaskWithInvocations } from "../types";
-import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
-import LogViewer from "./LogViewer";
-import LiveRunWidget from "./LiveRunWidget";
-import { getStatusBadgeClasses } from "./ui/StatusBadge";
-import StatusBadge from "./ui/StatusBadge";
+import { fetchTaskDetail, abortInvocation, retryTask } from "../hooks/useApi";
+import InvocationTimeline from "./InvocationTimeline";
+import PropertiesPanel from "./PropertiesPanel";
 import Skeleton from "./ui/Skeleton";
-import EmptyState from "./ui/EmptyState";
 
 interface Props {
   taskId: string;
 }
 
-function formatDuration(start: string, end: string | null): string {
-  if (!end) return "running...";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  return `${mins}m ${remSecs}s`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString();
-}
-
-const MANUAL_STATUSES = [
-  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
-  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
-  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
-] as const;
+// Module-level variable — persists for the browser session (cleared on page refresh)
+let _panelOpen = false;
 
 export default function TaskDetail({ taskId }: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
-  const [selectedInvocationId, setSelectedInvocationId] = useState<number | null>(null);
-  const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const [panelOpen, setPanelOpen] = useState(_panelOpen);
+
+  // Persist panel state to module-level variable
+  useEffect(() => {
+    _panelOpen = panelOpen;
+  }, [panelOpen]);
+
+  // Keyboard shortcut: Cmd+\ or Ctrl+\
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "\\" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPanelOpen((prev) => !prev);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -44,212 +39,87 @@ export default function TaskDetail({ taskId }: Props) {
       .catch(console.error);
   }, [taskId]);
 
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
-        setShowStatusMenu(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const handleAbort = useCallback(
+    (invId: number) => {
+      abortInvocation(invId)
+        .then(() => fetchTaskDetail(taskId))
+        .then((d) => setDetail(d))
+        .catch(console.error);
+    },
+    [taskId]
+  );
+
+  const handleRetry = useCallback(() => {
+    if (!detail) return;
+    if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
+    retryTask(detail.linearIssueId)
+      .then(() => fetchTaskDetail(taskId))
+      .then((d) => setDetail(d))
+      .catch(console.error);
+  }, [taskId, detail]);
 
   if (!detail) {
     return <Skeleton lines={3} className="m-4" />;
   }
 
-  const invocations = [...(detail.invocations || [])].sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-  );
-
-  const runningInvocation = invocations.find((inv) => inv.status === "running");
-
   return (
-    <div className="p-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
-        <div className="relative" ref={statusMenuRef}>
-          <button
-            onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
-          >
-            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus} &#9662;
-          </button>
-          {showStatusMenu && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
-              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => {
-                    setShowStatusMenu(false);
-                    updateTaskStatus(detail.linearIssueId, s.value)
-                      .then(() => fetchTaskDetail(taskId))
-                      .then((d) => setDetail(d))
-                      .catch(console.error);
-                  }}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+    <div className="flex h-full overflow-hidden">
+      {/* Main content area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 min-w-0">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-mono font-semibold">{detail.linearIssueId}</h2>
+
+          {detail.orcaStatus === "failed" && (
+            <button
+              onClick={handleRetry}
+              className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+            >
+              Retry
+            </button>
           )}
-        </div>
-        {detail.orcaStatus === "failed" && (
+
+          <span className="flex-1" />
+
+          {/* Toggle properties panel */}
           <button
-            onClick={() => {
-              if (!window.confirm("Retry this task? It will be re-queued with fresh retry counters.")) return;
-              retryTask(detail.linearIssueId)
-                .then(() => fetchTaskDetail(taskId))
-                .then((d) => setDetail(d))
-                .catch(console.error);
-            }}
-            className="text-xs px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+            onClick={() => setPanelOpen((prev) => !prev)}
+            title="Toggle properties panel (⌘\)"
+            className={`text-xs px-2 py-1 rounded transition-colors ${
+              panelOpen
+                ? "bg-gray-700 text-gray-200"
+                : "bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+            }`}
           >
-            Retry
+            ⊞ Properties
           </button>
-        )}
-      </div>
+        </div>
 
-      {/* Live run widget — shown when task has an active invocation */}
-      {runningInvocation && (
-        <LiveRunWidget
-          invocation={runningInvocation}
-          onCancelled={() =>
-            fetchTaskDetail(taskId)
-              .then((d) => setDetail(d))
-              .catch(console.error)
-          }
+        {/* Agent Prompt */}
+        <div className="space-y-2">
+          <label className="text-sm text-gray-400">Agent Prompt</label>
+          <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+            {detail.agentPrompt || (
+              <span className="text-gray-500 italic">No prompt (issue has no description)</span>
+            )}
+          </pre>
+        </div>
+
+        {/* Invocation Timeline */}
+        <InvocationTimeline
+          invocations={detail.invocations || []}
+          taskId={taskId}
+          onAbort={handleAbort}
         />
-      )}
-
-      {/* Agent prompt (read-only, synced from Linear) */}
-      <div className="space-y-2">
-        <label className="text-sm text-gray-400">Agent Prompt</label>
-        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
-          {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
-        </pre>
       </div>
 
-      {/* Invocation history */}
-      <div>
-        <h3 className="text-sm text-gray-400 mb-2">Invocation History</h3>
-        {invocations.length === 0 ? (
-          <EmptyState message="No invocations yet" />
-        ) : (
-          <>
-            {/* Mobile: card layout */}
-            <div className="md:hidden space-y-2">
-              {invocations.map((inv) => (
-                <div key={inv.id} className="border border-gray-800 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-xs text-gray-400">{formatDate(inv.startedAt)}</span>
-                      <StatusBadge status={inv.status} className="shrink-0" />
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-gray-400">
-                      <span className="tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</span>
-                      {inv.costUsd != null && <span className="tabular-nums">${inv.costUsd.toFixed(2)}</span>}
-                      {inv.numTurns != null && <span className="tabular-nums">{inv.numTurns} turns</span>}
-                    </div>
-                    {inv.outputSummary && (
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{inv.outputSummary}</p>
-                    )}
-                  </button>
-                  {inv.status === "running" && (
-                    <div className="px-3 pb-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                          abortInvocation(inv.id)
-                            .then(() => fetchTaskDetail(taskId))
-                            .then((d) => setDetail(d))
-                            .catch(console.error);
-                        }}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                      >
-                        Abort
-                      </button>
-                    </div>
-                  )}
-                  {selectedInvocationId === inv.id && (
-                    <div className="border-t border-gray-800">
-                      <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Desktop: table layout */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-gray-500 border-b border-gray-800">
-                    <th className="pb-2 pr-4">Date</th>
-                    <th className="pb-2 pr-4">Duration</th>
-                    <th className="pb-2 pr-4">Status</th>
-                    <th className="pb-2 pr-4">Cost</th>
-                    <th className="pb-2 pr-4">Turns</th>
-                    <th className="pb-2 pr-4">Summary</th>
-                    <th className="pb-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invocations.map((inv) => (
-                    <Fragment key={inv.id}>
-                      <tr
-                        onClick={() => setSelectedInvocationId(selectedInvocationId === inv.id ? null : inv.id)}
-                        className="border-b border-gray-800/50 cursor-pointer hover:bg-gray-800/50 transition-colors"
-                      >
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap">{formatDate(inv.startedAt)}</td>
-                        <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">{formatDuration(inv.startedAt, inv.endedAt)}</td>
-                        <td className="py-2 pr-4">
-                          <StatusBadge status={inv.status} />
-                        </td>
-                        <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.costUsd != null ? `$${inv.costUsd.toFixed(2)}` : "\u2014"}
-                        </td>
-                        <td className="py-2 pr-4 text-gray-300 tabular-nums">{inv.numTurns ?? "\u2014"}</td>
-                        <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">{inv.outputSummary ?? "\u2014"}</td>
-                        <td className="py-2">
-                          {inv.status === "running" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
-                                abortInvocation(inv.id)
-                                  .then(() => fetchTaskDetail(taskId))
-                                  .then((d) => setDetail(d))
-                                  .catch(console.error);
-                              }}
-                              className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-                            >
-                              Abort
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {selectedInvocationId === inv.id && (
-                        <tr>
-                          <td colSpan={7} className="py-2">
-                            <LogViewer invocationId={inv.id} isRunning={inv.status === "running"} outputSummary={inv.outputSummary} />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </div>
+      {/* Properties Panel */}
+      <PropertiesPanel
+        task={detail}
+        isOpen={panelOpen}
+        onToggle={() => setPanelOpen((prev) => !prev)}
+        onTaskUpdate={(updated) => setDetail(updated)}
+      />
     </div>
   );
 }
