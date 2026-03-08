@@ -24,6 +24,8 @@ import {
   updateTaskFields,
   getInvocationStats,
   getRecentErrors,
+  getDailyTrends,
+  getRecentActivity,
 } from "../db/queries.js";
 import {
   orcaEvents,
@@ -579,6 +581,57 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       recentErrors,
       costLast24h,
       costLast7d,
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/dashboard
+  // -----------------------------------------------------------------------
+  app.get("/api/dashboard", (c) => {
+    const allTasks = getAllTasks(db);
+    const tasksByStatus: Record<string, number> = {};
+    for (const task of allTasks) {
+      tasksByStatus[task.orcaStatus] = (tasksByStatus[task.orcaStatus] ?? 0) + 1;
+    }
+
+    const invStats = getInvocationStats(db);
+    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
+    const costPrev24h = sumCostInWindow(db, budgetWindowStart(48)) - costLast24h;
+    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
+    const costPrev7d = sumCostInWindow(db, budgetWindowStart(14 * 24)) - costLast7d;
+
+    const activeSessions = countActiveSessions(db);
+
+    // Success rate: completed / (completed + failed + timed_out) in last 7 days
+    // Computed from daily trends
+    const dailyActivity = getDailyTrends(db, 14);
+    const last7days = dailyActivity.slice(-7);
+    const prev7days = dailyActivity.slice(0, 7);
+
+    const sumCompleted7 = last7days.reduce((s, d) => s + d.completed, 0);
+    const sumFailed7 = last7days.reduce((s, d) => s + d.failed, 0);
+    const total7 = sumCompleted7 + sumFailed7;
+    const successRateLast7d = total7 > 0 ? sumCompleted7 / total7 : null;
+
+    const sumCompletedPrev7 = prev7days.reduce((s, d) => s + d.completed, 0);
+    const sumFailedPrev7 = prev7days.reduce((s, d) => s + d.failed, 0);
+    const totalPrev7 = sumCompletedPrev7 + sumFailedPrev7;
+    const successRatePrev7d = totalPrev7 > 0 ? sumCompletedPrev7 / totalPrev7 : null;
+
+    const recentActivity = getRecentActivity(db, 20);
+
+    return c.json({
+      tasksByStatus,
+      invocationStats: invStats,
+      costLast24h,
+      costPrev24h,
+      costLast7d,
+      costPrev7d,
+      activeSessions,
+      successRateLast7d,
+      successRatePrev7d,
+      dailyActivity,
+      recentActivity,
     });
   });
 

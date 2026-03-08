@@ -141,3 +141,44 @@ export function sendInvocationPrompt(id: number, prompt: string): Promise<{ ok: 
     body: JSON.stringify({ prompt }),
   });
 }
+
+export interface DailyActivityPoint {
+  date: string;
+  completed: number;
+  failed: number;
+  costUsd: number;
+}
+
+export interface ActivityEvent {
+  id: number;
+  linearIssueId: string;
+  status: string;
+  phase: string | null;
+  costUsd: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  outputSummary: string | null;
+}
+
+export interface DashboardData {
+  tasksByStatus: Record<string, number>;
+  invocationStats: {
+    byStatus: { status: string; count: number }[];
+    avgDurationSecs: number | null;
+    avgCostUsd: number | null;
+    totalCostUsd: number | null;
+  };
+  costLast24h: number;
+  costPrev24h: number;
+  costLast7d: number;
+  costPrev7d: number;
+  activeSessions: number;
+  successRateLast7d: number | null;
+  successRatePrev7d: number | null;
+  dailyActivity: DailyActivityPoint[];
+  recentActivity: ActivityEvent[];
+}
+
+export function fetchDashboard(): Promise<DashboardData> {
+  return fetchJson<DashboardData>("/dashboard");
+}

@@ -7,36 +7,9 @@ import type { Page } from "./components/Sidebar";
 import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import SystemLog from "./components/SystemLog";
-import ActiveSessionsGrid from "./components/ActiveSessionsGrid";
-import Metrics from "./components/Metrics";
+import Dashboard from "./components/Dashboard";
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
-
-// ---------------------------------------------------------------------------
-// Dashboard page
-// ---------------------------------------------------------------------------
-
-function DashboardPage({ status }: { status: OrcaStatus | null }) {
-  return (
-    <div className="flex-1 overflow-y-auto">
-      {status && (
-        <div className="px-4 pt-4 pb-2 flex gap-3 flex-wrap text-sm text-gray-400">
-          <span>
-            <span className="text-gray-500">Active: </span>
-            <span className="text-gray-200">{status.activeSessions}</span>
-            <span className="text-gray-500"> / </span>
-            <span className="text-gray-200">{status.concurrencyCap}</span>
-          </span>
-          <span>
-            <span className="text-gray-500">Queued: </span>
-            <span className="text-gray-200">{status.queuedTasks}</span>
-          </span>
-        </div>
-      )}
-      <ActiveSessionsGrid />
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Settings page
@@ -267,7 +240,7 @@ export default function App() {
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
-  const [activePage, setActivePage] = useState<Page>("tasks");
+  const [activePage, setActivePage] = useState<Page>("dashboard");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -396,12 +369,8 @@ export default function App() {
         )}
 
         {activePage === "dashboard" && (
-          <DashboardPage status={status} />
-        )}
-
-        {activePage === "metrics" && (
-          <div className="flex-1 overflow-y-auto">
-            <Metrics />
+          <div className="flex-1 overflow-hidden flex flex-col">
+            <Dashboard />
           </div>
         )}
 

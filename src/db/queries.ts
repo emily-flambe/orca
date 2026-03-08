@@ -458,3 +458,81 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
     .limit(limit)
     .all();
 }
+
+export interface DailyActivityPoint {
+  date: string; // "YYYY-MM-DD"
+  completed: number;
+  failed: number;
+  costUsd: number;
+}
+
+export function getDailyTrends(db: OrcaDb, days = 14): DailyActivityPoint[] {
+  // Generate date series for last N days
+  const points: DailyActivityPoint[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const dateStr = d.toISOString().slice(0, 10);
+    points.push({ date: dateStr, completed: 0, failed: 0, costUsd: 0 });
+  }
+
+  // Query invocations grouped by day
+  const rows = db
+    .select({
+      date: sql<string>`date(${invocations.endedAt})`,
+      status: invocations.status,
+      costSum: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+      cnt: count(),
+    })
+    .from(invocations)
+    .where(
+      and(
+        gte(invocations.endedAt, new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()),
+        inArray(invocations.status, ["completed", "failed", "timed_out"]),
+      )
+    )
+    .groupBy(sql`date(${invocations.endedAt})`, invocations.status)
+    .all();
+
+  for (const row of rows) {
+    const point = points.find((p) => p.date === row.date);
+    if (!point) continue;
+    if (row.status === "completed") {
+      point.completed += row.cnt;
+      point.costUsd += Number(row.costSum);
+    } else {
+      point.failed += row.cnt;
+    }
+  }
+
+  return points;
+}
+
+export interface ActivityEvent {
+  id: number;
+  linearIssueId: string;
+  status: string;
+  phase: string | null;
+  costUsd: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  outputSummary: string | null;
+}
+
+export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEvent[] {
+  return db
+    .select({
+      id: invocations.id,
+      linearIssueId: invocations.linearIssueId,
+      status: invocations.status,
+      phase: invocations.phase,
+      costUsd: invocations.costUsd,
+      startedAt: invocations.startedAt,
+      endedAt: invocations.endedAt,
+      outputSummary: invocations.outputSummary,
+    })
+    .from(invocations)
+    .where(inArray(invocations.status, ["completed", "failed", "timed_out"]))
+    .orderBy(desc(invocations.id))
+    .limit(limit)
+    .all();
+}

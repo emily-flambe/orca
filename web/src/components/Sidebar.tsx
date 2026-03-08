@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { OrcaStatus, Task } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
-export type Page = "dashboard" | "tasks" | "metrics" | "logs" | "settings";
+export type Page = "dashboard" | "tasks" | "logs" | "settings";
 
 interface SidebarProps {
   activePage: Page;
@@ -167,14 +167,6 @@ export default function Sidebar({
                 {tasks.length}
               </span>
             )}
-          </button>
-
-          {/* Metrics */}
-          <button
-            className={navItemClass("metrics")}
-            onClick={() => onNavigate("metrics")}
-          >
-            <span>Metrics</span>
           </button>
 
           {/* Logs */}
