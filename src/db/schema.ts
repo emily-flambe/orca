@@ -36,6 +36,7 @@ export const tasks = sqliteTable("tasks", {
   deployStartedAt: text("deploy_started_at"),
   ciStartedAt: text("ci_started_at"),
   fixReason: text("fix_reason"),
+  mergeAttemptCount: integer("merge_attempt_count").notNull().default(0),
   doneAt: text("done_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),

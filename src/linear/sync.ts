@@ -204,7 +204,7 @@ function upsertTask(
       parentIdentifier,
       isParent,
       ...(issue.projectName ? { projectName: issue.projectName } : {}),
-      ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0 } : {}),
+      ...(resetCounters ? { retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0 } : {}),
     });
   }
 }
@@ -414,7 +414,7 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    updateTaskFields(db, taskId, { orcaStatus: "backlog", retryCount: 0, reviewCycleCount: 0 });
+    updateTaskFields(db, taskId, { orcaStatus: "backlog", retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0 });
     log(`conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`);
     return;
   }
@@ -425,7 +425,7 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    updateTaskFields(db, taskId, { orcaStatus: "ready", retryCount: 0, reviewCycleCount: 0 });
+    updateTaskFields(db, taskId, { orcaStatus: "ready", retryCount: 0, reviewCycleCount: 0, mergeAttemptCount: 0 });
     log(`conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`);
     return;
   }
