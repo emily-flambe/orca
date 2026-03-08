@@ -33,6 +33,7 @@ export interface Invocation {
   logPath: string | null;
   phase: string | null;
   model: string | null;
+  agentPrompt: string | null;
 }
 
 export interface TaskWithInvocations extends Task {
