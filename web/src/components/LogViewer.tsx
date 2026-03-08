@@ -17,6 +17,10 @@ interface ContentBlock {
   thinking?: string;
   name?: string;
   input?: unknown;
+  // tool_result fields
+  tool_use_id?: string;
+  content?: ContentBlock[] | string;
+  is_error?: boolean;
 }
 
 interface Message {
@@ -32,33 +36,76 @@ interface LogLine {
   cost_usd?: number;
   num_turns?: number;
   result?: string;
+  // stderr / process_exit fields (added by orca runner)
+  timestamp?: string;
+  text?: string;
+  code?: number | null;
+  signal?: string | null;
+  // rate_limit_event fields
+  overageStatus?: string;
+  rateLimitType?: string;
+  resetsAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Format an ISO timestamp as HH:MM:SS for compact display. */
+function formatTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString("en-US", { hour12: false });
+  } catch {
+    return iso;
+  }
+}
+
+/** Extract plain text from a tool_result content field (string or block array). */
+function extractToolResultText(content: ContentBlock[] | string | undefined): string {
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  return content
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text!)
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
+function Timestamp({ iso }: { iso: string }) {
+  return (
+    <span className="text-gray-600 text-xs font-mono mr-2 select-none">
+      {formatTimestamp(iso)}
+    </span>
+  );
+}
+
+/** Assistant text block — green */
 function TextBlock({ text }: { text: string }) {
   return (
-    <pre className="whitespace-pre-wrap text-sm text-gray-200 leading-relaxed">
+    <pre className="whitespace-pre-wrap text-sm text-green-400 leading-relaxed font-mono">
       {text}
     </pre>
   );
 }
 
+/** Tool call block — cyan with bold name, collapsed input */
 function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors"
+        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-800 text-cyan-400 hover:text-cyan-200 transition-colors font-mono"
       >
-        <span className="font-mono">{name}</span>
-        <span>{open ? "▴" : "▾"}</span>
+        <span className="font-bold">{name}</span>
+        <span className="text-gray-500">{open ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-gray-400 overflow-x-auto max-h-60 overflow-y-auto">
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800 rounded text-cyan-300/70 whitespace-pre-wrap max-h-60 overflow-y-auto font-mono">
           {typeof input === "string" ? input : JSON.stringify(input, null, 2)}
         </pre>
       )}
@@ -66,18 +113,52 @@ function ToolUseBlock({ name, input }: { name: string; input: unknown }) {
   );
 }
 
+/** Tool result block — dimmer cyan, collapsed */
+function ToolResultBlock({
+  content,
+  isError,
+}: {
+  content: string;
+  isError?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const colorClass = isError
+    ? "text-red-400 hover:text-red-200"
+    : "text-cyan-300/70 hover:text-cyan-200";
+  const contentColor = isError ? "text-red-400" : "text-cyan-300/70";
+  return (
+    <div className="my-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-gray-800 transition-colors font-mono ${colorClass}`}
+      >
+        <span>↳ result</span>
+        <span className="text-gray-500">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <pre
+          className={`mt-1 ml-2 p-2 text-xs bg-gray-800 rounded whitespace-pre-wrap max-h-60 overflow-y-auto font-mono ${contentColor}`}
+        >
+          {content || "(empty)"}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/** Thinking block — purple, collapsed by default */
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="my-1">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        className="text-xs text-purple-400 hover:text-purple-200 transition-colors font-mono"
       >
-        {open ? "▼" : "▶"} Thinking...
+        {open ? "▼" : "▶"} <span className="italic">Thinking...</span>
       </button>
       {open && (
-        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-gray-500 whitespace-pre-wrap max-h-40 overflow-y-auto">
+        <pre className="mt-1 ml-2 p-2 text-xs bg-gray-800/50 rounded text-purple-400/70 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">
           {text}
         </pre>
       )}
@@ -85,10 +166,39 @@ function ThinkingBlock({ text }: { text: string }) {
   );
 }
 
+/** Stderr line — red */
+function StderrLine({ line }: { line: LogLine }) {
+  return (
+    <div className="font-mono text-xs">
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
+      <span className="text-red-400">{line.text ?? ""}</span>
+    </div>
+  );
+}
+
+/** Process exit / system / rate-limit — yellow */
+function SystemLine({
+  label,
+  detail,
+  timestamp,
+}: {
+  label: string;
+  detail?: string;
+  timestamp?: string;
+}) {
+  return (
+    <div className="font-mono text-xs text-yellow-400">
+      {timestamp && <Timestamp iso={timestamp} />}
+      <span>{label}</span>
+      {detail && <span className="text-yellow-400/60 ml-2">{detail}</span>}
+    </div>
+  );
+}
+
 function ResultFooter({ line }: { line: LogLine }) {
   const cost = line.total_cost_usd ?? line.cost_usd;
   return (
-    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 flex gap-4">
+    <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 flex gap-4 font-mono">
       <span>Result: {line.subtype ?? "unknown"}</span>
       {cost != null && <span>Cost: ${cost.toFixed(2)}</span>}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
@@ -221,7 +331,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
           <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed font-mono">
             {outputSummary}
           </pre>
         </div>
@@ -237,7 +347,7 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       return (
         <div className="p-4 bg-gray-900 border border-gray-800 rounded-lg">
           <div className="text-xs text-gray-500 mb-2">No log file (agent never started)</div>
-          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed">
+          <pre className="whitespace-pre-wrap text-sm text-red-400 leading-relaxed font-mono">
             {outputSummary}
           </pre>
         </div>
@@ -255,15 +365,53 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
       className="max-h-[32rem] overflow-y-auto p-4 bg-gray-900 border border-gray-800 rounded-lg space-y-3"
     >
       {lines.map((line, idx) => {
-        // Skip system messages
-        if (line.type === "system") return null;
+        // stderr — red
+        if (line.type === "stderr") {
+          return <StderrLine key={idx} line={line} />;
+        }
+
+        // process_exit — yellow
+        if (line.type === "process_exit") {
+          const detail =
+            line.signal
+              ? `signal ${line.signal}`
+              : line.code != null
+              ? `exit code ${line.code}`
+              : undefined;
+          return (
+            <SystemLine
+              key={idx}
+              label="Process exited"
+              detail={detail}
+              timestamp={line.timestamp}
+            />
+          );
+        }
+
+        // rate_limit_event — yellow warning
+        if (line.type === "rate_limit_event") {
+          const detail = line.resetsAt ? `resets at ${line.resetsAt}` : undefined;
+          return (
+            <SystemLine
+              key={idx}
+              label={`Rate limited: ${line.rateLimitType ?? "unknown"}`}
+              detail={detail}
+            />
+          );
+        }
+
+        // system — yellow (e.g. init)
+        if (line.type === "system") {
+          const detail = line.subtype ? `(${line.subtype})` : undefined;
+          return <SystemLine key={idx} label="System" detail={detail} />;
+        }
 
         // Result footer
         if (line.type === "result") {
           return <ResultFooter key={idx} line={line} />;
         }
 
-        // Assistant messages
+        // Assistant messages — text: green, tool_use: cyan, thinking: purple
         if (line.type === "assistant" && line.message?.content) {
           const blocks = line.message.content;
           const hasContent = blocks.some(
@@ -298,7 +446,30 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           );
         }
 
-        // Skip other message types
+        // User messages — render tool_result blocks in dimmer cyan
+        if (line.type === "user" && line.message?.content) {
+          const toolResults = line.message.content.filter(
+            (b) => b.type === "tool_result"
+          );
+          if (toolResults.length === 0) return null;
+
+          return (
+            <div key={idx} className="space-y-1">
+              {toolResults.map((block, bi) => {
+                const text = extractToolResultText(block.content);
+                return (
+                  <ToolResultBlock
+                    key={bi}
+                    content={text}
+                    isError={block.is_error}
+                  />
+                );
+              })}
+            </div>
+          );
+        }
+
+        // Unknown / unhandled types — skip silently
         return null;
       })}
       {isRunning && (
