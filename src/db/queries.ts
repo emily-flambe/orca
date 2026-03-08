@@ -465,7 +465,7 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
 // ---------------------------------------------------------------------------
 
 export interface DailyStatEntry {
-  date: string;       // "YYYY-MM-DD"
+  date: string; // "YYYY-MM-DD"
   completed: number;
   failed: number;
   costUsd: number;
@@ -543,7 +543,12 @@ export function sumCostInWindowRange(
   const result = db
     .select({ total: sum(budgetEvents.costUsd) })
     .from(budgetEvents)
-    .where(and(gte(budgetEvents.recordedAt, windowStart), lt(budgetEvents.recordedAt, windowEnd)))
+    .where(
+      and(
+        gte(budgetEvents.recordedAt, windowStart),
+        lt(budgetEvents.recordedAt, windowEnd),
+      ),
+    )
     .get();
   return result?.total ? Number(result.total) : 0;
 }

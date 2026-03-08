@@ -39,19 +39,29 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const promptLines = invocation.agentPrompt?.split("\n") ?? [];
   const ticketTitle = promptLines.find((l) => l.trim()) ?? null;
   const ticketDescription = ticketTitle
-    ? invocation.agentPrompt!.slice(invocation.agentPrompt!.indexOf(ticketTitle) + ticketTitle.length).trim() || null
+    ? invocation
+        .agentPrompt!.slice(
+          invocation.agentPrompt!.indexOf(ticketTitle) + ticketTitle.length,
+        )
+        .trim() || null
     : null;
 
   const [promptText, setPromptText] = useState("");
   const [promptSending, setPromptSending] = useState(false);
-  const [promptFeedback, setPromptFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [promptFeedback, setPromptFeedback] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
 
   const handleCostUpdate = useCallback((c: number) => {
     setCost(c);
   }, []);
 
   const handleCancel = useCallback(async () => {
-    if (!window.confirm("Abort this invocation? The task will be reset to ready.")) return;
+    if (
+      !window.confirm("Abort this invocation? The task will be reset to ready.")
+    )
+      return;
     setCancelling(true);
     try {
       await abortInvocation(invocation.id);
@@ -74,7 +84,8 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
       setPromptText("");
       setPromptFeedback({ ok: true, message: "Prompt delivered" });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send prompt";
+      const message =
+        err instanceof Error ? err.message : "Failed to send prompt";
       setPromptFeedback({ ok: false, message });
     } finally {
       setPromptSending(false);
@@ -99,7 +110,9 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
     : "border-gray-700";
 
   return (
-    <div className={`rounded-lg border ${borderClass} bg-gray-900 overflow-hidden`}>
+    <div
+      className={`rounded-lg border ${borderClass} bg-gray-900 overflow-hidden`}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
         {/* Pulsing indicator */}
@@ -153,7 +166,9 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
       {ticketTitle && (
         <>
           <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-gray-800 bg-gray-900">
-            <span className="text-xs text-gray-300 truncate flex-1">{ticketTitle}</span>
+            <span className="text-xs text-gray-300 truncate flex-1">
+              {ticketTitle}
+            </span>
             {ticketDescription && (
               <button
                 onClick={() => setExpanded((v) => !v)}
@@ -166,9 +181,18 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
                   viewBox="0 0 14 14"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
-                  style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" }}
+                  style={{
+                    transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.15s",
+                  }}
                 >
-                  <path d="M3 5L7 9L11 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M3 5L7 9L11 5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             )}
@@ -211,7 +235,9 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
             </button>
           </div>
           {promptFeedback && (
-            <p className={`text-xs ${promptFeedback.ok ? "text-cyan-400" : "text-red-400"}`}>
+            <p
+              className={`text-xs ${promptFeedback.ok ? "text-cyan-400" : "text-red-400"}`}
+            >
               {promptFeedback.message}
             </p>
           )}
