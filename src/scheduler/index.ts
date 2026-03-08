@@ -384,16 +384,22 @@ async function dispatch(
           // Write-back to Linear as Canceled (fire-and-forget)
           if (!terminalWriteBackTasks.has(taskId)) {
             terminalWriteBackTasks.add(taskId);
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((writeErr) => {
-              log(`write-back failed on permanent worktree failure for task ${taskId}: ${writeErr}`);
-            });
+            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+              (writeErr) => {
+                log(
+                  `write-back failed on permanent worktree failure for task ${taskId}: ${writeErr}`,
+                );
+              },
+            );
             client
               .createComment(
                 taskId,
                 `Task permanently failed: ${permanentSummary}`,
               )
               .catch((commentErr) => {
-                log(`comment failed on permanent worktree failure for task ${taskId}: ${commentErr}`);
+                log(
+                  `comment failed on permanent worktree failure for task ${taskId}: ${commentErr}`,
+                );
               });
           }
           return;
