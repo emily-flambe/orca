@@ -5,6 +5,8 @@ export interface SSECallbacks {
   onInvocationStarted?: (data: { taskId: string; invocationId: number }) => void;
   onInvocationCompleted?: (data: { taskId: string; invocationId: number; status: string; costUsd: number }) => void;
   onStatusUpdated?: (status: unknown) => void;
+  onTasksRefreshed?: () => void;
+  onReconnect?: () => void;
 }
 
 export function useSSE(callbacks: SSECallbacks): void {
@@ -13,6 +15,14 @@ export function useSSE(callbacks: SSECallbacks): void {
 
   useEffect(() => {
     const es = new EventSource("/api/events");
+    let connected = false;
+
+    es.onopen = () => {
+      if (connected) {
+        callbacksRef.current.onReconnect?.();
+      }
+      connected = true;
+    };
 
     es.addEventListener("task:updated", (e) => {
       try {
@@ -40,6 +50,10 @@ export function useSSE(callbacks: SSECallbacks): void {
         const data = JSON.parse(e.data);
         callbacksRef.current.onStatusUpdated?.(data);
       } catch { /* ignore */ }
+    });
+
+    es.addEventListener("tasks:refreshed", () => {
+      callbacksRef.current.onTasksRefreshed?.();
     });
 
     return () => {

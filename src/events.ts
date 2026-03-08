@@ -52,3 +52,7 @@ export function emitInvocationCompleted(
 export function emitStatusUpdated(status: StatusPayload): void {
   orcaEvents.emit("status:updated", status);
 }
+
+export function emitTasksRefreshed(): void {
+  orcaEvents.emit("tasks:refreshed");
+}
