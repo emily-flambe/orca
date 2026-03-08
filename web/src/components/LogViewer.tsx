@@ -5,6 +5,7 @@ interface Props {
   invocationId: number;
   isRunning?: boolean;
   outputSummary?: string | null;
+  onCostUpdate?: (cost: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ function ResultFooter({ line }: { line: LogLine }) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function LogViewer({ invocationId, isRunning, outputSummary }: Props) {
+export default function LogViewer({ invocationId, isRunning, outputSummary, onCostUpdate }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +147,10 @@ export default function LogViewer({ invocationId, isRunning, outputSummary }: Pr
           setLines((prev) => [...prev, parsed]);
           setLoading(false);
           setError(null);
+          if (parsed.type === "result") {
+            const cost = parsed.total_cost_usd ?? parsed.cost_usd;
+            if (cost != null) onCostUpdate?.(cost);
+          }
         } catch {
           // ignore parse errors
         }

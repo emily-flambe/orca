@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
 import { fetchTaskDetail, abortInvocation, retryTask, updateTaskStatus } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import LiveRunWidget from "./LiveRunWidget";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
@@ -61,6 +62,8 @@ export default function TaskDetail({ taskId }: Props) {
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
   );
 
+  const runningInv = invocations.find((inv) => inv.status === "running");
+
   return (
     <div className="p-4 space-y-6">
       {/* Header */}
@@ -108,6 +111,21 @@ export default function TaskDetail({ taskId }: Props) {
           </button>
         )}
       </div>
+
+      {/* Live run widget for active invocation */}
+      {runningInv && (
+        <div className="mb-4">
+          <LiveRunWidget
+            invocation={runningInv}
+            taskId={detail.linearIssueId}
+            onCancel={() =>
+              fetchTaskDetail(taskId)
+                .then((d) => setDetail(d))
+                .catch(console.error)
+            }
+          />
+        </div>
+      )}
 
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">

@@ -7,8 +7,9 @@ import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import Metrics from "./components/Metrics";
 import SystemLog from "./components/SystemLog";
+import ActiveSessionsGrid from "./components/ActiveSessionsGrid";
 
-type Tab = "tasks" | "metrics" | "logs";
+type Tab = "tasks" | "metrics" | "logs" | "sessions";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -77,7 +78,7 @@ export default function App() {
 
       {/* Tab bar */}
       <div className="flex gap-1 px-4 pt-2 border-b border-gray-800 bg-gray-950 shrink-0">
-        {(["tasks", "metrics", "logs"] as Tab[]).map((tab) => (
+        {(["tasks", "metrics", "logs", "sessions"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -90,7 +91,11 @@ export default function App() {
                 : "text-gray-500 hover:text-gray-300"
             }`}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === "sessions"
+              ? (status?.activeSessions ?? 0) > 0
+                ? `Sessions (${status?.activeSessions})`
+                : "Sessions"
+              : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -135,6 +140,12 @@ export default function App() {
       {activeTab === "logs" && (
         <div className="flex-1 overflow-hidden flex flex-col">
           <SystemLog />
+        </div>
+      )}
+
+      {activeTab === "sessions" && (
+        <div className="flex-1 overflow-y-auto">
+          <ActiveSessionsGrid />
         </div>
       )}
     </div>
