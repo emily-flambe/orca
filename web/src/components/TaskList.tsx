@@ -63,8 +63,8 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
   const [sort, setSort] = useState<SortOption>("priority");
-  // hiddenProjects: empty = show all, otherwise hide listed project names
-  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
+  // selectedProjects: null = all selected; Set = explicit selection
+  const [selectedProjects, setSelectedProjects] = useState<Set<string> | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const allProjects = useMemo(() => {
@@ -86,8 +86,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   }
 
   function toggleProject(p: string) {
-    setHiddenProjects((prev) => {
-      const next = new Set(prev);
+    setSelectedProjects((prev) => {
+      const base = prev ?? new Set(allProjects);
+      const next = new Set(base);
       if (next.has(p)) {
         next.delete(p);
       } else {
@@ -99,6 +100,8 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
 
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -117,6 +120,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
         setStatusDropdownOpen(false);
       }
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
+        setProjectDropdownOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -128,9 +134,9 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
       (selectedStatuses as ReadonlySet<string>).has(t.orcaStatus),
     );
 
-    const byProject = hiddenProjects.size === 0
+    const byProject = selectedProjects === null
       ? byStatus
-      : byStatus.filter((t) => !hiddenProjects.has(t.projectName ?? ""));
+      : byStatus.filter((t) => selectedProjects.has(t.projectName ?? ""));
 
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
     const withHistory = byProject.filter((t) =>
@@ -279,48 +285,85 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
           </div>
         </div>
 
-        {/* Project filter — only shown when multiple projects exist */}
-        {allProjects.length > 1 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Project</span>
-              <button
-                onClick={() => setHiddenProjects(new Set())}
-                className={`text-[11px] transition-colors ${hiddenProjects.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                disabled={hiddenProjects.size === 0}
-              >
-                all
-              </button>
-            </div>
-            <div className="overflow-x-auto scrollbar-none">
-              <div className="flex gap-1 flex-nowrap min-w-max">
-                {allProjects.map((p) => {
-                  const active = !hiddenProjects.has(p);
-                  const count = projectCounts[p] ?? 0;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => toggleProject(p)}
-                      title={active ? `Hide ${p}` : `Show ${p}`}
-                      className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
-                        active
-                          ? "bg-gray-700/60 text-gray-300 border border-gray-600"
-                          : "text-gray-700 hover:text-gray-500 line-through"
-                      }`}
-                    >
-                      {p}
-                      {count > 0 && (
-                        <span className={`text-[10px] tabular-nums leading-none ${active ? "opacity-60" : "opacity-40"}`}>
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+        {/* Project filter dropdown — only shown when multiple projects exist */}
+        {allProjects.length > 1 && (() => {
+          const effectiveSelected = selectedProjects ?? new Set(allProjects);
+          const allProjectsSelected = selectedProjects === null || allProjects.every((p) => effectiveSelected.has(p));
+          return (
+            <div className="flex items-center gap-2" ref={projectDropdownRef}>
+              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">Project</span>
+              <div className="relative flex-1">
+                <button
+                  onClick={() => setProjectDropdownOpen((o) => !o)}
+                  className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
+                >
+                  <span className="truncate">
+                    {allProjectsSelected
+                      ? "all projects"
+                      : effectiveSelected.size === 0
+                      ? "none"
+                      : effectiveSelected.size === 1
+                      ? [...effectiveSelected][0]
+                      : `${effectiveSelected.size} of ${allProjects.length}`}
+                  </span>
+                  <svg className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${projectDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {projectDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48">
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
+                      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Filter by project</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedProjects(null)}
+                          className={`text-[10px] transition-colors ${allProjectsSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                          disabled={allProjectsSelected}
+                        >
+                          all
+                        </button>
+                        <button
+                          onClick={() => setSelectedProjects(new Set())}
+                          className={`text-[10px] transition-colors ${effectiveSelected.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                          disabled={effectiveSelected.size === 0}
+                        >
+                          none
+                        </button>
+                      </div>
+                    </div>
+                    {allProjects.map((p) => {
+                      const active = effectiveSelected.has(p);
+                      const count = projectCounts[p] ?? 0;
+                      return (
+                        <button
+                          key={p}
+                          onClick={() => toggleProject(p)}
+                          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
+                        >
+                          <span className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}>
+                            {active && (
+                              <svg className="w-2 h-2 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className={`flex-1 text-left truncate ${active ? "text-gray-300" : "text-gray-600 line-through"}`}>
+                            {p}
+                          </span>
+                          {count > 0 && (
+                            <span className={`text-[10px] tabular-nums ${active ? "text-gray-500" : "text-gray-700"}`}>
+                              {count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Sort */}
         <div className="flex items-center gap-2">
