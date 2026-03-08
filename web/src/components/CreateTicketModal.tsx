@@ -109,7 +109,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
           </div>
 
           {/* Project + Priority + Status row */}
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             {/* Project */}
             <div className="flex-1">
               <label className="block text-xs text-gray-400 mb-1">Project</label>
@@ -124,31 +124,32 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
               </select>
             </div>
 
-            {/* Priority */}
-            <div className="w-36">
-              <label className="block text-xs text-gray-400 mb-1">Priority</label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(Number(e.target.value))}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
-              >
-                {PRIORITY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
+            {/* Priority + Status: side-by-side even on mobile */}
+            <div className="flex gap-3">
+              <div className="flex-1 sm:w-36 sm:flex-none">
+                <label className="block text-xs text-gray-400 mb-1">Priority</label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(Number(e.target.value))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                >
+                  {PRIORITY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
 
-            {/* Status */}
-            <div className="w-28">
-              <label className="block text-xs text-gray-400 mb-1">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as "todo" | "backlog")}
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
-              >
-                <option value="todo">Todo</option>
-                <option value="backlog">Backlog</option>
-              </select>
+              <div className="flex-1 sm:w-28 sm:flex-none">
+                <label className="block text-xs text-gray-400 mb-1">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as "todo" | "backlog")}
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm text-gray-200 focus:outline-none focus:border-gray-500"
+                >
+                  <option value="todo">Todo</option>
+                  <option value="backlog">Backlog</option>
+                </select>
+              </div>
             </div>
           </div>
 

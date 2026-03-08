@@ -127,7 +127,7 @@ export default function TaskDetail({ taskId }: Props) {
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>
-        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap">
+        <pre className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 whitespace-pre-wrap break-words overflow-x-auto max-h-[40vh] overflow-y-auto">
           {detail.agentPrompt || <span className="text-gray-500 italic">No prompt (issue has no description)</span>}
         </pre>
       </div>

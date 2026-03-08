@@ -147,7 +147,8 @@ export default function OrchestratorBar({ status, onSync, onConfigUpdate, onNewT
           onClick={() => setShowModal(true)}
           className="px-3 py-1.5 rounded bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors text-sm"
         >
-          + New ticket
+          <span className="sm:hidden">+ New</span>
+          <span className="hidden sm:inline">+ New ticket</span>
         </button>
         <button
           onClick={handleSync}
