@@ -8,16 +8,6 @@ set -euo pipefail
 ORCA_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ORCA_DIR"
 
-echo "[deploy] pulling latest main..."
-git checkout main
-git pull origin main
-
-echo "[deploy] installing dependencies..."
-npm install
-
-echo "[deploy] rebuilding frontend..."
-(cd web && npm run build)
-
 echo "[deploy] waiting for active sessions to finish..."
 MAX_WAIT=900  # 15 min safety timeout
 WAITED=0
@@ -95,6 +85,16 @@ else
   done
 fi
 echo "[deploy] old process gone (waited ~$((KILL_WAIT / 2))s)"
+
+echo "[deploy] pulling latest main..."
+git checkout main
+git pull origin main
+
+echo "[deploy] installing dependencies..."
+npm install
+
+echo "[deploy] rebuilding frontend..."
+(cd web && npm run build)
 
 echo "[deploy] starting Orca..."
 # Strip Claude nesting-detection env vars so spawned Claude sessions don't refuse to start.
