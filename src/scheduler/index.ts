@@ -1093,10 +1093,19 @@ function onSessionFailure(
     log(
       `task ${taskId}: stale session detected — clearing session and re-dispatching fresh`,
     );
-    // Clear the stale session from the invocation so the next dispatch starts fresh
+    // Clear the stale session from the CURRENT invocation
     updateInvocation(db, invocationId, {
       sessionId: null,
     });
+    // Also clear the session from the ORIGINAL completed invocation that provided
+    // the session ID, so getLastCompletedImplementInvocation won't return it again
+    const sourceInv = getLastCompletedImplementInvocation(db, taskId);
+    if (sourceInv) {
+      log(
+        `task ${taskId}: clearing stale session from source invocation ${sourceInv.id}`,
+      );
+      updateInvocation(db, sourceInv.id, { sessionId: null });
+    }
     // Re-queue without burning a retry
     const staleTask = getTask(db, taskId);
     const requeueStatus =
