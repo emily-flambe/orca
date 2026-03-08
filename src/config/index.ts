@@ -28,6 +28,7 @@ export interface OrcaConfig {
   cleanupBranchMaxAgeMin: number;
   resumeOnMaxTurns: boolean;
   resumeOnFix: boolean;
+  maxWorktreeRetries: number;
   port: number;
   dbPath: string;
   logPath: string;
@@ -302,6 +303,7 @@ Steps:
     ),
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),
+    maxWorktreeRetries: readIntOrDefault("ORCA_MAX_WORKTREE_RETRIES", 3),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),
