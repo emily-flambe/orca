@@ -761,3 +761,60 @@ describe("POST /api/tasks — contract", () => {
     expect(typeof body.error).toBe("string");
   });
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/invocations/:id/logs/stream (SSE)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/invocations/:id/logs/stream — contract", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  it("400: non-numeric id — returns { error: string }", async () => {
+    const res = await app.request("/api/invocations/abc/logs/stream");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("404: invocation not found — returns { error: string }", async () => {
+    const res = await app.request("/api/invocations/9999/logs/stream");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
+  });
+
+  it("200: invocation exists, no in-memory log state — SSE connection established", async () => {
+    insertTask(db, makeTask({ linearIssueId: "STREAM-1" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "STREAM-1",
+      startedAt: new Date().toISOString(),
+      status: "completed",
+    });
+    // invocationLogs is an empty Map (mocked), so no log state — handler falls back to done
+    const res = await app.request(`/api/invocations/${invId}/logs/stream`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    await res.body?.cancel();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/events (SSE)
+// ---------------------------------------------------------------------------
+
+describe("GET /api/events — contract", () => {
+  it("200: establishes SSE stream with correct content-type", async () => {
+    const db = createDb(":memory:");
+    const app = makeApp(db);
+    const res = await app.request("/api/events");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    await res.body?.cancel();
+  });
+});
