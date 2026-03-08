@@ -37,6 +37,8 @@ export interface OrcaConfig {
   linearWebhookSecret: string;
   linearProjectIds: string[];
   tunnelHostname: string;
+  // GitHub webhook (optional — enables auto-deploy on push to main)
+  githubWebhookSecret: string | undefined;
   tunnelToken: string;
   cloudflaredPath: string;
 }
@@ -309,6 +311,7 @@ Steps:
     linearWebhookSecret,
     linearProjectIds,
     tunnelHostname,
+    githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
   };

@@ -19,6 +19,8 @@ import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
+import { createGithubWebhookRoute } from "../github/webhook.js";
+import { triggerGracefulDeploy } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
@@ -181,6 +183,16 @@ program
     const app = new Hono();
     app.route("/", webhookApp);
     app.route("/", apiApp);
+
+    // GitHub webhook for auto-deploy on push to main (optional)
+    if (config.githubWebhookSecret) {
+      const githubWebhookApp = createGithubWebhookRoute({
+        secret: config.githubWebhookSecret,
+        onPushToMain: () => triggerGracefulDeploy(db),
+      });
+      app.route("/", githubWebhookApp);
+      console.log("[orca/github-webhook] auto-deploy webhook registered");
+    }
 
     // Static files + SPA fallback (after API routes so API takes priority)
     app.use("/*", serveStatic({ root: "./web/dist" }));

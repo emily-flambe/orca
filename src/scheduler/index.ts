@@ -1,4 +1,5 @@
 // PR lifecycle gates verified
+import { isDraining } from "../deploy.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
@@ -1895,6 +1896,11 @@ async function mergeAndFinalize(
 
 async function tick(deps: SchedulerDeps): Promise<void> {
   const { db, config, graph } = deps;
+
+  // Stop dispatching new jobs when a graceful deploy drain is in progress
+  if (isDraining()) {
+    return;
+  }
 
   // Check for timed-out invocations first
   checkTimeouts(deps);
