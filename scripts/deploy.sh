@@ -42,6 +42,7 @@ done
 
 echo "[deploy] killing existing Orca process (if any)..."
 PIDFILE="$ORCA_DIR/orca.pid"
+OLD_PID=""
 if [ -f "$PIDFILE" ]; then
   OLD_PID=$(cat "$PIDFILE" 2>/dev/null || true)
   if [ -n "$OLD_PID" ]; then
@@ -67,7 +68,33 @@ else
     pkill -f "tsx.*cli/index" 2>/dev/null || true
   fi
 fi
-sleep 2
+
+echo "[deploy] waiting for old process to exit..."
+KILL_WAIT=0
+KILL_MAX=20  # 20 iterations × 0.5s = 10s timeout
+if [ -n "$OLD_PID" ]; then
+  # Wait for the specific PID to disappear
+  while kill -0 "$OLD_PID" 2>/dev/null; do
+    if [ "$KILL_WAIT" -ge "$KILL_MAX" ]; then
+      echo "[deploy] old process still alive after 10s — continuing anyway"
+      break
+    fi
+    sleep 0.5
+    KILL_WAIT=$((KILL_WAIT + 1))
+  done
+else
+  # Wait for the port to become free
+  PORT="${ORCA_PORT:-4000}"
+  while netstat -ano 2>/dev/null | grep -q ":${PORT}.*LISTENING"; do
+    if [ "$KILL_WAIT" -ge "$KILL_MAX" ]; then
+      echo "[deploy] port ${PORT} still in use after 10s — continuing anyway"
+      break
+    fi
+    sleep 0.5
+    KILL_WAIT=$((KILL_WAIT + 1))
+  done
+fi
+echo "[deploy] old process gone (waited ~$((KILL_WAIT / 2))s)"
 
 echo "[deploy] starting Orca..."
 # Strip Claude nesting-detection env vars so spawned Claude sessions don't refuse to start.

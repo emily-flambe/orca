@@ -491,6 +491,86 @@ describe("Drain state", () => {
 
     expect(spawnSession).not.toHaveBeenCalled();
   });
+
+  test("dispatches in_review task during drain", async () => {
+    vi.mocked(isDraining).mockReturnValue(true);
+
+    const reviewId = seedTask(db, {
+      linearIssueId: "DRAIN-REVIEW-1",
+      orcaStatus: "in_review",
+      prBranchName: "orca/drain-review-1",
+    });
+
+    let dispatchedTaskId: string | undefined;
+    vi.mocked(createWorktree).mockImplementation((_repoPath, taskId) => {
+      dispatchedTaskId = taskId as string;
+      return { worktreePath: "/tmp/fake-worktree", branchName: "orca/test/1" };
+    });
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    await waitFor(() => dispatchedTaskId !== undefined);
+    handle.stop();
+
+    expect(dispatchedTaskId).toBe(reviewId);
+  });
+
+  test("dispatches changes_requested task during drain", async () => {
+    vi.mocked(isDraining).mockReturnValue(true);
+
+    const crId = seedTask(db, {
+      linearIssueId: "DRAIN-CR-1",
+      orcaStatus: "changes_requested",
+      prBranchName: "orca/drain-cr-1",
+    });
+
+    let dispatchedTaskId: string | undefined;
+    vi.mocked(createWorktree).mockImplementation((_repoPath, taskId) => {
+      dispatchedTaskId = taskId as string;
+      return { worktreePath: "/tmp/fake-worktree", branchName: "orca/test/1" };
+    });
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    await waitFor(() => dispatchedTaskId !== undefined);
+    handle.stop();
+
+    expect(dispatchedTaskId).toBe(crId);
+  });
+
+  test("does not dispatch ready task but does dispatch in_review task during drain", async () => {
+    vi.mocked(isDraining).mockReturnValue(true);
+
+    const readyId = seedTask(db, {
+      linearIssueId: "DRAIN-MIXED-READY",
+      orcaStatus: "ready",
+    });
+    const reviewId = seedTask(db, {
+      linearIssueId: "DRAIN-MIXED-REVIEW",
+      orcaStatus: "in_review",
+      prBranchName: "orca/drain-mixed-review",
+    });
+
+    let dispatchedTaskId: string | undefined;
+    vi.mocked(createWorktree).mockImplementation((_repoPath, taskId) => {
+      dispatchedTaskId = taskId as string;
+      return { worktreePath: "/tmp/fake-worktree", branchName: "orca/test/1" };
+    });
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    await waitFor(() => dispatchedTaskId !== undefined);
+    handle.stop();
+
+    expect(dispatchedTaskId).toBe(reviewId);
+    expect(getTask(db, readyId)?.orcaStatus).toBe("ready");
+  });
 });
 
 // ===========================================================================
