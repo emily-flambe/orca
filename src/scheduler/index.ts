@@ -686,6 +686,14 @@ function onImplementSuccess(
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
       try {
+        const closedCount = closeSupersededPrs(taskId, 0, 0, "", task.repoPath, "Closed: the task was already complete on the main branch — no changes were needed.");
+        if (closedCount > 0) {
+          log(`closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`);
+        }
+      } catch (err) {
+        log(`PR cleanup for already-done task ${taskId}: ${err}`);
+      }
+      try {
         removeWorktree(worktreePath);
       } catch (err) {
         log(`worktree removal for already-done task ${taskId}: ${err}`);
@@ -773,6 +781,14 @@ function onImplementSuccess(
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
+      try {
+        const closedCount = closeSupersededPrs(taskId, 0, 0, "", task.repoPath, "Closed: the task was already complete on the main branch — no changes were needed.");
+        if (closedCount > 0) {
+          log(`closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`);
+        }
+      } catch (err) {
+        log(`PR cleanup for already-done task ${taskId}: ${err}`);
+      }
       try {
         removeWorktree(worktreePath);
       } catch (err) {
