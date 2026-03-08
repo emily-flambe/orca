@@ -192,10 +192,11 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 
 ## Finishing up
 1. Stage and commit all changes with a descriptive commit message.
-2. Push the branch: \`git push -u origin HEAD\`
-3. Open a pull request: \`gh pr create --fill\`
-4. Do NOT merge the PR. Leave it for review.
-5. Include the Linear issue ID (from the task prompt) in the PR title.`;
+2. Run \`git fetch origin && git rebase origin/main\` to ensure the branch is up to date immediately before opening the PR. If conflicts arise, resolve them and re-commit before proceeding.
+3. Push the branch: \`git push -u origin HEAD\`
+4. Open a pull request: \`gh pr create --fill\`
+5. Do NOT merge the PR. Leave it for review.
+6. Include the Linear issue ID (from the task prompt) in the PR title.`;
 
   const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are an autonomous coding agent running in a headless CI-like environment. There is NO human operator. You MUST NOT:
 - Ask for confirmation, approval, or clarification
