@@ -1897,13 +1897,14 @@ async function mergeAndFinalize(
 async function tick(deps: SchedulerDeps): Promise<void> {
   const { db, config, graph } = deps;
 
+  // Check for timed-out invocations even during drain — stale sessions block
+  // the deploy indefinitely if timeouts are skipped while isDraining() is true.
+  checkTimeouts(deps);
+
   // Stop dispatching new jobs when a graceful deploy drain is in progress
   if (isDraining()) {
     return;
   }
-
-  // Check for timed-out invocations first
-  checkTimeouts(deps);
 
   // Check deploying tasks (non-blocking per-task polling)
   await checkDeployments(deps);
