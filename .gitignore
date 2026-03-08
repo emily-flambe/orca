@@ -7,6 +7,8 @@ web/dist/
 *.db-wal
 logs/
 *.log
+orca.log
+orca.log.1
 .env
 .env.local
 .claude/

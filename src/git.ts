@@ -42,9 +42,10 @@ export function git(args: string[], options?: { cwd?: string }): string {
     if (stderr) parts.push(stderr);
     if (!stderr && execErr.message) parts.push(execErr.message);
     if (options?.cwd) parts.push(`cwd: ${options.cwd}`);
-    const error = new Error(parts.join("\n"));
-    (error as any).status = execErr.status;
-    (error as any).signal = execErr.signal;
+    const error = Object.assign(new Error(parts.join("\n")), {
+      status: execErr.status,
+      signal: execErr.signal,
+    });
     throw error;
   }
 }
