@@ -234,6 +234,16 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "fix_reason")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN fix_reason TEXT");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 9 (merge attempt tracking):
+  //   - Add merge_attempt_count column to tasks (counts consecutive merge failures)
+  //   - Allows merge retry with backoff before escalating to permanent failure
+  //   Sentinel: merge_attempt_count column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "merge_attempt_count")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN merge_attempt_count INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

@@ -12,6 +12,7 @@ import {
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
+  incrementMergeAttemptCount,
   incrementRetryCount,
   incrementReviewCycleCount,
   insertBudgetEvent,
@@ -1318,22 +1319,45 @@ async function mergeAndFinalize(deps: SchedulerDeps, taskId: string): Promise<vo
       }
 
       if (!alreadyMerged) {
-        // Genuine merge failure
+        // Genuine merge failure — retry with backoff rather than destroying work.
+        // Re-read task to get current mergeAttemptCount.
+        const freshTask = getTask(db, taskId);
+        const attemptsSoFar = (freshTask?.mergeAttemptCount ?? 0) + 1;
+        incrementMergeAttemptCount(db, taskId);
+        emitTaskUpdated(getTask(db, taskId)!);
+
+        const maxMergeAttempts = 3;
+
+        if (attemptsSoFar < maxMergeAttempts) {
+          // Keep task in awaiting_ci — the CI poll loop will call mergeAndFinalize again.
+          client.createComment(
+            taskId,
+            `Merge attempt ${attemptsSoFar}/${maxMergeAttempts} failed for PR #${task.prNumber}: ${mergeResult.error}. Will retry automatically on next scheduler tick.`,
+          ).catch((err) => {
+            log(`comment failed on merge retry for task ${taskId}: ${err}`);
+          });
+
+          log(`task ${taskId} merge attempt ${attemptsSoFar}/${maxMergeAttempts} failed — keeping awaiting_ci for retry`);
+          return;
+        }
+
+        // Exhausted retries — escalate to failed but preserve the PR.
+        // Write "In Review" (not Cancelled) so the PR stays open and the branch is not deleted.
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
 
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch((err) => {
-          log(`write-back failed on merge failure for task ${taskId}: ${err}`);
+        writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+          log(`write-back failed on merge escalation for task ${taskId}: ${err}`);
         });
 
         client.createComment(
           taskId,
-          `Failed to merge PR #${task.prNumber}: ${mergeResult.error}`,
+          `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please resolve the merge blocker and merge manually, or reset this issue to Todo to re-implement.`,
         ).catch((err) => {
-          log(`comment failed on merge failure for task ${taskId}: ${err}`);
+          log(`comment failed on merge escalation for task ${taskId}: ${err}`);
         });
 
-        log(`task ${taskId} merge failed: ${mergeResult.error}`);
+        log(`task ${taskId} merge failed after ${attemptsSoFar} attempts — escalated, PR preserved, status=failed`);
         return;
       }
       // PR was already merged by someone else — continue normally
