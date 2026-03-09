@@ -1,8 +1,25 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { OrcaStatus, Task } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
 export type Page = "dashboard" | "tasks" | "logs" | "settings";
+
+const MIN_WIDTH = 150;
+const MAX_WIDTH = 400;
+const DEFAULT_WIDTH = 200;
+const STORAGE_KEY = "orca-sidebar-width";
+
+function readStoredWidth(): number {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return DEFAULT_WIDTH;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return DEFAULT_WIDTH;
+    return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, parsed));
+  } catch {
+    return DEFAULT_WIDTH;
+  }
+}
 
 interface SidebarProps {
   activePage: Page;
@@ -46,6 +63,74 @@ export default function Sidebar({
   const [syncing, setSyncing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
+
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredWidth);
+  const [isDragging, setIsDragging] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  // Refs to track active drag listeners so we can clean them up on unmount.
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  // Clean up any active drag listeners on unmount.
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+    };
+  }, []);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    if (window.innerWidth < 768) return;
+    e.preventDefault();
+    setIsDragging(true);
+
+    const sidebarEl = sidebarRef.current;
+    if (!sidebarEl) return;
+    const rect = sidebarEl.getBoundingClientRect();
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = moveEvent.clientX - rect.left;
+      setSidebarWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, newWidth)));
+    };
+
+    const cleanup = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      dragCleanupRef.current = null;
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      cleanup();
+      // Read the final width from the ref to avoid the setState-as-side-effect anti-pattern.
+      const finalWidth = sidebarRef.current
+        ? Math.min(
+            MAX_WIDTH,
+            Math.max(MIN_WIDTH, sidebarRef.current.offsetWidth),
+          )
+        : null;
+      if (finalWidth !== null) {
+        try {
+          localStorage.setItem(STORAGE_KEY, String(finalWidth));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    dragCleanupRef.current = cleanup;
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      document.body.style.userSelect = "none";
+    } else {
+      document.body.style.userSelect = "";
+    }
+    return () => {
+      document.body.style.userSelect = "";
+    };
+  }, [isDragging]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -98,13 +183,14 @@ export default function Sidebar({
     <>
       {/* Sidebar panel */}
       <div
+        ref={sidebarRef}
         className={`
-          fixed md:static inset-y-0 left-0 z-20
-          w-50 flex flex-col bg-gray-900 border-r border-gray-800 shrink-0
+          fixed md:relative inset-y-0 left-0 z-20
+          flex flex-col bg-gray-900 border-r border-gray-800 shrink-0
           transition-transform duration-200
           ${isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
-        style={{ width: "200px" }}
+        style={{ width: `${sidebarWidth}px` }}
       >
         {/* Header */}
         <div className="h-14 flex items-center px-4 border-b border-gray-800 shrink-0">
@@ -249,6 +335,14 @@ export default function Sidebar({
             <span>Settings</span>
           </button>
         </nav>
+
+        {/* Drag handle */}
+        <div
+          className="absolute top-0 right-0 w-1 h-full cursor-col-resize hidden md:block group/handle"
+          onMouseDown={handleDragStart}
+        >
+          <div className="absolute inset-y-0 right-0 w-1 bg-transparent group-hover/handle:bg-gray-700 transition-colors" />
+        </div>
 
         {/* Footer */}
         <div className="border-t border-gray-800 px-2 py-2 shrink-0">
