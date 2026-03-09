@@ -38,6 +38,8 @@ export interface WebhookEvent {
     state?: { id: string; name: string; type: string };
     teamId?: string;
     projectId?: string;
+    // Linear includes label IDs in webhook payloads when labels are set
+    labelIds?: string[];
   };
 }
 
@@ -78,6 +80,18 @@ export function isExpectedChange(taskId: string, stateName: string): boolean {
 
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Label filter cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps label name → Linear label ID.
+ * Populated during fullSync when ORCA_TASK_FILTER_LABEL is set.
+ * Used by webhook handler to skip issues lacking the required label
+ * without making an extra API call per webhook.
+ */
+export const labelIdCache = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -296,11 +310,40 @@ export async function fullSync(
 ): Promise<number> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
-  for (const issue of issues) {
+  // Refresh label ID cache each cycle so new/renamed labels are picked up.
+  // Design: fullSync does NOT touch DB tasks whose issues no longer appear in
+  // filtered results — no stale-marking, no deletion. Label filter is
+  // sync-time only; tasks already in DB continue to run unaffected.
+  if (config.taskFilterLabel) {
+    const labelId = await client.fetchLabelId(config.taskFilterLabel);
+    if (labelId) {
+      labelIdCache.set(config.taskFilterLabel, labelId);
+    } else {
+      // Label not found in workspace — clear cache so webhook filter is lenient
+      labelIdCache.delete(config.taskFilterLabel);
+      log(`label "${config.taskFilterLabel}" not found; filter will be skipped this cycle`);
+    }
+  }
+
+  // Apply label filter: skip issues that don't carry the configured label.
+  // When taskFilterLabel is unset, all issues pass through (current behavior).
+  const filteredIssues = config.taskFilterLabel
+    ? issues.filter((issue) =>
+        issue.labels.includes(config.taskFilterLabel!),
+      )
+    : issues;
+
+  if (config.taskFilterLabel) {
+    log(
+      `label filter "${config.taskFilterLabel}": ${filteredIssues.length}/${issues.length} issues pass`,
+    );
+  }
+
+  for (const issue of filteredIssues) {
     upsertTask(db, issue, config);
   }
 
-  graph.rebuild(issues);
+  graph.rebuild(filteredIssues);
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
@@ -308,8 +351,8 @@ export async function fullSync(
   }
 
   emitTasksRefreshed();
-  log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  log(`full sync complete: ${filteredIssues.length} issues`);
+  return filteredIssues.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +374,29 @@ export async function processWebhookEvent(
       `skipping echo webhook for ${event.data.identifier} (state: ${stateName})`,
     );
     return;
+  }
+
+  // Label filter: when ORCA_TASK_FILTER_LABEL is set, skip webhook events for
+  // issues that do not carry the required label ID.
+  //
+  // Design decisions:
+  // - In-flight tasks (running): invocation completes normally including PR
+  //   creation and write-back. Label removal mid-flight does not interrupt work.
+  // - Ready-to-dispatch tasks: will still be dispatched; label filter is
+  //   sync-time only. To prevent dispatch, manually cancel in the orca UI.
+  // - Cache miss (label ID not yet populated): we allow the event through to
+  //   avoid silently dropping valid work when the cache is cold.
+  if (config.taskFilterLabel) {
+    const requiredLabelId = labelIdCache.get(config.taskFilterLabel);
+    if (requiredLabelId) {
+      const eventLabelIds = event.data.labelIds ?? [];
+      if (!eventLabelIds.includes(requiredLabelId)) {
+        log(
+          `skipping webhook for ${event.data.identifier}: missing label "${config.taskFilterLabel}"`,
+        );
+        return;
+      }
+    }
   }
 
   if (event.action === "remove") {

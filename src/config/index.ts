@@ -40,6 +40,8 @@ export interface OrcaConfig {
   tunnelHostname: string;
   // GitHub webhook (optional — enables auto-deploy on push to main)
   githubWebhookSecret: string | undefined;
+  // Label filter (optional — when set, only issues with this label are synced)
+  taskFilterLabel: string | undefined;
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
@@ -315,6 +317,7 @@ Steps:
     linearProjectIds,
     tunnelHostname,
     githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
+    taskFilterLabel: readEnv("ORCA_TASK_FILTER_LABEL"),
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),

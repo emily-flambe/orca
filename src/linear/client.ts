@@ -31,6 +31,7 @@ export interface LinearIssue {
   parentTitle: string | null;
   parentDescription: string | null;
   childIds: string[];
+  labels: string[];
 }
 
 /** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
@@ -201,6 +202,7 @@ export class LinearClient {
             state { id name type }
             team { id }
             project { id name }
+            labels { nodes { name } }
             relations { nodes { type relatedIssue { id identifier } } }
             inverseRelations { nodes { type issue { id identifier } } }
             parent { id identifier title description }
@@ -232,6 +234,7 @@ export class LinearClient {
             state: { id: string; name: string; type: string };
             team: { id: string };
             project: { id: string; name: string };
+            labels: { nodes: Array<{ name: string }> };
             relations: {
               nodes: Array<{
                 type: string;
@@ -282,6 +285,7 @@ export class LinearClient {
           parentTitle: node.parent?.title ?? null,
           parentDescription: node.parent?.description ?? null,
           childIds: (node.children?.nodes ?? []).map((c) => c.identifier),
+          labels: (node.labels?.nodes ?? []).map((l) => l.name),
         });
       }
 
@@ -441,6 +445,33 @@ export class LinearClient {
     }>(graphql, { issueId, stateId });
 
     return data.issueUpdate.success;
+  }
+
+  /**
+   * Fetch the Linear label ID for a given label name.
+   * Returns null if no label with that name exists.
+   * Used to build the label filter cache for webhook filtering.
+   */
+  async fetchLabelId(labelName: string): Promise<string | null> {
+    const graphql = `
+      query($name: String!) {
+        issueLabels(filter: { name: { eq: $name } }, first: 1) {
+          nodes { id name }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      issueLabels: { nodes: Array<{ id: string; name: string }> };
+    }>(graphql, { name: labelName });
+
+    const node = data.issueLabels.nodes[0];
+    if (!node) {
+      warn(`fetchLabelId: no label found with name "${labelName}"`);
+      return null;
+    }
+    log(`fetched label ID for "${labelName}": ${node.id}`);
+    return node.id;
   }
 
   async createIssue(input: {
