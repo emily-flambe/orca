@@ -427,6 +427,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    labels: [], // label filter is checked before reaching this point; labels field not needed here
   };
 
   // Only upsert if we have state info
