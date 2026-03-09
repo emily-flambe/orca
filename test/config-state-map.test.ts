@@ -145,4 +145,22 @@ describe("ORCA_STATE_MAP parsing", () => {
     expect(msg).toContain('"bad1"');
     expect(msg).toContain('"bad2"');
   });
+
+  test("empty string env var → process.exit(1) with JSON parse error", () => {
+    process.env.ORCA_STATE_MAP = "";
+    loadConfig();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ORCA_STATE_MAP must be valid JSON"),
+    );
+  });
+
+  test("non-string value in object → process.exit(1) with type error message", () => {
+    process.env.ORCA_STATE_MAP = JSON.stringify({ Done: 1, InProgress: null });
+    loadConfig();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const msg = (errorSpy.mock.calls[0] as string[])[0];
+    expect(msg).toContain('"Done"');
+    expect(msg).toContain("must be a string");
+  });
 });

@@ -173,36 +173,31 @@ export function loadConfig(): OrcaConfig {
   const stateMapRaw = readEnv("ORCA_STATE_MAP");
   let stateMapOverrides: Record<string, string> | undefined;
   if (stateMapRaw !== undefined) {
-    let parseOk = false;
-    let parsed: unknown;
+    let stateMapObj: Record<string, unknown> | undefined;
     try {
-      parsed = JSON.parse(stateMapRaw);
-      parseOk = true;
+      const parsed: unknown = JSON.parse(stateMapRaw);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        exitWithError("ORCA_STATE_MAP must be a JSON object");
+      } else {
+        stateMapObj = parsed as Record<string, unknown>;
+      }
     } catch {
       exitWithError(
         'ORCA_STATE_MAP must be valid JSON (e.g. {"Done":"done","QA Review":"in_review"})',
       );
     }
-    if (
-      parseOk &&
-      (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-    ) {
-      exitWithError("ORCA_STATE_MAP must be a JSON object");
-    }
-    if (
-      parseOk &&
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      const obj = parsed as Record<string, unknown>;
-      const entries = Object.entries(obj);
+    if (stateMapObj !== undefined) {
+      const entries = Object.entries(stateMapObj);
       // Empty object has no effect — treat same as unset
       if (entries.length > 0) {
         const errors: string[] = [];
         for (const [key, value] of entries) {
           if (key === "") {
             errors.push(`empty string key is not allowed`);
+          } else if (typeof value !== "string") {
+            errors.push(
+              `value for key "${key}" must be a string, got ${typeof value}`,
+            );
           } else if (!VALID_ORCA_STATUSES.includes(value as OrcaStatus)) {
             errors.push(
               `invalid status "${value}" for key "${key}"`,
@@ -214,7 +209,7 @@ export function loadConfig(): OrcaConfig {
             `ORCA_STATE_MAP validation failed:\n  ${errors.join("\n  ")}\nValid status values: ${VALID_ORCA_STATUSES.join(", ")}`,
           );
         } else {
-          stateMapOverrides = obj as Record<string, string>;
+          stateMapOverrides = stateMapObj as Record<string, string>;
         }
       }
     }
