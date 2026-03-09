@@ -152,4 +152,100 @@ describe("TaskList", () => {
     expect(screen.queryByText("ENG-ZERO")).not.toBeInTheDocument();
     expect(screen.getByText("ENG-ONE")).toBeInTheDocument();
   });
+
+  describe("sort behavior", () => {
+    function getTaskIds(): string[] {
+      // Each task ID appears as a text node inside a font-mono span.
+      // getAllByRole("button") returns task rows (role="button") among other buttons.
+      // Safer: find all elements whose text matches ENG-\d+ pattern.
+      return screen
+        .getAllByText(/^ENG-\d+$/)
+        .map((el) => el.textContent ?? "");
+    }
+
+    it("default sort is status ascending — running tasks appear before ready/queued tasks", () => {
+      const tasks = [
+        makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready" }),
+        makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
+        makeTask({ linearIssueId: "ENG-3", orcaStatus: "dispatched" }),
+      ];
+      render(<TaskList {...defaultProps} tasks={tasks} />);
+
+      const ids = getTaskIds();
+      // running (0) < dispatched (1) < ready (6) in STATUS_ORDER
+      expect(ids.indexOf("ENG-2")).toBeLessThan(ids.indexOf("ENG-3"));
+      expect(ids.indexOf("ENG-3")).toBeLessThan(ids.indexOf("ENG-1"));
+    });
+
+    it("default sort button shows '↑' on the status sort option", () => {
+      render(<TaskList {...defaultProps} tasks={[]} />);
+
+      const statusSortBtn = screen.getByRole("button", { name: /status ↑/ });
+      expect(statusSortBtn).toBeInTheDocument();
+    });
+
+    it("clicking a sort button sets it to asc and shows '↑'", () => {
+      render(<TaskList {...defaultProps} tasks={[]} />);
+
+      const priorityBtn = screen.getByRole("button", { name: "priority" });
+      fireEvent.click(priorityBtn);
+
+      expect(
+        screen.getByRole("button", { name: /priority ↑/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking the same active asc sort button switches it to desc and shows '↓'", () => {
+      render(<TaskList {...defaultProps} tasks={[]} />);
+
+      // status is already asc by default — click it once to go to desc
+      const statusBtn = screen.getByRole("button", { name: /status ↑/ });
+      fireEvent.click(statusBtn);
+
+      expect(
+        screen.getByRole("button", { name: /status ↓/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking the same active desc sort button clears sort — no '↑' or '↓' shown", () => {
+      render(<TaskList {...defaultProps} tasks={[]} />);
+
+      // status starts asc
+      const statusBtnAsc = screen.getByRole("button", { name: /status ↑/ });
+      fireEvent.click(statusBtnAsc); // → desc
+
+      const statusBtnDesc = screen.getByRole("button", { name: /status ↓/ });
+      fireEvent.click(statusBtnDesc); // → cleared
+
+      // After clearing, neither ↑ nor ↓ should appear in any button text
+      const allButtons = screen.getAllByRole("button");
+      const hasArrow = allButtons.some(
+        (btn) =>
+          btn.textContent?.includes("↑") || btn.textContent?.includes("↓"),
+      );
+      expect(hasArrow).toBe(false);
+    });
+
+    it("clicking a different sort button from an active one resets to asc on the new option", () => {
+      render(<TaskList {...defaultProps} tasks={[]} />);
+
+      // status is active asc by default; click it to go desc
+      const statusBtnAsc = screen.getByRole("button", { name: /status ↑/ });
+      fireEvent.click(statusBtnAsc); // status → desc
+
+      // Now click a different sort button (priority)
+      const priorityBtn = screen.getByRole("button", { name: "priority" });
+      fireEvent.click(priorityBtn);
+
+      // priority should be asc
+      expect(
+        screen.getByRole("button", { name: /priority ↑/ }),
+      ).toBeInTheDocument();
+      // status should have no arrow (inactive)
+      const statusBtn = screen.getByRole("button", { name: "status" });
+      expect(statusBtn.textContent).toBe("status");
+      expect(statusBtn.textContent).not.toContain("↑");
+      expect(statusBtn.textContent).not.toContain("↓");
+    });
+  });
 });

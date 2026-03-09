@@ -79,11 +79,29 @@ const MANUAL_STATUSES = [
   { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
 ] as const;
 
+type SortDirection = "asc" | "desc";
+interface SortState {
+  option: SortOption | null;
+  direction: SortDirection;
+}
+
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
-  const [sort, setSort] = useState<SortOption>("priority");
+  const [sortState, setSortState] = useState<SortState>({
+    option: "status",
+    direction: "asc",
+  });
+
+  function handleSortClick(option: SortOption) {
+    setSortState((prev) => {
+      if (prev.option !== option) return { option, direction: "asc" };
+      if (prev.direction === "asc") return { option, direction: "desc" };
+      return { option: null, direction: "asc" };
+    });
+  }
+
   // hiddenProjects: empty = show all, otherwise hide listed project names
   const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -188,19 +206,25 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
   })();
 
   const sorted = [...filtered].sort((a, b) => {
-    if (sort === "priority") {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+    const { option, direction } = sortState;
+    if (option === null) return 0;
+    let cmp = 0;
+    if (option === "priority") {
+      if (a.priority !== b.priority) {
+        cmp = a.priority - b.priority;
+      } else {
+        cmp = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+      }
+    } else if (option === "status") {
+      cmp =
+        (STATUS_ORDER[a.orcaStatus] ?? 9) - (STATUS_ORDER[b.orcaStatus] ?? 9);
+    } else if (option === "project") {
+      cmp = (a.projectName ?? "").localeCompare(b.projectName ?? "");
+    } else {
+      // date
+      cmp = (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     }
-    if (sort === "status") {
-      return (
-        (STATUS_ORDER[a.orcaStatus] ?? 9) - (STATUS_ORDER[b.orcaStatus] ?? 9)
-      );
-    }
-    if (sort === "project") {
-      return (a.projectName ?? "").localeCompare(b.projectName ?? "");
-    }
-    return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+    return direction === "desc" ? -cmp : cmp;
   });
 
   // Count tasks per status (from all tasks, ignoring filters)
@@ -401,19 +425,25 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
             Sort
           </span>
           <div className="flex gap-1 overflow-x-auto scrollbar-none">
-            {SORT_OPTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSort(s)}
-                className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
-                  sort === s
-                    ? "bg-gray-700 text-gray-100 border border-gray-600"
-                    : "text-gray-600 hover:text-gray-400"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
+            {SORT_OPTIONS.map((s) => {
+              const isActive = sortState.option === s;
+              const label = isActive
+                ? s + (sortState.direction === "asc" ? " ↑" : " ↓")
+                : s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleSortClick(s)}
+                  className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
+                    isActive
+                      ? "bg-gray-700 text-gray-100 border border-gray-600"
+                      : "text-gray-600 hover:text-gray-400"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
