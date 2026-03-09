@@ -35,6 +35,59 @@ kill_pid() {
   fi
 }
 
+# Helper: kill all Orca instances except the tracked old one
+kill_orphans() {
+  local exclude_pid="${1:-}"
+  local found=0
+  if command -v wmic &>/dev/null; then
+    # Windows: parse wmic CSV output
+    local csv
+    csv=$(wmic process where "name='node.exe'" get ProcessId,CommandLine /format:csv 2>/dev/null || true)
+    while IFS= read -r line; do
+      if echo "$line" | grep -qi "cli/index.ts"; then
+        local pid
+        pid=$(echo "$line" | awk -F',' '{gsub(/[[:space:]]/,"",$NF); print $NF}')
+        if [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]]; then
+          if [[ -z "$exclude_pid" || "$pid" != "$exclude_pid" ]]; then
+            log "killing orphaned instance PID=$pid"
+            kill_pid "$pid"
+            found=$((found + 1))
+          fi
+        fi
+      fi
+    done <<< "$csv"
+  else
+    # Unix: use pgrep
+    local pids
+    pids=$(pgrep -f "cli/index.ts" 2>/dev/null || true)
+    for pid in $pids; do
+      if [[ -z "$exclude_pid" || "$pid" != "$exclude_pid" ]]; then
+        log "killing orphaned instance PID=$pid"
+        kill_pid "$pid"
+        found=$((found + 1))
+      fi
+    done
+  fi
+  if [[ "$found" -eq 0 ]]; then
+    log "no orphaned instances found"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Lockfile — prevent concurrent deploys
+# ---------------------------------------------------------------------------
+LOCKFILE="$PROJECT_DIR/.deploy.lock"
+if [[ -f "$LOCKFILE" ]]; then
+  LOCK_PID=$(cat "$LOCKFILE" 2>/dev/null || true)
+  if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    log "ERROR: deploy already running (PID=$LOCK_PID)"
+    exit 1
+  fi
+  log "WARNING: stale lockfile found (PID=$LOCK_PID not running) — removing"
+fi
+echo $$ > "$LOCKFILE"
+trap "rm -f $LOCKFILE" EXIT
+
 # ---------------------------------------------------------------------------
 # Read deploy state (defaults: active=4000, standby=4001)
 # ---------------------------------------------------------------------------
@@ -67,6 +120,9 @@ if [[ -z "$OLD_PID" ]]; then
   log "WARNING: no pidfile found — old instance may need manual cleanup"
 fi
 
+log "killing any orphaned Orca instances..."
+kill_orphans "$OLD_PID"
+
 # ---------------------------------------------------------------------------
 # Pull, install, build
 # ---------------------------------------------------------------------------
@@ -90,6 +146,7 @@ ORCA_PORT=$STANDBY_PORT ORCA_EXTERNAL_TUNNEL=true \
   npx tsx src/cli/index.ts start --scheduler-paused \
   >> "$PROJECT_DIR/orca.log" 2>&1 &
 NEW_PID=$!
+echo "$NEW_PID" > "$PROJECT_DIR/orca-${STANDBY_PORT}.pid"
 disown
 log "new instance PID=$NEW_PID"
 
