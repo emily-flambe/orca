@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import Dashboard from "../Dashboard";
 import type { MetricsData } from "../../hooks/useApi";
@@ -70,56 +70,14 @@ describe("Dashboard", () => {
     });
   });
 
-  it("shows metric cards after data loads", async () => {
+  it("shows subscription billing notice after data loads", async () => {
     mockFetchMetrics.mockResolvedValue(makeMetrics());
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("Total Cost")).toBeInTheDocument();
-      expect(screen.getByText("Active Sessions")).toBeInTheDocument();
-      expect(screen.getByText("Success Rate")).toBeInTheDocument();
-      expect(screen.getByText("24h Cost")).toBeInTheDocument();
-    });
-  });
-
-  it("shows total cost formatted as $X.XX", async () => {
-    mockFetchMetrics.mockResolvedValue(
-      makeMetrics({
-        invocationStats: {
-          byStatus: [{ status: "completed", count: 5 }],
-          avgDurationSecs: null,
-          avgCostUsd: null,
-          totalCostUsd: 12.34,
-        },
-      }),
-    );
-    render(<Dashboard />);
-
-    await waitFor(() => {
-      expect(screen.getByText("$12.34")).toBeInTheDocument();
-    });
-  });
-
-  it("shows active sessions count", async () => {
-    mockFetchMetrics.mockResolvedValue(
-      makeMetrics({
-        invocationStats: {
-          byStatus: [
-            { status: "running", count: 4 },
-            { status: "completed", count: 20 },
-          ],
-          avgDurationSecs: 90,
-          avgCostUsd: 0.03,
-          totalCostUsd: 3.0,
-        },
-      }),
-    );
-    render(<Dashboard />);
-
-    await waitFor(() => {
-      // The "Active Sessions" card shows the running count — scoped to that card
-      const label = screen.getByText("Active Sessions");
-      expect(within(label.parentElement!).getByText("4")).toBeInTheDocument();
+      expect(
+        screen.getByText(/Cost metrics are not tracked/),
+      ).toBeInTheDocument();
     });
   });
 });
