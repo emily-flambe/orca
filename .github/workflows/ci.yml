@@ -47,6 +47,18 @@ jobs:
       - run: npm run build
         working-directory: web
 
+      # Bundle size guard — current baseline ~291 KB, threshold 500 KB (512000 bytes).
+      # To update: run `du -sb web/dist/assets/` after a local build and raise the threshold.
+      - name: Check frontend bundle size
+        run: |
+          THRESHOLD=512000
+          SIZE=$(du -sb web/dist/assets/ | awk '{print $1}')
+          echo "Bundle size: ${SIZE} bytes (threshold: ${THRESHOLD} bytes)"
+          if [ "$SIZE" -gt "$THRESHOLD" ]; then
+            echo "ERROR: Bundle size ${SIZE} bytes exceeds threshold ${THRESHOLD} bytes"
+            exit 1
+          fi
+
   e2e:
     runs-on: ubuntu-latest
     steps:
