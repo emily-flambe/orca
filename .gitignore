@@ -14,3 +14,4 @@ orca.log.1
 .claude/
 *.tsbuildinfo
 test-results/
+deploy-state.json

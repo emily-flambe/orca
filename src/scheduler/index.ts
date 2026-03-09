@@ -27,6 +27,7 @@ import {
   updateTaskFixReason,
   updateTaskPrBranch,
   updateTaskStatus,
+  claimTaskForDispatch,
 } from "../db/queries.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
@@ -78,6 +79,8 @@ export interface SchedulerDeps {
 
 export interface SchedulerHandle {
   stop: () => void;
+  start: () => void;
+  running: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,26 +177,6 @@ async function dispatch(
   // Clear terminal flag — this task has been re-activated for dispatch.
   terminalWriteBackTasks.delete(taskId);
 
-  // Guard: re-read task from DB and verify it's still in a dispatchable state.
-  // Between the tick() query and this dispatch() call, a completion handler or
-  // webhook could have changed the task's status (e.g. to "done").
-  const freshTask = getTask(db, taskId);
-  if (!freshTask) {
-    log(`dispatch aborted: task ${taskId} no longer exists`);
-    return;
-  }
-  const dispatchableStatuses = new Set<TaskStatus>([
-    "ready",
-    "in_review",
-    "changes_requested",
-  ]);
-  if (!dispatchableStatuses.has(freshTask.orcaStatus)) {
-    log(
-      `dispatch aborted: task ${taskId} is now "${freshTask.orcaStatus}" (no longer dispatchable)`,
-    );
-    return;
-  }
-
   // Guard: ensure no running invocation already exists for this task.
   const runningInvs = getRunningInvocations(db);
   const alreadyRunning = runningInvs.some(
@@ -204,8 +187,18 @@ async function dispatch(
     return;
   }
 
-  // 1. Mark task as dispatched
-  updateTaskStatus(db, taskId, "dispatched");
+  // Atomically claim the task via compare-and-swap.
+  const claimed = claimTaskForDispatch(db, taskId, [
+    "ready",
+    "in_review",
+    "changes_requested",
+  ]);
+  if (!claimed) {
+    log(
+      `dispatch aborted: task ${taskId} is no longer dispatchable (lost CAS race or status changed)`,
+    );
+    return;
+  }
   emitTaskUpdated(getTask(db, taskId)!);
 
   // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
@@ -2175,10 +2168,15 @@ async function tick(deps: SchedulerDeps): Promise<void> {
  * @returns A handle with a `stop()` method that clears the interval and
  *          kills all active sessions.
  */
-export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
+export function createScheduler(
+  deps: SchedulerDeps,
+  opts?: { paused?: boolean },
+): SchedulerHandle {
   const { config } = deps;
   let ticking = false;
   let pendingTick = false;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let isRunning = false;
 
   async function guardedTick(): Promise<void> {
     if (ticking) {
@@ -2199,32 +2197,45 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
     }
   }
 
-  // Run first tick immediately
-  guardedTick();
+  const handle: SchedulerHandle = {
+    get running() {
+      return isRunning;
+    },
 
-  const intervalId = setInterval(() => {
-    guardedTick();
-  }, config.schedulerIntervalSec * 1000);
+    start() {
+      if (isRunning) return;
+      isRunning = true;
 
-  log(
-    `started (interval: ${config.schedulerIntervalSec}s, ` +
-      `concurrency: ${config.concurrencyCap}, ` +
-      `budget: $${config.budgetMaxCostUsd}/${config.budgetWindowHours}h)`,
-  );
+      // Run first tick immediately
+      guardedTick();
 
-  return {
+      intervalId = setInterval(() => {
+        guardedTick();
+      }, config.schedulerIntervalSec * 1000);
+
+      log(
+        `started (interval: ${config.schedulerIntervalSec}s, ` +
+          `concurrency: ${config.concurrencyCap}, ` +
+          `budget: $${config.budgetMaxCostUsd}/${config.budgetWindowHours}h)`,
+      );
+    },
+
     stop() {
-      clearInterval(intervalId);
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      isRunning = false;
       log("stopping scheduler, killing active sessions...");
 
       // Kill all active sessions
       const killPromises: Promise<SessionResult>[] = [];
-      for (const [invId, handle] of activeHandles) {
+      for (const [invId, sessionHandle] of activeHandles) {
         log(`killing session for invocation ${invId}`);
         killPromises.push(
-          killSession(handle).catch((err) => {
+          killSession(sessionHandle).catch((err) => {
             log(`error killing session ${invId} during shutdown: ${err}`);
-            return handle.done;
+            return sessionHandle.done;
           }),
         );
       }
@@ -2236,4 +2247,15 @@ export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
       });
     },
   };
+
+  if (!opts?.paused) {
+    handle.start();
+  }
+
+  return handle;
+}
+
+/** Backward-compatible wrapper for createScheduler. */
+export function startScheduler(deps: SchedulerDeps): SchedulerHandle {
+  return createScheduler(deps);
 }

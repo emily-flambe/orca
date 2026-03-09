@@ -39,7 +39,8 @@ import {
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
 import { writeBackStatus } from "../linear/sync.js";
-import { isDraining } from "../deploy.js";
+import { isDraining, setDraining } from "../deploy.js";
+import { getSchedulerHandle } from "../scheduler/state.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -815,6 +816,29 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       // Block until aborted
       await new Promise(() => {});
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/deploy/drain
+  // -----------------------------------------------------------------------
+  app.post("/api/deploy/drain", (c) => {
+    setDraining();
+    return c.json({ ok: true, draining: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/deploy/unpause
+  // -----------------------------------------------------------------------
+  app.post("/api/deploy/unpause", (c) => {
+    const scheduler = getSchedulerHandle();
+    if (!scheduler) {
+      return c.json({ error: "scheduler not initialized" }, 500);
+    }
+    if (scheduler.running) {
+      return c.json({ ok: true, schedulerStarted: false, message: "already running" });
+    }
+    scheduler.start();
+    return c.json({ ok: true, schedulerStarted: true });
   });
 
   return app;

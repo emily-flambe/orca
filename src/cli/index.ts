@@ -14,7 +14,8 @@ import {
   updateInvocation,
   updateTaskStatus,
 } from "../db/queries.js";
-import { startScheduler } from "../scheduler/index.js";
+import { createScheduler } from "../scheduler/index.js";
+import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync } from "../linear/sync.js";
@@ -87,7 +88,8 @@ program
 program
   .command("start")
   .description("Start the Orca scheduler")
-  .action(async () => {
+  .option("--scheduler-paused", "Start with the scheduler paused (POST /api/deploy/unpause to start)")
+  .action(async (opts: { schedulerPaused?: boolean }) => {
     const config = loadConfig();
     initFileLogger({
       logPath: config.logPath,
@@ -198,12 +200,15 @@ program
     app.use("/*", serveStatic({ root: "./web/dist" }));
     app.get("*", serveStatic({ root: "./web/dist", path: "index.html" }));
 
-    serve({ fetch: app.fetch, port: config.port });
+    const server = serve({ fetch: app.fetch, port: config.port });
     console.log(`Hono server listening on port ${config.port}`);
 
-    // Write pidfile so deploy.sh can reliably kill this process
-    const pidFile = join(process.cwd(), "orca.pid");
+    // Write port-aware pidfile to avoid collisions during blue/green deploy
+    const pidFile = join(process.cwd(), `orca-${config.port}.pid`);
     writeFileSync(pidFile, String(process.pid));
+    // Legacy pidfile for backward compat with scripts/deploy.sh
+    const legacyPidFile = join(process.cwd(), "orca.pid");
+    writeFileSync(legacyPidFile, String(process.pid));
     for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
       process.on(sig, () => {
         try {
@@ -211,14 +216,24 @@ program
         } catch {
           /* already gone */
         }
+        try {
+          unlinkSync(legacyPidFile);
+        } catch {
+          /* already gone */
+        }
       });
     }
 
-    // Start cloudflared tunnel
-    const tunnel: TunnelHandle = startTunnel({
-      cloudflaredPath: config.cloudflaredPath,
-      token: config.tunnelToken || undefined,
-    });
+    // Start cloudflared tunnel (skip in external tunnel mode)
+    let tunnel: TunnelHandle | null = null;
+    if (config.externalTunnel) {
+      console.log("[orca] external tunnel mode — skipping cloudflared spawn");
+    } else {
+      tunnel = startTunnel({
+        cloudflaredPath: config.cloudflaredPath,
+        token: config.tunnelToken || undefined,
+      });
+    }
 
     // Start polling fallback (activates when tunnel is down)
     const poller: PollerHandle = createPoller({
@@ -227,20 +242,37 @@ program
       graph,
       config,
       stateMap,
-      isTunnelConnected: () => tunnel.isTunnelConnected(),
+      isTunnelConnected: () =>
+        config.externalTunnel ? true : tunnel!.isTunnelConnected(),
     });
     poller.start();
 
     // Start scheduler
-    const scheduler = startScheduler({ db, config, graph, client, stateMap });
-
-    console.log(
-      `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
+    const scheduler = createScheduler(
+      { db, config, graph, client, stateMap },
+      { paused: opts.schedulerPaused },
     );
+    setSchedulerHandle(scheduler);
+
+    if (opts.schedulerPaused) {
+      console.log(
+        `Orca scheduler created (PAUSED — POST /api/deploy/unpause to start)`,
+      );
+    } else {
+      console.log(
+        `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
+      );
+    }
 
     // Graceful shutdown
+    let shuttingDown = false;
     const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       console.log("Orca shutting down...");
+
+      // Close HTTP server first to stop accepting new requests
+      server.close();
 
       // Stop scheduler (clears interval, kills active sessions)
       scheduler.stop();
@@ -249,7 +281,7 @@ program
       poller.stop();
 
       // Stop cloudflared tunnel
-      tunnel.stop();
+      if (tunnel) tunnel.stop();
 
       // Mark all running invocations as failed AND reset their tasks to
       // "ready" so they re-enter the dispatch queue on next startup.
@@ -275,7 +307,7 @@ program
 
       setTimeout(() => {
         process.exit(0);
-      }, 500);
+      }, 2000);
     };
 
     process.on("SIGTERM", shutdown);

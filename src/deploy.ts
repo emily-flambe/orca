@@ -25,6 +25,19 @@ export function isDraining(): boolean {
   return draining;
 }
 
+/**
+ * Set the draining flag without spawning deploy.sh.
+ * Used by the blue-green deploy API endpoint.
+ */
+export function setDraining(): void {
+  if (draining) {
+    log("already draining — ignoring duplicate setDraining()");
+    return;
+  }
+  draining = true;
+  log("draining flag set (external deploy mode)");
+}
+
 export function triggerGracefulDeploy(db: OrcaDb): void {
   if (draining) {
     log("deploy already pending — ignoring duplicate trigger");
