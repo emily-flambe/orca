@@ -151,7 +151,7 @@ export function loadConfig(): OrcaConfig {
     "failed", "in_review", "changes_requested", "deploying", "awaiting_ci",
   ]);
 
-  let stateOverrides: Map<string, TaskStatus> = new Map();
+  const stateOverrides: Map<string, TaskStatus> = new Map();
   const stateMapRaw = readEnv("ORCA_STATE_MAP");
   if (stateMapRaw) {
     let parsed: unknown;
