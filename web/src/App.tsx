@@ -16,31 +16,8 @@ import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
 
-function getStoredTheme(): "dark" | "light" {
-  try {
-    const stored = localStorage.getItem("orca-theme");
-    if (stored === "light") return "light";
-  } catch {
-    // ignore
-  }
-  return "dark";
-}
-
-function applyTheme(theme: "dark" | "light") {
-  if (theme === "dark") {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-  try {
-    localStorage.setItem("orca-theme", theme);
-  } catch {
-    // ignore
-  }
-}
-
-// Apply theme synchronously before first render to avoid flash
-applyTheme(getStoredTheme());
+// Apply dark mode before first render to avoid flash
+document.documentElement.classList.add("dark");
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
@@ -287,16 +264,6 @@ export default function App() {
   const [activePage, setActivePage] = useState<Page>("dashboard");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [theme, setTheme] = useState<"dark" | "light">(getStoredTheme);
-
-  useEffect(() => {
-    applyTheme(theme);
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  }, []);
-
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
     fetchStatus().then(setStatus).catch(console.error);
@@ -437,8 +404,6 @@ export default function App() {
         <Header
           activePage={activePage}
           onOpenSidebar={() => setSidebarOpen(true)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
         />
 
         {/* Orchestrator bar — persistent status/action bar */}
