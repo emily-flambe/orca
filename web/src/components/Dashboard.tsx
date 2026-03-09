@@ -8,80 +8,6 @@ import ActiveSessionsGrid from "./ActiveSessionsGrid";
 import ActivityFeed from "./ActivityFeed";
 
 // ---------------------------------------------------------------------------
-// Trend indicator
-// ---------------------------------------------------------------------------
-type TrendDir = "up" | "down" | "neutral";
-
-function trendDir(
-  current: number,
-  previous: number,
-  higherIsBetter = true,
-): TrendDir {
-  if (previous === 0 && current === 0) return "neutral";
-  if (previous === 0) return higherIsBetter ? "up" : "down";
-  const pct = (current - previous) / previous;
-  if (Math.abs(pct) < 0.01) return "neutral";
-  if (pct > 0) return higherIsBetter ? "up" : "down";
-  return higherIsBetter ? "down" : "up";
-}
-
-function TrendBadge({
-  current,
-  previous,
-  higherIsBetter = true,
-}: {
-  current: number;
-  previous: number;
-  higherIsBetter?: boolean;
-}) {
-  const dir = trendDir(current, previous, higherIsBetter);
-  const pct =
-    previous > 0
-      ? Math.abs(((current - previous) / previous) * 100).toFixed(0)
-      : null;
-
-  const icon = dir === "up" ? "↑" : dir === "down" ? "↓" : "→";
-  const color =
-    dir === "neutral"
-      ? "text-gray-500"
-      : dir === "up"
-        ? "text-green-400"
-        : "text-red-400";
-
-  return (
-    <span className={`text-xs ${color} tabular-nums`}>
-      {icon} {pct != null ? `${pct}%` : ""}
-      <span className="text-gray-600 ml-1">vs prev</span>
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Metric card
-// ---------------------------------------------------------------------------
-function MetricCard({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value: string;
-  trend?: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <div className="text-xs text-gray-500 mb-1 uppercase tracking-wide">
-        {label}
-      </div>
-      <div className="text-2xl font-mono font-semibold text-gray-100 mb-1">
-        {value}
-      </div>
-      {trend && <div>{trend}</div>}
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Bar chart (stacked: completed green + failed red)
 // ---------------------------------------------------------------------------
 function BarChart({ data }: { data: DailyStatEntry[] }) {
@@ -333,42 +259,7 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
     return <div className="p-6 text-sm text-red-400">Error: {error}</div>;
   if (!data) return null;
 
-  const {
-    invocationStats,
-    costLast24h,
-    costPrev24h,
-    dailyStats,
-    recentActivity,
-  } = data;
-
-  // Derived metrics
-  const totalCost = invocationStats.totalCostUsd ?? 0;
-  const running =
-    invocationStats.byStatus.find((s) => s.status === "running")?.count ?? 0;
-  const completed =
-    invocationStats.byStatus.find((s) => s.status === "completed")?.count ?? 0;
-  const failed =
-    (invocationStats.byStatus.find((s) => s.status === "failed")?.count ?? 0) +
-    (invocationStats.byStatus.find((s) => s.status === "timed_out")?.count ??
-      0);
-  const terminal = completed + failed;
-  const successRate = terminal > 0 ? (completed / terminal) * 100 : 0;
-
-  // 7d success rate trend using dailyStats
-  const last7 = dailyStats.slice(7);
-  const prev7 = dailyStats.slice(0, 7);
-  const last7Completed = last7.reduce((s, d) => s + d.completed, 0);
-  const last7Failed = last7.reduce((s, d) => s + d.failed, 0);
-  const prev7Completed = prev7.reduce((s, d) => s + d.completed, 0);
-  const prev7Failed = prev7.reduce((s, d) => s + d.failed, 0);
-  const last7Rate =
-    last7Completed + last7Failed > 0
-      ? (last7Completed / (last7Completed + last7Failed)) * 100
-      : 0;
-  const prev7Rate =
-    prev7Completed + prev7Failed > 0
-      ? (prev7Completed / (prev7Completed + prev7Failed)) * 100
-      : 0;
+  const { dailyStats, recentActivity } = data;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -381,37 +272,13 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
         </Button>
       </div>
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MetricCard
-          label="Total Cost"
-          value={totalCost > 0 ? `$${totalCost.toFixed(2)}` : "—"}
-        />
-        <MetricCard label="Active Sessions" value={String(running)} />
-        <MetricCard
-          label="Success Rate"
-          value={terminal > 0 ? `${successRate.toFixed(1)}%` : "—"}
-          trend={
-            last7Rate > 0 || prev7Rate > 0 ? (
-              <TrendBadge
-                current={last7Rate}
-                previous={prev7Rate}
-                higherIsBetter
-              />
-            ) : undefined
-          }
-        />
-        <MetricCard
-          label="24h Cost"
-          value={`$${costLast24h.toFixed(2)}`}
-          trend={
-            <TrendBadge
-              current={costLast24h}
-              previous={costPrev24h}
-              higherIsBetter={false}
-            />
-          }
-        />
+      {/* Subscription notice */}
+      <div className="flex items-start gap-2 rounded-md border border-sky-800/50 bg-sky-950/40 px-3 py-2 text-sm text-sky-300">
+        <span className="mt-0.5 shrink-0">ℹ</span>
+        <span>
+          Cost metrics are not tracked — Orca uses a Claude Max subscription,
+          not metered API billing.
+        </span>
       </div>
 
       {/* Active sessions */}
