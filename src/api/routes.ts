@@ -63,6 +63,14 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   const { db, config, syncTasks, client, stateMap, projectMeta } = deps;
   const app = new Hono();
 
+  // HTTP request logging middleware
+  app.use("*", async (c, next) => {
+    const start = Date.now();
+    await next();
+    const ms = Date.now() - start;
+    console.log(`[api] ${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms`);
+  });
+
   // -----------------------------------------------------------------------
   // GET /api/tasks
   // -----------------------------------------------------------------------
@@ -295,10 +303,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Write back Linear state to "Todo"
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
-      // Best-effort — don't fail the abort if Linear write-back fails
-    });
+    // Best-effort — don't fail the abort if Linear write-back fails
+    writeBackStatus(client, taskId, "retry", stateMap).catch((err) => console.warn("[warn] Linear write-back failed (abort):", err));
 
+    console.log(`[audit] invocation ${id} aborted (task ${taskId})`);
     return c.json({ ok: true });
   });
 
@@ -336,6 +344,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Kill running session if task is active
+    let sessionKilled = false;
     if (
       task.orcaStatus === "running" ||
       task.orcaStatus === "dispatched" ||
@@ -349,6 +358,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         if (matchingInv) {
           try {
             await killSession(handle);
+            sessionKilled = true;
           } catch {
             // Process may already be dead
           }
@@ -385,8 +395,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back to Linear
     const linearTransition = newStatus === "ready" ? "retry" : newStatus;
-    writeBackStatus(client, taskId, linearTransition, stateMap).catch(() => {});
+    writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) => console.warn("[warn] Linear write-back failed (status):", err));
 
+    console.log(`[audit] task ${taskId} status changed: ${task.orcaStatus} → ${newStatus}${sessionKilled ? " (session killed)" : ""}`);
     return c.json({ ok: true });
   });
 
@@ -415,13 +426,14 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back "Todo" to Linear
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+    writeBackStatus(client, taskId, "retry", stateMap).catch((err) => console.warn("[warn] Linear write-back failed (retry):", err));
 
     // Post comment to Linear
     client
       .createComment(taskId, "Manually retried from Orca dashboard")
-      .catch(() => {});
+      .catch((err) => console.warn("[warn] Linear comment failed (retry):", err));
 
+    console.log(`[audit] task ${taskId} manually retried`);
     return c.json({ ok: true });
   });
 
@@ -485,6 +497,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "invalid JSON body" }, 400);
     }
 
+    // Capture old values for audit logging
+    const oldConcurrencyCap = config.concurrencyCap;
+    const oldImplementModel = config.implementModel;
+    const oldReviewModel = config.reviewModel;
+    const oldFixModel = config.fixModel;
+
     if ("concurrencyCap" in body) {
       const val = body.concurrencyCap;
       if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
@@ -516,6 +534,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           );
         }
         config[field] = val;
+      }
+    }
+
+    // Audit log changed fields
+    if ("concurrencyCap" in body && typeof body.concurrencyCap === "number" && oldConcurrencyCap !== config.concurrencyCap) {
+      console.log(`[audit] config.concurrencyCap changed: ${oldConcurrencyCap} → ${config.concurrencyCap}`);
+    }
+    for (const field of ["implementModel", "reviewModel", "fixModel"] as const) {
+      const oldVal = field === "implementModel" ? oldImplementModel : field === "reviewModel" ? oldReviewModel : oldFixModel;
+      if (field in body && oldVal !== config[field]) {
+        console.log(`[audit] config.${field} changed: ${oldVal} → ${config[field]}`);
       }
     }
 
@@ -675,8 +704,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         projectId: targetProjectId,
       });
 
+      console.log(`[audit] task created: ${issue.identifier} "${body.title?.trim()}"`);
+
       // Trigger sync so the new ticket appears immediately
-      syncTasks().catch(() => {});
+      syncTasks().catch((err) => console.warn("[warn] syncTasks failed after task creation:", err));
 
       return c.json({ identifier: issue.identifier, id: issue.id });
     } catch (err) {
@@ -777,6 +808,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/deploy/drain", (c) => {
     setDraining();
+    console.log("[audit] deploy drain triggered");
     return c.json({ ok: true, draining: true });
   });
 
@@ -796,6 +828,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       });
     }
     scheduler.start();
+    console.log("[audit] scheduler unpaused");
     return c.json({ ok: true, schedulerStarted: true });
   });
 

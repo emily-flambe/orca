@@ -1008,7 +1008,7 @@ async function onReviewSuccess(
 
     log(
       `task ${taskId} review approved → awaiting_ci (invocation ${invocationId}, ` +
-        `PR #${task.prNumber ?? "?"})`,
+        `PR #${task.prNumber ?? "?"}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
     );
   } else if (changesRequested) {
     noMarkerRetryCounts.delete(taskId);
@@ -1046,7 +1046,7 @@ async function onReviewSuccess(
 
       log(
         `task ${taskId} review requested changes → changes_requested ` +
-          `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+          `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
       );
     } else {
       // Review cycles exhausted — leave as in_review for human intervention
@@ -2063,7 +2063,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   // 2. Check budget
   const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   if (cost >= config.budgetMaxCostUsd) {
-    log("budget exhausted");
+    log(`budget exhausted (cost: $${cost.toFixed(4)}, limit: $${config.budgetMaxCostUsd})`);
     return;
   }
 
