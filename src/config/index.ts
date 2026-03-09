@@ -42,6 +42,7 @@ export interface OrcaConfig {
   githubWebhookSecret: string | undefined;
   tunnelToken: string;
   cloudflaredPath: string;
+  externalTunnel: boolean;
 }
 
 function exitWithError(message: string): never {
@@ -316,6 +317,7 @@ Steps:
     githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
+    externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
   };
 }
 

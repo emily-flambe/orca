@@ -47,6 +47,32 @@ export function updateTaskStatus(
     .run();
 }
 
+/**
+ * Atomically claim a task for dispatch using compare-and-swap.
+ * Only updates the status to "dispatched" if the task is currently in one of
+ * the provided `fromStatuses`. Returns true if exactly one row was updated.
+ */
+export function claimTaskForDispatch(
+  db: OrcaDb,
+  taskId: string,
+  fromStatuses: TaskStatus[],
+): boolean {
+  const result = db
+    .update(tasks)
+    .set({
+      orcaStatus: "dispatched" as TaskStatus,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(tasks.linearIssueId, taskId),
+        inArray(tasks.orcaStatus, fromStatuses),
+      ),
+    )
+    .run();
+  return result.changes === 1;
+}
+
 /** Increment retry_count by 1 and reset status to the given value (default "ready"). */
 export function incrementRetryCount(
   db: OrcaDb,
