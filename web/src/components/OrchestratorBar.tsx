@@ -2,6 +2,9 @@ import { useState } from "react";
 import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
+const BUDGET_TOOLTIP =
+  "These dollar amounts are estimated token costs calculated by Orca based on model pricing, not actual charges. Orca uses a Claude Max subscription (flat-rate), so no real money is billed per-run. The budget limit is a configurable guardrail to prevent runaway agent spending within a rolling time window.";
+
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
 interface Props {
@@ -89,6 +92,17 @@ export default function OrchestratorBar({
             ${status.costInWindow.toFixed(2)}
             <span className="text-gray-500"> / </span>$
             {status.budgetLimit.toFixed(2)}
+          </span>
+          <span
+            className="relative group cursor-default select-none"
+            aria-label={BUDGET_TOOLTIP}
+          >
+            <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-600 text-gray-500 text-[9px] leading-none hover:border-gray-400 hover:text-gray-300 transition-colors">
+              ?
+            </span>
+            <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 rounded bg-gray-800 border border-gray-700 px-3 py-2 text-xs text-gray-300 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity z-50 shadow-lg">
+              {BUDGET_TOOLTIP}
+            </span>
           </span>
         </div>
 

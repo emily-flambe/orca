@@ -70,14 +70,13 @@ describe("Dashboard", () => {
     });
   });
 
-  it("shows subscription billing notice after data loads", async () => {
+  it("shows charts and activity feed after data loads", async () => {
     mockFetchMetrics.mockResolvedValue(makeMetrics());
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Cost metrics are not tracked/),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("active-sessions-grid")).toBeInTheDocument();
+      expect(screen.getByTestId("activity-feed")).toBeInTheDocument();
     });
   });
 });
