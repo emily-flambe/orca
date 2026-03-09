@@ -44,7 +44,6 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
       <span className="hidden md:block text-sm font-semibold text-gray-200">
         {PAGE_TITLES[activePage]}
       </span>
-
     </div>
   );
 }
