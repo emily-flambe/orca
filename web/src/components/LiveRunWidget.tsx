@@ -176,7 +176,6 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         compact
         onCostUpdate={handleCostUpdate}
       />
-
     </div>
   );
 }

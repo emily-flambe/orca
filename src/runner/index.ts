@@ -825,4 +825,3 @@ export async function killSession(
 
   return handle.done;
 }
-
