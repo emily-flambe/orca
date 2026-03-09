@@ -529,6 +529,116 @@ export function resolveConflict(
 // 4.5 Write-back
 // ---------------------------------------------------------------------------
 
+/**
+ * Find a Linear state by type with a 3-tier preference order:
+ * 1. Override: if overrideStateName is set and exists in stateMap, use it
+ * 2. Conventional name: exact match for the well-known name for this type/context
+ * 3. First match: first state of the target type in iteration order
+ *    (for started+matchReview: prefer names matching /review/i; for started+!matchReview: prefer names NOT matching /review/i)
+ *
+ * Returns { id, name } or undefined if no state of that type exists.
+ */
+export function findStateByType(
+  stateMap: WorkflowStateMap,
+  targetType: string,
+  matchReview: boolean,
+  overrideStateName?: string,
+): { id: string; name: string } | undefined {
+  // Tier 1: explicit override
+  if (overrideStateName !== undefined) {
+    const entry = stateMap.get(overrideStateName);
+    if (entry) return { id: entry.id, name: overrideStateName };
+  }
+
+  // Determine conventional name for tier 2
+  let conventionalName: string | undefined;
+  if (targetType === "completed") conventionalName = "Done";
+  else if (targetType === "canceled") conventionalName = "Canceled";
+  else if (targetType === "unstarted") conventionalName = "Todo";
+  else if (targetType === "backlog") conventionalName = "Backlog";
+  else if (targetType === "started")
+    conventionalName = matchReview ? "In Review" : "In Progress";
+
+  // Tier 2: conventional name
+  if (conventionalName !== undefined) {
+    const entry = stateMap.get(conventionalName);
+    if (entry && entry.type === targetType)
+      return { id: entry.id, name: conventionalName };
+  }
+
+  // Tier 3: first match by type
+  // For "started" with matchReview: prefer /review/i names first
+  // For "started" without matchReview: prefer non-/review/i names first
+  const candidates: Array<{ id: string; name: string }> = [];
+  for (const [name, entry] of stateMap) {
+    if (entry.type === targetType) {
+      candidates.push({ id: entry.id, name });
+    }
+  }
+
+  if (candidates.length === 0) return undefined;
+
+  if (targetType === "started") {
+    if (matchReview) {
+      const reviewMatch = candidates.find((c) => /review/i.test(c.name));
+      return reviewMatch ?? candidates[0];
+    } else {
+      const nonReview = candidates.find((c) => !/review/i.test(c.name));
+      return nonReview ?? candidates[0];
+    }
+  }
+
+  return candidates[0];
+}
+
+/**
+ * Log the resolved state mapping at startup so operators can verify.
+ * Warns if multiple "started" states exist and none match /review/i.
+ */
+export function logStartupStateMapping(
+  stateMap: WorkflowStateMap,
+  overrides?: Map<string, string>,
+): void {
+  const transitions = [
+    { name: "dispatched", type: "started", matchReview: false },
+    { name: "in_review", type: "started", matchReview: true },
+    { name: "done", type: "completed", matchReview: false },
+    { name: "changes_requested", type: "started", matchReview: false },
+    { name: "failed_permanent", type: "canceled", matchReview: false },
+    { name: "retry", type: "unstarted", matchReview: false },
+    { name: "backlog", type: "backlog", matchReview: false },
+  ] as const;
+
+  log("write-back state mapping:");
+  for (const t of transitions) {
+    const overrideStateName = overrides?.get(t.name);
+    const resolved = findStateByType(
+      stateMap,
+      t.type,
+      t.matchReview,
+      overrideStateName,
+    );
+    if (resolved) {
+      log(`  ${t.name} -> "${resolved.name}" (${resolved.id})`);
+    } else {
+      log(`  ${t.name} -> (no state found for type "${t.type}")`);
+    }
+  }
+
+  // Warn if multiple started states and none match /review/i
+  const startedStates: string[] = [];
+  for (const [name, entry] of stateMap) {
+    if (entry.type === "started") startedStates.push(name);
+  }
+  if (startedStates.length > 1 && !startedStates.some((n) => /review/i.test(n))) {
+    log(
+      `write-back warning: ${startedStates.length} "started" states found ` +
+        `(${startedStates.join(", ")}) but none match /review/i — ` +
+        `"in_review" transition will use "${startedStates[0]}"`,
+    );
+  }
+}
+
 export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
@@ -543,45 +653,50 @@ export async function writeBackStatus(
     | "retry"
     | "backlog",
   stateMap: WorkflowStateMap,
+  overrides?: Map<string, string>,
 ): Promise<void> {
-  // deploying and awaiting_ci are no-ops — Linear stays at "In Review", don't write back
   if (orcaTransition === "deploying" || orcaTransition === "awaiting_ci")
     return;
 
-  const transitionToStateName: Record<string, string> = {
-    dispatched: "In Progress",
-    in_review: "In Review",
-    done: "Done",
-    changes_requested: "In Progress",
-    failed_permanent: "Canceled",
-    retry: "Todo",
-    backlog: "Backlog",
+  const transitionToType: Record<string, { type: string; matchReview: boolean }> = {
+    dispatched: { type: "started", matchReview: false },
+    in_review: { type: "started", matchReview: true },
+    done: { type: "completed", matchReview: false },
+    changes_requested: { type: "started", matchReview: false },
+    failed_permanent: { type: "canceled", matchReview: false },
+    retry: { type: "unstarted", matchReview: false },
+    backlog: { type: "backlog", matchReview: false },
   };
 
-  const targetStateName = transitionToStateName[orcaTransition];
-  if (!targetStateName) {
+  const mapping = transitionToType[orcaTransition];
+  if (!mapping) {
     log(
       `write-back: unknown transition "${orcaTransition}" for task ${taskId}`,
     );
     return;
   }
 
-  const stateEntry = stateMap.get(targetStateName);
+  const overrideStateName = overrides?.get(orcaTransition);
+  const stateEntry = findStateByType(
+    stateMap,
+    mapping.type,
+    mapping.matchReview,
+    overrideStateName,
+  );
+
   if (!stateEntry) {
-    log(`write-back: no state found for name "${targetStateName}"`);
+    log(
+      `write-back: no state found for type "${mapping.type}" (transition "${orcaTransition}")`,
+    );
     return;
   }
 
-  // Register expected change for loop prevention before the API call
-  registerExpectedChange(taskId, targetStateName);
+  registerExpectedChange(taskId, stateEntry.name);
 
   try {
     await client.updateIssueState(taskId, stateEntry.id);
-    log(
-      `wrote back status: task ${taskId} -> Linear state "${targetStateName}"`,
-    );
+    log(`wrote back status: task ${taskId} -> Linear state "${stateEntry.name}"`);
   } catch (err) {
-    // Write-back failures are logged but do not block Orca's internal state transition
     log(`write-back failed for task ${taskId}: ${err}`);
   }
 }

@@ -18,7 +18,7 @@ import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
-import { fullSync } from "../linear/sync.js";
+import { fullSync, logStartupStateMapping } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
 import { createGithubWebhookRoute } from "../github/webhook.js";
 import { triggerGracefulDeploy } from "../deploy.js";
@@ -165,6 +165,7 @@ program
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
     const stateMap = await client.fetchWorkflowStates(teamIds);
+    logStartupStateMapping(stateMap, config.linearStateMapOverrides);
 
     // Start Hono HTTP server with webhook endpoint
     const webhookApp = createWebhookRoute({

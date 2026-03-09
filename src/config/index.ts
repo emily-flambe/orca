@@ -43,6 +43,7 @@ export interface OrcaConfig {
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
+  linearStateMapOverrides: Map<string, string>;
 }
 
 function exitWithError(message: string): never {
@@ -318,6 +319,19 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
+    linearStateMapOverrides: (() => {
+      const raw = readEnv("ORCA_STATE_MAP");
+      if (!raw) return new Map<string, string>();
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== "object" || Array.isArray(parsed)) {
+          exitWithError("ORCA_STATE_MAP must be a JSON object");
+        }
+        return new Map(Object.entries(parsed as Record<string, string>));
+      } catch {
+        exitWithError("ORCA_STATE_MAP must be valid JSON");
+      }
+    })(),
   };
 }
 
