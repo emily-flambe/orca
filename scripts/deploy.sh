@@ -10,12 +10,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-STATE_FILE="$PROJECT_DIR/deploy-state.json"
 
 log() { echo "[deploy] $(date '+%H:%M:%S') $*"; }
 
-# Helper: parse JSON with node (no jq dependency)
-json_get() { node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d)$1)}catch{console.log('$2')}})"; }
+# Helper: extract a field from JSON via stdin. Usage: echo '{}' | json_field fieldName default
+json_field() {
+  node -e "
+    var d='';
+    process.stdin.on('data',function(c){d+=c});
+    process.stdin.on('end',function(){
+      try { var v=JSON.parse(d)['$1']; console.log(v!==undefined&&v!==null?v:'$2') }
+      catch(e) { console.log('$2') }
+    })
+  "
+}
 
 # Helper: kill a process (cross-platform)
 kill_pid() {
@@ -30,9 +38,10 @@ kill_pid() {
 # ---------------------------------------------------------------------------
 # Read deploy state (defaults: active=4000, standby=4001)
 # ---------------------------------------------------------------------------
+STATE_FILE="$PROJECT_DIR/deploy-state.json"
 if [[ -f "$STATE_FILE" ]]; then
-  ACTIVE_PORT=$(cat "$STATE_FILE" | json_get ".activePort" "4000")
-  STANDBY_PORT=$(cat "$STATE_FILE" | json_get ".standbyPort" "4001")
+  ACTIVE_PORT=$(cat "$STATE_FILE" | json_field activePort 4000)
+  STANDBY_PORT=$(cat "$STATE_FILE" | json_field standbyPort 4001)
 else
   ACTIVE_PORT=4000
   STANDBY_PORT=4001
@@ -44,7 +53,6 @@ log "active=$ACTIVE_PORT  standby=$STANDBY_PORT"
 # Save old PID BEFORE building (pidfile will be overwritten by new instance)
 # ---------------------------------------------------------------------------
 OLD_PID=""
-# Try port-specific pidfile first, fall back to legacy
 for PIDFILE in "$PROJECT_DIR/orca-${ACTIVE_PORT}.pid" "$PROJECT_DIR/orca.pid"; do
   if [[ -f "$PIDFILE" ]]; then
     OLD_PID=$(cat "$PIDFILE" 2>/dev/null || true)
@@ -77,7 +85,6 @@ log "building frontend..."
 # Start new instance on standby port with scheduler paused
 # ---------------------------------------------------------------------------
 log "starting new instance on port $STANDBY_PORT (scheduler paused)..."
-# Strip Claude nesting-detection env vars so spawned Claude sessions work.
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 ORCA_PORT=$STANDBY_PORT ORCA_EXTERNAL_TUNNEL=true \
   npx tsx src/cli/index.ts start --scheduler-paused \
@@ -109,7 +116,6 @@ fi
 # ---------------------------------------------------------------------------
 # Update Cloudflare tunnel origin (if vars are set)
 # ---------------------------------------------------------------------------
-# Source .env for Cloudflare vars (they're not in the process env by default)
 if [[ -f "$PROJECT_DIR/.env" ]]; then
   set -a
   source <(grep -E '^CLOUDFLARE_' "$PROJECT_DIR/.env" | sed 's/\r$//')
@@ -125,7 +131,6 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
 
   CF_API_BASE="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$CF_TUNNEL_ID/configurations"
 
-  # Fetch current config, update localhost port, PUT back
   CURRENT_CONFIG=$(curl -sf \
     -H "Authorization: Bearer $CF_API_TOKEN" \
     -H "Content-Type: application/json" \
@@ -135,16 +140,19 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
     log "WARNING: failed to fetch tunnel config — skipping tunnel update"
   else
     UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | node -e "
-      let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
-        const cfg=JSON.parse(d);
-        const ingress=cfg.result.config.ingress.map(r=>{
-          if(r.service&&r.service.includes('localhost')){
-            r.service=r.service.replace(/:\\d+/,':$STANDBY_PORT');
+      var d='';
+      process.stdin.on('data',function(c){d+=c});
+      process.stdin.on('end',function(){
+        var cfg=JSON.parse(d);
+        var ingress=cfg.result.config.ingress.map(function(r){
+          if(r.service&&r.service.indexOf('localhost')!==-1){
+            r.service=r.service.replace(/:\d+/,':$STANDBY_PORT');
           }
           return r;
         });
-        console.log(JSON.stringify({config:{ingress}}));
-      })")
+        console.log(JSON.stringify({config:{ingress:ingress}}));
+      })
+    ")
 
     PUT_RESULT=$(curl -sf -X PUT \
       -H "Authorization: Bearer $CF_API_TOKEN" \
@@ -152,7 +160,7 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
       -d "$UPDATED_CONFIG" \
       "$CF_API_BASE" || true)
 
-    SUCCESS=$(echo "$PUT_RESULT" | json_get ".success" "false")
+    SUCCESS=$(echo "$PUT_RESULT" | json_field success false)
     if [[ "$SUCCESS" == "true" ]]; then
       log "tunnel origin switched to port $STANDBY_PORT"
     else
@@ -172,11 +180,14 @@ if [[ -n "$OLD_PID" ]]; then
 
   log "waiting for old instance sessions to drain..."
   DRAIN_WAITED=0
-  DRAIN_MAX=300  # 5 min
+  DRAIN_MAX=300
   while true; do
     SESSIONS=$(curl -s "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-      | json_get ".activeSessions" "0" || echo "0")
-    [[ "$SESSIONS" == "0" ]] && { log "old instance drained"; break; }
+      | json_field activeSessions 0 || echo "0")
+    if [[ "$SESSIONS" == "0" ]]; then
+      log "old instance drained"
+      break
+    fi
     if [[ "$DRAIN_WAITED" -ge "$DRAIN_MAX" ]]; then
       log "WARNING: drain timeout after ${DRAIN_MAX}s ($SESSIONS sessions orphaned)"
       break
@@ -186,11 +197,9 @@ if [[ -n "$OLD_PID" ]]; then
     DRAIN_WAITED=$((DRAIN_WAITED + 5))
   done
 
-  # Kill old instance using saved PID (NOT from pidfile which was overwritten)
   log "killing old instance (PID=$OLD_PID)..."
   kill_pid "$OLD_PID"
 
-  # Clean up old pidfiles
   rm -f "$PROJECT_DIR/orca-${ACTIVE_PORT}.pid" 2>/dev/null || true
 fi
 
@@ -205,8 +214,8 @@ log "unpause result: $UNPAUSE"
 # Write deploy state (swap ports for next deploy)
 # ---------------------------------------------------------------------------
 node -e "
-  const fs=require('fs'),path=require('path');
-  const stateFile=path.join(process.cwd(),'deploy-state.json');
+  var fs=require('fs'),path=require('path');
+  var stateFile=path.join(process.cwd(),'deploy-state.json');
   fs.writeFileSync(stateFile,JSON.stringify({
     activePort:$STANDBY_PORT,
     standbyPort:$ACTIVE_PORT,
