@@ -57,7 +57,7 @@ Copy `.env.example` to `.env` and fill in the required values.
 | `ORCA_SESSION_TIMEOUT_MIN` | `45` | Hard timeout per session (minutes) |
 | `ORCA_MAX_RETRIES` | `3` | Max retries before permanent failure |
 | `ORCA_BUDGET_WINDOW_HOURS` | `4` | Rolling budget window (hours) |
-| `ORCA_BUDGET_MAX_COST_USD` | `1000.00` | Max cost per budget window (USD) |
+| `ORCA_BUDGET_MAX_COST_USD` | `100.00` | Max cost per budget window (USD) |
 | `ORCA_SCHEDULER_INTERVAL_SEC` | `10` | Scheduler tick interval (seconds) |
 | `ORCA_CLAUDE_PATH` | `claude` | Path to Claude CLI binary |
 | `ORCA_CLOUDFLARED_PATH` | `cloudflared` | Path to cloudflared binary |
