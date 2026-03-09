@@ -8,7 +8,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { writeFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { activeHandles } from "../src/scheduler/index.js";
 import { createDb } from "../src/db/index.js";
 import { createApiRoutes } from "../src/api/routes.js";
 import { insertTask, insertInvocation } from "../src/db/queries.js";
@@ -24,7 +23,6 @@ vi.mock("../src/scheduler/index.js", () => ({ activeHandles: new Map() }));
 vi.mock("../src/runner/index.js", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
   invocationLogs: new Map(),
-  sendPrompt: vi.fn().mockReturnValue(true),
 }));
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
@@ -320,120 +318,6 @@ describe("POST /api/invocations/:id/abort — contract", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /api/invocations/:id/prompt
-// ---------------------------------------------------------------------------
-
-describe("POST /api/invocations/:id/prompt — contract", () => {
-  let db: OrcaDb;
-  let app: Hono;
-
-  beforeEach(() => {
-    db = createDb(":memory:");
-    app = makeApp(db);
-    // Reset activeHandles mock state via re-import is not needed; the Map is
-    // shared, so clear it between tests.
-  });
-
-  it("400: non-numeric id — returns { error: string }", async () => {
-    const res = await app.request("/api/invocations/abc/prompt", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "hello" }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(typeof body.error).toBe("string");
-  });
-
-  it("400: missing prompt — returns { error: string }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "PROMPT-1", orcaStatus: "running" as const }));
-    const invId = insertInvocation(db, {
-      linearIssueId: "PROMPT-1",
-      startedAt: new Date().toISOString(),
-      status: "running",
-    });
-    const res = await app.request(`/api/invocations/${invId}/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "" }),
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(typeof body.error).toBe("string");
-  });
-
-  it("404: invocation not found — returns { error: string }", async () => {
-    const res = await app.request("/api/invocations/9999/prompt", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "hello" }),
-    });
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(typeof body.error).toBe("string");
-  });
-
-  it("409: invocation not running — returns { error: string }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "PROMPT-DONE" }));
-    const invId = insertInvocation(db, {
-      linearIssueId: "PROMPT-DONE",
-      startedAt: new Date().toISOString(),
-      status: "completed",
-    });
-    const res = await app.request(`/api/invocations/${invId}/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "hello" }),
-    });
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(typeof body.error).toBe("string");
-  });
-
-  it("404: no active handle — returns { error: string }", async () => {
-    // activeHandles Map is empty (from mock), so handle lookup will fail
-    insertTask(db, makeTask({ linearIssueId: "PROMPT-NOHANDLE", orcaStatus: "running" as const }));
-    const invId = insertInvocation(db, {
-      linearIssueId: "PROMPT-NOHANDLE",
-      startedAt: new Date().toISOString(),
-      status: "running",
-    });
-    const res = await app.request(`/api/invocations/${invId}/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: "hello" }),
-    });
-    expect(res.status).toBe(404);
-    const body = await res.json();
-    expect(typeof body.error).toBe("string");
-  });
-
-  it("200: active handle exists and sendPrompt succeeds — returns { ok: true }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "PROMPT-OK", orcaStatus: "running" as const }));
-    const invId = insertInvocation(db, {
-      linearIssueId: "PROMPT-OK",
-      startedAt: new Date().toISOString(),
-      status: "running",
-    });
-    // Register a fake handle so the route can find it
-    const fakeHandle = {} as any;
-    activeHandles.set(invId, fakeHandle);
-    try {
-      const res = await app.request(`/api/invocations/${invId}/prompt`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: "continue please" }),
-      });
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.ok).toBe(true);
-    } finally {
-      activeHandles.delete(invId);
-    }
   });
 });
 
