@@ -38,6 +38,7 @@ function makeConfig() {
     linearApiKey: "test",
     linearWebhookSecret: "test",
     linearProjectIds: ["test-project"],
+    stateOverrides: new Map(),
     linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),

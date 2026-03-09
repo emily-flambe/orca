@@ -1,5 +1,6 @@
 import { config as dotenvConfig } from "dotenv";
 import { existsSync, statSync } from "node:fs";
+import type { TaskStatus } from "../db/schema.js";
 
 export interface OrcaConfig {
   defaultCwd: string | undefined;
@@ -37,6 +38,7 @@ export interface OrcaConfig {
   linearApiKey: string;
   linearWebhookSecret: string;
   linearProjectIds: string[];
+  stateOverrides: Map<string, TaskStatus>;
   tunnelHostname: string;
   // GitHub webhook (optional — enables auto-deploy on push to main)
   githubWebhookSecret: string | undefined;
@@ -142,6 +144,31 @@ export function loadConfig(): OrcaConfig {
     exitWithError(
       'ORCA_LINEAR_PROJECT_IDS must be valid JSON (e.g. ["project-uuid"])',
     );
+  }
+
+  const VALID_TASK_STATUSES = new Set([
+    "backlog", "ready", "dispatched", "running", "done",
+    "failed", "in_review", "changes_requested", "deploying", "awaiting_ci",
+  ]);
+
+  let stateOverrides: Map<string, TaskStatus> = new Map();
+  const stateMapRaw = readEnv("ORCA_STATE_MAP");
+  if (stateMapRaw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stateMapRaw);
+    } catch {
+      exitWithError("ORCA_STATE_MAP must be valid JSON");
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      exitWithError("ORCA_STATE_MAP must be a JSON object");
+    }
+    for (const [name, status] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof status !== "string" || !VALID_TASK_STATUSES.has(status)) {
+        exitWithError(`ORCA_STATE_MAP: invalid status "${status}" for state "${name}"`);
+      }
+      stateOverrides.set(name, status as TaskStatus);
+    }
   }
 
   const tunnelHostname = readEnv("ORCA_TUNNEL_HOSTNAME");
@@ -313,6 +340,7 @@ Steps:
     linearApiKey,
     linearWebhookSecret,
     linearProjectIds,
+    stateOverrides,
     tunnelHostname,
     githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
     tunnelToken,

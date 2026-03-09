@@ -70,6 +70,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
+    stateOverrides: new Map(),
     linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     tunnelToken: "",
