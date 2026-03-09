@@ -14,7 +14,7 @@ After committing and pushing changes to main, **always deploy using the single d
 bash /c/Users/emily/Documents/Github/orca/scripts/deploy.sh
 ```
 
-This script handles everything: pull, install, frontend rebuild, kill old process, start new process with log redirection to `orca.log`.
+This script uses blue/green deployment: starts a new instance on a standby port, health checks it, switches the Cloudflare tunnel, drains the old instance, then kills it. Zero downtime. Port alternates between 4000/4001 across deploys (tracked in `deploy-state.json`).
 
 **Do NOT start Orca manually** — always use `scripts/deploy.sh` to ensure consistent behavior.
 
