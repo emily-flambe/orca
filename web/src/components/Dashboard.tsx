@@ -272,15 +272,6 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
         </Button>
       </div>
 
-      {/* Subscription notice */}
-      <div className="flex items-start gap-2 rounded-md border border-sky-800/50 bg-sky-950/40 px-3 py-2 text-sm text-sky-300">
-        <span className="mt-0.5 shrink-0">ℹ</span>
-        <span>
-          Cost metrics are not tracked — Orca uses a Claude Max subscription,
-          not metered API billing.
-        </span>
-      </div>
-
       {/* Active sessions */}
       <ActiveSessionsGrid />
 

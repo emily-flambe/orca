@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
@@ -14,6 +14,53 @@ interface Props {
     fixModel?: string;
   }) => Promise<void>;
   onNewTicket: (identifier: string) => void;
+}
+
+function BudgetTooltip() {
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setVisible(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [visible]);
+
+  return (
+    <span ref={ref} className="relative ml-1">
+      <button
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        onFocus={() => setVisible(true)}
+        onBlur={() => setVisible(false)}
+        className="text-gray-600 hover:text-gray-400 transition-colors text-xs leading-none cursor-default"
+        aria-label="Budget info"
+        tabIndex={0}
+      >
+        ?
+      </button>
+      {visible && (
+        <div className="absolute left-4 top-0 z-50 w-64 rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-xs text-gray-300 shadow-lg">
+          <p className="mb-1 font-semibold text-gray-200">About these numbers</p>
+          <p className="mb-2">
+            The dollar amounts are internal cost estimates calculated from token
+            usage using standard API pricing — they do not represent actual
+            charges.
+          </p>
+          <p>
+            Orca runs on a Claude Max subscription, so billing is a flat monthly
+            rate. The budget limit is a configurable throttle to prevent runaway
+            usage within a time window.
+          </p>
+        </div>
+      )}
+    </span>
+  );
 }
 
 export default function OrchestratorBar({
@@ -89,6 +136,7 @@ export default function OrchestratorBar({
             ${status.costInWindow.toFixed(2)}
             <span className="text-gray-500"> / </span>$
             {status.budgetLimit.toFixed(2)}
+            <BudgetTooltip />
           </span>
         </div>
 

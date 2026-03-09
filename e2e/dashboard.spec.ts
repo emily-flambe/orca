@@ -124,10 +124,8 @@ test.describe("Dashboard smoke test", () => {
     await expect(page.getByRole("button", { name: "Logs" })).toBeVisible();
   });
 
-  test("dashboard subscription billing notice is visible", async ({ page }) => {
-    await expect(
-      page.getByText(/Cost metrics are not tracked/),
-    ).toBeVisible();
+  test("budget tooltip button is visible in orchestrator bar", async ({ page }) => {
+    await expect(page.getByRole("button", { name: "Budget info" })).toBeVisible();
   });
 
   test("SSE endpoint /api/events is requested", async ({ page }) => {
