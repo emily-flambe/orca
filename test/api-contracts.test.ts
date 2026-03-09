@@ -28,6 +28,7 @@ vi.mock("../src/runner/index.js", () => ({
 }));
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
+  findStateByType: vi.fn().mockReturnValue({ id: "state-123", type: "unstarted" }),
 }));
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
