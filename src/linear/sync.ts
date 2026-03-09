@@ -26,6 +26,19 @@ import { emitTaskUpdated, emitTasksRefreshed } from "../events.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/** Returns the first WorkflowStateMap entry whose type matches the given type string. */
+export function findStateByType(
+  stateMap: WorkflowStateMap,
+  type: string,
+): { id: string; type: string } | undefined {
+  for (const entry of stateMap.values()) {
+    if (entry.type === type) {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
 export interface WebhookEvent {
   action: "create" | "update" | "remove";
   type: string; // "Issue"

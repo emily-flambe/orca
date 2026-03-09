@@ -38,7 +38,7 @@ import {
 } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
-import { writeBackStatus } from "../linear/sync.js";
+import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
 
@@ -693,13 +693,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const teamId = project.teamIds[0]!;
 
-    // Resolve state ID from stateMap
+    // Resolve state ID from stateMap by type
     let stateId: string | undefined;
     if (body.status === "backlog") {
-      stateId = stateMap.get("Backlog")?.id;
+      stateId = findStateByType(stateMap, "backlog")?.id;
     } else {
-      // Default to "Todo"
-      stateId = stateMap.get("Todo")?.id;
+      // Default to first "unstarted" state
+      stateId = findStateByType(stateMap, "unstarted")?.id;
     }
 
     // Priority: 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low; validate
