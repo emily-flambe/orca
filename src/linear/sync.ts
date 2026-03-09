@@ -38,6 +38,7 @@ export interface WebhookEvent {
     state?: { id: string; name: string; type: string };
     teamId?: string;
     projectId?: string;
+    labelIds?: string[];
   };
 }
 
@@ -78,6 +79,10 @@ export function isExpectedChange(taskId: string, stateName: string): boolean {
 
   return false;
 }
+
+// Label ID cache for webhook filtering. Populated during fullSync when
+// ORCA_TASK_FILTER_LABEL is configured. Key: label name, value: Linear label UUID.
+export const labelIdCache = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -294,13 +299,38 @@ export async function fullSync(
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
 ): Promise<number> {
+  // Refresh label ID cache each cycle when filtering is active.
+  // This ensures the webhook filter stays consistent with the sync filter.
+  if (config.taskFilterLabel) {
+    const labelId = await client.fetchLabelId(config.taskFilterLabel);
+    if (labelId) {
+      labelIdCache.set(config.taskFilterLabel, labelId);
+    } else {
+      log(
+        `warning: label "${config.taskFilterLabel}" not found in Linear — no issues will be synced`,
+      );
+      labelIdCache.delete(config.taskFilterLabel);
+    }
+  }
+
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
-  for (const issue of issues) {
+  // Filter by label when ORCA_TASK_FILTER_LABEL is set.
+  // In-flight tasks (status=running) complete normally — label filter is
+  // sync-time only and does not interrupt ongoing work.
+  // fullSync does not touch DB tasks whose issues no longer appear in
+  // filtered results (no stale-marking, no deletion).
+  const filteredIssues = config.taskFilterLabel
+    ? issues.filter((issue) =>
+        issue.labels.includes(config.taskFilterLabel!),
+      )
+    : issues;
+
+  for (const issue of filteredIssues) {
     upsertTask(db, issue, config);
   }
 
-  graph.rebuild(issues);
+  graph.rebuild(filteredIssues);
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
@@ -308,8 +338,8 @@ export async function fullSync(
   }
 
   emitTasksRefreshed();
-  log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  log(`full sync complete: ${filteredIssues.length} issues (${issues.length} total)`);
+  return filteredIssues.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +361,26 @@ export async function processWebhookEvent(
       `skipping echo webhook for ${event.data.identifier} (state: ${stateName})`,
     );
     return;
+  }
+
+  // When label filtering is active, skip webhooks for issues that don't carry
+  // the required label ID. We check against the cached ID to avoid an API
+  // round-trip per webhook. The cache is refreshed each fullSync cycle.
+  //
+  // Note: ready-to-dispatch tasks already in the DB are not retroactively
+  // cancelled when a label is removed — label filter is sync-time only.
+  // To prevent dispatch, cancel manually in the Orca UI.
+  if (config.taskFilterLabel) {
+    const requiredLabelId = labelIdCache.get(config.taskFilterLabel);
+    if (requiredLabelId) {
+      const hasLabel = (event.data.labelIds ?? []).includes(requiredLabelId);
+      if (!hasLabel) {
+        log(
+          `skipping webhook for ${event.data.identifier}: missing label "${config.taskFilterLabel}"`,
+        );
+        return;
+      }
+    }
   }
 
   if (event.action === "remove") {
@@ -361,6 +411,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    labels: [],
   };
 
   // Only upsert if we have state info
