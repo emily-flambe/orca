@@ -43,6 +43,28 @@ export interface OrcaConfig {
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
+  // State map overrides (optional — maps Linear state names to orca statuses)
+  stateMapOverrides: Record<string, string> | undefined;
+}
+
+export const VALID_STATE_MAP_VALUES = [
+  "backlog",
+  "ready",
+  "running",
+  "in_review",
+  "done",
+  "skip",
+] as const;
+export type StateMapValue = (typeof VALID_STATE_MAP_VALUES)[number];
+
+/**
+ * Returns the stateMapOverrides from config.
+ * Feature 2 (type-based mapping) consumes this to apply user-defined overrides.
+ */
+export function getStateMapOverrides(
+  config: OrcaConfig,
+): Record<string, string> | undefined {
+  return config.stateMapOverrides;
 }
 
 function exitWithError(message: string): never {
@@ -245,6 +267,45 @@ Steps:
 4. Commit and push your changes to this branch
 5. Do NOT create a new PR — the existing PR will be updated automatically`;
 
+  // Optional: ORCA_STATE_MAP (JSON object mapping Linear state names to orca statuses)
+  let stateMapOverrides: Record<string, string> | undefined;
+  const stateMapRaw = readEnv("ORCA_STATE_MAP");
+  if (stateMapRaw !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stateMapRaw);
+    } catch {
+      exitWithError(
+        "ORCA_STATE_MAP must be valid JSON (e.g. {\"Done\":\"done\",\"QA\":\"in_review\"})",
+      );
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      exitWithError("ORCA_STATE_MAP must be a JSON object");
+    }
+    const invalidValues: string[] = [];
+    for (const [key, value] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (
+        !VALID_STATE_MAP_VALUES.includes(value as StateMapValue)
+      ) {
+        invalidValues.push(
+          `"${key}": "${value}" (valid values: ${VALID_STATE_MAP_VALUES.join(", ")})`,
+        );
+      }
+    }
+    if (invalidValues.length > 0) {
+      exitWithError(
+        `ORCA_STATE_MAP contains invalid status values:\n  ${invalidValues.join("\n  ")}`,
+      );
+    }
+    stateMapOverrides = parsed as Record<string, string>;
+  }
+
   return {
     defaultCwd,
     projectRepoMap: new Map(),
@@ -318,6 +379,7 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
+    stateMapOverrides,
   };
 }
 
