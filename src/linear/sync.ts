@@ -393,7 +393,12 @@ export async function processWebhookEvent(
   // Only upsert if we have state info
   if (event.data.state) {
     // Resolve conflicts BEFORE upsert overwrites the Orca status
-    resolveConflict(db, event.data.identifier, event.data.state.name, event.data.state.type);
+    resolveConflict(
+      db,
+      event.data.identifier,
+      event.data.state.name,
+      event.data.state.type,
+    );
 
     upsertTask(db, issueFromEvent, config);
 
@@ -463,7 +468,10 @@ export function resolveConflict(
     return;
   }
 
-  const expectedOrcaStatus = mapLinearStateToOrcaStatus(linearStateName, linearStateType);
+  const expectedOrcaStatus = mapLinearStateToOrcaStatus(
+    linearStateName,
+    linearStateType,
+  );
   if (expectedOrcaStatus === null) return;
 
   // If statuses match, no conflict

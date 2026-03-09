@@ -147,8 +147,16 @@ export function loadConfig(): OrcaConfig {
   }
 
   const VALID_TASK_STATUSES = new Set([
-    "backlog", "ready", "dispatched", "running", "done",
-    "failed", "in_review", "changes_requested", "deploying", "awaiting_ci",
+    "backlog",
+    "ready",
+    "dispatched",
+    "running",
+    "done",
+    "failed",
+    "in_review",
+    "changes_requested",
+    "deploying",
+    "awaiting_ci",
   ]);
 
   const stateOverrides: Map<string, TaskStatus> = new Map();
@@ -160,12 +168,20 @@ export function loadConfig(): OrcaConfig {
     } catch {
       exitWithError("ORCA_STATE_MAP must be valid JSON");
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
       exitWithError("ORCA_STATE_MAP must be a JSON object");
     }
-    for (const [name, status] of Object.entries(parsed as Record<string, unknown>)) {
+    for (const [name, status] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
       if (typeof status !== "string" || !VALID_TASK_STATUSES.has(status)) {
-        exitWithError(`ORCA_STATE_MAP: invalid status "${status}" for state "${name}"`);
+        exitWithError(
+          `ORCA_STATE_MAP: invalid status "${status}" for state "${name}"`,
+        );
       }
       stateOverrides.set(name, status as TaskStatus);
     }
