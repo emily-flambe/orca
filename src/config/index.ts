@@ -1,5 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 import { existsSync, statSync } from "node:fs";
+import type { TaskStatus } from "../db/schema.js";
+import { TASK_STATUSES } from "../db/schema.js";
 
 export interface OrcaConfig {
   defaultCwd: string | undefined;
@@ -43,6 +45,8 @@ export interface OrcaConfig {
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
+  // Optional: state name overrides (from ORCA_STATE_MAP)
+  orcaStateMap: Map<string, TaskStatus>;
 }
 
 function exitWithError(message: string): never {
@@ -245,6 +249,35 @@ Steps:
 4. Commit and push your changes to this branch
 5. Do NOT create a new PR — the existing PR will be updated automatically`;
 
+  // Optional: ORCA_STATE_MAP — JSON object mapping Linear state names to Orca statuses
+  const orcaStateMapRaw = readEnv("ORCA_STATE_MAP");
+  const orcaStateMap = new Map<string, TaskStatus>();
+  if (orcaStateMapRaw) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(orcaStateMapRaw);
+    } catch {
+      exitWithError('ORCA_STATE_MAP must be valid JSON (e.g. {"In Review": "in_review"})');
+    }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      exitWithError("ORCA_STATE_MAP must be a JSON object");
+    }
+    const validStatuses = new Set<string>(TASK_STATUSES);
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v !== "string" || !validStatuses.has(v)) {
+        exitWithError(
+          `ORCA_STATE_MAP: invalid status "${String(v)}" for state "${k}". ` +
+            `Valid values: ${TASK_STATUSES.join(", ")}`,
+        );
+      }
+      orcaStateMap.set(k, v as TaskStatus);
+    }
+  }
+
   return {
     defaultCwd,
     projectRepoMap: new Map(),
@@ -318,6 +351,7 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
+    orcaStateMap,
   };
 }
 

@@ -429,7 +429,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "In Review");
+    resolveConflict(db, taskId, "In Review", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -442,7 +442,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -455,7 +455,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Done");
+    resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -468,7 +468,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "Canceled");
+    resolveConflict(db, taskId, "Canceled", "canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -476,7 +476,7 @@ describe("Conflict resolution - deploying status", () => {
   });
 
   test("deploying + 'In Progress' -> no explicit conflict rule (falls through)", () => {
-    // "In Progress" maps to "running" in mapLinearStateToOrcaStatus.
+    // "In Progress" has type "started" and maps to "running".
     // deploying vs running: no explicit conflict case handles this.
     // The resolveConflict function should fall through without changing state.
     const taskId = seedTask(db, {
@@ -484,7 +484,7 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    resolveConflict(db, taskId, "In Progress");
+    resolveConflict(db, taskId, "In Progress", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -497,7 +497,7 @@ describe("Conflict resolution - deploying status", () => {
   test("non-existent task -> no-op (no crash)", () => {
     // resolveConflict should handle missing tasks gracefully
     expect(() => {
-      resolveConflict(db, "NONEXISTENT-TASK", "Todo");
+      resolveConflict(db, "NONEXISTENT-TASK", "Todo", "unstarted");
     }).not.toThrow();
   });
 
@@ -507,9 +507,9 @@ describe("Conflict resolution - deploying status", () => {
       orcaStatus: "deploying",
     });
 
-    // "Backlog" maps to "backlog" — moving to Backlog is a user override that
+    // "Backlog" (type=backlog) — moving to Backlog is a user override that
     // resets the task.
-    resolveConflict(db, taskId, "Backlog");
+    resolveConflict(db, taskId, "Backlog", "backlog");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();

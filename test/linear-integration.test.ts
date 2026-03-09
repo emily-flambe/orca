@@ -515,7 +515,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -528,7 +528,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "ready",
     });
 
-    resolveConflict(db, taskId, "Done");
+    resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -541,7 +541,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "done",
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -554,7 +554,7 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "running",
     });
 
-    resolveConflict(db, taskId, "Canceled");
+    resolveConflict(db, taskId, "Canceled", "canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -567,8 +567,8 @@ describe("10.3 - Conflict resolution", () => {
       orcaStatus: "ready",
     });
 
-    // Linear says "Todo" which maps to "ready" -- no conflict
-    resolveConflict(db, taskId, "Todo");
+    // Linear says "Todo" (unstarted) which maps to "ready" -- no conflict
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();

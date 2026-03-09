@@ -283,7 +283,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "In Review");
+    resolveConflict(db, taskId, "In Review", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -296,7 +296,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Done");
+    resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -309,7 +309,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -322,7 +322,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Backlog");
+    resolveConflict(db, taskId, "Backlog", "backlog");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -335,7 +335,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "In Progress");
+    resolveConflict(db, taskId, "In Progress", "started");
 
     // No explicit conflict rule for awaiting_ci + "In Progress" — falls through
     const task = getTask(db, taskId);
