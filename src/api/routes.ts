@@ -835,7 +835,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "scheduler not initialized" }, 500);
     }
     if (scheduler.running) {
-      return c.json({ ok: true, schedulerStarted: false, message: "already running" });
+      return c.json({
+        ok: true,
+        schedulerStarted: false,
+        message: "already running",
+      });
     }
     scheduler.start();
     return c.json({ ok: true, schedulerStarted: true });

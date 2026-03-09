@@ -88,7 +88,10 @@ program
 program
   .command("start")
   .description("Start the Orca scheduler")
-  .option("--scheduler-paused", "Start with the scheduler paused (POST /api/deploy/unpause to start)")
+  .option(
+    "--scheduler-paused",
+    "Start with the scheduler paused (POST /api/deploy/unpause to start)",
+  )
   .action(async (opts: { schedulerPaused?: boolean }) => {
     const config = loadConfig();
     initFileLogger({
