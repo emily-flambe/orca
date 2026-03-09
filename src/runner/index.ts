@@ -91,8 +91,6 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
-  /** Keep stdin open for follow-up prompts via {@link sendPrompt}. Defaults to false. */
-  allowFollowupPrompts?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -422,12 +420,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // while the process is still alive.
   proc.stdin?.on("error", () => {});
 
-  // Claude one-shot `-p` sessions can hang indefinitely if stdin stays open.
-  // Close it by default; callers that need interactive follow-up prompts must
-  // opt in to keeping the pipe open.
-  if (!options.allowFollowupPrompts) {
-    proc.stdin?.end();
-  }
+  // Claude one-shot `-p` sessions hang if stdin stays open; close it immediately.
+  proc.stdin?.end();
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -832,33 +826,3 @@ export async function killSession(
   return handle.done;
 }
 
-/**
- * Send a user prompt to a running Claude CLI session via stdin.
- *
- * Returns true if the write succeeded, false if the process is no longer alive.
- */
-export function sendPrompt(handle: SessionHandle, text: string): boolean {
-  const proc = handle.process;
-  if (
-    proc.exitCode !== null ||
-    proc.killed ||
-    !proc.stdin ||
-    proc.stdin.destroyed
-  ) {
-    return false;
-  }
-  try {
-    // Claude CLI in stream-json mode accepts user turns as JSON on stdin.
-    // Format: {"type":"user","message":"text"} followed by newline.
-    const payload = JSON.stringify({ type: "user", message: text }) + "\n";
-    const accepted = proc.stdin.write(payload);
-    // write() returns false when the pipe buffer is full (backpressure).
-    // The data is still queued in Node's internal buffer and will be flushed
-    // once the child drains stdin, so this is not data loss. We still return
-    // true because the prompt was accepted into the write queue.
-    void accepted;
-    return true;
-  } catch {
-    return false;
-  }
-}
