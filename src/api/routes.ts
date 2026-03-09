@@ -37,7 +37,7 @@ import {
   type StatusPayload,
 } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
-import { killSession, invocationLogs, sendPrompt } from "../runner/index.js";
+import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
@@ -298,52 +298,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
       // Best-effort — don't fail the abort if Linear write-back fails
     });
-
-    return c.json({ ok: true });
-  });
-
-  // -----------------------------------------------------------------------
-  // POST /api/invocations/:id/prompt
-  // -----------------------------------------------------------------------
-  app.post("/api/invocations/:id/prompt", async (c) => {
-    const id = Number(c.req.param("id"));
-    if (Number.isNaN(id)) {
-      return c.json({ error: "invalid invocation id" }, 400);
-    }
-
-    const invocation = getInvocation(db, id);
-    if (!invocation) {
-      return c.json({ error: "invocation not found" }, 404);
-    }
-
-    if (invocation.status !== "running") {
-      return c.json(
-        { error: `invocation is "${invocation.status}", not running` },
-        409,
-      );
-    }
-
-    let body: { prompt?: string };
-    try {
-      body = await c.req.json<{ prompt?: string }>();
-    } catch {
-      return c.json({ error: "invalid JSON body" }, 400);
-    }
-
-    const prompt = body.prompt;
-    if (typeof prompt !== "string" || prompt.trim() === "") {
-      return c.json({ error: "prompt must be a non-empty string" }, 400);
-    }
-
-    const handle = activeHandles.get(id);
-    if (!handle) {
-      return c.json({ error: "no active handle for this invocation" }, 404);
-    }
-
-    const delivered = sendPrompt(handle, prompt.trim());
-    if (!delivered) {
-      return c.json({ error: "session process is not accepting input" }, 409);
-    }
 
     return c.json({ ok: true });
   });
