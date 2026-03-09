@@ -159,8 +159,10 @@ program
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
     }
 
+    const labelIdCache = new Map<string, string>();
+
     // Full sync: populate tasks table + dependency graph
-    await fullSync(db, client, graph, config);
+    await fullSync(db, client, graph, config, undefined, labelIdCache);
 
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
@@ -173,13 +175,14 @@ program
       graph,
       config,
       stateMap,
+      labelIdCache,
     });
 
     // Create API routes
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () => fullSync(db, client, graph, config, stateMap),
+      syncTasks: () => fullSync(db, client, graph, config, stateMap, labelIdCache),
       client,
       stateMap,
       projectMeta,
@@ -247,6 +250,7 @@ program
       stateMap,
       isTunnelConnected: () =>
         config.externalTunnel ? true : tunnel!.isTunnelConnected(),
+      labelIdCache,
     });
     poller.start();
 

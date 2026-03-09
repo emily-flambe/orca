@@ -51,6 +51,7 @@ export interface WebhookEvent {
     state?: { id: string; name: string; type: string };
     teamId?: string;
     projectId?: string;
+    labelIds?: string[];
   };
 }
 
@@ -306,14 +307,46 @@ export async function fullSync(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
+  labelIdCache?: Map<string, string>,
 ): Promise<number> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
-  for (const issue of issues) {
+  // Refresh label ID cache if filter is configured
+  // Label removal design: fullSync does not touch DB tasks whose issues no longer
+  // appear in filtered results. No stale-marking, no deletion. In-flight tasks
+  // (status=running) complete normally including PR creation and write-back.
+  // Ready-to-dispatch tasks may still be dispatched; label filter is sync-time only.
+  if (config.taskFilterLabel && labelIdCache !== undefined) {
+    const labelId = await client.fetchLabelIdByName(config.taskFilterLabel);
+    labelIdCache.clear();
+    if (labelId) {
+      labelIdCache.set(config.taskFilterLabel, labelId);
+      log(`label filter active: "${config.taskFilterLabel}" → ${labelId}`);
+    } else {
+      log(`label filter configured but label "${config.taskFilterLabel}" not found in Linear`);
+    }
+  }
+
+  // Apply label filter before upsert.
+  // Only filter when the label was actually found in Linear (cache non-empty).
+  // When the label name doesn't exist in Linear yet, fail open (sync all issues)
+  // to match the webhook handler's fail-open behavior and avoid silently dropping
+  // everything on a misconfigured or brand-new label name.
+  // Note: graph.rebuild() also receives only filteredIssues, so cross-label
+  // blocking relationships are not tracked (accepted limitation: label filter
+  // is intended for isolating fully independent workloads, not mixed graphs).
+  const filteredIssues =
+    config.taskFilterLabel && labelIdCache !== undefined && labelIdCache.size > 0
+      ? issues.filter((issue) =>
+          issue.labels.includes(config.taskFilterLabel!),
+        )
+      : issues;
+
+  for (const issue of filteredIssues) {
     upsertTask(db, issue, config);
   }
 
-  graph.rebuild(issues);
+  graph.rebuild(filteredIssues);
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
@@ -321,8 +354,8 @@ export async function fullSync(
   }
 
   emitTasksRefreshed();
-  log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  log(`full sync complete: ${filteredIssues.length} issues`);
+  return filteredIssues.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +369,7 @@ export async function processWebhookEvent(
   config: OrcaConfig,
   stateMap: WorkflowStateMap,
   event: WebhookEvent,
+  labelIdCache?: Map<string, string>,
 ): Promise<void> {
   // Check for write-back echo
   const stateName = event.data.state?.name;
@@ -344,6 +378,19 @@ export async function processWebhookEvent(
       `skipping echo webhook for ${event.data.identifier} (state: ${stateName})`,
     );
     return;
+  }
+
+  // Label filter: skip webhook if the issue doesn't carry the required label.
+  // The label ID cache is populated/refreshed by fullSync. If the cache is empty
+  // (label not found in Linear), all webhooks pass through — fail open.
+  if (config.taskFilterLabel && labelIdCache !== undefined && labelIdCache.size > 0) {
+    const requiredLabelId = labelIdCache.get(config.taskFilterLabel);
+    if (requiredLabelId && !(event.data.labelIds ?? []).includes(requiredLabelId)) {
+      log(
+        `skipping webhook for ${event.data.identifier}: missing label "${config.taskFilterLabel}"`,
+      );
+      return;
+    }
   }
 
   if (event.action === "remove") {
@@ -374,6 +421,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    labels: [], // webhook payloads don't include label names; label filtering happens via labelIds in event.data
   };
 
   // Only upsert if we have state info

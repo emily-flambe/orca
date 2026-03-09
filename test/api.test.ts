@@ -44,6 +44,7 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     linearWebhookSecret: "test",
     linearProjectIds: ["test-project"],
     linearReadyStateType: "unstarted",
+    taskFilterLabel: undefined,
     tunnelHostname: "test.example.com",
     projectRepoMap: new Map(),
     ...overrides,
