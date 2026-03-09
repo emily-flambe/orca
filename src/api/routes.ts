@@ -66,9 +66,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // HTTP request logging middleware
   app.use("*", async (c, next) => {
     const start = Date.now();
-    await next();
-    const ms = Date.now() - start;
-    console.log(`[api] ${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms`);
+    try {
+      await next();
+    } finally {
+      const ms = Date.now() - start;
+      console.log(`[api] ${c.req.method} ${c.req.path} ${c.res?.status ?? 500} ${ms}ms`);
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -538,13 +541,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Audit log changed fields
-    if ("concurrencyCap" in body && typeof body.concurrencyCap === "number" && oldConcurrencyCap !== config.concurrencyCap) {
+    if (oldConcurrencyCap !== config.concurrencyCap) {
       console.log(`[audit] config.concurrencyCap changed: ${oldConcurrencyCap} → ${config.concurrencyCap}`);
     }
+    const oldModelVals = { implementModel: oldImplementModel, reviewModel: oldReviewModel, fixModel: oldFixModel };
     for (const field of ["implementModel", "reviewModel", "fixModel"] as const) {
-      const oldVal = field === "implementModel" ? oldImplementModel : field === "reviewModel" ? oldReviewModel : oldFixModel;
-      if (field in body && oldVal !== config[field]) {
-        console.log(`[audit] config.${field} changed: ${oldVal} → ${config[field]}`);
+      if (field in body && oldModelVals[field] !== config[field]) {
+        console.log(`[audit] config.${field} changed: ${oldModelVals[field]} → ${config[field]}`);
       }
     }
 
