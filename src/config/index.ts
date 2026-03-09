@@ -43,6 +43,24 @@ export interface OrcaConfig {
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
+  // State map overrides
+  stateMapOverrides: Record<string, string> | undefined;
+}
+
+export const VALID_ORCA_STATUSES = [
+  "backlog",
+  "ready",
+  "running",
+  "in_review",
+  "done",
+  "skip",
+] as const;
+export type OrcaStatus = (typeof VALID_ORCA_STATUSES)[number];
+
+export function getStateMapOverrides(
+  config: OrcaConfig,
+): Record<string, string> | undefined {
+  return config.stateMapOverrides;
 }
 
 function exitWithError(message: string): never {
@@ -150,6 +168,57 @@ export function loadConfig(): OrcaConfig {
   }
 
   const tunnelToken = readEnvOrDefault("ORCA_TUNNEL_TOKEN", "");
+
+  // Optional: ORCA_STATE_MAP
+  const stateMapRaw = readEnv("ORCA_STATE_MAP");
+  let stateMapOverrides: Record<string, string> | undefined;
+  if (stateMapRaw !== undefined) {
+    let parseOk = false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stateMapRaw);
+      parseOk = true;
+    } catch {
+      exitWithError(
+        'ORCA_STATE_MAP must be valid JSON (e.g. {"Done":"done","QA Review":"in_review"})',
+      );
+    }
+    if (
+      parseOk &&
+      (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    ) {
+      exitWithError("ORCA_STATE_MAP must be a JSON object");
+    }
+    if (
+      parseOk &&
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
+      const obj = parsed as Record<string, unknown>;
+      const entries = Object.entries(obj);
+      // Empty object has no effect — treat same as unset
+      if (entries.length > 0) {
+        const errors: string[] = [];
+        for (const [key, value] of entries) {
+          if (key === "") {
+            errors.push(`empty string key is not allowed`);
+          } else if (!VALID_ORCA_STATUSES.includes(value as OrcaStatus)) {
+            errors.push(
+              `invalid status "${value}" for key "${key}"`,
+            );
+          }
+        }
+        if (errors.length > 0) {
+          exitWithError(
+            `ORCA_STATE_MAP validation failed:\n  ${errors.join("\n  ")}\nValid status values: ${VALID_ORCA_STATUSES.join(", ")}`,
+          );
+        } else {
+          stateMapOverrides = obj as Record<string, string>;
+        }
+      }
+    }
+  }
 
   const DEFAULT_IMPLEMENT_SYSTEM_PROMPT = `You are an autonomous coding agent running in a headless CI-like environment. There is NO human operator. You MUST NOT:
 - Ask for confirmation, approval, or clarification
@@ -318,6 +387,7 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
+    stateMapOverrides,
   };
 }
 
