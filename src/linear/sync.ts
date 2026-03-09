@@ -51,6 +51,7 @@ export interface WebhookEvent {
     state?: { id: string; name: string; type: string };
     teamId?: string;
     projectId?: string;
+    labelIds?: string[];
   };
 }
 
@@ -306,8 +307,35 @@ export async function fullSync(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
+  labelIdCache?: Map<string, string>,
 ): Promise<number> {
-  const issues = await client.fetchProjectIssues(config.linearProjectIds);
+  let issues = await client.fetchProjectIssues(config.linearProjectIds);
+
+  // Label-based filtering: when ORCA_TASK_FILTER_LABEL is set and a cache is
+  // provided, refresh the cached label ID and filter issues accordingly.
+  // Design decisions:
+  // - In-flight tasks (status=running): invocation completes normally. Work is not interrupted.
+  // - Ready-to-dispatch tasks: will still be dispatched. Label filter is sync-time only.
+  // - fullSync does not touch DB tasks whose issues no longer appear in filtered results.
+  //   No stale-marking, no deletion.
+  // - Fail open: when label name is not found in Linear (cache empty), all issues pass through.
+  if (config.taskFilterLabel && labelIdCache !== undefined) {
+    // Fetch first, then update the cache atomically on success.
+    // Clearing before the fetch would leave the cache empty on a transient
+    // API error, causing the webhook filter to fail open for the entire
+    // backoff window. Fetch-then-clear preserves the prior cached value if
+    // the API call throws.
+    const labelId = await client.fetchLabelIdByName(config.taskFilterLabel);
+    labelIdCache.clear();
+    if (labelId !== undefined) {
+      labelIdCache.set(config.taskFilterLabel, labelId);
+      // Filter to only issues that carry this label
+      issues = issues.filter((issue) =>
+        issue.labels.includes(config.taskFilterLabel!),
+      );
+    }
+    // If label not found (labelId undefined): fail open — don't filter, cache stays empty
+  }
 
   for (const issue of issues) {
     upsertTask(db, issue, config);
@@ -336,7 +364,29 @@ export async function processWebhookEvent(
   config: OrcaConfig,
   stateMap: WorkflowStateMap,
   event: WebhookEvent,
+  labelIdCache?: Map<string, string>,
 ): Promise<void> {
+  // Label filter: skip webhook events for issues that don't carry the required label.
+  // Only filters when: label is configured, cache is non-empty (label was found in Linear),
+  // and the event's labelIds do not include the cached label ID.
+  // Fail open: if cache is empty (label not found), all webhooks pass through.
+  if (
+    config.taskFilterLabel &&
+    labelIdCache !== undefined &&
+    labelIdCache.size > 0
+  ) {
+    const cachedLabelId = labelIdCache.get(config.taskFilterLabel);
+    if (
+      cachedLabelId !== undefined &&
+      !(event.data.labelIds ?? []).includes(cachedLabelId)
+    ) {
+      log(
+        `skipping webhook for ${event.data.identifier}: missing label "${config.taskFilterLabel}"`,
+      );
+      return;
+    }
+  }
+
   // Check for write-back echo
   const stateName = event.data.state?.name;
   if (stateName && isExpectedChange(event.data.identifier, stateName)) {
@@ -374,6 +424,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    labels: [], // webhook payloads don't include labels; filtering already done above
   };
 
   // Only upsert if we have state info

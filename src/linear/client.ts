@@ -31,6 +31,7 @@ export interface LinearIssue {
   parentTitle: string | null;
   parentDescription: string | null;
   childIds: string[];
+  labels: string[];
 }
 
 /** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
@@ -205,6 +206,7 @@ export class LinearClient {
             inverseRelations { nodes { type issue { id identifier } } }
             parent { id identifier title description }
             children { nodes { id identifier } }
+            labels { nodes { name } }
           }
         }
       }
@@ -253,6 +255,7 @@ export class LinearClient {
             children: {
               nodes: Array<{ id: string; identifier: string }>;
             };
+            labels: { nodes: Array<{ name: string }> };
           }>;
         };
       }>(graphql, variables);
@@ -282,6 +285,7 @@ export class LinearClient {
           parentTitle: node.parent?.title ?? null,
           parentDescription: node.parent?.description ?? null,
           childIds: (node.children?.nodes ?? []).map((c) => c.identifier),
+          labels: (node.labels?.nodes ?? []).map((l: { name: string }) => l.name),
         });
       }
 
@@ -441,6 +445,24 @@ export class LinearClient {
     }>(graphql, { issueId, stateId });
 
     return data.issueUpdate.success;
+  }
+
+  async fetchLabelIdByName(labelName: string): Promise<string | undefined> {
+    const graphql = `
+      query($name: String!) {
+        issueLabels(filter: { name: { eq: $name } }, first: 1) {
+          nodes { id name }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      issueLabels: {
+        nodes: Array<{ id: string; name: string }>;
+      };
+    }>(graphql, { name: labelName });
+
+    return data.issueLabels.nodes[0]?.id;
   }
 
   async createIssue(input: {

@@ -19,6 +19,7 @@ export interface PollerDeps {
   config: OrcaConfig;
   stateMap: WorkflowStateMap;
   isTunnelConnected: () => boolean;
+  labelIdCache?: Map<string, string>;
 }
 
 export interface PollerHealth {
@@ -116,6 +117,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
         deps.graph,
         deps.config,
         deps.stateMap,
+        deps.labelIdCache,
       );
 
       // Success — reset backoff
