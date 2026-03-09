@@ -124,10 +124,9 @@ test.describe("Dashboard smoke test", () => {
     await expect(page.getByRole("button", { name: "Logs" })).toBeVisible();
   });
 
-  test("dashboard metric cards are visible", async ({ page }) => {
-    await expect(page.getByText("Total Cost")).toBeVisible();
+  test("dashboard subscription billing notice is visible", async ({ page }) => {
     await expect(
-      page.locator("div").filter({ hasText: /^Active Sessions$/ }),
+      page.getByText(/Cost metrics are not tracked/),
     ).toBeVisible();
   });
 
