@@ -156,7 +156,7 @@ function triggerParentEval(deps: SchedulerDeps, taskId: string): void {
   if (task?.parentIdentifier) {
     evaluateParentStatuses(deps.db, deps.client, deps.stateMap, [
       task.parentIdentifier,
-    ]).catch((err) => {
+    ], deps.config.linearStateMapOverrides).catch((err) => {
       log(`parent eval failed for ${taskId}: ${err}`);
     });
   }
@@ -203,7 +203,7 @@ async function dispatch(
 
   // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
   if (phase === "implement" && !terminalWriteBackTasks.has(taskId)) {
-    writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
+    writeBackStatus(client, taskId, "dispatched", stateMap, config.linearStateMapOverrides).catch((err) => {
       log(`write-back failed on dispatch for task ${taskId}: ${err}`);
     });
   }
@@ -378,7 +378,7 @@ async function dispatch(
           // Write-back to Linear as Canceled (fire-and-forget)
           if (!terminalWriteBackTasks.has(taskId)) {
             terminalWriteBackTasks.add(taskId);
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+            writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
               (writeErr) => {
                 log(
                   `write-back failed on permanent worktree failure for task ${taskId}: ${writeErr}`,
@@ -687,7 +687,7 @@ function onImplementSuccess(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db, client, stateMap } = deps;
+  const { db, client, stateMap, config } = deps;
   const task = getTask(db, taskId);
   if (!task) return;
 
@@ -729,7 +729,7 @@ function onImplementSuccess(
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "done", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
       try {
@@ -839,7 +839,7 @@ function onImplementSuccess(
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "done", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on already-done for task ${taskId}: ${err}`);
       });
       try {
@@ -925,7 +925,7 @@ function onImplementSuccess(
 
   // Write-back "In Review"
   if (!terminalWriteBackTasks.has(taskId)) {
-    writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+    writeBackStatus(client, taskId, "in_review", stateMap, config.linearStateMapOverrides).catch((err) => {
       log(`write-back failed on implement success for task ${taskId}: ${err}`);
     });
   }
@@ -991,7 +991,7 @@ async function onReviewSuccess(
 
     // Write-back (no-op for awaiting_ci, Linear stays at "In Review")
     if (!terminalWriteBackTasks.has(taskId)) {
-      writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "awaiting_ci", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on review approved for task ${taskId}: ${err}`);
       });
     }
@@ -1019,7 +1019,7 @@ async function onReviewSuccess(
       emitTaskUpdated(getTask(db, taskId)!);
 
       if (!terminalWriteBackTasks.has(taskId)) {
-        writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
+        writeBackStatus(client, taskId, "changes_requested", stateMap, config.linearStateMapOverrides).catch(
           (err) => {
             log(
               `write-back failed on changes requested for task ${taskId}: ${err}`,
@@ -1240,7 +1240,7 @@ function onSessionFailure(
       );
     }
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+    writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
       (err) => {
         log(`write-back failed on content filter for task ${taskId}: ${err}`);
       },
@@ -1345,7 +1345,7 @@ function handleRetry(
     // write-back and reset retryCount to 0 via resolveConflict/upsertTask,
     // causing an infinite retry loop.
     if (phase === "review" && !terminalWriteBackTasks.has(taskId)) {
-      writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "in_review", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on retry for task ${taskId}: ${err}`);
       });
     }
@@ -1369,7 +1369,7 @@ function handleRetry(
 
     // Write-back on permanent failure (fire-and-forget)
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+    writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
       (err) => {
         log(
           `write-back failed on permanent failure for task ${taskId}: ${err}`,
@@ -1542,7 +1542,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         deployPollTimes.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+        writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
           (err) => {
             log(
               `write-back failed on deploy timeout for task ${taskId}: ${err}`,
@@ -1574,7 +1574,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "done", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
       });
 
@@ -1601,7 +1601,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+      writeBackStatus(client, taskId, "done", stateMap, config.linearStateMapOverrides).catch((err) => {
         log(`write-back failed on deploy success for task ${taskId}: ${err}`);
       });
 
@@ -1625,7 +1625,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+      writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
         (err) => {
           log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
         },
@@ -1683,7 +1683,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         ciPollTimes.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+        writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
           (err) => {
             log(`write-back failed on CI timeout for task ${taskId}: ${err}`);
           },
@@ -1730,7 +1730,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
+          writeBackStatus(client, taskId, "changes_requested", stateMap, config.linearStateMapOverrides).catch(
             (err) => {
               log(`write-back failed on CI failure for task ${taskId}: ${err}`);
             },
@@ -1756,7 +1756,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+        writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
           (err) => {
             log(
               `write-back failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`,
@@ -1841,7 +1841,7 @@ async function mergeAndFinalize(
         emitTaskUpdated(getTask(db, taskId)!);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
+        writeBackStatus(client, taskId, "failed_permanent", stateMap, config.linearStateMapOverrides).catch(
           (err) => {
             log(
               `write-back failed on merge conflict exhaustion for task ${taskId}: ${err}`,
@@ -1908,7 +1908,7 @@ async function mergeAndFinalize(
         emitTaskUpdated(getTask(db, taskId)!);
 
         if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "in_review", stateMap).catch(
+          writeBackStatus(client, taskId, "in_review", stateMap, config.linearStateMapOverrides).catch(
             (err) => {
               log(
                 `write-back failed on merge escalation for task ${taskId}: ${err}`,
@@ -1972,7 +1972,7 @@ async function mergeAndFinalize(
     emitTaskUpdated(getTask(db, taskId)!);
 
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
+    writeBackStatus(client, taskId, "done", stateMap, config.linearStateMapOverrides).catch((err) => {
       log(`write-back failed on merge+done for task ${taskId}: ${err}`);
     });
 

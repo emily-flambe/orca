@@ -242,6 +242,7 @@ export async function evaluateParentStatuses(
   client: LinearClient,
   stateMap: WorkflowStateMap,
   parentIds?: string[],
+  overrides?: Map<string, string>,
 ): Promise<void> {
   const parents = parentIds
     ? parentIds
@@ -262,7 +263,7 @@ export async function evaluateParentStatuses(
 
     if (allDone && parent.orcaStatus !== "done") {
       updateTaskStatus(db, parent.linearIssueId, "done");
-      writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch(
+      writeBackStatus(client, parent.linearIssueId, "done", stateMap, overrides).catch(
         (err) => {
           log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
         },
@@ -275,6 +276,7 @@ export async function evaluateParentStatuses(
         parent.linearIssueId,
         "dispatched",
         stateMap,
+        overrides,
       ).catch((err) => {
         log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
       });
@@ -304,7 +306,7 @@ export async function fullSync(
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
-    await evaluateParentStatuses(db, client, stateMap);
+    await evaluateParentStatuses(db, client, stateMap, undefined, config.linearStateMapOverrides);
   }
 
   emitTasksRefreshed();
@@ -380,7 +382,7 @@ export async function processWebhookEvent(
     if (updatedTask?.parentIdentifier) {
       evaluateParentStatuses(db, client, stateMap, [
         updatedTask.parentIdentifier,
-      ]).catch((err) => {
+      ], config.linearStateMapOverrides).catch((err) => {
         log(
           `parent eval failed after webhook for ${event.data.identifier}: ${err}`,
         );

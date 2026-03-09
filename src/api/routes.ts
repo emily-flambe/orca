@@ -295,7 +295,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Write back Linear state to "Todo"
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
+    writeBackStatus(client, taskId, "retry", stateMap, config.linearStateMapOverrides).catch(() => {
       // Best-effort — don't fail the abort if Linear write-back fails
     });
 
@@ -431,7 +431,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back to Linear
     const linearTransition = newStatus === "ready" ? "retry" : newStatus;
-    writeBackStatus(client, taskId, linearTransition, stateMap).catch(() => {});
+    writeBackStatus(client, taskId, linearTransition, stateMap, config.linearStateMapOverrides).catch(() => {});
 
     return c.json({ ok: true });
   });
@@ -461,7 +461,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back "Todo" to Linear
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+    writeBackStatus(client, taskId, "retry", stateMap, config.linearStateMapOverrides).catch(() => {});
 
     // Post comment to Linear
     client
