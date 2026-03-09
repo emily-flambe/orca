@@ -102,7 +102,10 @@ export default function Sidebar({
       cleanup();
       // Read the final width from the ref to avoid the setState-as-side-effect anti-pattern.
       const finalWidth = sidebarRef.current
-        ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, sidebarRef.current.offsetWidth))
+        ? Math.min(
+            MAX_WIDTH,
+            Math.max(MIN_WIDTH, sidebarRef.current.offsetWidth),
+          )
         : null;
       if (finalWidth !== null) {
         try {
