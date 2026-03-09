@@ -45,9 +45,6 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
         {PAGE_TITLES[activePage]}
       </span>
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
     </div>
   );
 }
