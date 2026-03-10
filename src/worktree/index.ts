@@ -151,8 +151,8 @@ function copyEnvFiles(srcDir: string, destDir: string): void {
  * If the worktree already exists at the target path (retry scenario),
  * it is reset to `origin/main` instead of being recreated.
  *
- * If the branch already exists (e.g. from a previous failed attempt),
- * it is deleted and recreated.
+ * If the branch already exists (e.g. review/fix phase reusing the implement branch),
+ * it is checked out directly and reset to origin instead of being deleted and recreated.
  *
  * @param repoPath - Absolute path to the base git repository
  * @param taskId - Task identifier (e.g. "ORC-12")
@@ -223,11 +223,19 @@ export function createWorktree(
     // Use the same branch name as the PR branch so pushes update the existing PR
     // instead of creating a new remote branch.
     if (branchExists(repoPath, baseRef)) {
-      git(["branch", "-D", baseRef], { cwd: repoPath });
+      // Branch already exists locally — check it out directly (no -b) to avoid
+      // "branch is checked out" errors, then sync to origin.
+      git(["worktree", "add", worktreePath, baseRef], { cwd: repoPath });
+      git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
+    } else {
+      // Branch doesn't exist locally — create it tracking origin.
+      git(
+        ["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`],
+        {
+          cwd: repoPath,
+        },
+      );
     }
-    git(["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`], {
-      cwd: repoPath,
-    });
   } else {
     // If branch already exists, delete it first
     if (branchExists(repoPath, branchName)) {
