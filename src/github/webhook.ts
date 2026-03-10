@@ -24,7 +24,7 @@ function verifySignature(
 
 export function createGithubWebhookRoute(deps: {
   secret: string;
-  onPushToMain: () => void;
+  onPushToMain: (pushSha?: string) => void;
 }): Hono {
   const app = new Hono();
 
@@ -47,9 +47,13 @@ export function createGithubWebhookRoute(deps: {
       return c.json({ ok: true });
     }
 
-    let body: { ref?: string };
+    let body: { ref?: string; after?: string; deleted?: boolean };
     try {
-      body = JSON.parse(rawBody) as { ref?: string };
+      body = JSON.parse(rawBody) as {
+        ref?: string;
+        after?: string;
+        deleted?: boolean;
+      };
     } catch {
       return c.json({ error: "invalid JSON" }, 400);
     }
@@ -58,9 +62,24 @@ export function createGithubWebhookRoute(deps: {
       return c.json({ ok: true });
     }
 
-    log("push to main detected — triggering graceful deploy");
-    // Fire-and-forget so we return 200 before the process exits
-    setImmediate(() => deps.onPushToMain());
+    // Skip branch deletions — GitHub sends a push event with after=000...0
+    if (body.deleted === true) {
+      log("push event is a branch deletion — ignoring");
+      return c.json({ ok: true });
+    }
+
+    // Skip null SHA (40 zeros) — safety net for malformed or deletion events
+    const NULL_SHA = "0".repeat(40);
+    if (!body.after || body.after === NULL_SHA) {
+      log("push event has null/zero SHA — ignoring");
+      return c.json({ ok: true });
+    }
+
+    log(
+      `push to main detected (SHA: ${body.after.slice(0, 12)}) — triggering graceful deploy`,
+    );
+    const pushSha = body.after;
+    setImmediate(() => deps.onPushToMain(pushSha));
     return c.json({ ok: true });
   });
 
