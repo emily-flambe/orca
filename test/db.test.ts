@@ -130,6 +130,8 @@ function seedInvocation(
     branchName: string | null;
     worktreePath: string | null;
     costUsd: number | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
     numTurns: number | null;
     outputSummary: string | null;
     logPath: string | null;
@@ -146,6 +148,8 @@ function seedInvocation(
     branchName: overrides.branchName ?? null,
     worktreePath: overrides.worktreePath ?? null,
     costUsd: overrides.costUsd ?? null,
+    inputTokens: overrides.inputTokens ?? null,
+    outputTokens: overrides.outputTokens ?? null,
     numTurns: overrides.numTurns ?? null,
     outputSummary: overrides.outputSummary ?? null,
     logPath: overrides.logPath ?? null,
@@ -843,8 +847,8 @@ describe("getInvocationStats", () => {
     const stats = getInvocationStats(db);
     expect(stats.byStatus).toHaveLength(0);
     expect(stats.avgDurationSecs).toBeNull();
-    expect(stats.avgCostUsd).toBeNull();
-    expect(stats.totalCostUsd).toBeNull();
+    expect(stats.avgTokens).toBeNull();
+    expect(stats.totalTokens).toBeNull();
   });
 
   test("aggregates byStatus counts correctly", () => {
@@ -864,15 +868,15 @@ describe("getInvocationStats", () => {
     expect(runningEntry?.count).toBe(1);
   });
 
-  test("computes avgCostUsd and totalCostUsd from completed invocations", () => {
+  test("computes avgTokens and totalTokens from completed invocations", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "completed", costUsd: 1.0 });
-    seedInvocation(db, t, { status: "completed", costUsd: 3.0 });
-    seedInvocation(db, t, { status: "failed", costUsd: 10.0 }); // should not count
+    seedInvocation(db, t, { status: "completed", inputTokens: 1000, outputTokens: 200 });
+    seedInvocation(db, t, { status: "completed", inputTokens: 2000, outputTokens: 400 });
+    seedInvocation(db, t, { status: "failed", inputTokens: 5000, outputTokens: 1000 }); // should not count
 
     const stats = getInvocationStats(db);
-    expect(stats.avgCostUsd).toBeCloseTo(2.0);
-    expect(stats.totalCostUsd).toBeCloseTo(4.0);
+    expect(stats.avgTokens).toBeCloseTo(1800); // (1200 + 2400) / 2
+    expect(stats.totalTokens).toBeCloseTo(3600); // 1200 + 2400
   });
 
   test("computes avgDurationSecs from completed invocations", () => {
@@ -913,7 +917,7 @@ describe("getRecentErrors", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "failed", outputSummary: "oops", phase: "implement", costUsd: 0.5 });
+    seedInvocation(db, t, { status: "failed", outputSummary: "oops", phase: "implement", inputTokens: 500, outputTokens: 100 });
 
     const errors = getRecentErrors(db);
     expect(errors[0]).toMatchObject({
@@ -921,7 +925,8 @@ describe("getRecentErrors", () => {
       status: "failed",
       outputSummary: "oops",
       phase: "implement",
-      costUsd: 0.5,
+      inputTokens: 500,
+      outputTokens: 100,
     });
     expect(typeof errors[0]!.id).toBe("number");
     expect(typeof errors[0]!.startedAt).toBe("string");
@@ -942,7 +947,7 @@ describe("getDailyStats", () => {
     for (const entry of stats) {
       expect(entry.completed).toBe(0);
       expect(entry.failed).toBe(0);
-      expect(entry.costUsd).toBe(0);
+      expect(entry.tokens).toBe(0);
     }
   });
 
@@ -952,8 +957,8 @@ describe("getDailyStats", () => {
     todayStart.setUTCHours(0, 0, 0, 0);
     const todayTs = todayStart.toISOString();
 
-    seedInvocation(db, t, { status: "completed", startedAt: todayTs, costUsd: 1.0 });
-    seedInvocation(db, t, { status: "failed", startedAt: todayTs, costUsd: 0.5 });
+    seedInvocation(db, t, { status: "completed", startedAt: todayTs });
+    seedInvocation(db, t, { status: "failed", startedAt: todayTs });
     seedInvocation(db, t, { status: "timed_out", startedAt: todayTs });
 
     const stats = getDailyStats(db, 1);
@@ -986,14 +991,15 @@ describe("getRecentActivity", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "completed", phase: "review", costUsd: 1.23 });
+    seedInvocation(db, t, { status: "completed", phase: "review", inputTokens: 1000, outputTokens: 230 });
 
     const [entry] = getRecentActivity(db);
     expect(entry).toBeDefined();
     expect(entry!.linearIssueId).toBe(t);
     expect(entry!.status).toBe("completed");
     expect(entry!.phase).toBe("review");
-    expect(entry!.costUsd).toBeCloseTo(1.23);
+    expect(entry!.inputTokens).toBe(1000);
+    expect(entry!.outputTokens).toBe(230);
     expect(typeof entry!.id).toBe("number");
     expect(typeof entry!.startedAt).toBe("string");
   });

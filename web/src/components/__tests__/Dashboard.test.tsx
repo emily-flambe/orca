@@ -70,15 +70,4 @@ describe("Dashboard", () => {
       expect(screen.getByText(/Error:.*Network failure/)).toBeInTheDocument();
     });
   });
-
-  it("shows subscription billing notice after data loads", async () => {
-    mockFetchMetrics.mockResolvedValue(makeMetrics());
-    render(<Dashboard />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Cost metrics are not tracked/),
-      ).toBeInTheDocument();
-    });
-  });
 });

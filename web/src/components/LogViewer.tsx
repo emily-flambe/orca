@@ -12,7 +12,7 @@ interface Props {
   isRunning?: boolean;
   outputSummary?: string | null;
   compact?: boolean;
-  onCostUpdate?: (cost: number) => void;
+  onTokenUpdate?: (inputTokens: number, outputTokens: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,13 @@ interface Message {
   content?: ContentBlock[];
 }
 
+interface UsageInfo {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
 interface LogLine {
   type?: string;
   subtype?: string;
@@ -46,6 +53,7 @@ interface LogLine {
   // result fields
   total_cost_usd?: number;
   cost_usd?: number;
+  usage?: UsageInfo;
   num_turns?: number;
   result?: string;
 }
@@ -204,12 +212,27 @@ function ProcessExitLine({ line }: { line: LogLine }) {
   );
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 function ResultFooter({ line }: { line: LogLine }) {
-  const cost = line.total_cost_usd ?? line.cost_usd;
+  const inputTokens =
+    (line.usage?.input_tokens ?? 0) +
+    (line.usage?.cache_creation_input_tokens ?? 0) +
+    (line.usage?.cache_read_input_tokens ?? 0);
+  const outputTokens = line.usage?.output_tokens ?? 0;
+  const hasTokens = line.usage != null;
   return (
     <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 font-mono flex gap-4">
       <span>Result: {line.subtype ?? "unknown"}</span>
-      {cost != null && <span>Cost: ${cost.toFixed(2)}</span>}
+      {hasTokens && (
+        <span>
+          {formatTokens(inputTokens)} in / {formatTokens(outputTokens)} out
+        </span>
+      )}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
       {typeof line.result === "string" && line.result.length > 0 && (
         <span className="truncate max-w-md" title={line.result}>
@@ -229,7 +252,7 @@ export default function LogViewer({
   isRunning,
   outputSummary,
   compact,
-  onCostUpdate,
+  onTokenUpdate,
 }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,8 +312,14 @@ export default function LogViewer({
           setLines((prev) => [...prev, parsed]);
           setLoading(false);
           setError(null);
-          const cost = parsed.total_cost_usd ?? parsed.cost_usd;
-          if (cost != null && onCostUpdate) onCostUpdate(cost);
+          if (parsed.usage != null && onTokenUpdate) {
+            const inputTokens =
+              (parsed.usage.input_tokens ?? 0) +
+              (parsed.usage.cache_creation_input_tokens ?? 0) +
+              (parsed.usage.cache_read_input_tokens ?? 0);
+            const outputTokens = parsed.usage.output_tokens ?? 0;
+            onTokenUpdate(inputTokens, outputTokens);
+          }
         } catch {
           // ignore parse errors
         }

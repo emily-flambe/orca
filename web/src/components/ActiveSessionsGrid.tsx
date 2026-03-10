@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
 import { fetchRunningInvocations } from "../hooks/useApi";
 import { useSSE } from "../hooks/useSSE";
 import LiveRunWidget from "./LiveRunWidget";
@@ -36,7 +42,8 @@ export default function ActiveSessionsGrid() {
       taskId: string;
       invocationId: number;
       status: string;
-      costUsd: number;
+      inputTokens: number;
+      outputTokens: number;
     }) => {
       setRunning((prev) => {
         const completed = prev.find((inv) => inv.id === data.invocationId);
@@ -44,7 +51,8 @@ export default function ActiveSessionsGrid() {
           setLastCompleted({
             ...completed,
             status: data.status as Invocation["status"],
-            costUsd: data.costUsd,
+            inputTokens: data.inputTokens,
+            outputTokens: data.outputTokens,
             endedAt: new Date().toISOString(),
           });
         }
@@ -82,9 +90,14 @@ export default function ActiveSessionsGrid() {
               {lastCompleted.endedAt && (
                 <span className="ml-1">({timeAgo(lastCompleted.endedAt)})</span>
               )}
-              {lastCompleted.costUsd != null && (
+              {(lastCompleted.inputTokens != null ||
+                lastCompleted.outputTokens != null) && (
                 <span className="ml-1">
-                  ${lastCompleted.costUsd.toFixed(2)}
+                  {formatTokens(
+                    (lastCompleted.inputTokens ?? 0) +
+                      (lastCompleted.outputTokens ?? 0),
+                  )}{" "}
+                  tokens
                 </span>
               )}
             </div>
