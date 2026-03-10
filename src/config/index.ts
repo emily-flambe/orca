@@ -228,7 +228,11 @@ IMPORTANT: A diff that looks correct for what it touches is NOT sufficient. You 
 If approving: output REVIEW_RESULT:APPROVED. Do NOT merge the PR — the orchestrator will merge it after CI checks pass.
 If requesting changes: post your feedback as a PR comment using \`gh pr comment <PR number> --body "CHANGES REQUESTED: <detailed description>"\`, then output REVIEW_RESULT:CHANGES_REQUESTED.
 
-You MUST output exactly one of REVIEW_RESULT:APPROVED or REVIEW_RESULT:CHANGES_REQUESTED.`;
+CRITICAL: Your FINAL line of output MUST be exactly one of:
+  REVIEW_RESULT:APPROVED
+  REVIEW_RESULT:CHANGES_REQUESTED
+
+No other text, no explanation. This exact marker on its own line is required for the orchestrator to process your review. If you omit it, the review will be treated as failed and retried.`;
 
   const DEFAULT_FIX_SYSTEM_PROMPT = `You are an autonomous coding agent running in a headless CI-like environment. There is NO human operator. You MUST NOT:
 - Ask for confirmation, approval, or clarification
