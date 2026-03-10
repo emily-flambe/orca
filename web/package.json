@@ -20,7 +20,6 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.4.1",
-    "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.21",
     "jsdom": "^28.1.0",
     "postcss": "^8.5.3",
