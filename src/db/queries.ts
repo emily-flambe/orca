@@ -127,6 +127,14 @@ export function updateTaskFixReason(
     .run();
 }
 
+/** Reset merge_attempt_count to 0. Used when dispatching a conflict-resolution fix session. */
+export function resetMergeAttemptCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({ mergeAttemptCount: 0, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Increment merge_attempt_count by 1. */
 export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)

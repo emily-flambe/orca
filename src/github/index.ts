@@ -1,6 +1,8 @@
 import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { isTransientGitError } from "../git.js";
+import { dirname, basename } from "node:path";
+import { rmSync, existsSync } from "node:fs";
+import { isTransientGitError, git } from "../git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -575,6 +577,118 @@ export async function updatePrBranch(
   } catch {
     return false;
   }
+}
+
+/**
+ * Rebase a PR branch onto origin/main and force-push the result.
+ *
+ * Creates a temporary git worktree adjacent to the main repo, fetches
+ * origin, checks out the branch at origin/<branchName>, rebases onto
+ * origin/main, and force-pushes. Aborts on conflicts.
+ *
+ * Returns:
+ *   { success: true } — rebase and push succeeded
+ *   { success: false; hasConflicts: true } — rebase had merge conflicts
+ *   { success: false; hasConflicts: false; error: string } — other failure
+ */
+export function rebasePrBranch(
+  branchName: string,
+  repoPath: string,
+):
+  | { success: true }
+  | { success: false; hasConflicts: true }
+  | { success: false; hasConflicts: false; error: string } {
+  // Fetch latest so origin/main and origin/<branchName> are up to date
+  try {
+    git(["fetch", "origin"], { cwd: repoPath });
+  } catch (err) {
+    return {
+      success: false,
+      hasConflicts: false,
+      error: `fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Create a temp worktree adjacent to the main repo.
+  // Include branchName in the path to avoid collisions when two tasks for the
+  // same repo rebase simultaneously. Use / → - substitution for branch names
+  // like "orca/EMI-123-inv-456".
+  // --force lets us check out a branch already checked out in another worktree.
+  const safeBranch = branchName.replace(/\//g, "-");
+  const tempPath = `${dirname(repoPath)}/${basename(repoPath)}-rebase-${safeBranch}-${Date.now()}`;
+  try {
+    git(["worktree", "add", "--force", "--detach", tempPath], { cwd: repoPath });
+  } catch (err) {
+    return {
+      success: false,
+      hasConflicts: false,
+      error: `worktree add failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Helper to clean up the temp worktree. Falls back to rmSync + prune if
+  // git worktree remove fails (e.g. Windows EPERM from antivirus locks).
+  function cleanupTempWorktree(): void {
+    try {
+      git(["worktree", "remove", "--force", tempPath], { cwd: repoPath });
+      return;
+    } catch {
+      // Fall through to rmSync fallback
+    }
+    try {
+      if (existsSync(tempPath)) {
+        rmSync(tempPath, { recursive: true, force: true });
+      }
+      git(["worktree", "prune"], { cwd: repoPath });
+    } catch {
+      // Best-effort — stale worktree will be pruned on next scheduler tick
+    }
+  }
+
+  try {
+    // Check out the branch at its remote state (handles stale local refs)
+    git(["checkout", "-B", branchName, `origin/${branchName}`], {
+      cwd: tempPath,
+    });
+  } catch (err) {
+    cleanupTempWorktree();
+    return {
+      success: false,
+      hasConflicts: false,
+      error: `checkout failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Attempt rebase onto origin/main
+  try {
+    git(["rebase", "origin/main"], { cwd: tempPath });
+  } catch {
+    // Abort the in-progress rebase to leave the worktree clean
+    try {
+      git(["rebase", "--abort"], { cwd: tempPath });
+    } catch {
+      // Ignore abort errors
+    }
+    cleanupTempWorktree();
+    return { success: false, hasConflicts: true };
+  }
+
+  // Force-push the rebased branch
+  try {
+    git(["push", "--force-with-lease", "origin", branchName], {
+      cwd: tempPath,
+    });
+  } catch (err) {
+    cleanupTempWorktree();
+    return {
+      success: false,
+      hasConflicts: false,
+      error: `push failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  cleanupTempWorktree();
+  return { success: true };
 }
 
 export type WorkflowRunStatus =

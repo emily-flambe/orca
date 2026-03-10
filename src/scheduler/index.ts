@@ -14,6 +14,7 @@ import {
   getRunningInvocations,
   getTask,
   incrementMergeAttemptCount,
+  resetMergeAttemptCount,
   incrementRetryCount,
   incrementReviewCycleCount,
   incrementStaleSessionRetryCount,
@@ -56,6 +57,7 @@ import {
   mergePr,
   getPrMergeState,
   updatePrBranch,
+  rebasePrBranch,
   closeSupersededPrs,
 } from "../github/index.js";
 import { cleanupStaleResources } from "../cleanup/index.js";
@@ -1890,14 +1892,115 @@ async function mergeAndFinalize(
       }
 
       if (!alreadyMerged) {
-        // Genuine merge failure — retry with backoff rather than destroying work.
-        // Re-read task to get current mergeAttemptCount.
+        // Genuine merge failure. Increment the attempt counter first.
         const freshTask = getTask(db, taskId);
         const attemptsSoFar = (freshTask?.mergeAttemptCount ?? 0) + 1;
         incrementMergeAttemptCount(db, taskId);
         emitTaskUpdated(getTask(db, taskId)!);
 
         const maxMergeAttempts = 3;
+
+        // On the first failure, attempt a rebase onto main before giving up.
+        // This handles "not up to date" and conflict-based merge failures.
+        if (attemptsSoFar === 1 && task.prBranchName) {
+          log(
+            `task ${taskId} merge attempt 1 failed — attempting rebase of ${task.prBranchName} onto origin/main`,
+          );
+          const rebaseResult = rebasePrBranch(task.prBranchName, task.repoPath);
+
+          if (rebaseResult.success) {
+            // Rebase succeeded. Force-push has been done; CI will re-run on the
+            // new commits. Stay in awaiting_ci so the CI poll loop will pick it
+            // up again and re-attempt the merge once CI passes.
+            client
+              .createComment(
+                taskId,
+                `Merge failed for PR #${task.prNumber}: ${mergeResult.error}\n\nRebased branch \`${task.prBranchName}\` onto \`main\` and force-pushed — waiting for CI to re-run before retrying merge.`,
+              )
+              .catch((err) => {
+                log(
+                  `comment failed on rebase success for task ${taskId}: ${err}`,
+                );
+              });
+
+            log(
+              `task ${taskId} rebase succeeded — force-pushed, keeping awaiting_ci for CI re-run`,
+            );
+            return;
+          }
+
+          if (rebaseResult.hasConflicts) {
+            // Rebase has conflicts — dispatch a fix-phase agent to resolve them,
+            // same as when we detect CONFLICTING in the pre-flight check.
+            log(
+              `task ${taskId} rebase has conflicts — triggering conflict resolution fix phase`,
+            );
+
+            if (task.reviewCycleCount < config.maxReviewCycles) {
+              incrementReviewCycleCount(db, taskId);
+              updateTaskFixReason(db, taskId, "merge_conflict");
+              // Reset merge attempt counter so the next awaiting_ci cycle
+              // starts fresh (mergeAttemptCount was incremented before the
+              // rebase attempt and would otherwise skip the rebase on re-entry).
+              resetMergeAttemptCount(db, taskId);
+              updateTaskStatus(db, taskId, "changes_requested");
+              emitTaskUpdated(getTask(db, taskId)!);
+
+              client
+                .createComment(
+                  taskId,
+                  `Merge failed for PR #${task.prNumber} and rebase has conflicts — dispatching fix phase to resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                )
+                .catch((err) => {
+                  log(
+                    `comment failed on rebase conflict for task ${taskId}: ${err}`,
+                  );
+                });
+
+              log(
+                `task ${taskId} → changes_requested (rebase conflicts, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+              );
+            } else {
+              // Review cycles exhausted — fail the task
+              updateTaskStatus(db, taskId, "failed");
+              emitTaskUpdated(getTask(db, taskId)!);
+
+              terminalWriteBackTasks.add(taskId);
+              writeBackStatus(
+                client,
+                taskId,
+                "failed_permanent",
+                stateMap,
+              ).catch((err) => {
+                log(
+                  `write-back failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
+                );
+              });
+
+              client
+                .createComment(
+                  taskId,
+                  `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
+                )
+                .catch((err) => {
+                  log(
+                    `comment failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
+                  );
+                });
+
+              log(
+                `task ${taskId} rebase conflicts — review cycles exhausted → failed`,
+              );
+            }
+            return;
+          }
+
+          // Rebase failed for another reason (push error, network, etc.).
+          // Log it and fall through to the standard retry logic below.
+          log(
+            `task ${taskId} rebase failed (non-conflict): ${rebaseResult.error} — falling back to merge retry`,
+          );
+        }
 
         if (attemptsSoFar < maxMergeAttempts) {
           // Keep task in awaiting_ci — the CI poll loop will call mergeAndFinalize again.

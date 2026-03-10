@@ -59,6 +59,7 @@ vi.mock("../src/github/index.js", () => ({
   mergePr: vi.fn(),
   getPrMergeState: vi.fn(),
   updatePrBranch: vi.fn(),
+  rebasePrBranch: vi.fn().mockReturnValue({ success: true }),
   closeSupersededPrs: vi.fn().mockReturnValue(0),
 }));
 
