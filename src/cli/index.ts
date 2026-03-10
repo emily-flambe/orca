@@ -21,7 +21,7 @@ import { DependencyGraph } from "../linear/graph.js";
 import { fullSync } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
 import { createGithubWebhookRoute } from "../github/webhook.js";
-import { triggerGracefulDeploy } from "../deploy.js";
+import { triggerGracefulDeploy, initDeployState } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
@@ -99,6 +99,9 @@ program
       maxSizeBytes: config.logMaxSizeMb * 1024 * 1024,
     });
     const db = createDb(config.dbPath);
+
+    // Initialize deploy state (SHA dedup + cooldown)
+    initDeployState();
 
     // Initialize Linear dependencies
     const client = new LinearClient(config.linearApiKey);
@@ -193,7 +196,8 @@ program
     if (config.githubWebhookSecret) {
       const githubWebhookApp = createGithubWebhookRoute({
         secret: config.githubWebhookSecret,
-        onPushToMain: () => triggerGracefulDeploy(db),
+        onPushToMain: (pushSha?: string) =>
+          triggerGracefulDeploy(db, { pushSha }),
       });
       app.route("/", githubWebhookApp);
       console.log("[orca/github-webhook] auto-deploy webhook registered");

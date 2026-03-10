@@ -24,7 +24,7 @@ function verifySignature(
 
 export function createGithubWebhookRoute(deps: {
   secret: string;
-  onPushToMain: () => void;
+  onPushToMain: (pushSha?: string) => void;
 }): Hono {
   const app = new Hono();
 
@@ -47,9 +47,9 @@ export function createGithubWebhookRoute(deps: {
       return c.json({ ok: true });
     }
 
-    let body: { ref?: string };
+    let body: { ref?: string; after?: string };
     try {
-      body = JSON.parse(rawBody) as { ref?: string };
+      body = JSON.parse(rawBody) as { ref?: string; after?: string };
     } catch {
       return c.json({ error: "invalid JSON" }, 400);
     }
@@ -58,9 +58,11 @@ export function createGithubWebhookRoute(deps: {
       return c.json({ ok: true });
     }
 
-    log("push to main detected — triggering graceful deploy");
-    // Fire-and-forget so we return 200 before the process exits
-    setImmediate(() => deps.onPushToMain());
+    log(
+      `push to main detected (SHA: ${body.after?.slice(0, 12) ?? "unknown"}) — triggering graceful deploy`,
+    );
+    const pushSha = body.after;
+    setImmediate(() => deps.onPushToMain(pushSha));
     return c.json({ ok: true });
   });
 
