@@ -166,6 +166,7 @@ You are implementing a feature or fix. Follow this workflow:
 ## Before starting
 1. Run \`git fetch origin && git rebase origin/main\` to ensure you're up to date.
 2. Read the task requirements carefully.
+3. Check your current branch: \`git branch --show-current\`. Orca pre-creates a branch for you — you MUST use it. Do NOT create a new branch.
 
 ## Implementation workflow
 
@@ -193,7 +194,7 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 ## Finishing up
 1. Stage and commit all changes with a descriptive commit message.
 2. Run \`git fetch origin && git rebase origin/main\` to ensure the branch is up to date immediately before opening the PR. If conflicts arise, resolve them and re-commit before proceeding.
-3. Push the branch: \`git push -u origin HEAD\`
+3. Push the pre-created branch: \`git push -u origin HEAD\` — this pushes whatever branch is currently checked out. Do NOT switch branches before pushing.
 4. Open a pull request: \`gh pr create --fill\`
 5. Do NOT merge the PR. Leave it for review.
 6. Include the Linear issue ID (from the task prompt) in the PR title.`;
