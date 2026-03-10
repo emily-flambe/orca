@@ -11,6 +11,18 @@ import { platform } from "node:os";
 import { git, cleanStaleLockFiles } from "../git.js";
 
 /**
+ * Thrown when a stale worktree directory cannot be removed due to persistent
+ * Windows file locks, even after attempting to kill locking processes.
+ * The scheduler treats this as a soft skip (re-queue without burning a retry).
+ */
+export class WorktreeEpermError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorktreeEpermError";
+  }
+}
+
+/**
  * Run npm install synchronously in the given directory.
  * Throws with stderr on failure.
  */
@@ -47,7 +59,8 @@ function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
       if (code !== "EPERM" || attempt === maxAttempts) {
         throw err;
       }
-      // Synchronous sleep via Atomics.wait — avoids spinning the CPU
+      // Kill processes holding file locks, then wait before retrying
+      killProcessesInDirectory(dirPath);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
     }
   }
@@ -76,7 +89,7 @@ function normalizePath(p: string): string {
  * Uses PowerShell to find processes whose command line references the directory
  * and forcefully terminates them. Best-effort: errors are silently ignored.
  */
-function killProcessesInDirectory(dirPath: string): void {
+export function killProcessesInDirectory(dirPath: string): void {
   if (platform() !== "win32") return;
   try {
     // Normalize to backslashes for matching against Windows command lines.
@@ -216,7 +229,16 @@ export function createWorktree(
   // If directory exists but isn't a registered worktree (e.g. stale from a
   // previous failed run), remove it so git worktree add can succeed.
   if (existsSync(worktreePath)) {
-    rmSyncWithRetry(worktreePath);
+    try {
+      rmSyncWithRetry(worktreePath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EPERM") {
+        throw new WorktreeEpermError(
+          `stale worktree ${worktreePath} is locked by another process — killing failed to release lock: ${err}`,
+        );
+      }
+      throw err;
+    }
   }
 
   if (baseRef) {

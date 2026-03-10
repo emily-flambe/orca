@@ -46,7 +46,7 @@ import {
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createWorktree, removeWorktree } from "../worktree/index.js";
+import { createWorktree, removeWorktree, WorktreeEpermError } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError, git } from "../git.js";
 import {
   findPrForBranch,
@@ -323,6 +323,30 @@ async function dispatch(
       }
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
+
+      // EPERM: file locks remain after kill attempt — skip this tick without
+      // burning a retry. The process holding the lock may release it by next tick.
+      if (err instanceof WorktreeEpermError) {
+        log(
+          `[WARN] task ${taskId}: worktree directory locked (EPERM) — skipping this tick, will retry next cycle`,
+        );
+        updateTaskStatus(
+          db,
+          taskId,
+          task.orcaStatus === "in_review"
+            ? "in_review"
+            : task.orcaStatus === "changes_requested"
+              ? "changes_requested"
+              : "ready",
+        );
+        updateInvocation(db, invocationId, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          outputSummary: `worktree EPERM (skipped tick, will retry): ${err.message}`,
+        });
+        emitTaskUpdated(getTask(db, taskId)!);
+        return;
+      }
 
       if (isDllInitError(err)) {
         // DLL_INIT is system-wide resource exhaustion. Activate global

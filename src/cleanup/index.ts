@@ -1,7 +1,7 @@
 import { rmSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git, isTransientGitError } from "../git.js";
-import { removeWorktree } from "../worktree/index.js";
+import { removeWorktree, killProcessesInDirectory } from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
@@ -279,6 +279,7 @@ function cleanupRepo(
       if (attempts >= MAX_REMOVAL_ATTEMPTS) continue;
 
       try {
+        killProcessesInDirectory(fullPath);
         rmSync(fullPath, { recursive: true, force: true });
         failedRemovalAttempts.delete(fullPath);
         log(`removed orphaned worktree directory: ${fullPath}`);
