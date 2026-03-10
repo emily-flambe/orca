@@ -29,6 +29,8 @@ import { spawnSession } from "../src/runner/index.js";
 import { isDraining } from "../src/deploy.js";
 import { createWorktree } from "../src/worktree/index.js";
 import { existsSync } from "node:fs";
+import { findPrForBranch, findPrByUrl } from "../src/github/index.js";
+import { git } from "../src/git.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks (must be at top level)
@@ -947,5 +949,196 @@ describe("Review cycle cap", () => {
     handle.stop();
 
     expect(spawnSession).not.toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// 10. Gate 2: wrong-repo PR URL does not trigger false "done" marking
+// ===========================================================================
+
+describe("Gate 2: wrong-repo PR URL in agent summary", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+    vi.clearAllMocks();
+    vi.mocked(isDraining).mockReturnValue(false);
+    // Make the worktree path appear to exist so worktreeHasNoChanges doesn't
+    // short-circuit to false via the existsSync guard.
+    vi.mocked(existsSync).mockReturnValue(true);
+  });
+
+  /**
+   * Bug scenario: Gate 2 used to mark a task as `done` when:
+   *   1. findPrForBranch returns { exists: false }
+   *   2. Agent summary contains a PR URL from a DIFFERENT repo
+   *   3. worktreeHasNoChanges returns true (git diff returns "")
+   *
+   * After the fix, wrongRepoUrlFound=true blocks the "already done" shortcut
+   * and the task should enter the failure/retry path instead.
+   */
+  test("wrong-repo URL in summary + no local changes does NOT mark task done", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "GATE2-WRONGREPO-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      repoPath: "/tmp/myorg-myrepo",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "implement",
+      model: "sonnet",
+      branchName: "orca/GATE2-WRONGREPO-1/1",
+    });
+
+    // findPrForBranch: no PR found on the expected branch
+    vi.mocked(findPrForBranch).mockReturnValue({ exists: false });
+    // findPrByUrl should not be reached (URL validation rejects it first)
+    vi.mocked(findPrByUrl).mockReturnValue({ exists: false });
+
+    // git mock:
+    // - `remote get-url origin` → the real repo SSH URL (myorg/myrepo)
+    // - `diff origin/main...HEAD` → "" (no local changes, so noChanges=true)
+    vi.mocked(git).mockImplementation((args: string[]) => {
+      if (args.includes("get-url")) {
+        return "git@github.com:myorg/myrepo.git";
+      }
+      // diff or any other call → empty string
+      return "";
+    });
+
+    const successResult = {
+      subtype: "success",
+      // Summary contains a PR URL from a DIFFERENT org/repo
+      outputSummary:
+        "Task complete. See https://github.com/other-org/other-repo/pull/42 for reference.",
+      costUsd: 0.05,
+      numTurns: 5,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-gate2-wrong",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db, testConfig({ maxRetries: 3 }));
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/myorg-myrepo-worktree",
+      "implement",
+      false,
+    );
+
+    doneResolve(successResult);
+
+    // Task must NOT become "done" — it should go to the retry/failure path
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return task?.orcaStatus === "ready" || task?.orcaStatus === "failed";
+    });
+
+    const task = getTask(db, taskId)!;
+    // The key assertion: task was NOT marked done
+    expect(task.orcaStatus).not.toBe("done");
+    // It should be retried (retryCount incremented) since retryCount=0 < maxRetries=3
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.retryCount).toBe(1);
+  });
+
+  /**
+   * Regression guard: when there is NO PR URL in the agent summary at all and
+   * the worktree has no local changes, the task should still be marked `done`.
+   * This was the correct behavior before the fix and must continue to work.
+   */
+  test("no PR URL in summary + no local changes correctly marks task done", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "GATE2-NOURL-DONE-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      repoPath: "/tmp/myorg-myrepo",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "implement",
+      model: "sonnet",
+      branchName: "orca/GATE2-NOURL-DONE-1/1",
+    });
+
+    // findPrForBranch: no PR found
+    vi.mocked(findPrForBranch).mockReturnValue({ exists: false });
+    vi.mocked(findPrByUrl).mockReturnValue({ exists: false });
+
+    // git mock: remote returns the expected repo, diff returns "" (no changes)
+    vi.mocked(git).mockImplementation((args: string[]) => {
+      if (args.includes("get-url")) {
+        return "git@github.com:myorg/myrepo.git";
+      }
+      return "";
+    });
+
+    const successResult = {
+      subtype: "success",
+      // Summary has NO GitHub PR URL at all
+      outputSummary: "All acceptance criteria were already satisfied. No changes needed.",
+      costUsd: 0.02,
+      numTurns: 3,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-gate2-nourl",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db, testConfig({ maxRetries: 3 }));
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/myorg-myrepo-worktree",
+      "implement",
+      false,
+    );
+
+    doneResolve(successResult);
+
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return task?.orcaStatus === "done";
+    });
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("done");
   });
 });
