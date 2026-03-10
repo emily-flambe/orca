@@ -158,9 +158,7 @@ describe("TaskList", () => {
       // Each task ID appears as a text node inside a font-mono span.
       // getAllByRole("button") returns task rows (role="button") among other buttons.
       // Safer: find all elements whose text matches ENG-\d+ pattern.
-      return screen
-        .getAllByText(/^ENG-\d+$/)
-        .map((el) => el.textContent ?? "");
+      return screen.getAllByText(/^ENG-\d+$/).map((el) => el.textContent ?? "");
     }
 
     it("default sort is status ascending — running tasks appear before ready/queued tasks", () => {
