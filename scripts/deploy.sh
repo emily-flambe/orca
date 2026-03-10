@@ -120,11 +120,8 @@ if [[ -z "$OLD_PID" ]]; then
   log "WARNING: no pidfile found — old instance may need manual cleanup"
 fi
 
-log "killing any orphaned Orca instances..."
-kill_orphans "$OLD_PID"
-
 # ---------------------------------------------------------------------------
-# Pull, install, build
+# Pull, install, build  (must succeed before we touch the running instance)
 # ---------------------------------------------------------------------------
 cd "$PROJECT_DIR"
 log "pulling latest code..."
@@ -136,6 +133,10 @@ npm install
 
 log "building frontend..."
 (cd web && npm run build)
+
+# Build succeeded — safe to clean up orphaned instances now
+log "killing any orphaned Orca instances..."
+kill_orphans "$OLD_PID"
 
 # ---------------------------------------------------------------------------
 # Start new instance on standby port with scheduler paused
