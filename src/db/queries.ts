@@ -404,8 +404,20 @@ type NewBudgetEvent = InferInsertModel<typeof budgetEvents>;
 // ---------------------------------------------------------------------------
 
 /** Insert a budget event. */
-export function insertBudgetEvent(db: OrcaDb, event: NewBudgetEvent): void {
-  db.insert(budgetEvents).values(event).run();
+export function insertBudgetEvent(
+  db: OrcaDb,
+  event: Omit<NewBudgetEvent, "inputTokens" | "outputTokens"> & {
+    inputTokens?: number;
+    outputTokens?: number;
+  },
+): void {
+  db.insert(budgetEvents)
+    .values({
+      ...event,
+      inputTokens: event.inputTokens ?? 0,
+      outputTokens: event.outputTokens ?? 0,
+    })
+    .run();
 }
 
 /** Returns an ISO timestamp for the start of a budget window `hours` hours ago. */
@@ -414,6 +426,26 @@ export function budgetWindowStart(hours: number): string {
 }
 
 /**
+ * Sum total tokens (input_tokens + output_tokens) from budget_events where recorded_at >= windowStart.
+ * Returns 0 if no events match.
+ */
+export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
+  const result = db
+    .select({
+      totalInput: sum(budgetEvents.inputTokens),
+      totalOutput: sum(budgetEvents.outputTokens),
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return (
+    (result?.totalInput ? Number(result.totalInput) : 0) +
+    (result?.totalOutput ? Number(result.totalOutput) : 0)
+  );
+}
+
+/**
+ * @deprecated Use sumTokensInWindow instead.
  * Sum cost_usd from budget_events where recorded_at >= windowStart.
  * Returns 0 if no events match.
  */
@@ -435,10 +467,10 @@ export interface InvocationStats {
   byStatus: { status: string; count: number }[];
   /** Average session duration in seconds for completed invocations. */
   avgDurationSecs: number | null;
-  /** Average cost in USD for completed invocations. */
-  avgCostUsd: number | null;
-  /** Total cost in USD across all completed invocations. */
-  totalCostUsd: number | null;
+  /** Average total tokens per completed invocation. */
+  avgTokens: number | null;
+  /** Total tokens across all completed invocations. */
+  totalTokens: number | null;
 }
 
 /** Aggregate invocation statistics for the metrics dashboard. */
@@ -458,20 +490,31 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
     .where(eq(invocations.status, "completed"))
     .get();
 
-  const costResult = db
+  const tokenResult = db
     .select({
-      avgCost: avg(invocations.costUsd),
-      totalCost: sum(invocations.costUsd),
+      avgInput: avg(invocations.inputTokens),
+      avgOutput: avg(invocations.outputTokens),
+      totalInput: sum(invocations.inputTokens),
+      totalOutput: sum(invocations.outputTokens),
     })
     .from(invocations)
     .where(eq(invocations.status, "completed"))
     .get();
 
+  const avgTokens = tokenResult
+    ? (tokenResult.avgInput ? Number(tokenResult.avgInput) : 0) +
+      (tokenResult.avgOutput ? Number(tokenResult.avgOutput) : 0)
+    : null;
+  const totalTokens = tokenResult
+    ? (tokenResult.totalInput ? Number(tokenResult.totalInput) : 0) +
+      (tokenResult.totalOutput ? Number(tokenResult.totalOutput) : 0)
+    : null;
+
   return {
     byStatus,
     avgDurationSecs: durationResult?.avgDuration ?? null,
-    avgCostUsd: costResult?.avgCost ? Number(costResult.avgCost) : null,
-    totalCostUsd: costResult?.totalCost ? Number(costResult.totalCost) : null,
+    avgTokens: avgTokens !== null && avgTokens > 0 ? avgTokens : null,
+    totalTokens: totalTokens !== null && totalTokens > 0 ? totalTokens : null,
   };
 }
 
@@ -483,7 +526,8 @@ export interface RecentError {
   status: string;
   outputSummary: string | null;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 /** Get the most recent failed or timed-out invocations. */
@@ -497,7 +541,8 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
       status: invocations.status,
       outputSummary: invocations.outputSummary,
       phase: invocations.phase,
-      costUsd: invocations.costUsd,
+      inputTokens: invocations.inputTokens,
+      outputTokens: invocations.outputTokens,
     })
     .from(invocations)
     .where(inArray(invocations.status, ["failed", "timed_out"]))
@@ -514,7 +559,7 @@ export interface DailyStatEntry {
   date: string; // "YYYY-MM-DD"
   completed: number;
   failed: number;
-  costUsd: number;
+  totalTokens: number;
 }
 
 export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
@@ -525,7 +570,8 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
       date: sql<string>`date(${invocations.startedAt})`,
       completed: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
       failed: sql<number>`sum(case when ${invocations.status} in ('failed', 'timed_out') then 1 else 0 end)`,
-      costUsd: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+      totalInput: sql<number>`coalesce(sum(${invocations.inputTokens}), 0)`,
+      totalOutput: sql<number>`coalesce(sum(${invocations.outputTokens}), 0)`,
     })
     .from(invocations)
     .where(gte(invocations.startedAt, since))
@@ -544,7 +590,7 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
       date: dateStr,
       completed: row ? Number(row.completed) : 0,
       failed: row ? Number(row.failed) : 0,
-      costUsd: row ? Number(row.costUsd) : 0,
+      totalTokens: row ? Number(row.totalInput) + Number(row.totalOutput) : 0,
     });
   }
   return result;
@@ -576,7 +622,8 @@ export interface ActivityEntry {
   endedAt: string | null;
   status: string;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
@@ -588,7 +635,8 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
       endedAt: invocations.endedAt,
       status: invocations.status,
       phase: invocations.phase,
-      costUsd: invocations.costUsd,
+      inputTokens: invocations.inputTokens,
+      outputTokens: invocations.outputTokens,
     })
     .from(invocations)
     .orderBy(desc(invocations.id))
@@ -597,6 +645,35 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
 }
 
 /**
+ * Sum total tokens from budget_events where recorded_at is within [windowStart, windowEnd).
+ * Returns 0 if no events match.
+ */
+export function sumTokensInWindowRange(
+  db: OrcaDb,
+  windowStart: string,
+  windowEnd: string,
+): number {
+  const result = db
+    .select({
+      totalInput: sum(budgetEvents.inputTokens),
+      totalOutput: sum(budgetEvents.outputTokens),
+    })
+    .from(budgetEvents)
+    .where(
+      and(
+        gte(budgetEvents.recordedAt, windowStart),
+        lt(budgetEvents.recordedAt, windowEnd),
+      ),
+    )
+    .get();
+  return (
+    (result?.totalInput ? Number(result.totalInput) : 0) +
+    (result?.totalOutput ? Number(result.totalOutput) : 0)
+  );
+}
+
+/**
+ * @deprecated Use sumTokensInWindowRange instead.
  * Sum cost_usd from budget_events where recorded_at is within [windowStart, windowEnd).
  * Returns 0 if no events match.
  */

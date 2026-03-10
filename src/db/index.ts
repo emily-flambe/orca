@@ -267,6 +267,29 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 11 (token tracking):
+  //   - Add input_tokens, output_tokens columns to invocations
+  //   - Add input_tokens, output_tokens columns to budget_events
+  //   Sentinel: input_tokens column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "input_tokens")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN input_tokens INTEGER");
+  }
+  if (!hasColumn(sqlite, "invocations", "output_tokens")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN output_tokens INTEGER");
+  }
+  if (!hasColumn(sqlite, "budget_events", "input_tokens")) {
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  if (!hasColumn(sqlite, "budget_events", "output_tokens")) {
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

@@ -17,7 +17,7 @@ import {
   getInvocationsByTask,
   getRunningInvocations,
   countActiveSessions,
-  sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
@@ -26,7 +26,7 @@ import {
   getRecentErrors,
   getDailyStats,
   getRecentActivity,
-  sumCostInWindowRange,
+  sumTokensInWindowRange,
   getSuccessRate12h,
 } from "../db/queries.js";
 import {
@@ -304,7 +304,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       taskId,
       invocationId: id,
       status: "failed",
-      costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
     });
 
     // Write back Linear state to "Todo"
@@ -416,7 +417,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             taskId,
             invocationId: invId,
             status: "failed",
-            costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
           });
           break;
         }
@@ -516,7 +518,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         t.orcaStatus === "in_review" ||
         t.orcaStatus === "changes_requested",
     ).length;
-    const costInWindow = sumCostInWindow(
+    const tokensInWindow = sumTokensInWindow(
       db,
       budgetWindowStart(config.budgetWindowHours),
     );
@@ -526,8 +528,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       activeSessions,
       activeTaskIds,
       queuedTasks,
-      costInWindow,
-      budgetLimit: config.budgetMaxCostUsd,
+      tokensInWindow,
+      tokenBudgetLimit: config.budgetMaxTokens,
       budgetWindowHours: config.budgetWindowHours,
       concurrencyCap: config.concurrencyCap,
       implementModel: config.implementModel,
@@ -618,14 +620,14 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const invocationStats = getInvocationStats(db);
     const recentErrors = getRecentErrors(db, 20);
 
-    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
-    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
+    const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
+    const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
 
     const prev24hStart = new Date(
       Date.now() - 48 * 60 * 60 * 1000,
     ).toISOString();
     const prev24hEnd = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
+    const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
 
     const dailyStats = getDailyStats(db, 14);
     const recentActivity = getRecentActivity(db, 20);
@@ -635,9 +637,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tasksByStatus,
       invocationStats,
       recentErrors,
-      costLast24h,
-      costLast7d,
-      costPrev24h,
+      tokensLast24h,
+      tokensLast7d,
+      tokensPrev24h,
       dailyStats,
       recentActivity,
       successRate12h,

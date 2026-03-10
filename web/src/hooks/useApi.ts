@@ -98,14 +98,15 @@ export interface RecentError {
   status: string;
   outputSummary: string | null;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface DailyStatEntry {
   date: string;
   completed: number;
   failed: number;
-  costUsd: number;
+  totalTokens: number;
 }
 
 export interface ActivityEntry {
@@ -115,7 +116,8 @@ export interface ActivityEntry {
   endedAt: string | null;
   status: string;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface MetricsData {
@@ -123,13 +125,13 @@ export interface MetricsData {
   invocationStats: {
     byStatus: InvocationStat[];
     avgDurationSecs: number | null;
-    avgCostUsd: number | null;
-    totalCostUsd: number | null;
+    avgTokens: number | null;
+    totalTokens: number | null;
   };
   recentErrors: RecentError[];
-  costLast24h: number;
-  costLast7d: number;
-  costPrev24h: number;
+  tokensLast24h: number;
+  tokensLast7d: number;
+  tokensPrev24h: number;
   dailyStats: DailyStatEntry[];
   recentActivity: ActivityEntry[];
   successRate12h: number | null;

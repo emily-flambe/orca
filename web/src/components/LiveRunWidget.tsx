@@ -3,6 +3,17 @@ import type { Invocation } from "../types";
 import { abortInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) {
+    const k = n / 1_000;
+    const kStr = k.toFixed(1);
+    if (parseFloat(kStr) >= 1000) return `${(n / 1_000_000).toFixed(1)}M`;
+    return `${kStr}K`;
+  }
+  return String(n);
+}
+
 interface Props {
   invocation: Invocation;
   /** Called after a successful cancel request */
@@ -31,7 +42,11 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const isRunning = invocation.status === "running";
   const duration = useLiveDuration(invocation.startedAt, invocation.endedAt);
 
-  const [cost, setCost] = useState<number | null>(invocation.costUsd);
+  const invTotalTokens =
+    invocation.inputTokens != null || invocation.outputTokens != null
+      ? (invocation.inputTokens ?? 0) + (invocation.outputTokens ?? 0)
+      : null;
+  const [totalTokens, setTotalTokens] = useState<number | null>(invTotalTokens);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -46,8 +61,8 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         .trim() || null
     : null;
 
-  const handleCostUpdate = useCallback((c: number) => {
-    setCost(c);
+  const handleTokensUpdate = useCallback((tokens: number) => {
+    setTotalTokens(tokens);
   }, []);
 
   const handleCancel = useCallback(async () => {
@@ -105,10 +120,10 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
 
         <span className="flex-1" />
 
-        {/* Cost */}
-        {cost != null && (
+        {/* Tokens */}
+        {totalTokens != null && (
           <span className="text-xs text-gray-400 tabular-nums font-mono">
-            ${cost.toFixed(2)}
+            {formatTokens(totalTokens)} tok
           </span>
         )}
 
@@ -174,7 +189,7 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         isRunning={effectivelyRunning}
         outputSummary={invocation.outputSummary}
         compact
-        onCostUpdate={handleCostUpdate}
+        onTokensUpdate={handleTokensUpdate}
       />
     </div>
   );

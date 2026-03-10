@@ -1,5 +1,16 @@
 import type { ActivityEntry } from "../hooks/useApi";
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) {
+    const k = n / 1_000;
+    const kStr = k.toFixed(1);
+    if (parseFloat(kStr) >= 1000) return `${(n / 1_000_000).toFixed(1)}M`;
+    return `${kStr}K`;
+  }
+  return String(n);
+}
+
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   const secs = Math.floor(ms / 1000);
@@ -78,9 +89,12 @@ export default function ActivityFeed({ entries, onNavigate }: Props) {
             {entry.status}
           </span>
           <span className="flex-1" />
-          {entry.costUsd != null && (
+          {(entry.inputTokens != null || entry.outputTokens != null) && (
             <span className="text-xs text-gray-500 font-mono tabular-nums">
-              ${entry.costUsd.toFixed(2)}
+              {formatTokens(
+                (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0),
+              )}{" "}
+              tok
             </span>
           )}
           <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">

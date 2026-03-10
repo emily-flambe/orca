@@ -48,9 +48,20 @@ function SettingsPage({
     );
   }
 
+  function formatTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) {
+      const k = n / 1_000;
+      const kStr = k.toFixed(1);
+      if (parseFloat(kStr) >= 1000) return `${(n / 1_000_000).toFixed(1)}M`;
+      return `${kStr}K`;
+    }
+    return String(n);
+  }
+
   const pct =
-    status.budgetLimit > 0
-      ? Math.min((status.costInWindow / status.budgetLimit) * 100, 100)
+    status.tokenBudgetLimit > 0
+      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
       : 0;
 
   const barColor =
@@ -96,9 +107,9 @@ function SettingsPage({
             />
           </div>
           <span className="text-sm text-gray-300 tabular-nums whitespace-nowrap">
-            ${status.costInWindow.toFixed(2)}
-            <span className="text-gray-500"> / </span>$
-            {status.budgetLimit.toFixed(2)}
+            {formatTokens(status.tokensInWindow)}
+            <span className="text-gray-500"> / </span>
+            {formatTokens(status.tokenBudgetLimit)} tokens
           </span>
         </div>
         <div className="text-xs text-gray-500">

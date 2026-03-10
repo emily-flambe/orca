@@ -39,6 +39,8 @@ import {
   budgetWindowStart,
   sumCostInWindow,
   sumCostInWindowRange,
+  sumTokensInWindow,
+  sumTokensInWindowRange,
   // Metrics queries
   getInvocationStats,
   getRecentErrors,
@@ -130,6 +132,8 @@ function seedInvocation(
     branchName: string | null;
     worktreePath: string | null;
     costUsd: number | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
     numTurns: number | null;
     outputSummary: string | null;
     logPath: string | null;
@@ -146,6 +150,8 @@ function seedInvocation(
     branchName: overrides.branchName ?? null,
     worktreePath: overrides.worktreePath ?? null,
     costUsd: overrides.costUsd ?? null,
+    inputTokens: overrides.inputTokens ?? null,
+    outputTokens: overrides.outputTokens ?? null,
     numTurns: overrides.numTurns ?? null,
     outputSummary: overrides.outputSummary ?? null,
     logPath: overrides.logPath ?? null,
@@ -831,6 +837,80 @@ describe("sumCostInWindowRange", () => {
   });
 });
 
+describe("insertBudgetEvent / sumTokensInWindow", () => {
+  let db: OrcaDb;
+  beforeEach(() => { db = freshDb(); });
+
+  test("sums input+output tokens within window", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    const recent = new Date(Date.now() - 1000).toISOString(); // 1 second ago
+    const old = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(); // 10 hours ago
+
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 800, outputTokens: 200, recordedAt: recent });
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 9999, outputTokens: 9999, recordedAt: old });
+
+    const windowStart = budgetWindowStart(4); // 4-hour window
+    const total = sumTokensInWindow(db, windowStart);
+    expect(total).toBe(1000); // only the recent event: 800 + 200
+  });
+
+  test("returns 0 when no events in window", () => {
+    const windowStart = new Date(Date.now() + 1000).toISOString(); // future
+    expect(sumTokensInWindow(db, windowStart)).toBe(0);
+  });
+
+  test("returns 0 when tokens are not set (only costUsd)", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 5.0, recordedAt: now() });
+
+    const windowStart = new Date(0).toISOString();
+    expect(sumTokensInWindow(db, windowStart)).toBe(0);
+  });
+
+  test("budget gate: blocked when tokens >= max", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    const budgetMaxTokens = 50_000_000;
+
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 30_000_000, outputTokens: 20_000_001, recordedAt: now() });
+
+    const windowStart = budgetWindowStart(4);
+    const tokens = sumTokensInWindow(db, windowStart);
+    expect(tokens).toBeGreaterThanOrEqual(budgetMaxTokens);
+  });
+});
+
+describe("sumTokensInWindowRange", () => {
+  let db: OrcaDb;
+  beforeEach(() => { db = freshDb(); });
+
+  test("sums tokens within [start, end) range", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+
+    const t1 = "2024-01-01T00:00:00.000Z";
+    const t2 = "2024-01-01T01:00:00.000Z";
+    const t3 = "2024-01-01T02:00:00.000Z";
+    const t4 = "2024-01-01T03:00:00.000Z";
+
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 100, outputTokens: 100, recordedAt: t1 });
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 200, outputTokens: 200, recordedAt: t2 });
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 400, outputTokens: 400, recordedAt: t3 });
+    insertBudgetEvent(db, { invocationId: invId, costUsd: 0, inputTokens: 800, outputTokens: 800, recordedAt: t4 });
+
+    // Range [t2, t4) — should include t2 (400 total) and t3 (800 total), exclude t1 and t4
+    const total = sumTokensInWindowRange(db, t2, t4);
+    expect(total).toBe(1200); // (200+200) + (400+400)
+  });
+
+  test("returns 0 for future range", () => {
+    const total = sumTokensInWindowRange(db, "2030-01-01T00:00:00.000Z", "2030-12-31T00:00:00.000Z");
+    expect(total).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Metrics / aggregate queries
 // ---------------------------------------------------------------------------
@@ -843,8 +923,8 @@ describe("getInvocationStats", () => {
     const stats = getInvocationStats(db);
     expect(stats.byStatus).toHaveLength(0);
     expect(stats.avgDurationSecs).toBeNull();
-    expect(stats.avgCostUsd).toBeNull();
-    expect(stats.totalCostUsd).toBeNull();
+    expect(stats.avgTokens).toBeNull();
+    expect(stats.totalTokens).toBeNull();
   });
 
   test("aggregates byStatus counts correctly", () => {
@@ -864,15 +944,15 @@ describe("getInvocationStats", () => {
     expect(runningEntry?.count).toBe(1);
   });
 
-  test("computes avgCostUsd and totalCostUsd from completed invocations", () => {
+  test("computes avgTokens and totalTokens from completed invocations", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "completed", costUsd: 1.0 });
-    seedInvocation(db, t, { status: "completed", costUsd: 3.0 });
-    seedInvocation(db, t, { status: "failed", costUsd: 10.0 }); // should not count
+    seedInvocation(db, t, { status: "completed", inputTokens: 800, outputTokens: 200 }); // 1000 tokens
+    seedInvocation(db, t, { status: "completed", inputTokens: 2400, outputTokens: 600 }); // 3000 tokens
+    seedInvocation(db, t, { status: "failed", inputTokens: 5000, outputTokens: 5000 }); // should not count
 
     const stats = getInvocationStats(db);
-    expect(stats.avgCostUsd).toBeCloseTo(2.0);
-    expect(stats.totalCostUsd).toBeCloseTo(4.0);
+    expect(stats.avgTokens).toBeCloseTo(2000);
+    expect(stats.totalTokens).toBeCloseTo(4000);
   });
 
   test("computes avgDurationSecs from completed invocations", () => {
@@ -913,7 +993,7 @@ describe("getRecentErrors", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "failed", outputSummary: "oops", phase: "implement", costUsd: 0.5 });
+    seedInvocation(db, t, { status: "failed", outputSummary: "oops", phase: "implement", inputTokens: 100, outputTokens: 50 });
 
     const errors = getRecentErrors(db);
     expect(errors[0]).toMatchObject({
@@ -921,7 +1001,8 @@ describe("getRecentErrors", () => {
       status: "failed",
       outputSummary: "oops",
       phase: "implement",
-      costUsd: 0.5,
+      inputTokens: 100,
+      outputTokens: 50,
     });
     expect(typeof errors[0]!.id).toBe("number");
     expect(typeof errors[0]!.startedAt).toBe("string");
@@ -942,7 +1023,7 @@ describe("getDailyStats", () => {
     for (const entry of stats) {
       expect(entry.completed).toBe(0);
       expect(entry.failed).toBe(0);
-      expect(entry.costUsd).toBe(0);
+      expect(entry.totalTokens).toBe(0);
     }
   });
 
@@ -986,14 +1067,15 @@ describe("getRecentActivity", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "completed", phase: "review", costUsd: 1.23 });
+    seedInvocation(db, t, { status: "completed", phase: "review", inputTokens: 500, outputTokens: 123 });
 
     const [entry] = getRecentActivity(db);
     expect(entry).toBeDefined();
     expect(entry!.linearIssueId).toBe(t);
     expect(entry!.status).toBe("completed");
     expect(entry!.phase).toBe("review");
-    expect(entry!.costUsd).toBeCloseTo(1.23);
+    expect(entry!.inputTokens).toBe(500);
+    expect(entry!.outputTokens).toBe(123);
     expect(typeof entry!.id).toBe("number");
     expect(typeof entry!.startedAt).toBe("string");
   });

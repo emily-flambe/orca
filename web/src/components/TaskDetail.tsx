@@ -18,6 +18,17 @@ interface Props {
   initialInvocationId?: number;
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) {
+    const k = n / 1_000;
+    const kStr = k.toFixed(1);
+    if (parseFloat(kStr) >= 1000) return `${(n / 1_000_000).toFixed(1)}M`;
+    return `${kStr}K`;
+  }
+  return String(n);
+}
+
 function formatDuration(start: string, end: string | null): string {
   if (!end) return "running...";
   const ms = new Date(end).getTime() - new Date(start).getTime();
@@ -195,9 +206,13 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                       <span className="tabular-nums">
                         {formatDuration(inv.startedAt, inv.endedAt)}
                       </span>
-                      {inv.costUsd != null && (
+                      {(inv.inputTokens != null ||
+                        inv.outputTokens != null) && (
                         <span className="tabular-nums">
-                          ${inv.costUsd.toFixed(2)}
+                          {formatTokens(
+                            (inv.inputTokens ?? 0) + (inv.outputTokens ?? 0),
+                          )}{" "}
+                          tok
                         </span>
                       )}
                       {inv.numTurns != null && (
@@ -255,7 +270,7 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                     <th className="pb-2 pr-4">Date</th>
                     <th className="pb-2 pr-4">Duration</th>
                     <th className="pb-2 pr-4">Status</th>
-                    <th className="pb-2 pr-4">Cost</th>
+                    <th className="pb-2 pr-4">Tokens</th>
                     <th className="pb-2 pr-4">Turns</th>
                     <th className="pb-2 pr-4">Summary</th>
                     <th className="pb-2"></th>
@@ -282,8 +297,8 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                           <StatusBadge status={inv.status} />
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.costUsd != null
-                            ? `$${inv.costUsd.toFixed(2)}`
+                          {inv.inputTokens != null || inv.outputTokens != null
+                            ? `${formatTokens((inv.inputTokens ?? 0) + (inv.outputTokens ?? 0))} tok`
                             : "\u2014"}
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
