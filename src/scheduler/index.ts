@@ -60,7 +60,7 @@ import {
   rebasePrBranch,
   closeSupersededPrs,
 } from "../github/index.js";
-import { cleanupStaleResources } from "../cleanup/index.js";
+import { cleanupStaleResources, cleanupOldInvocationLogs } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
@@ -2157,6 +2157,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
       lastCleanupTime = now;
       try {
         cleanupStaleResources({ db, config });
+        cleanupOldInvocationLogs({ db, config });
       } catch (err) {
         log(`cleanup error: ${err}`);
         // If cleanup hit DLL_INIT, activate cooldown
