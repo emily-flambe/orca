@@ -451,11 +451,11 @@ async function dispatch(
     systemPrompt = config.fixSystemPrompt || undefined;
   } else if (isResume) {
     // Resume: continuation prompt instead of full task prompt
-    agentPrompt =
-      "You hit the maximum turn limit. Continue where you left off — complete the implementation, commit, push, and open a PR.";
+    agentPrompt = `You hit the maximum turn limit. Continue where you left off — complete the implementation, commit, push, and open a PR.\n\nIMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST push on this branch — do NOT create a new branch.`;
     systemPrompt = config.implementSystemPrompt || undefined;
   } else {
-    // Normal implement
+    // Normal implement — inject the pre-created branch name so the agent doesn't create its own
+    agentPrompt = `${task.agentPrompt}\n\nIMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST commit and push on this branch — do NOT create a new branch. Run \`git branch --show-current\` to confirm before pushing.`;
     systemPrompt = config.implementSystemPrompt || undefined;
   }
 
