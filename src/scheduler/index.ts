@@ -223,7 +223,11 @@ async function dispatch(
   if (phase === "implement" && task.orcaStatus !== "changes_requested") {
     // Check for deploy-interrupted worktree first (takes priority over max-turns resume)
     const deployInv = getLastDeployInterruptedInvocation(db, taskId);
-    if (deployInv && deployInv.worktreePath && existsSync(deployInv.worktreePath)) {
+    if (
+      deployInv &&
+      deployInv.worktreePath &&
+      existsSync(deployInv.worktreePath)
+    ) {
       resumeWorktreePath = deployInv.worktreePath;
       resumeBranchName = deployInv.branchName ?? undefined;
       isDeployResume = true;
