@@ -317,6 +317,41 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // POST /api/invocations/:id/prompt
+  // -----------------------------------------------------------------------
+  app.post("/api/invocations/:id/prompt", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      return c.json({ error: "invocation not found" }, 404);
+    }
+
+    let body: { prompt?: string };
+    try {
+      body = await c.req.json<{ prompt?: string }>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
+      return c.json({ error: "prompt must be a non-empty string" }, 400);
+    }
+
+    updateTaskFields(db, invocation.linearIssueId, {
+      agentPrompt: body.prompt.trim(),
+    });
+
+    // Audit: log invocation ID only — do NOT log prompt content
+    console.log(`[orca/api] audit: prompt updated invocation=${id}`);
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/tasks/:id/status
   // -----------------------------------------------------------------------
   app.post("/api/tasks/:id/status", async (c) => {
