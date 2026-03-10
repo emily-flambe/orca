@@ -240,8 +240,14 @@ if [[ -n "$OLD_PID" ]]; then
   DRAIN_WAITED=0
   DRAIN_MAX=300
   while true; do
+    # Use a subshell to isolate pipefail — without this, curl failure + json_field
+    # default output causes || echo "0" to ALSO run, producing "0\n0" which never
+    # matches "0" and the loop runs for the full timeout.
     SESSIONS=$(curl -s "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-      | json_field activeSessions 0 || echo "0")
+      | json_field activeSessions 0) || SESSIONS="0"
+    # Strip carriage returns (Windows) and any non-numeric chars
+    SESSIONS="${SESSIONS//[$'\r\n']/}"
+    SESSIONS="${SESSIONS:-0}"
     if [[ "$SESSIONS" == "0" ]]; then
       log "old instance drained"
       break
