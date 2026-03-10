@@ -15,3 +15,4 @@ orca.log.1
 *.tsbuildinfo
 test-results/
 deploy-state.json
+tmp/
