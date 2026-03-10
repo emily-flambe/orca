@@ -132,6 +132,7 @@ export interface MetricsData {
   costPrev24h: number;
   dailyStats: DailyStatEntry[];
   recentActivity: ActivityEntry[];
+  successRate12h: number | null;
 }
 
 export function fetchMetrics(): Promise<MetricsData> {
