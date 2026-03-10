@@ -2,14 +2,7 @@
 // Scheduler tests — dispatch logic, gating, completion handlers
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -119,7 +112,9 @@ function seedTask(
     createdAt: string;
   }> = {},
 ): string {
-  const id = overrides.linearIssueId ?? `SCHED-${++taskCounter}-${Date.now().toString(36)}`;
+  const id =
+    overrides.linearIssueId ??
+    `SCHED-${++taskCounter}-${Date.now().toString(36)}`;
   const ts = overrides.createdAt ?? now();
   insertTask(db, {
     linearIssueId: id,
@@ -194,8 +189,8 @@ function makeDeps(db: OrcaDb, config: OrcaConfig = testConfig()) {
       isDispatchable: vi.fn().mockReturnValue(true),
       computeEffectivePriority: vi
         .fn()
-        .mockImplementation(
-          (taskId: string, getPrio: (id: string) => number) => getPrio(taskId),
+        .mockImplementation((taskId: string, getPrio: (id: string) => number) =>
+          getPrio(taskId),
         ),
       rebuild: vi.fn(),
     } as any,
@@ -260,7 +255,10 @@ describe("Dispatch priority ordering", () => {
   });
 
   test("in_review task is dispatched before ready task", async () => {
-    const readyId = seedTask(db, { linearIssueId: "PRIO-READY-1", orcaStatus: "ready" });
+    const readyId = seedTask(db, {
+      linearIssueId: "PRIO-READY-1",
+      orcaStatus: "ready",
+    });
     const inReviewId = seedTask(db, {
       linearIssueId: "PRIO-REVIEW-1",
       orcaStatus: "in_review",
@@ -285,7 +283,10 @@ describe("Dispatch priority ordering", () => {
   });
 
   test("changes_requested task is dispatched before ready task", async () => {
-    const readyId = seedTask(db, { linearIssueId: "PRIO-READY-2", orcaStatus: "ready" });
+    const readyId = seedTask(db, {
+      linearIssueId: "PRIO-READY-2",
+      orcaStatus: "ready",
+    });
     const changesId = seedTask(db, {
       linearIssueId: "PRIO-CHANGES-1",
       orcaStatus: "changes_requested",
@@ -1100,7 +1101,8 @@ describe("Gate 2: wrong-repo PR URL in agent summary", () => {
     const successResult = {
       subtype: "success",
       // Summary has NO GitHub PR URL at all
-      outputSummary: "All acceptance criteria were already satisfied. No changes needed.",
+      outputSummary:
+        "All acceptance criteria were already satisfied. No changes needed.",
       costUsd: 0.02,
       numTurns: 3,
       rateLimitResetsAt: null,

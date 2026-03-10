@@ -617,7 +617,9 @@ export function rebasePrBranch(
   const safeBranch = branchName.replace(/\//g, "-");
   const tempPath = `${dirname(repoPath)}/${basename(repoPath)}-rebase-${safeBranch}-${Date.now()}`;
   try {
-    git(["worktree", "add", "--force", "--detach", tempPath], { cwd: repoPath });
+    git(["worktree", "add", "--force", "--detach", tempPath], {
+      cwd: repoPath,
+    });
   } catch (err) {
     return {
       success: false,
