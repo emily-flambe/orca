@@ -28,6 +28,12 @@ vi.mock("node:fs", async (importOriginal) => {
   };
 });
 
+// Prevent real PowerShell/execSync calls during tests
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, execSync: vi.fn() };
+});
+
 // Use tmpdir() as the parent so join() produces platform-correct separators.
 const PARENT = tmpdir();
 
@@ -184,5 +190,140 @@ describe("createWorktree — baseRef branch-already-exists handling", () => {
       (call) => call[0][0] === "branch" && call[0][1] === "-D",
     );
     expect(branchDCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createWorktree — stale directory removal (EPERM / WorktreeLockedError)
+// ---------------------------------------------------------------------------
+
+describe("createWorktree — stale directory removal", () => {
+  let mockGit: ReturnType<typeof vi.fn>;
+  let mockExistsSync: ReturnType<typeof vi.fn>;
+  let mockReaddirSync: ReturnType<typeof vi.fn>;
+  let mockRmSync: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const gitModule = await import("../src/git.js");
+    mockGit = vi.mocked(gitModule.git);
+
+    const fsModule = await import("node:fs");
+    mockExistsSync = vi.mocked(fsModule.existsSync);
+    mockReaddirSync = vi.mocked(fsModule.readdirSync);
+    mockRmSync = vi.mocked(fsModule.rmSync);
+
+    mockReaddirSync.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("throws WorktreeLockedError when rmSync fails with EBUSY after killing processes", async () => {
+    // Use EBUSY rather than EPERM to avoid the 2s×retry sleep in rmSyncWithRetry.
+    // EBUSY is not retried by rmSyncWithRetry, so WorktreeLockedError is thrown immediately.
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const worktreePath = join(PARENT, "orca-EMI-500");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      if (p === worktreePath) return true; // stale directory exists
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return ""; // not registered
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      return "";
+    });
+
+    // rmSync fails with EBUSY (file held by another process)
+    const ebusyErr = Object.assign(new Error("EBUSY: resource busy or locked"), {
+      code: "EBUSY",
+    });
+    mockRmSync.mockImplementation(() => {
+      throw ebusyErr;
+    });
+
+    // createWorktree is synchronous — use try/catch, not .catch()
+    let caught: unknown;
+    try {
+      createWorktree(repoPath, "EMI-500", 1);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect((caught as Error).name).toBe("WorktreeLockedError");
+    expect((caught as Error).message).toContain("processes killed but EPERM persists");
+    expect((caught as { cause: unknown }).cause).toBe(ebusyErr);
+  });
+
+  test("succeeds when stale directory exists and rmSync succeeds after killing processes", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const worktreePath = join(PARENT, "orca-EMI-501");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      if (p === worktreePath) return true; // stale directory exists
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return ""; // not registered
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      return "";
+    });
+
+    // rmSync succeeds (directory was removed after process kill)
+    mockRmSync.mockImplementation(() => undefined);
+
+    const result = createWorktree(repoPath, "EMI-501", 2);
+    expect(result.worktreePath).toBe(worktreePath);
+
+    // rmSync was called to remove the stale directory
+    expect(mockRmSync).toHaveBeenCalledWith(worktreePath, {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  test("rethrows non-EPERM/EBUSY errors from rmSync without wrapping in WorktreeLockedError", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const worktreePath = join(PARENT, "orca-EMI-502");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      if (p === worktreePath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      return "";
+    });
+
+    const enoentErr = Object.assign(new Error("ENOENT: no such file"), {
+      code: "ENOENT",
+    });
+    mockRmSync.mockImplementation(() => {
+      throw enoentErr;
+    });
+
+    let caught: unknown;
+    try {
+      createWorktree(repoPath, "EMI-502", 3);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect((caught as Error).message).toBe("ENOENT: no such file");
+    expect((caught as Error).name).not.toBe("WorktreeLockedError");
   });
 });

@@ -48,7 +48,11 @@ import {
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createWorktree, removeWorktree } from "../worktree/index.js";
+import {
+  createWorktree,
+  removeWorktree,
+  WorktreeLockedError,
+} from "../worktree/index.js";
 import { isTransientGitError, isDllInitError, git } from "../git.js";
 import {
   findPrForBranch,
@@ -351,6 +355,28 @@ async function dispatch(
       }
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
+
+      if (err instanceof WorktreeLockedError) {
+        log(
+          `worktree locked for task ${taskId} — skipping this tick (no retry burned): ${err.message}`,
+        );
+        updateTaskStatus(
+          db,
+          taskId,
+          task.orcaStatus === "in_review"
+            ? "in_review"
+            : task.orcaStatus === "changes_requested"
+              ? "changes_requested"
+              : "ready",
+        );
+        updateInvocation(db, invocationId, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          outputSummary: `worktree locked (skipped tick, no retry burned): ${err.message}`,
+        });
+        emitTaskUpdated(getTask(db, taskId)!);
+        return;
+      }
 
       if (isDllInitError(err)) {
         // DLL_INIT is system-wide resource exhaustion. Activate global

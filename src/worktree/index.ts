@@ -11,6 +11,21 @@ import { platform } from "node:os";
 import { git, cleanStaleLockFiles } from "../git.js";
 
 /**
+ * Thrown when a worktree directory cannot be removed because a process
+ * still holds file handles, even after attempting to kill such processes.
+ * The scheduler should skip the task for this tick and retry later.
+ */
+export class WorktreeLockedError extends Error {
+  constructor(worktreePath: string, cause: unknown) {
+    super(
+      `Worktree directory is locked (processes killed but EPERM persists): ${worktreePath}`,
+    );
+    this.name = "WorktreeLockedError";
+    this.cause = cause;
+  }
+}
+
+/**
  * Run npm install synchronously in the given directory.
  * Throws with stderr on failure.
  */
@@ -216,7 +231,19 @@ export function createWorktree(
   // If directory exists but isn't a registered worktree (e.g. stale from a
   // previous failed run), remove it so git worktree add can succeed.
   if (existsSync(worktreePath)) {
-    rmSyncWithRetry(worktreePath);
+    // Kill processes that may hold file handles before attempting removal.
+    // On Windows, node/wrangler/miniflare survivors from a previous session
+    // can cause EPERM on rmSync.
+    killProcessesInDirectory(worktreePath);
+    try {
+      rmSyncWithRetry(worktreePath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EPERM" || code === "EBUSY") {
+        throw new WorktreeLockedError(worktreePath, err);
+      }
+      throw err;
+    }
   }
 
   if (baseRef) {
