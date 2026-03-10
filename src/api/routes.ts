@@ -6,6 +6,7 @@ import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type {
   LinearClient,
+  LinearIssue,
   WorkflowStateMap,
   ProjectMetadata,
 } from "../linear/client.js";
@@ -50,7 +51,7 @@ import { getSchedulerHandle } from "../scheduler/state.js";
 export interface ApiDeps {
   db: OrcaDb;
   config: OrcaConfig;
-  syncTasks: () => Promise<number>;
+  syncTasks: () => Promise<LinearIssue[]>;
   client: LinearClient;
   stateMap: WorkflowStateMap;
   projectMeta: ProjectMetadata[];
@@ -494,8 +495,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {
     try {
-      const synced = await syncTasks();
-      return c.json({ synced });
+      const syncedIssues = await syncTasks();
+      return c.json({ synced: syncedIssues.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ error: message }, 500);

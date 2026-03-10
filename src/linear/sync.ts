@@ -306,7 +306,7 @@ export async function fullSync(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
-): Promise<number> {
+): Promise<LinearIssue[]> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
   for (const issue of issues) {
@@ -322,7 +322,7 @@ export async function fullSync(
 
   emitTasksRefreshed();
   log(`full sync complete: ${issues.length} issues`);
-  return issues.length;
+  return issues;
 }
 
 // ---------------------------------------------------------------------------

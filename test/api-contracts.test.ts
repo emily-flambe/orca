@@ -26,7 +26,9 @@ vi.mock("../src/runner/index.js", () => ({
 }));
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
-  findStateByType: vi.fn().mockReturnValue({ id: "state-123", type: "unstarted" }),
+  findStateByType: vi
+    .fn()
+    .mockReturnValue({ id: "state-123", type: "unstarted" }),
 }));
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
@@ -84,18 +86,22 @@ function makeTask(overrides?: Record<string, unknown>) {
 }
 
 const mockClient = {
-  createIssue: vi.fn().mockResolvedValue({ identifier: "TEST-1", id: "issue-id-1" }),
+  createIssue: vi
+    .fn()
+    .mockResolvedValue({ identifier: "TEST-1", id: "issue-id-1" }),
   updateIssueState: vi.fn().mockResolvedValue(true),
   createComment: vi.fn().mockResolvedValue(undefined),
 } as any;
 
-const projectMeta = [{ id: "test-project", name: "Test Project", teamIds: ["team-1"] }];
+const projectMeta = [
+  { id: "test-project", name: "Test Project", teamIds: ["team-1"] },
+];
 
 function makeApp(db: OrcaDb, configOverrides?: Partial<OrcaConfig>): Hono {
   return createApiRoutes({
     db,
     config: makeConfig(configOverrides),
-    syncTasks: vi.fn().mockResolvedValue(0),
+    syncTasks: vi.fn().mockResolvedValue([]),
     client: mockClient,
     stateMap: new Map(),
     projectMeta,
@@ -190,7 +196,10 @@ describe("GET /api/invocations/running — contract", () => {
   });
 
   it("200: running invocation has agentPrompt field", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RUN-1", orcaStatus: "running" as const }));
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "RUN-1", orcaStatus: "running" as const }),
+    );
     insertInvocation(db, {
       linearIssueId: "RUN-1",
       startedAt: new Date().toISOString(),
@@ -247,7 +256,10 @@ describe("GET /api/invocations/:id/logs — contract", () => {
 
   it("200: log file exists — returns { lines: any[] }", async () => {
     const logFile = join(tmpdir(), `orca-test-log-${Date.now()}.ndjson`);
-    writeFileSync(logFile, '{"type":"text","content":"hello"}\n{"type":"text","content":"world"}\n');
+    writeFileSync(
+      logFile,
+      '{"type":"text","content":"hello"}\n{"type":"text","content":"world"}\n',
+    );
     try {
       insertTask(db, makeTask({ linearIssueId: "LOG-OK" }));
       const invId = insertInvocation(db, {
@@ -281,14 +293,18 @@ describe("POST /api/invocations/:id/abort — contract", () => {
   });
 
   it("400: non-numeric id — returns { error: string }", async () => {
-    const res = await app.request("/api/invocations/abc/abort", { method: "POST" });
+    const res = await app.request("/api/invocations/abc/abort", {
+      method: "POST",
+    });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
   });
 
   it("404: invocation not found — returns { error: string }", async () => {
-    const res = await app.request("/api/invocations/9999/abort", { method: "POST" });
+    const res = await app.request("/api/invocations/9999/abort", {
+      method: "POST",
+    });
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
@@ -301,20 +317,30 @@ describe("POST /api/invocations/:id/abort — contract", () => {
       startedAt: new Date().toISOString(),
       status: "completed",
     });
-    const res = await app.request(`/api/invocations/${invId}/abort`, { method: "POST" });
+    const res = await app.request(`/api/invocations/${invId}/abort`, {
+      method: "POST",
+    });
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
   });
 
   it("200: running invocation — returns { ok: true }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "ABORT-RUN-1", orcaStatus: "running" as const }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "ABORT-RUN-1",
+        orcaStatus: "running" as const,
+      }),
+    );
     const invId = insertInvocation(db, {
       linearIssueId: "ABORT-RUN-1",
       startedAt: new Date().toISOString(),
       status: "running",
     });
-    const res = await app.request(`/api/invocations/${invId}/abort`, { method: "POST" });
+    const res = await app.request(`/api/invocations/${invId}/abort`, {
+      method: "POST",
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
@@ -335,7 +361,10 @@ describe("POST /api/tasks/:id/status — contract", () => {
   });
 
   it("200: valid status change — returns { ok: true }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "STATUS-1", orcaStatus: "ready" as const }));
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "STATUS-1", orcaStatus: "ready" as const }),
+    );
     const res = await app.request("/api/tasks/STATUS-1/status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -369,7 +398,10 @@ describe("POST /api/tasks/:id/status — contract", () => {
   });
 
   it("409: task already has the requested status — returns { error: string }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "STATUS-SAME", orcaStatus: "ready" as const }));
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "STATUS-SAME", orcaStatus: "ready" as const }),
+    );
     const res = await app.request("/api/tasks/STATUS-SAME/status", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -395,23 +427,35 @@ describe("POST /api/tasks/:id/retry — contract", () => {
   });
 
   it("200: failed task — returns { ok: true }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RETRY-1", orcaStatus: "failed" as const }));
-    const res = await app.request("/api/tasks/RETRY-1/retry", { method: "POST" });
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "RETRY-1", orcaStatus: "failed" as const }),
+    );
+    const res = await app.request("/api/tasks/RETRY-1/retry", {
+      method: "POST",
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
   });
 
   it("404: task not found — returns { error: string }", async () => {
-    const res = await app.request("/api/tasks/NONEXISTENT/retry", { method: "POST" });
+    const res = await app.request("/api/tasks/NONEXISTENT/retry", {
+      method: "POST",
+    });
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
   });
 
   it("409: task not failed — returns { error: string }", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RETRY-READY", orcaStatus: "ready" as const }));
-    const res = await app.request("/api/tasks/RETRY-READY/retry", { method: "POST" });
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "RETRY-READY", orcaStatus: "ready" as const }),
+    );
+    const res = await app.request("/api/tasks/RETRY-READY/retry", {
+      method: "POST",
+    });
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(typeof body.error).toBe("string");
@@ -568,7 +612,9 @@ describe("GET /api/logs — contract", () => {
   it("200: log file missing — returns { lines: [], total: 0, sizeBytes: 0 }", async () => {
     const db = createDb(":memory:");
     // Use a logPath that definitely doesn't exist
-    const app = makeApp(db, { logPath: "/tmp/nonexistent-orca-log-contract-test.log" });
+    const app = makeApp(db, {
+      logPath: "/tmp/nonexistent-orca-log-contract-test.log",
+    });
     const res = await app.request("/api/logs");
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -580,7 +626,9 @@ describe("GET /api/logs — contract", () => {
 
   it("200: returns correct shape with lines, total, sizeBytes fields", async () => {
     const db = createDb(":memory:");
-    const app = makeApp(db, { logPath: "/tmp/nonexistent-orca-log-contract-test-2.log" });
+    const app = makeApp(db, {
+      logPath: "/tmp/nonexistent-orca-log-contract-test-2.log",
+    });
     const res = await app.request("/api/logs");
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -612,7 +660,7 @@ describe("GET /api/projects — contract", () => {
     const app = createApiRoutes({
       db,
       config: makeConfig(),
-      syncTasks: vi.fn().mockResolvedValue(0),
+      syncTasks: vi.fn().mockResolvedValue([]),
       client: mockClient,
       stateMap: new Map(),
       projectMeta: [],
@@ -635,7 +683,10 @@ describe("POST /api/tasks — contract", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     app = makeApp(db);
-    mockClient.createIssue.mockResolvedValue({ identifier: "TEST-1", id: "issue-id-1" });
+    mockClient.createIssue.mockResolvedValue({
+      identifier: "TEST-1",
+      id: "issue-id-1",
+    });
   });
 
   it("200: valid request — returns { identifier: string, id: string }", async () => {
