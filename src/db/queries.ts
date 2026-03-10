@@ -550,6 +550,25 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
   return result;
 }
 
+/**
+ * Compute the success rate (completed / total terminal) over the past 12 hours.
+ * Returns null when there are no completed or failed/timed_out invocations in the window.
+ */
+export function getSuccessRate12h(db: OrcaDb): number | null {
+  const since = budgetWindowStart(12);
+  const result = db
+    .select({
+      completed: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
+      total: sql<number>`sum(case when ${invocations.status} in ('completed', 'failed', 'timed_out') then 1 else 0 end)`,
+    })
+    .from(invocations)
+    .where(gte(invocations.startedAt, since))
+    .get();
+
+  if (!result || !result.total || Number(result.total) === 0) return null;
+  return Number(result.completed) / Number(result.total);
+}
+
 export interface ActivityEntry {
   id: number;
   linearIssueId: string;
