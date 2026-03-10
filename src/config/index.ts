@@ -26,6 +26,7 @@ export interface OrcaConfig {
   deployTimeoutMin: number;
   cleanupIntervalMin: number;
   cleanupBranchMaxAgeMin: number;
+  invocationLogRetentionHours: number;
   resumeOnMaxTurns: boolean;
   resumeOnFix: boolean;
   maxWorktreeRetries: number;
@@ -302,6 +303,10 @@ Steps:
     cleanupBranchMaxAgeMin: readIntOrDefault(
       "ORCA_CLEANUP_BRANCH_MAX_AGE_MIN",
       60,
+    ),
+    invocationLogRetentionHours: readIntOrDefault(
+      "ORCA_INVOCATION_LOG_RETENTION_HOURS",
+      168,
     ),
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),

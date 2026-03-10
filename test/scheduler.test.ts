@@ -76,6 +76,7 @@ vi.mock("../src/events.js", () => ({
 
 vi.mock("../src/cleanup/index.js", () => ({
   cleanupStaleResources: vi.fn(),
+  cleanupOldInvocationLogs: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({

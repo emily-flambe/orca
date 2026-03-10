@@ -1,4 +1,4 @@
-import { rmSync, readdirSync, statSync } from "node:fs";
+import { rmSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git, isTransientGitError } from "../git.js";
 import { removeWorktree } from "../worktree/index.js";
@@ -7,6 +7,7 @@ import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
   getAllTasks,
+  getInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
 } from "../db/queries.js";
@@ -343,6 +344,95 @@ function cleanupRepo(
       log(`deleted stale branch: ${branch}`);
     } catch (err) {
       log(`failed to delete branch ${branch}: ${err}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Invocation log retention cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete NDJSON invocation log files older than the configured retention window.
+ * Only deletes logs for invocations in terminal states (completed/failed).
+ * Logs for running/in-progress invocations are never deleted.
+ * Unknown/unmatched files are deleted only if older than 2x the retention window.
+ */
+export function cleanupOldInvocationLogs(deps: CleanupDeps): void {
+  const { db, config } = deps;
+  const retentionMs = config.invocationLogRetentionHours * 60 * 60 * 1000;
+  const now = Date.now();
+
+  let files: string[];
+  try {
+    files = readdirSync("logs/").filter((f) => f.endsWith(".ndjson"));
+  } catch {
+    // logs/ directory doesn't exist yet — nothing to clean
+    return;
+  }
+
+  for (const filename of files) {
+    const filepath = `logs/${filename}`;
+    let mtime: number;
+    try {
+      mtime = statSync(filepath).mtimeMs;
+    } catch {
+      continue;
+    }
+
+    const ageMs = now - mtime;
+
+    // Parse invocation ID from filename (format: <id>.ndjson)
+    const idStr = filename.slice(0, -".ndjson".length);
+    // Require purely numeric filename to avoid partial parseInt matches (e.g. "1abc" → 1)
+    const id = /^\d+$/.test(idStr) ? parseInt(idStr, 10) : NaN;
+
+    if (Number.isNaN(id)) {
+      // Can't parse ID — use conservative 2x retention window
+      if (ageMs < retentionMs * 2) continue;
+      try {
+        unlinkSync(filepath);
+        log(
+          `deleted stale invocation log: ${filename} (age: ${Math.round(ageMs / 3600000)}h)`,
+        );
+      } catch (err) {
+        log(`failed to delete invocation log ${filename}: ${err}`);
+      }
+      continue;
+    }
+
+    // Check if old enough
+    if (ageMs < retentionMs) continue;
+
+    // Verify terminal state in DB
+    const invocation = getInvocation(db, id);
+    if (!invocation) {
+      // Not in DB — use conservative 2x retention window
+      if (ageMs < retentionMs * 2) continue;
+      try {
+        unlinkSync(filepath);
+        log(
+          `deleted stale invocation log: ${filename} (age: ${Math.round(ageMs / 3600000)}h)`,
+        );
+      } catch (err) {
+        log(`failed to delete invocation log ${filename}: ${err}`);
+      }
+      continue;
+    }
+
+    const TERMINAL_STATUSES = new Set(["completed", "failed", "timed_out"]);
+    if (!TERMINAL_STATUSES.has(invocation.status)) {
+      // Running or in-progress — never delete
+      continue;
+    }
+
+    try {
+      unlinkSync(filepath);
+      log(
+        `deleted stale invocation log: ${filename} (age: ${Math.round(ageMs / 3600000)}h)`,
+      );
+    } catch (err) {
+      log(`failed to delete invocation log ${filename}: ${err}`);
     }
   }
 }

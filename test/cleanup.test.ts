@@ -2,14 +2,7 @@
 // Cleanup module tests
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -21,7 +14,7 @@ import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
-// Mocks — git, worktree, and github modules
+// Mocks — git, worktree, github modules, and node:fs
 // ---------------------------------------------------------------------------
 
 vi.mock("../src/git.js", () => ({
@@ -38,6 +31,19 @@ vi.mock("../src/github/index.js", () => ({
   findPrForBranch: vi.fn(),
   closeOrphanedPrs: vi.fn().mockReturnValue(0),
 }));
+
+// Mock node:fs so we can control readdirSync/statSync/unlinkSync in the
+// cleanupOldInvocationLogs tests. importOriginal preserves real implementations
+// so the existing worktree cleanup tests continue to work.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    readdirSync: vi.fn(actual.readdirSync),
+    statSync: vi.fn(actual.statSync),
+    unlinkSync: vi.fn(actual.unlinkSync),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -179,11 +185,15 @@ describe("Cleanup - branch safety filters", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -499,11 +509,15 @@ describe("Cleanup - null age deletes branch (BUG: fail-open on unknown age)", ()
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -621,11 +635,15 @@ describe("Cleanup - task status edge cases", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -741,7 +759,8 @@ describe("Cleanup - task status edge cases", () => {
       if (args[0] === "worktree" && args[1] === "prune") return "";
       if (args[0] === "worktree" && args[1] === "list") return "";
       // Two branches: one from the task, one orphaned (no matching task)
-      if (args[0] === "for-each-ref") return "orca/T-EXISTS-inv-1\norca/ORPHANED-inv-99";
+      if (args[0] === "for-each-ref")
+        return "orca/T-EXISTS-inv-1\norca/ORPHANED-inv-99";
       if (args[0] === "log") return oldDate;
       if (args[0] === "branch" && args[1] === "-D") return "";
       return "";
@@ -779,7 +798,8 @@ describe("Cleanup - task status edge cases", () => {
     gitMock.mockImplementation((args: string[]) => {
       if (args[0] === "worktree" && args[1] === "prune") return "";
       if (args[0] === "worktree" && args[1] === "list") return "";
-      if (args[0] === "for-each-ref") return "orca/T-ACTIVE-inv-1\norca/T-DONE-inv-1";
+      if (args[0] === "for-each-ref")
+        return "orca/T-ACTIVE-inv-1\norca/T-DONE-inv-1";
       if (args[0] === "log") return oldDate;
       if (args[0] === "branch" && args[1] === "-D") return "";
       return "";
@@ -794,6 +814,228 @@ describe("Cleanup - task status edge cases", () => {
     // Only T-DONE branch should be deleted, T-ACTIVE is in activeBranches
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0][0]).toEqual(["branch", "-D", "orca/T-DONE-inv-1"]);
+  });
+});
+
+// ===========================================================================
+// cleanupOldInvocationLogs tests
+// ===========================================================================
+
+describe("cleanupOldInvocationLogs", () => {
+  let db: OrcaDb;
+  let readdirSyncMock: ReturnType<typeof vi.fn>;
+  let statSyncMock: ReturnType<typeof vi.fn>;
+  let unlinkSyncMock: ReturnType<typeof vi.fn>;
+  let cleanupOldInvocationLogs: typeof import("../src/cleanup/index.js").cleanupOldInvocationLogs;
+
+  const RETENTION_HOURS = 168; // 7 days
+  const RETENTION_MS = RETENTION_HOURS * 60 * 60 * 1000;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const fs = await import("node:fs");
+    readdirSyncMock = fs.readdirSync as unknown as ReturnType<typeof vi.fn>;
+    statSyncMock = fs.statSync as unknown as ReturnType<typeof vi.fn>;
+    unlinkSyncMock = fs.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    readdirSyncMock.mockReset();
+    statSyncMock.mockReset();
+    unlinkSyncMock.mockReset();
+    unlinkSyncMock.mockImplementation(() => undefined);
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupOldInvocationLogs = cleanupMod.cleanupOldInvocationLogs;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function logConfig(): OrcaConfig {
+    return testConfig({ invocationLogRetentionHours: RETENTION_HOURS });
+  }
+
+  function makeStatResult(
+    mtimeMs: number,
+  ): ReturnType<typeof import("node:fs").statSync> {
+    return { mtimeMs } as ReturnType<typeof import("node:fs").statSync>;
+  }
+
+  test("deletes old log for completed invocation", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-LOG-1",
+      orcaStatus: "done",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "completed" });
+
+    const oldMtime = Date.now() - RETENTION_MS - 1000;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith(`logs/${invId}.ndjson`);
+  });
+
+  test("deletes old log for failed invocation", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-LOG-2",
+      orcaStatus: "failed",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "failed" });
+
+    const oldMtime = Date.now() - RETENTION_MS - 1000;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith(`logs/${invId}.ndjson`);
+  });
+
+  test("preserves recent log for completed invocation (within retention window)", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-LOG-3",
+      orcaStatus: "done",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "completed" });
+
+    // 1 hour old — well within 168h window
+    const recentMtime = Date.now() - 60 * 60 * 1000;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(recentMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("preserves log for running invocation regardless of age", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-LOG-4",
+      orcaStatus: "running",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+
+    // Very old file — but invocation is still running
+    const oldMtime = Date.now() - RETENTION_MS * 10;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("file with unparseable ID uses 2x retention window — preserves if only 1x old", () => {
+    // File age is between 1x and 2x retention
+    const ageBetween1xAnd2x = RETENTION_MS + RETENTION_MS / 2;
+    const mtime = Date.now() - ageBetween1xAnd2x;
+
+    readdirSyncMock.mockReturnValue([
+      "not-a-number.ndjson",
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(mtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    // Should NOT be deleted — age < 2x retention
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("file with unparseable ID is deleted when older than 2x retention", () => {
+    const oldMtime = Date.now() - RETENTION_MS * 2 - 1000;
+
+    readdirSyncMock.mockReturnValue([
+      "not-a-number.ndjson",
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith("logs/not-a-number.ndjson");
+  });
+
+  test("file not in DB uses 2x retention window — preserves if only 1x old", () => {
+    // Use a large numeric ID that won't exist in the DB
+    const ageBetween1xAnd2x = RETENTION_MS + RETENTION_MS / 2;
+    const mtime = Date.now() - ageBetween1xAnd2x;
+
+    readdirSyncMock.mockReturnValue(["99999.ndjson"] as unknown as ReturnType<
+      typeof import("node:fs").readdirSync
+    >);
+    statSyncMock.mockReturnValue(makeStatResult(mtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    // Should NOT be deleted — not in DB but age < 2x retention
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("file not in DB is deleted when older than 2x retention", () => {
+    const oldMtime = Date.now() - RETENTION_MS * 2 - 1000;
+
+    readdirSyncMock.mockReturnValue(["99999.ndjson"] as unknown as ReturnType<
+      typeof import("node:fs").readdirSync
+    >);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    expect(unlinkSyncMock).toHaveBeenCalledWith("logs/99999.ndjson");
+  });
+
+  test("handles missing logs/ directory gracefully (no error thrown)", () => {
+    readdirSyncMock.mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory, scandir 'logs/'");
+    });
+
+    expect(() => {
+      cleanupOldInvocationLogs({ db, config: logConfig() });
+    }).not.toThrow();
+
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores non-ndjson files in logs/ directory", () => {
+    readdirSyncMock.mockReturnValue([
+      "somefile.log",
+      "readme.txt",
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+
+    cleanupOldInvocationLogs({ db, config: logConfig() });
+
+    // statSync should not be called since no .ndjson files were found
+    expect(statSyncMock).not.toHaveBeenCalled();
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
   });
 });
 
@@ -813,11 +1055,15 @@ describe("Cleanup - config edge cases", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -944,11 +1190,15 @@ describe("Cleanup - listOpenPrBranches failure is fail-open (potential safety is
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1014,11 +1264,15 @@ describe("Cleanup - duplicate repo paths deduplication", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1085,11 +1339,15 @@ describe("Cleanup - branch delete failure resilience", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1183,11 +1441,15 @@ describe("Cleanup - worktree path matching edge cases", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1267,11 +1529,15 @@ describe("Cleanup - multiple branches in for-each-ref output", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1372,11 +1638,15 @@ describe("Cleanup - protection set construction from DB", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1460,6 +1730,239 @@ describe("Cleanup - protection set construction from DB", () => {
 // Integration: closeOrphanedPrs called from cleanupRepo
 // ===========================================================================
 
+// ===========================================================================
+// BUG TESTS: cleanupOldInvocationLogs — adversarial coverage
+// ===========================================================================
+
+describe("BUG: timed_out invocation logs are never deleted (missing terminal status)", () => {
+  let db: OrcaDb;
+  let readdirSyncMock: ReturnType<typeof vi.fn>;
+  let statSyncMock: ReturnType<typeof vi.fn>;
+  let unlinkSyncMock: ReturnType<typeof vi.fn>;
+  let cleanupOldInvocationLogs: typeof import("../src/cleanup/index.js").cleanupOldInvocationLogs;
+
+  const RETENTION_HOURS = 168;
+  const RETENTION_MS = RETENTION_HOURS * 60 * 60 * 1000;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const fs = await import("node:fs");
+    readdirSyncMock = fs.readdirSync as unknown as ReturnType<typeof vi.fn>;
+    statSyncMock = fs.statSync as unknown as ReturnType<typeof vi.fn>;
+    unlinkSyncMock = fs.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    readdirSyncMock.mockReset();
+    statSyncMock.mockReset();
+    unlinkSyncMock.mockReset();
+    unlinkSyncMock.mockImplementation(() => undefined);
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupOldInvocationLogs = cleanupMod.cleanupOldInvocationLogs;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function makeStatResult(
+    mtimeMs: number,
+  ): ReturnType<typeof import("node:fs").statSync> {
+    return { mtimeMs } as ReturnType<typeof import("node:fs").statSync>;
+  }
+
+  // BUG: The schema defines INVOCATION_STATUSES = ["running", "completed", "failed", "timed_out"]
+  // but cleanupOldInvocationLogs only treats "completed" and "failed" as terminal.
+  // "timed_out" is a real terminal state (set by the scheduler on timeout) but its
+  // logs are NEVER deleted — they accumulate forever.
+  test("old log for timed_out invocation should be deleted (BUG: currently skipped)", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-TIMEOUT-1",
+      orcaStatus: "failed",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    // Simulate scheduler setting timed_out status
+    updateInvocation(db, invId, { status: "timed_out" });
+
+    const oldMtime = Date.now() - RETENTION_MS - 1000;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(oldMtime));
+
+    cleanupOldInvocationLogs({
+      db,
+      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+    });
+
+    // timed_out is a terminal state — log should be deleted.
+    // BUG: The TERMINAL_STATUSES set in cleanupOldInvocationLogs only has
+    // ["completed", "failed"] — "timed_out" is missing.
+    // This test WILL FAIL until the bug is fixed.
+    expect(unlinkSyncMock).toHaveBeenCalledWith(`logs/${invId}.ndjson`);
+  });
+
+  // Verify the bug doesn't accidentally delete running logs by confusing
+  // timed_out with non-terminal states.
+  test("timed_out log is not held back forever by 2x conservative window", () => {
+    // This test validates the bug is specifically about status, not the 2x window.
+    // A timed_out invocation IS in the DB, so the 2x fallback doesn't apply.
+    // The code reaches the TERMINAL_STATUSES check and incorrectly skips.
+    const taskId = seedTask(db, {
+      linearIssueId: "T-TIMEOUT-2",
+      orcaStatus: "failed",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "timed_out" });
+
+    // Even at 10x the retention window, the log should be deleted.
+    const veryOldMtime = Date.now() - RETENTION_MS * 10;
+    readdirSyncMock.mockReturnValue([
+      `${invId}.ndjson`,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(veryOldMtime));
+
+    cleanupOldInvocationLogs({
+      db,
+      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+    });
+
+    // BUG: still not deleted because timed_out is not in TERMINAL_STATUSES.
+    expect(unlinkSyncMock).toHaveBeenCalledWith(`logs/${invId}.ndjson`);
+  });
+});
+
+describe("BUG: parseInt partial parse — filename '123abc.ndjson' is not treated as unparseable", () => {
+  let db: OrcaDb;
+  let readdirSyncMock: ReturnType<typeof vi.fn>;
+  let statSyncMock: ReturnType<typeof vi.fn>;
+  let unlinkSyncMock: ReturnType<typeof vi.fn>;
+  let cleanupOldInvocationLogs: typeof import("../src/cleanup/index.js").cleanupOldInvocationLogs;
+
+  const RETENTION_HOURS = 168;
+  const RETENTION_MS = RETENTION_HOURS * 60 * 60 * 1000;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const fs = await import("node:fs");
+    readdirSyncMock = fs.readdirSync as unknown as ReturnType<typeof vi.fn>;
+    statSyncMock = fs.statSync as unknown as ReturnType<typeof vi.fn>;
+    unlinkSyncMock = fs.unlinkSync as unknown as ReturnType<typeof vi.fn>;
+    readdirSyncMock.mockReset();
+    statSyncMock.mockReset();
+    unlinkSyncMock.mockReset();
+    unlinkSyncMock.mockImplementation(() => undefined);
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupOldInvocationLogs = cleanupMod.cleanupOldInvocationLogs;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function makeStatResult(
+    mtimeMs: number,
+  ): ReturnType<typeof import("node:fs").statSync> {
+    return { mtimeMs } as ReturnType<typeof import("node:fs").statSync>;
+  }
+
+  // BUG: parseInt("123abc", 10) returns 123, not NaN.
+  // A filename like "123abc.ndjson" should be treated as unparseable (2x window),
+  // but instead the code does getInvocation(db, 123) — which either finds invocation
+  // 123 (wrong invocation) or finds nothing (and applies 2x window accidentally
+  // giving the right result for the wrong reason).
+  //
+  // The dangerous case: if invocation 123 exists and is "completed", the file
+  // "123abc.ndjson" will be deleted even though it has no DB record matching it.
+  test("filename '1abc.ndjson' must use 2x conservative window, not look up invocation 1", () => {
+    // Seed a real invocation with ID that parseInt would extract (1)
+    const taskId = seedTask(db, {
+      linearIssueId: "T-PARSE-1",
+      orcaStatus: "done",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "completed" });
+    // invId is likely 1 for a fresh DB. Use it to construct the ambiguous filename.
+    const ambiguousFilename = `${invId}abc.ndjson`;
+
+    // Age is between 1x and 2x retention — should be preserved under 2x window
+    const ageBetween1xAnd2x = RETENTION_MS + RETENTION_MS / 2;
+    const mtime = Date.now() - ageBetween1xAnd2x;
+    readdirSyncMock.mockReturnValue([
+      ambiguousFilename,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(mtime));
+
+    cleanupOldInvocationLogs({
+      db,
+      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+    });
+
+    // The filename is NOT a valid invocation log (has garbage suffix).
+    // It should be treated as unparseable and use 2x window — so NOT deleted
+    // since age is only 1.5x retention.
+    //
+    // BUG: parseInt("1abc", 10) === 1, so the code looks up invocation 1 (which
+    // exists and is "completed"), and DELETES the file immediately after the 1x
+    // retention check passes.
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+
+  // Variant: numeric prefix with dot separator (e.g., "1.backup.ndjson")
+  // parseInt("1.backup") returns 1 — same partial-parse bug.
+  test("filename '1.backup.ndjson' must use 2x conservative window", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-PARSE-2",
+      orcaStatus: "done",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+    });
+    updateInvocation(db, invId, { status: "completed" });
+
+    // This filename ends in .ndjson so it passes the filter, but the stem
+    // "1.backup" has a dot — parseInt("1.backup", 10) still returns 1.
+    // Wait: the filter is f.endsWith(".ndjson"), so "1.backup.ndjson" passes.
+    // The stem would be "1.backup" (slice off ".ndjson").
+    // parseInt("1.backup", 10) === 1. Same bug.
+    const ambiguousFilename = `${invId}.backup.ndjson`;
+
+    const ageBetween1xAnd2x = RETENTION_MS + RETENTION_MS / 2;
+    const mtime = Date.now() - ageBetween1xAnd2x;
+    readdirSyncMock.mockReturnValue([
+      ambiguousFilename,
+    ] as unknown as ReturnType<typeof import("node:fs").readdirSync>);
+    statSyncMock.mockReturnValue(makeStatResult(mtime));
+
+    cleanupOldInvocationLogs({
+      db,
+      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+    });
+
+    // Should be treated as unparseable — age < 2x so NOT deleted.
+    // BUG: parseInt("1.backup", 10) === 1, finds invocation 1 (completed),
+    // deletes at 1x retention.
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("Cleanup - closeOrphanedPrs integration", () => {
   let db: OrcaDb;
   let gitMock: ReturnType<typeof vi.fn>;
@@ -1477,14 +1980,19 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     gitMock.mockReset();
 
     const ghMod = await import("../src/github/index.js");
-    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<typeof vi.fn>;
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
     listOpenPrBranchesMock.mockReset();
-    closeOrphanedPrsMock = (ghMod as any).closeOrphanedPrs as unknown as ReturnType<typeof vi.fn>;
+    closeOrphanedPrsMock = (ghMod as any)
+      .closeOrphanedPrs as unknown as ReturnType<typeof vi.fn>;
     closeOrphanedPrsMock.mockReset();
     closeOrphanedPrsMock.mockReturnValue(0);
 
     const wtMod = await import("../src/worktree/index.js");
-    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<typeof vi.fn>;
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
     removeWorktreeMock.mockReset();
 
     const cleanupMod = await import("../src/cleanup/index.js");
@@ -1516,7 +2024,8 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
       if (args[0] === "worktree" && args[1] === "prune") return "";
       if (args[0] === "worktree" && args[1] === "list") return "";
       if (args[0] === "for-each-ref") return "orca/T-ORDER-inv-1";
-      if (args[0] === "log") return new Date(Date.now() - 120 * 60 * 1000).toISOString();
+      if (args[0] === "log")
+        return new Date(Date.now() - 120 * 60 * 1000).toISOString();
       if (args[0] === "branch" && args[1] === "-D") return "";
       return "";
     });
@@ -1563,7 +2072,11 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
       (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
     );
     expect(deleteCalls).toHaveLength(1);
-    expect(deleteCalls[0][0]).toEqual(["branch", "-D", "orca/T-ORPHAN-FLOW-inv-1"]);
+    expect(deleteCalls[0][0]).toEqual([
+      "branch",
+      "-D",
+      "orca/T-ORPHAN-FLOW-inv-1",
+    ]);
   });
 
   test("closeOrphanedPrs receives correct protection sets from DB", () => {
