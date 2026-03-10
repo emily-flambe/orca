@@ -16,4 +16,6 @@ orca.log.1
 *.tsbuildinfo
 test-results/
 deploy-state.json
+.deploy.lock
+*.pid
 tmp/
