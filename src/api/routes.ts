@@ -751,7 +751,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       });
 
       // Trigger sync so the new ticket appears immediately
-      syncTasks().catch((err) => console.warn("[orca/api] syncTasks failed after task creation:", err));
+      syncTasks().catch((err) =>
+        console.warn("[orca/api] syncTasks failed after task creation:", err),
+      );
 
       console.log(
         `[orca/api] audit: task created identifier=${issue.identifier} title="${body.title.trim()}"`,
