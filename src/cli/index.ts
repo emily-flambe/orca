@@ -18,7 +18,7 @@ import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
-import { fullSync } from "../linear/sync.js";
+import { fullSync, writeBackStatus } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
 import { createGithubWebhookRoute } from "../github/webhook.js";
 import { triggerGracefulDeploy, initDeployState } from "../deploy.js";
@@ -163,11 +163,47 @@ program
     }
 
     // Full sync: populate tasks table + dependency graph
-    await fullSync(db, client, graph, config);
+    const syncedIssues = await fullSync(db, client, graph, config);
 
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
     const stateMap = await client.fetchWorkflowStates(teamIds);
+
+    // Reconcile failed tasks whose Linear status is still active.
+    // On crash/restart, fire-and-forget write-backs may have been lost.
+    // Find any task with orcaStatus === "failed" that Linear still shows as
+    // "In Progress" or "In Review" and write back "Canceled" with a comment.
+    const activeLinearStates = new Set(["In Progress", "In Review"]);
+    const failedTasks = getAllTasks(db).filter((t) => t.orcaStatus === "failed");
+    const syncedIssueMap = new Map(
+      syncedIssues.map((issue) => [issue.identifier, issue]),
+    );
+    let reconciled = 0;
+    for (const task of failedTasks) {
+      const linearIssue = syncedIssueMap.get(task.linearIssueId);
+      if (!linearIssue || !activeLinearStates.has(linearIssue.state.name)) {
+        continue;
+      }
+      // Write back Canceled and post a comment (fire-and-forget with error logging)
+      writeBackStatus(client, task.linearIssueId, "failed_permanent", stateMap)
+        .then(() =>
+          client.createComment(
+            task.linearIssueId,
+            "**Orca status correction:** This task was marked as failed internally (retries exhausted) but the Linear status was not updated due to a crash or restart. Setting to Canceled now.",
+          ),
+        )
+        .catch((err) => {
+          console.log(
+            `[orca] reconcile write-back failed for ${task.linearIssueId}: ${err}`,
+          );
+        });
+      reconciled++;
+    }
+    if (reconciled > 0) {
+      console.log(
+        `[orca] reconciling ${reconciled} failed task(s) with stale Linear status`,
+      );
+    }
 
     // Start Hono HTTP server with webhook endpoint
     const webhookApp = createWebhookRoute({

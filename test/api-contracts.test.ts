@@ -95,7 +95,7 @@ function makeApp(db: OrcaDb, configOverrides?: Partial<OrcaConfig>): Hono {
   return createApiRoutes({
     db,
     config: makeConfig(configOverrides),
-    syncTasks: vi.fn().mockResolvedValue(0),
+    syncTasks: vi.fn().mockResolvedValue([]),
     client: mockClient,
     stateMap: new Map(),
     projectMeta,
@@ -612,7 +612,7 @@ describe("GET /api/projects — contract", () => {
     const app = createApiRoutes({
       db,
       config: makeConfig(),
-      syncTasks: vi.fn().mockResolvedValue(0),
+      syncTasks: vi.fn().mockResolvedValue([]),
       client: mockClient,
       stateMap: new Map(),
       projectMeta: [],
