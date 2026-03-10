@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS invocations (
   session_id TEXT,
   branch_name TEXT,
   worktree_path TEXT,
+  worktree_preserved INTEGER NOT NULL DEFAULT 0,
   cost_usd REAL,
   num_turns INTEGER,
   output_summary TEXT,
@@ -265,6 +266,17 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "stale_session_retry_count")) {
     sqlite.exec(
       "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 11 (deploy-interrupted worktree preservation):
+  //   - Add worktree_preserved column to invocations (1 = worktree kept for resume)
+  //   Sentinel: worktree_preserved column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "worktree_preserved")) {
+    sqlite.exec(
+      "ALTER TABLE invocations ADD COLUMN worktree_preserved INTEGER NOT NULL DEFAULT 0",
     );
   }
 }
