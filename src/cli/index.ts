@@ -13,6 +13,8 @@ import {
   budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
+  updateTaskFields,
+  clearImplementSessionIds,
 } from "../db/queries.js";
 import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
@@ -142,6 +144,21 @@ program
       );
     }
 
+    // Collect task IDs affected by orphaned invocations, then clear their
+    // implement-phase session IDs so dead pre-restart sessions aren't resumed.
+    const orphanedTaskIds = new Set(
+      orphanedInvocations.map((inv) => inv.linearIssueId),
+    );
+    for (const taskId of orphanedTaskIds) {
+      clearImplementSessionIds(db, taskId);
+      updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
+    }
+    if (orphanedTaskIds.size > 0) {
+      console.log(
+        `[orca] cleared session IDs and reset stale counts for ${orphanedTaskIds.size} task(s) with orphaned invocations`,
+      );
+    }
+
     // Now recover orphaned tasks: any task stuck in "running" or
     // "dispatched" with no running invocation is dead.
     const allTasks = getAllTasks(db);
@@ -155,6 +172,8 @@ program
         !runningInvIssueIds.has(t.linearIssueId)
       ) {
         updateTaskStatus(db, t.linearIssueId, "ready");
+        updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
+        clearImplementSessionIds(db, t.linearIssueId);
         recovered++;
       }
     }
@@ -339,6 +358,11 @@ program
           outputSummary: "interrupted by shutdown",
         });
         updateTaskStatus(db, inv.linearIssueId, "ready");
+        // Clear implement-phase session IDs so the next startup doesn't try
+        // to resume a dead Claude session. Also reset the stale counter so
+        // pre-shutdown stale detections don't carry over into the next run.
+        clearImplementSessionIds(db, inv.linearIssueId);
+        updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
 
         // Best-effort worktree cleanup for interrupted sessions
         if (inv.worktreePath) {
