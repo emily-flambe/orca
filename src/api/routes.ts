@@ -64,6 +64,18 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   const app = new Hono();
 
   // -----------------------------------------------------------------------
+  // Request logging middleware
+  // -----------------------------------------------------------------------
+  app.use("*", async (c, next) => {
+    const start = Date.now();
+    await next();
+    const ms = Date.now() - start;
+    console.log(
+      `[orca/api] ${c.req.method} ${c.req.path} -> ${c.res.status} (${ms}ms)`,
+    );
+  });
+
+  // -----------------------------------------------------------------------
   // GET /api/tasks
   // -----------------------------------------------------------------------
   app.get("/api/tasks", (c) => {
@@ -295,9 +307,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Write back Linear state to "Todo"
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {
-      // Best-effort — don't fail the abort if Linear write-back fails
-    });
+    writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
+      console.warn("[orca/api] Linear write-back failed:", err),
+    );
+
+    console.log(`[orca/api] audit: abort invocation=${id} task=${taskId}`);
 
     return c.json({ ok: true });
   });
@@ -335,7 +349,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: `task is already "${newStatus}"` }, 409);
     }
 
+    const oldStatus = task.orcaStatus;
+
     // Kill running session if task is active
+    let sessionKilled = false;
     if (
       task.orcaStatus === "running" ||
       task.orcaStatus === "dispatched" ||
@@ -349,6 +366,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         if (matchingInv) {
           try {
             await killSession(handle);
+            sessionKilled = true;
           } catch {
             // Process may already be dead
           }
@@ -385,7 +403,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back to Linear
     const linearTransition = newStatus === "ready" ? "retry" : newStatus;
-    writeBackStatus(client, taskId, linearTransition, stateMap).catch(() => {});
+    writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) =>
+      console.warn("[orca/api] Linear write-back failed:", err),
+    );
+
+    console.log(
+      `[orca/api] audit: status change task=${taskId} ${oldStatus} -> ${newStatus} sessionKilled=${sessionKilled}`,
+    );
 
     return c.json({ ok: true });
   });
@@ -415,12 +439,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back "Todo" to Linear
-    writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+    writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
+      console.warn("[orca/api] Linear write-back failed:", err),
+    );
 
     // Post comment to Linear
     client
       .createComment(taskId, "Manually retried from Orca dashboard")
-      .catch(() => {});
+      .catch((err) => console.warn("[orca/api] Linear comment failed:", err));
+
+    console.log(`[orca/api] audit: retry task=${taskId}`);
 
     return c.json({ ok: true });
   });
@@ -485,6 +513,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "invalid JSON body" }, 400);
     }
 
+    const configChanges: string[] = [];
+
     if ("concurrencyCap" in body) {
       const val = body.concurrencyCap;
       if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
@@ -493,7 +523,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           400,
         );
       }
+      const oldVal = config.concurrencyCap;
       config.concurrencyCap = val;
+      configChanges.push(`concurrencyCap: ${oldVal} -> ${val}`);
     }
 
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
@@ -515,8 +547,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             400,
           );
         }
+        const oldVal = config[field];
         config[field] = val;
+        configChanges.push(`${field}: ${oldVal} -> ${val}`);
       }
+    }
+
+    if (configChanges.length > 0) {
+      console.log(
+        `[orca/api] audit: config update ${configChanges.join(", ")}`,
+      );
     }
 
     return c.json({
@@ -676,7 +716,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       });
 
       // Trigger sync so the new ticket appears immediately
-      syncTasks().catch(() => {});
+      syncTasks().catch((err) => console.warn("[orca/api] syncTasks failed after task creation:", err));
+
+      console.log(
+        `[orca/api] audit: task created identifier=${issue.identifier} title="${body.title.trim()}"`,
+      );
 
       return c.json({ identifier: issue.identifier, id: issue.id });
     } catch (err) {
@@ -777,6 +821,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/deploy/drain", (c) => {
     setDraining();
+    console.log("[orca/api] audit: drain triggered");
     return c.json({ ok: true, draining: true });
   });
 
@@ -796,6 +841,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       });
     }
     scheduler.start();
+    console.log("[orca/api] audit: scheduler unpaused");
     return c.json({ ok: true, schedulerStarted: true });
   });
 
