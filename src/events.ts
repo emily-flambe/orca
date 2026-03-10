@@ -20,14 +20,15 @@ export interface InvocationCompletedPayload {
   taskId: string;
   invocationId: number;
   status: string;
-  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export interface StatusPayload {
   activeSessions: number;
   queuedTasks: number;
-  costInWindow: number;
-  budgetLimit: number;
+  tokensInWindow: number;
+  tokenBudgetLimit: number;
   budgetWindowHours: number;
 }
 

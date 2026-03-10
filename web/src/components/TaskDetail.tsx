@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
+import { formatTokens } from "../App";
 import {
   fetchTaskDetail,
   abortInvocation,
@@ -195,9 +196,13 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                       <span className="tabular-nums">
                         {formatDuration(inv.startedAt, inv.endedAt)}
                       </span>
-                      {inv.costUsd != null && (
+                      {(inv.inputTokens != null ||
+                        inv.outputTokens != null) && (
                         <span className="tabular-nums">
-                          ${inv.costUsd.toFixed(2)}
+                          {formatTokens(
+                            (inv.inputTokens ?? 0) + (inv.outputTokens ?? 0),
+                          )}{" "}
+                          tokens
                         </span>
                       )}
                       {inv.numTurns != null && (
@@ -255,7 +260,7 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                     <th className="pb-2 pr-4">Date</th>
                     <th className="pb-2 pr-4">Duration</th>
                     <th className="pb-2 pr-4">Status</th>
-                    <th className="pb-2 pr-4">Cost</th>
+                    <th className="pb-2 pr-4">Tokens</th>
                     <th className="pb-2 pr-4">Turns</th>
                     <th className="pb-2 pr-4">Summary</th>
                     <th className="pb-2"></th>
@@ -282,9 +287,19 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                           <StatusBadge status={inv.status} />
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.costUsd != null
-                            ? `$${inv.costUsd.toFixed(2)}`
-                            : "\u2014"}
+                          {inv.inputTokens != null ||
+                          inv.outputTokens != null ? (
+                            <span
+                              title={`${(inv.inputTokens ?? 0).toLocaleString()} input / ${(inv.outputTokens ?? 0).toLocaleString()} output`}
+                            >
+                              {formatTokens(
+                                (inv.inputTokens ?? 0) +
+                                  (inv.outputTokens ?? 0),
+                              )}
+                            </span>
+                          ) : (
+                            "\u2014"
+                          )}
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
                           {inv.numTurns ?? "\u2014"}

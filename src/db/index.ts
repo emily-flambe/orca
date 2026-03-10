@@ -46,7 +46,9 @@ const CREATE_BUDGET_EVENTS = `
 CREATE TABLE IF NOT EXISTS budget_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invocation_id INTEGER NOT NULL REFERENCES invocations(id),
-  cost_usd REAL NOT NULL,
+  cost_usd REAL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
   recorded_at TEXT NOT NULL
 )`;
 
@@ -265,6 +267,25 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "stale_session_retry_count")) {
     sqlite.exec(
       "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 11 (token-based budget tracking):
+  //   - Add input_tokens and output_tokens to invocations
+  //   - Add input_tokens and output_tokens to budget_events
+  //   Sentinel: input_tokens column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "input_tokens")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN input_tokens INTEGER");
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN output_tokens INTEGER");
+  }
+  if (!hasColumn(sqlite, "budget_events", "input_tokens")) {
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0",
+    );
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
     );
   }
 }

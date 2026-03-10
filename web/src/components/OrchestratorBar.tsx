@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
+import { formatTokens } from "../App";
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
@@ -36,8 +37,8 @@ export default function OrchestratorBar({
   }
 
   const pct =
-    status.budgetLimit > 0
-      ? Math.min((status.costInWindow / status.budgetLimit) * 100, 100)
+    status.tokenBudgetLimit > 0
+      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
       : 0;
 
   const barColor =
@@ -86,9 +87,10 @@ export default function OrchestratorBar({
             />
           </div>
           <span className="text-gray-300 tabular-nums text-xs sm:text-sm">
-            ${status.costInWindow.toFixed(2)}
-            <span className="text-gray-500"> / </span>$
-            {status.budgetLimit.toFixed(2)}
+            {formatTokens(status.tokensInWindow)}
+            <span className="text-gray-500"> / </span>
+            {formatTokens(status.tokenBudgetLimit)}
+            <span className="text-gray-500 hidden sm:inline"> tokens</span>
           </span>
         </div>
 

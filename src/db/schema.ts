@@ -60,6 +60,8 @@ export const invocations = sqliteTable("invocations", {
   branchName: text("branch_name"),
   worktreePath: text("worktree_path"),
   costUsd: real("cost_usd"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
@@ -72,6 +74,8 @@ export const budgetEvents = sqliteTable("budget_events", {
   invocationId: integer("invocation_id")
     .notNull()
     .references(() => invocations.id),
-  costUsd: real("cost_usd").notNull(),
+  costUsd: real("cost_usd"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
   recordedAt: text("recorded_at").notNull(),
 });

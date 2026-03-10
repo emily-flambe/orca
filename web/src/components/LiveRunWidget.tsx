@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
 import { abortInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import { formatTokens } from "../App";
 
 interface Props {
   invocation: Invocation;
@@ -31,7 +32,12 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const isRunning = invocation.status === "running";
   const duration = useLiveDuration(invocation.startedAt, invocation.endedAt);
 
-  const [cost, setCost] = useState<number | null>(invocation.costUsd);
+  const [inputTokens, setInputTokens] = useState<number | null>(
+    invocation.inputTokens,
+  );
+  const [outputTokens, setOutputTokens] = useState<number | null>(
+    invocation.outputTokens,
+  );
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -46,8 +52,9 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         .trim() || null
     : null;
 
-  const handleCostUpdate = useCallback((c: number) => {
-    setCost(c);
+  const handleTokenUpdate = useCallback((inTok: number, outTok: number) => {
+    setInputTokens(inTok);
+    setOutputTokens(outTok);
   }, []);
 
   const handleCancel = useCallback(async () => {
@@ -105,10 +112,10 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
 
         <span className="flex-1" />
 
-        {/* Cost */}
-        {cost != null && (
+        {/* Token count */}
+        {(inputTokens != null || outputTokens != null) && (
           <span className="text-xs text-gray-400 tabular-nums font-mono">
-            ${cost.toFixed(2)}
+            {formatTokens((inputTokens ?? 0) + (outputTokens ?? 0))}
           </span>
         )}
 
@@ -174,7 +181,7 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         isRunning={effectivelyRunning}
         outputSummary={invocation.outputSummary}
         compact
-        onCostUpdate={handleCostUpdate}
+        onTokenUpdate={handleTokenUpdate}
       />
     </div>
   );

@@ -51,7 +51,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
-    budgetMaxCostUsd: 10.0,
+    budgetMaxTokens: 50000000,
     schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,

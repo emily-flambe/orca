@@ -10,7 +10,7 @@ Each tick runs these steps in order:
 3. **CI gate** — poll PR checks for `awaiting_ci` tasks, merge on success
 4. **Cleanup** — stale branches, worktrees, orphaned PRs (throttled to every N minutes)
 5. **Concurrency check** — skip dispatch if at `ORCA_CONCURRENCY_CAP`
-6. **Budget check** — skip if rolling cost exceeds `ORCA_BUDGET_MAX_COST_USD` in window
+6. **Budget check** — skip if rolling tokens exceed `ORCA_BUDGET_MAX_TOKENS` in window
 7. **Query dispatchable tasks** — status in (`ready`, `in_review`, `changes_requested`)
 8. **Filter** — skip parents, blocked tasks, empty prompts, rate-limited, already running
 9. **Sort** — review/fix before implement, then priority, then created_at

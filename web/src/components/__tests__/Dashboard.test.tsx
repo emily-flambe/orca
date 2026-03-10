@@ -28,18 +28,18 @@ function makeMetrics(overrides: Partial<MetricsData> = {}): MetricsData {
         { status: "running", count: 1 },
       ],
       avgDurationSecs: 120,
-      avgCostUsd: 0.05,
-      totalCostUsd: 5.42,
+      avgTokens: 5000,
+      totalTokens: 542000,
     },
     recentErrors: [],
-    costLast24h: 1.23,
-    costLast7d: 8.5,
-    costPrev24h: 0.9,
+    tokensLast24h: 123000,
+    tokensLast7d: 850000,
+    tokensPrev24h: 90000,
     dailyStats: Array.from({ length: 14 }, (_, i) => ({
       date: `2024-01-${String(i + 1).padStart(2, "0")}`,
       completed: i % 3,
       failed: i % 2,
-      costUsd: i * 0.1,
+      tokens: i * 1000,
     })),
     recentActivity: [],
     successRate12h: 0.83,
@@ -71,14 +71,14 @@ describe("Dashboard", () => {
     });
   });
 
-  it("shows subscription billing notice after data loads", async () => {
+  it("shows dashboard content after data loads", async () => {
     mockFetchMetrics.mockResolvedValue(makeMetrics());
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Cost metrics are not tracked/),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
+    expect(screen.getByText("Success rate (past 12h)")).toBeInTheDocument();
+    expect(screen.getByText("83%")).toBeInTheDocument();
   });
 });
