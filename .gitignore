@@ -11,7 +11,8 @@ orca.log
 orca.log.1
 .env
 .env.local
-.claude/
+.claude/*
+!.claude/rules/
 *.tsbuildinfo
 test-results/
 deploy-state.json
