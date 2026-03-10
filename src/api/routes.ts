@@ -27,6 +27,7 @@ import {
   getDailyStats,
   getRecentActivity,
   sumCostInWindowRange,
+  getSuccessRate12h,
 } from "../db/queries.js";
 import {
   orcaEvents,
@@ -553,6 +554,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const dailyStats = getDailyStats(db, 14);
     const recentActivity = getRecentActivity(db, 20);
+    const successRate12h = getSuccessRate12h(db);
 
     return c.json({
       tasksByStatus,
@@ -563,6 +565,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       costPrev24h,
       dailyStats,
       recentActivity,
+      successRate12h,
     });
   });
 

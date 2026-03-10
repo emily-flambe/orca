@@ -42,6 +42,7 @@ function makeMetrics(overrides: Partial<MetricsData> = {}): MetricsData {
       costUsd: i * 0.1,
     })),
     recentActivity: [],
+    successRate12h: 0.83,
     ...overrides,
   };
 }
