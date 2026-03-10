@@ -174,7 +174,9 @@ program
     // Find any task with orcaStatus === "failed" that Linear still shows as
     // "In Progress" or "In Review" and write back "Canceled" with a comment.
     const activeLinearStates = new Set(["In Progress", "In Review"]);
-    const failedTasks = getAllTasks(db).filter((t) => t.orcaStatus === "failed");
+    const failedTasks = getAllTasks(db).filter(
+      (t) => t.orcaStatus === "failed",
+    );
     const syncedIssueMap = new Map(
       syncedIssues.map((issue) => [issue.identifier, issue]),
     );

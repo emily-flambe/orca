@@ -268,7 +268,12 @@ describe("Reconciliation: filtering by Linear state", () => {
     const writeBackMock = vi.fn();
     const createCommentMock = vi.fn();
 
-    const count = runReconciliationLoop(db, [], writeBackMock, createCommentMock);
+    const count = runReconciliationLoop(
+      db,
+      [],
+      writeBackMock,
+      createCommentMock,
+    );
 
     expect(count).toBe(0);
     expect(writeBackMock).not.toHaveBeenCalled();
@@ -314,7 +319,10 @@ describe("Reconciliation: multiple tasks", () => {
     expect(writeBackMock).toHaveBeenCalledWith("PROJ-20", "failed_permanent");
     expect(writeBackMock).toHaveBeenCalledWith("PROJ-21", "failed_permanent");
     expect(writeBackMock).toHaveBeenCalledWith("PROJ-22", "failed_permanent");
-    expect(writeBackMock).not.toHaveBeenCalledWith("PROJ-23", "failed_permanent");
+    expect(writeBackMock).not.toHaveBeenCalledWith(
+      "PROJ-23",
+      "failed_permanent",
+    );
   });
 
   test("createComment is called with identifier (not UUID), consistent with rest of codebase", () => {
