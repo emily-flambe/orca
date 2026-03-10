@@ -230,36 +230,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Drain old instance
+# Stop old instance scheduler and kill it
+# Worktrees are preserved by the shutdown handler, so it's safe to kill
+# immediately without waiting for sessions to complete.
 # ---------------------------------------------------------------------------
 if [[ -n "$OLD_PID" ]]; then
-  log "draining old instance on port $ACTIVE_PORT..."
+  log "stopping scheduler on old instance (port $ACTIVE_PORT)..."
   curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
-
-  log "waiting for old instance sessions to drain..."
-  DRAIN_WAITED=0
-  DRAIN_MAX=300
-  while true; do
-    # Use a subshell to isolate pipefail — without this, curl failure + json_field
-    # default output causes || echo "0" to ALSO run, producing "0\n0" which never
-    # matches "0" and the loop runs for the full timeout.
-    SESSIONS=$(curl -s "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-      | json_field activeSessions 0) || SESSIONS="0"
-    # Strip carriage returns (Windows) and any non-numeric chars
-    SESSIONS="${SESSIONS//[$'\r\n']/}"
-    SESSIONS="${SESSIONS:-0}"
-    if [[ "$SESSIONS" == "0" ]]; then
-      log "old instance drained"
-      break
-    fi
-    if [[ "$DRAIN_WAITED" -ge "$DRAIN_MAX" ]]; then
-      log "WARNING: drain timeout after ${DRAIN_MAX}s ($SESSIONS sessions orphaned)"
-      break
-    fi
-    log "  $SESSIONS session(s) still active, waiting..."
-    sleep 5
-    DRAIN_WAITED=$((DRAIN_WAITED + 5))
-  done
 
   log "killing old instance (PID=$OLD_PID)..."
   kill_pid "$OLD_PID"

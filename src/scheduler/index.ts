@@ -10,6 +10,7 @@ import {
   getDispatchableTasks,
   getInvocationsByTask,
   getLastCompletedImplementInvocation,
+  getLastDeployInterruptedInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
@@ -252,6 +253,34 @@ async function dispatch(
     }
   }
 
+  // Case 3: Deploy-interrupted worktree reuse
+  // If a previous implement-phase invocation was interrupted by a deploy and
+  // preserved its worktree, reuse it. No --resume (session IDs are ephemeral).
+  let isDeployResume = false;
+  if (
+    !resumeWorktreePath &&
+    phase === "implement" &&
+    task.orcaStatus !== "changes_requested"
+  ) {
+    const prevDeployInv = getLastDeployInterruptedInvocation(db, taskId);
+    if (
+      prevDeployInv &&
+      prevDeployInv.worktreePath &&
+      existsSync(prevDeployInv.worktreePath)
+    ) {
+      resumeWorktreePath = prevDeployInv.worktreePath;
+      resumeBranchName = prevDeployInv.branchName ?? undefined;
+      isDeployResume = true;
+      log(
+        `deploy-interrupted worktree found for task ${taskId}: ${resumeWorktreePath}`,
+      );
+    } else if (prevDeployInv) {
+      log(
+        `deploy-interrupted worktree for task ${taskId} is missing (${prevDeployInv.worktreePath}) — fresh dispatch`,
+      );
+    }
+  }
+
   const isResume = resumeSessionId != null;
   const isWorktreeResume = resumeWorktreePath != null;
 
@@ -283,9 +312,11 @@ async function dispatch(
         ? isResume
           ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, session ${resumeSessionId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
           : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
-        : isResume
-          ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
-          : `Dispatched for implementation (invocation #${invocationId})`;
+        : isDeployResume
+          ? `Resuming after deploy interruption (invocation #${invocationId}, reusing preserved worktree)`
+          : isResume
+            ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
+            : `Dispatched for implementation (invocation #${invocationId})`;
   client.createComment(taskId, dispatchComment).catch((err) => {
     log(`comment failed on dispatch for task ${taskId}: ${err}`);
   });
@@ -454,6 +485,10 @@ async function dispatch(
         : `${task.agentPrompt}\n\nFix issues from code review.`;
     }
     systemPrompt = config.fixSystemPrompt || undefined;
+  } else if (isDeployResume) {
+    // Deploy-resume: continuation prompt — session ID is stale, reuse worktree state
+    agentPrompt = `Previous session was interrupted by a deploy. The worktree contains its in-progress work. Check \`git log\`, \`git status\`, and \`gh pr list --head ${worktreeResult.branchName}\` to understand what was already done. Continue from where it left off.\n\nIMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST push on this branch — do NOT create a new branch.`;
+    systemPrompt = config.implementSystemPrompt || undefined;
   } else if (isResume) {
     // Resume: continuation prompt instead of full task prompt
     agentPrompt = `You hit the maximum turn limit. Continue where you left off — complete the implementation, commit, push, and open a PR.\n\nIMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST push on this branch — do NOT create a new branch.`;
@@ -494,7 +529,7 @@ async function dispatch(
   emitInvocationStarted({ taskId, invocationId });
 
   log(
-    `${isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
+    `${isDeployResume ? "deploy-resumed" : isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
       `(phase: ${phase}, model: ${model}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
   );
 

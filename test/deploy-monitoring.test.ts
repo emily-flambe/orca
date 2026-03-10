@@ -2,14 +2,7 @@
 // Deploy monitoring tests
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -571,25 +564,18 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       ["In Review", { id: "state-review", type: "started" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-1",
-          identifier: "DEPLOY-WH-1",
-          title: "Test task",
-          description: "test",
-          priority: 1,
-          state: { id: "state-review", name: "In Review", type: "started" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-1",
+        identifier: "DEPLOY-WH-1",
+        title: "Test task",
+        description: "test",
+        priority: 1,
+        state: { id: "state-review", name: "In Review", type: "started" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -615,25 +601,18 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       ["Todo", { id: "state-todo", type: "unstarted" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-2",
-          identifier: "DEPLOY-WH-2",
-          title: "Test task 2",
-          description: "test",
-          priority: 1,
-          state: { id: "state-todo", name: "Todo", type: "unstarted" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-2",
+        identifier: "DEPLOY-WH-2",
+        title: "Test task 2",
+        description: "test",
+        priority: 1,
+        state: { id: "state-todo", name: "Todo", type: "unstarted" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -659,25 +638,18 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       ["Done", { id: "state-done", type: "completed" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-3",
-          identifier: "DEPLOY-WH-3",
-          title: "Test task 3",
-          description: "test",
-          priority: 1,
-          state: { id: "state-done", name: "Done", type: "completed" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-3",
+        identifier: "DEPLOY-WH-3",
+        title: "Test task 3",
+        description: "test",
+        priority: 1,
+        state: { id: "state-done", name: "Done", type: "completed" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -702,25 +674,18 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
       ["Canceled", { id: "state-cancel", type: "canceled" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-4",
-          identifier: "DEPLOY-WH-4",
-          title: "Test task 4",
-          description: "test",
-          priority: 1,
-          state: { id: "state-cancel", name: "Canceled", type: "canceled" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-4",
+        identifier: "DEPLOY-WH-4",
+        title: "Test task 4",
+        description: "test",
+        priority: 1,
+        state: { id: "state-cancel", name: "Canceled", type: "canceled" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -985,487 +950,22 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
       ["In Progress", { id: "state-ip", type: "started" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-ip",
-          identifier: "DEPLOY-IP-1",
-          title: "Test",
-          description: "",
-          priority: 1,
-          state: { id: "state-ip", name: "In Progress", type: "started" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-ip",
+        identifier: "DEPLOY-IP-1",
+        title: "Test",
+        description: "",
+        priority: 1,
+        state: { id: "state-ip", name: "In Progress", type: "started" },
       },
-    );
+    });
 
     const task = getTask(db, taskId)!;
     // upsertTask protects deploying against all non-intentional overrides.
     // Only ready/done/failed (from Todo/Done/Canceled) are allowed through.
     expect(task.orcaStatus).toBe("deploying");
-  });
-});
-
-// ===========================================================================
-// 9. Deploy guard logic: SHA dedup, cooldown, no process.exit
-// ===========================================================================
-
-// We need to mock child_process and fs at the module level before importing deploy.ts.
-// Since deploy.ts uses module-level `let` variables that persist across tests in the
-// same file, we use dynamic imports with vi.resetModules() to get fresh state per test.
-
-vi.mock("node:child_process", async (importOriginal) => {
-  const orig =
-    (await importOriginal()) as typeof import("node:child_process");
-  return {
-    ...orig,
-    execFileSync: vi.fn(),
-    spawn: vi.fn(() => ({ unref: vi.fn() })),
-  };
-});
-
-vi.mock("node:fs", async (importOriginal) => {
-  const orig = (await importOriginal()) as typeof import("node:fs");
-  return {
-    ...orig,
-    existsSync: vi.fn(() => false),
-    readFileSync: vi.fn(() => "{}"),
-  };
-});
-
-vi.mock("../src/db/queries.js", async (importOriginal) => {
-  const orig =
-    (await importOriginal()) as typeof import("../src/db/queries.js");
-  return {
-    ...orig,
-    countActiveSessions: vi.fn(() => 0),
-  };
-});
-
-describe("Deploy guard logic - SHA dedup, cooldown, no process.exit", () => {
-  let execFileSync: ReturnType<typeof vi.fn>;
-  let spawnMock: ReturnType<typeof vi.fn>;
-  let existsSyncMock: ReturnType<typeof vi.fn>;
-  let readFileSyncMock: ReturnType<typeof vi.fn>;
-  let countActiveSessionsMock: ReturnType<typeof vi.fn>;
-  let fakeDb: OrcaDb;
-
-  beforeEach(async () => {
-    vi.useFakeTimers();
-    vi.resetModules();
-
-    // Re-import mocked modules to get fresh handles
-    const cp = await import("node:child_process");
-    execFileSync = cp.execFileSync as unknown as ReturnType<typeof vi.fn>;
-    spawnMock = cp.spawn as unknown as ReturnType<typeof vi.fn>;
-
-    const fs = await import("node:fs");
-    existsSyncMock = fs.existsSync as unknown as ReturnType<typeof vi.fn>;
-    readFileSyncMock = fs.readFileSync as unknown as ReturnType<typeof vi.fn>;
-
-    const queries = await import("../src/db/queries.js");
-    countActiveSessionsMock =
-      queries.countActiveSessions as unknown as ReturnType<typeof vi.fn>;
-
-    // Clear accumulated calls from previous tests (mocks persist across resetModules)
-    execFileSync.mockReset();
-    spawnMock.mockReset().mockReturnValue({ unref: vi.fn() });
-    existsSyncMock.mockReset().mockReturnValue(false);
-    readFileSyncMock.mockReset().mockReturnValue("{}");
-    countActiveSessionsMock.mockReset().mockReturnValue(0);
-
-    fakeDb = {} as OrcaDb;
-    vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-  });
-
-  // -------------------------------------------------------------------------
-  // SHA dedup
-  // -------------------------------------------------------------------------
-
-  test("SHA dedup: deploy skipped when pushSha matches startupSha", async () => {
-    const sha = "abc123def456789";
-    execFileSync.mockReturnValue(sha + "\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: sha });
-
-    // Deploy should be skipped — draining should NOT be set
-    expect(deploy.isDraining()).toBe(false);
-    // spawn should NOT have been called
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("SHA dedup: deploy proceeds when pushSha differs from startupSha", async () => {
-    execFileSync.mockReturnValue("aaa111\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "bbb222" });
-
-    // Deploy should proceed — draining should be set
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("SHA dedup: deploy proceeds when pushSha is undefined", async () => {
-    execFileSync.mockReturnValue("aaa111\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb);
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("SHA dedup: deploy proceeds when startupSha is null (git failed)", async () => {
-    execFileSync.mockImplementation(() => {
-      throw new Error("git not found");
-    });
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    // Even with matching pushSha string, since startupSha is null the guard is skipped
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "anything" });
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("SHA dedup: deploy proceeds when pushSha is empty string", async () => {
-    execFileSync.mockReturnValue("abc123\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    // Empty string pushSha is falsy, so the guard condition `options?.pushSha &&` skips
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "" });
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // Cooldown
-  // -------------------------------------------------------------------------
-
-  test("cooldown: deploy skipped when last deploy was within 5 minutes", async () => {
-    const recentTime = new Date(Date.now() - 60_000).toISOString(); // 1 minute ago
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      JSON.stringify({ deployedAt: recentTime }),
-    );
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-
-    expect(deploy.isDraining()).toBe(false);
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  test("cooldown: deploy proceeds when last deploy was over 5 minutes ago", async () => {
-    const oldTime = new Date(Date.now() - 6 * 60_000).toISOString(); // 6 minutes ago
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify({ deployedAt: oldTime }));
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("cooldown: deploy proceeds when deploy-state.json has no deployedAt", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(JSON.stringify({}));
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("cooldown: deploy proceeds when deploy-state.json does not exist", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("cooldown: boundary — deploy at exactly 5 minutes is still blocked", async () => {
-    // Exactly at the boundary (elapsed === DEPLOY_COOLDOWN_MS), the condition
-    // is `elapsed < DEPLOY_COOLDOWN_MS` which is false, so deploy proceeds.
-    const exactlyFiveMin = new Date(
-      Date.now() - 5 * 60 * 1000,
-    ).toISOString();
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      JSON.stringify({ deployedAt: exactlyFiveMin }),
-    );
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-
-    // At exactly 5 minutes, elapsed === DEPLOY_COOLDOWN_MS, so `elapsed < DEPLOY_COOLDOWN_MS`
-    // is false, meaning the deploy should PROCEED (not be blocked).
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("cooldown: deploy-state.json with invalid JSON does not crash", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockImplementation(() => {
-      throw new SyntaxError("Unexpected token");
-    });
-
-    const deploy = await import("../src/deploy.js");
-    // Should not throw
-    expect(() => deploy.initDeployState()).not.toThrow();
-
-    // Cooldown should not be active (lastDeployTriggeredAt stays null)
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // Duplicate trigger (draining flag)
-  // -------------------------------------------------------------------------
-
-  test("duplicate trigger: second call is ignored when already draining", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "sha-a" });
-    expect(deploy.isDraining()).toBe(true);
-
-    // Second call with different SHA should be ignored
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "sha-b" });
-
-    // Should still be draining (no crash, no double-deploy)
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  test("duplicate trigger: setDraining() blocks subsequent triggerGracefulDeploy", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.setDraining();
-    expect(deploy.isDraining()).toBe(true);
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "sha-new" });
-
-    // spawn should not be called since we were already draining
-    expect(spawnMock).not.toHaveBeenCalled();
-  });
-
-  // -------------------------------------------------------------------------
-  // No process.exit
-  // -------------------------------------------------------------------------
-
-  test("no process.exit: deploy.sh is spawned but process.exit is never called", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-    countActiveSessionsMock.mockReturnValue(0);
-
-    const processExitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation((() => {}) as any);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "new-sha" });
-
-    // Advance past the initial POLL_INTERVAL_MS (10 seconds)
-    vi.advanceTimersByTime(10_000);
-
-    // spawn should have been called with deploy.sh
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    expect(spawnMock).toHaveBeenCalledWith(
-      "bash",
-      [expect.stringContaining("deploy.sh")],
-      expect.objectContaining({ detached: true, stdio: "ignore" }),
-    );
-
-    // process.exit should NOT have been called
-    expect(processExitSpy).not.toHaveBeenCalled();
-
-    processExitSpy.mockRestore();
-  });
-
-  test("no process.exit: spawn child is unref'd (detached)", async () => {
-    const unrefMock = vi.fn();
-    spawnMock.mockReturnValue({ unref: unrefMock });
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-    countActiveSessionsMock.mockReturnValue(0);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "new-sha" });
-
-    vi.advanceTimersByTime(10_000);
-
-    expect(unrefMock).toHaveBeenCalledTimes(1);
-  });
-
-  // -------------------------------------------------------------------------
-  // Drain polling: waits for active sessions
-  // -------------------------------------------------------------------------
-
-  test("drain polling: waits for active sessions to complete before spawning", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-
-    // First two polls: 2 active sessions, then 1, then 0
-    countActiveSessionsMock
-      .mockReturnValueOnce(2)
-      .mockReturnValueOnce(1)
-      .mockReturnValueOnce(0);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "new-sha" });
-
-    // After first interval: 2 active, no spawn
-    vi.advanceTimersByTime(10_000);
-    expect(spawnMock).not.toHaveBeenCalled();
-
-    // After second interval: 1 active, no spawn
-    vi.advanceTimersByTime(10_000);
-    expect(spawnMock).not.toHaveBeenCalled();
-
-    // After third interval: 0 active, spawn!
-    vi.advanceTimersByTime(10_000);
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-  });
-
-  // -------------------------------------------------------------------------
-  // initDeployState edge cases
-  // -------------------------------------------------------------------------
-
-  test("initDeployState: trims whitespace/newlines from git SHA", async () => {
-    execFileSync.mockReturnValue("  abc123def  \n");
-    existsSyncMock.mockReturnValue(false);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    // The trimmed SHA should match (not the untrimmed version)
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "abc123def" });
-    expect(deploy.isDraining()).toBe(false); // skipped by SHA dedup
-  });
-
-  test("initDeployState: deployedAt with invalid date string does not crash", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      JSON.stringify({ deployedAt: "not-a-date" }),
-    );
-
-    const deploy = await import("../src/deploy.js");
-    // new Date("not-a-date").getTime() returns NaN, which should not crash
-    // but may cause unexpected cooldown behavior
-    expect(() => deploy.initDeployState()).not.toThrow();
-
-    // NaN comparison: NaN < DEPLOY_COOLDOWN_MS is false, so cooldown should not block
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "different-sha" });
-    expect(deploy.isDraining()).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // Interaction: both guards applied in order
-  // -------------------------------------------------------------------------
-
-  test("SHA dedup check runs before cooldown check", async () => {
-    // Set up BOTH guards: matching SHA AND recent deploy
-    const recentTime = new Date(Date.now() - 60_000).toISOString();
-    execFileSync.mockReturnValue("matching-sha\n");
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      JSON.stringify({ deployedAt: recentTime }),
-    );
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    // Capture console.log calls to verify which guard triggered
-    const logCalls: string[] = [];
-    (console.log as ReturnType<typeof vi.fn>).mockImplementation(
-      (msg: string) => {
-        logCalls.push(msg);
-      },
-    );
-
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "matching-sha" });
-
-    // Should mention SHA dedup, not cooldown
-    const deployLogs = logCalls.filter((m) => m.includes("[orca/deploy]"));
-    expect(deployLogs.some((m) => m.includes("already running pushed SHA"))).toBe(true);
-    expect(deployLogs.some((m) => m.includes("cooldown"))).toBe(false);
-    expect(deploy.isDraining()).toBe(false);
-  });
-
-  // -------------------------------------------------------------------------
-  // Cooldown from a previous triggerGracefulDeploy call (not just deploy-state.json)
-  // -------------------------------------------------------------------------
-
-  test("cooldown: second deploy within 5 min of first trigger is blocked", async () => {
-    execFileSync.mockReturnValue("sha1\n");
-    existsSyncMock.mockReturnValue(false);
-    countActiveSessionsMock.mockReturnValue(0);
-
-    const deploy = await import("../src/deploy.js");
-    deploy.initDeployState();
-
-    // First deploy succeeds
-    deploy.triggerGracefulDeploy(fakeDb, { pushSha: "sha-first" });
-    expect(deploy.isDraining()).toBe(true);
-
-    // Note: we can't easily test a second deploy because `draining` is already
-    // true and blocks it. The cooldown guard (lastDeployTriggeredAt) would only
-    // matter if draining were somehow reset, which doesn't happen in normal flow.
-    // This documents that the draining flag is the primary dedup for in-process calls.
   });
 });

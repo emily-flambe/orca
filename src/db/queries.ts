@@ -393,6 +393,30 @@ export function getLastMaxTurnsInvocation(
     .get();
 }
 
+/**
+ * Find the most recent invocation for a task that was interrupted by a
+ * deploy and has a preserved worktree path. Used to reuse the worktree on retry.
+ */
+export function getLastDeployInterruptedInvocation(
+  db: OrcaDb,
+  taskId: string,
+): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        eq(invocations.outputSummary, "interrupted_by_deploy"),
+        eq(invocations.phase, "implement"),
+        isNotNull(invocations.worktreePath),
+      ),
+    )
+    .orderBy(desc(invocations.id))
+    .limit(1)
+    .get();
+}
+
 /** Get all invocations with status="running". */
 export function getRunningInvocations(db: OrcaDb): Invocation[] {
   return db

@@ -22,17 +22,15 @@ import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync, writeBackStatus } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
-import { createGithubWebhookRoute } from "../github/webhook.js";
-import { triggerGracefulDeploy, initDeployState } from "../deploy.js";
+import { initDeployState } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
-import { removeWorktree } from "../worktree/index.js";
 import { initFileLogger } from "../logger.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const program = new Command();
@@ -131,16 +129,27 @@ program
     // crash/restart. This must happen before orphan task recovery so that
     // orphaned tasks have no running invocations and get correctly reset.
     const orphanedInvocations = getRunningInvocations(db);
+    let deployInterruptedCount = 0;
     for (const inv of orphanedInvocations) {
+      // If the worktree still exists, this was a deploy interruption — preserve it
+      const worktreeExists = inv.worktreePath
+        ? existsSync(inv.worktreePath)
+        : false;
       updateInvocation(db, inv.id, {
         status: "failed",
         endedAt: new Date().toISOString(),
-        outputSummary: "orphaned by crash/restart",
+        outputSummary: worktreeExists
+          ? "interrupted_by_deploy"
+          : "orphaned by crash/restart",
       });
+      if (worktreeExists) deployInterruptedCount++;
     }
     if (orphanedInvocations.length > 0) {
       console.log(
-        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
+        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed` +
+          (deployInterruptedCount > 0
+            ? ` (${deployInterruptedCount} with preserved worktrees)`
+            : ""),
       );
     }
 
@@ -249,17 +258,6 @@ program
     app.route("/", webhookApp);
     app.route("/", apiApp);
 
-    // GitHub webhook for auto-deploy on push to main (optional)
-    if (config.githubWebhookSecret) {
-      const githubWebhookApp = createGithubWebhookRoute({
-        secret: config.githubWebhookSecret,
-        onPushToMain: (pushSha?: string) =>
-          triggerGracefulDeploy(db, { pushSha }),
-      });
-      app.route("/", githubWebhookApp);
-      console.log("[orca/github-webhook] auto-deploy webhook registered");
-    }
-
     // Static files + SPA fallback (after API routes so API takes priority)
     app.use("/*", serveStatic({ root: "./web/dist" }));
     app.get("*", serveStatic({ root: "./web/dist", path: "index.html" }));
@@ -350,28 +348,23 @@ program
       // Mark all running invocations as failed AND reset their tasks to
       // "ready" so they re-enter the dispatch queue on next startup.
       // Without this, tasks stay orphaned in "running" state forever.
+      // Worktrees are preserved (not removed) so the next instance can
+      // reuse them and continue where the session left off.
       const running = getRunningInvocations(db);
       for (const inv of running) {
         updateInvocation(db, inv.id, {
           status: "failed",
           endedAt: new Date().toISOString(),
-          outputSummary: "interrupted by shutdown",
+          outputSummary: "interrupted_by_deploy",
         });
         updateTaskStatus(db, inv.linearIssueId, "ready");
-        // Clear implement-phase session IDs so the next startup doesn't try
-        // to resume a dead Claude session. Also reset the stale counter so
-        // pre-shutdown stale detections don't carry over into the next run.
+        // Clear implement-phase session IDs — session IDs are ephemeral and
+        // will be stale after restart. The next dispatch reuses the worktree
+        // directly (not via --resume).
         clearImplementSessionIds(db, inv.linearIssueId);
         updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
-
-        // Best-effort worktree cleanup for interrupted sessions
-        if (inv.worktreePath) {
-          try {
-            removeWorktree(inv.worktreePath);
-          } catch {
-            // Worktree may already be removed or in a bad state — ignore
-          }
-        }
+        // Worktrees are intentionally NOT removed here — the next instance
+        // will detect the preserved worktree and reuse it with a continuation prompt.
       }
 
       setTimeout(() => {
