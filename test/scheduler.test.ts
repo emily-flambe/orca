@@ -20,7 +20,7 @@ import {
 } from "../src/scheduler/index.js";
 import { spawnSession } from "../src/runner/index.js";
 import { isDraining } from "../src/deploy.js";
-import { createWorktree } from "../src/worktree/index.js";
+import { createWorktree, WorktreeEpermError } from "../src/worktree/index.js";
 import { existsSync } from "node:fs";
 import { findPrForBranch, findPrByUrl } from "../src/github/index.js";
 import { git } from "../src/git.js";
@@ -38,10 +38,15 @@ vi.mock("../src/runner/index.js", () => ({
   killSession: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock("../src/worktree/index.js", () => ({
-  createWorktree: vi.fn(),
-  removeWorktree: vi.fn(),
-}));
+vi.mock("../src/worktree/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/worktree/index.js")>();
+  return {
+    ...actual,
+    createWorktree: vi.fn(),
+    removeWorktree: vi.fn(),
+  };
+});
 
 vi.mock("../src/github/index.js", () => ({
   findPrForBranch: vi.fn(),
@@ -1144,5 +1149,107 @@ describe("Gate 2: wrong-repo PR URL in agent summary", () => {
 
     const task = getTask(db, taskId)!;
     expect(task.orcaStatus).toBe("done");
+  });
+});
+
+// ===========================================================================
+// WorktreeEpermError skip-tick behavior
+// ===========================================================================
+
+describe("WorktreeEpermError skip-tick behavior", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+    vi.clearAllMocks();
+    vi.mocked(isDraining).mockReturnValue(false);
+    vi.mocked(existsSync).mockReturnValue(false);
+  });
+
+  test("EPERM on ready task: resets to ready without burning a retry", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "EPERM-READY-1",
+      orcaStatus: "ready",
+      retryCount: 0,
+    });
+
+    vi.mocked(createWorktree).mockImplementationOnce(() => {
+      throw new WorktreeEpermError("stale worktree locked by node.exe");
+    });
+    // Subsequent calls (if scheduler re-ticks) hang so the test can assert cleanly
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    // Wait for a failed invocation to appear — proves the EPERM path ran
+    await waitFor(() =>
+      getInvocationsByTask(db, taskId).some((i) => i.status === "failed"),
+    );
+
+    handle.stop();
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.retryCount).toBe(0); // retry not burned
+
+    const invocations = getInvocationsByTask(db, taskId);
+    const failedInv = invocations.find((i) => i.status === "failed");
+    expect(failedInv).toBeDefined();
+    expect(failedInv!.outputSummary).toContain("EPERM");
+  });
+
+  test("EPERM on in_review task: resets to in_review without burning a retry", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "EPERM-REVIEW-1",
+      orcaStatus: "in_review",
+      prBranchName: "orca/EPERM-REVIEW-1/1",
+      retryCount: 0,
+    });
+
+    vi.mocked(createWorktree).mockImplementationOnce(() => {
+      throw new WorktreeEpermError("stale worktree locked");
+    });
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    await waitFor(() =>
+      getInvocationsByTask(db, taskId).some((i) => i.status === "failed"),
+    );
+
+    handle.stop();
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("in_review");
+    expect(task.retryCount).toBe(0);
+  });
+
+  test("EPERM on changes_requested task: resets to changes_requested without burning a retry", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "EPERM-CHANGES-1",
+      orcaStatus: "changes_requested",
+      prBranchName: "orca/EPERM-CHANGES-1/1",
+      retryCount: 1,
+    });
+
+    vi.mocked(createWorktree).mockImplementationOnce(() => {
+      throw new WorktreeEpermError("stale worktree locked");
+    });
+    vi.mocked(spawnSession).mockReturnValue(makeNeverResolvingHandle() as any);
+
+    const deps = makeDeps(db);
+    const handle = startScheduler(deps);
+
+    await waitFor(() =>
+      getInvocationsByTask(db, taskId).some((i) => i.status === "failed"),
+    );
+
+    handle.stop();
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("changes_requested");
+    expect(task.retryCount).toBe(1); // unchanged
   });
 });
