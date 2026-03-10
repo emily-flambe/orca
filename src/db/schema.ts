@@ -59,6 +59,7 @@ export const invocations = sqliteTable("invocations", {
   sessionId: text("session_id"),
   branchName: text("branch_name"),
   worktreePath: text("worktree_path"),
+  worktreePreserved: integer("worktree_preserved").notNull().default(0),
   costUsd: real("cost_usd"),
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
