@@ -39,6 +39,10 @@ export interface SessionResult {
   subtype: string;
   /** Total API cost in USD, if reported by the CLI. */
   costUsd: number | null;
+  /** Total input tokens (input + cache_creation + cache_read), if reported by the CLI. */
+  inputTokens: number | null;
+  /** Output tokens, if reported by the CLI. */
+  outputTokens: number | null;
   /** Number of agentic turns, if reported by the CLI. */
   numTurns: number | null;
   /** Process exit code (null if killed by signal). */
@@ -474,6 +478,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           finalResult = {
             subtype: "rate_limited",
             costUsd: null,
+            inputTokens: null,
+            outputTokens: null,
             numTurns: null,
             exitCode,
             exitSignal: exitSignal?.toString() ?? null,
@@ -497,6 +503,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           finalResult = {
             subtype: "process_error",
             costUsd: null,
+            inputTokens: null,
+            outputTokens: null,
             numTurns: null,
             exitCode,
             exitSignal: exitSignal?.toString() ?? null,
@@ -511,6 +519,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         finalResult = {
           subtype: "success",
           costUsd: null,
+          inputTokens: null,
+          outputTokens: null,
           numTurns: null,
           exitCode: 0,
           exitSignal: null,
@@ -601,6 +611,29 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         const costRaw = msg.total_cost_usd ?? msg.cost_usd ?? null;
         const costUsd = typeof costRaw === "number" ? costRaw : null;
 
+        // Parse token usage from the `usage` object in the result message.
+        const usage =
+          msg.usage != null && typeof msg.usage === "object"
+            ? (msg.usage as Record<string, unknown>)
+            : null;
+        let inputTokens: number | null = null;
+        let outputTokens: number | null = null;
+        if (usage) {
+          const inp =
+            (typeof usage.input_tokens === "number" ? usage.input_tokens : 0) +
+            (typeof usage.cache_creation_input_tokens === "number"
+              ? usage.cache_creation_input_tokens
+              : 0) +
+            (typeof usage.cache_read_input_tokens === "number"
+              ? usage.cache_read_input_tokens
+              : 0);
+          inputTokens = inp;
+          outputTokens =
+            typeof usage.output_tokens === "number"
+              ? usage.output_tokens
+              : null;
+        }
+
         const numTurnsRaw = msg.num_turns ?? null;
         const numTurns = typeof numTurnsRaw === "number" ? numTurnsRaw : null;
 
@@ -641,6 +674,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         handle.result = {
           subtype,
           costUsd,
+          inputTokens,
+          outputTokens,
           numTurns,
           exitCode: null, // Will be filled in on exit.
           exitSignal: null, // Will be filled in on exit.
@@ -741,6 +776,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
       const result: SessionResult = {
         subtype: "process_error",
         costUsd: null,
+        inputTokens: null,
+        outputTokens: null,
         numTurns: null,
         exitCode: null,
         exitSignal: null,

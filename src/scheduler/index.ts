@@ -21,6 +21,7 @@ import {
   insertBudgetEvent,
   insertInvocation,
   sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskCiInfo,
@@ -585,14 +586,21 @@ async function onSessionComplete(
     numTurns: result.numTurns,
     outputSummary: result.outputSummary,
     sessionId: handle.sessionId,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
   });
 
-  // 2. Insert budget event if cost > 0
-  if (result.costUsd != null && result.costUsd > 0) {
+  // 2. Insert budget event if there are tokens or cost to record
+  const hasTokens =
+    (result.inputTokens != null && result.inputTokens > 0) ||
+    (result.outputTokens != null && result.outputTokens > 0);
+  if ((result.costUsd != null && result.costUsd > 0) || hasTokens) {
     insertBudgetEvent(db, {
       invocationId,
       costUsd: result.costUsd,
       recordedAt: new Date().toISOString(),
+      inputTokens: result.inputTokens ?? 0,
+      outputTokens: result.outputTokens ?? 0,
     });
   }
 
@@ -608,6 +616,8 @@ async function onSessionComplete(
     invocationId,
     status: invocationStatus,
     costUsd: result.costUsd ?? 0,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
   });
 
   // Emit current status
@@ -1316,12 +1326,18 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
     db,
     budgetWindowStart(config.budgetWindowHours),
   );
+  const tokensInWindow = sumTokensInWindow(
+    db,
+    budgetWindowStart(config.budgetWindowHours),
+  );
   emitStatusUpdated({
     activeSessions,
     queuedTasks,
     costInWindow,
     budgetLimit: config.budgetMaxCostUsd,
     budgetWindowHours: config.budgetWindowHours,
+    tokensInWindow,
+    tokenBudgetLimit: config.budgetMaxTokens,
   });
 }
 
@@ -2177,11 +2193,14 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 2. Check budget
-  const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
-  if (cost >= config.budgetMaxCostUsd) {
+  // 2. Check budget (token-based)
+  const tokensInWindow = sumTokensInWindow(
+    db,
+    budgetWindowStart(config.budgetWindowHours),
+  );
+  if (tokensInWindow >= config.budgetMaxTokens) {
     log(
-      `budget exhausted: $${cost.toFixed(4)} used of $${config.budgetMaxCostUsd} limit`,
+      `budget exhausted: ${tokensInWindow.toLocaleString()} tokens used of ${config.budgetMaxTokens.toLocaleString()} limit`,
     );
     return;
   }
@@ -2335,7 +2354,7 @@ export function createScheduler(
       log(
         `started (interval: ${config.schedulerIntervalSec}s, ` +
           `concurrency: ${config.concurrencyCap}, ` +
-          `budget: $${config.budgetMaxCostUsd}/${config.budgetWindowHours}h)`,
+          `budget: ${(config.budgetMaxTokens / 1_000_000).toFixed(0)}M tokens/${config.budgetWindowHours}h)`,
       );
     },
 

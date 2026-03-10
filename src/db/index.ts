@@ -46,8 +46,10 @@ const CREATE_BUDGET_EVENTS = `
 CREATE TABLE IF NOT EXISTS budget_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invocation_id INTEGER NOT NULL REFERENCES invocations(id),
-  cost_usd REAL NOT NULL,
-  recorded_at TEXT NOT NULL
+  cost_usd REAL,
+  recorded_at TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
@@ -266,6 +268,49 @@ function migrateSchema(sqlite: DatabaseType): void {
     sqlite.exec(
       "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 11 (token tracking):
+  //   - Add input_tokens, output_tokens columns to invocations
+  //   - Add input_tokens, output_tokens columns to budget_events
+  //   - Make budget_events.cost_usd nullable (requires table rebuild because
+  //     SQLite cannot DROP NOT NULL constraints with ALTER TABLE)
+  //   Sentinel: input_tokens column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "input_tokens")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN input_tokens INTEGER");
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN output_tokens INTEGER");
+  }
+  // Rebuild budget_events to drop the NOT NULL constraint on cost_usd and add
+  // token columns in one transaction. Sentinel: input_tokens column missing.
+  if (!hasColumn(sqlite, "budget_events", "input_tokens")) {
+    sqlite.pragma("foreign_keys = OFF");
+    sqlite.exec("BEGIN TRANSACTION");
+    try {
+      sqlite.exec(`
+        CREATE TABLE budget_events_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          invocation_id INTEGER NOT NULL REFERENCES invocations(id),
+          cost_usd REAL,
+          recorded_at TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0
+        )
+      `);
+      sqlite.exec(`
+        INSERT INTO budget_events_new (id, invocation_id, cost_usd, recorded_at, input_tokens, output_tokens)
+        SELECT id, invocation_id, cost_usd, recorded_at, 0, 0
+        FROM budget_events
+      `);
+      sqlite.exec("DROP TABLE budget_events");
+      sqlite.exec("ALTER TABLE budget_events_new RENAME TO budget_events");
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+    sqlite.pragma("foreign_keys = ON");
   }
 }
 

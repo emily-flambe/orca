@@ -30,16 +30,22 @@ function makeMetrics(overrides: Partial<MetricsData> = {}): MetricsData {
       avgDurationSecs: 120,
       avgCostUsd: 0.05,
       totalCostUsd: 5.42,
+      avgTokens: 10000,
+      totalTokens: 100000,
     },
     recentErrors: [],
     costLast24h: 1.23,
     costLast7d: 8.5,
     costPrev24h: 0.9,
+    tokensLast24h: 500000,
+    tokensLast7d: 3500000,
+    tokensPrev24h: 400000,
     dailyStats: Array.from({ length: 14 }, (_, i) => ({
       date: `2024-01-${String(i + 1).padStart(2, "0")}`,
       completed: i % 3,
       failed: i % 2,
       costUsd: i * 0.1,
+      totalTokens: i * 1000,
     })),
     recentActivity: [],
     successRate12h: 0.83,
@@ -71,14 +77,16 @@ describe("Dashboard", () => {
     });
   });
 
-  it("shows subscription billing notice after data loads", async () => {
+  it("renders active sessions grid after data loads", async () => {
     mockFetchMetrics.mockResolvedValue(makeMetrics());
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Cost metrics are not tracked/),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("active-sessions-grid")).toBeInTheDocument();
     });
+    // Billing notice should no longer be present (token tracking replaces it)
+    expect(
+      screen.queryByText(/Cost metrics are not tracked/),
+    ).not.toBeInTheDocument();
   });
 });

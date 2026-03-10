@@ -21,6 +21,8 @@ export interface InvocationCompletedPayload {
   invocationId: number;
   status: string;
   costUsd: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }
 
 export interface StatusPayload {
@@ -29,6 +31,8 @@ export interface StatusPayload {
   costInWindow: number;
   budgetLimit: number;
   budgetWindowHours: number;
+  tokensInWindow: number;
+  tokenBudgetLimit: number;
 }
 
 // ---------------------------------------------------------------------------

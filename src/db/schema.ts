@@ -65,6 +65,8 @@ export const invocations = sqliteTable("invocations", {
   logPath: text("log_path"),
   phase: text("phase", { enum: ["implement", "review"] as const }),
   model: text("model"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
 });
 
 export const budgetEvents = sqliteTable("budget_events", {
@@ -72,6 +74,8 @@ export const budgetEvents = sqliteTable("budget_events", {
   invocationId: integer("invocation_id")
     .notNull()
     .references(() => invocations.id),
-  costUsd: real("cost_usd").notNull(),
+  costUsd: real("cost_usd"),
   recordedAt: text("recorded_at").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
 });

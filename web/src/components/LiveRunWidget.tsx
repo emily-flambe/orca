@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
 import { abortInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import { formatTokens } from "../utils/formatTokens";
 
 interface Props {
   invocation: Invocation;
@@ -31,7 +32,11 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const isRunning = invocation.status === "running";
   const duration = useLiveDuration(invocation.startedAt, invocation.endedAt);
 
-  const [cost, setCost] = useState<number | null>(invocation.costUsd);
+  const totalTokens =
+    invocation.inputTokens != null || invocation.outputTokens != null
+      ? (invocation.inputTokens ?? 0) + (invocation.outputTokens ?? 0)
+      : null;
+  const [tokens, setTokens] = useState<number | null>(totalTokens);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -46,8 +51,8 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         .trim() || null
     : null;
 
-  const handleCostUpdate = useCallback((c: number) => {
-    setCost(c);
+  const handleTokensUpdate = useCallback((t: number) => {
+    setTokens(t);
   }, []);
 
   const handleCancel = useCallback(async () => {
@@ -105,10 +110,10 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
 
         <span className="flex-1" />
 
-        {/* Cost */}
-        {cost != null && (
+        {/* Tokens */}
+        {tokens != null && (
           <span className="text-xs text-gray-400 tabular-nums font-mono">
-            ${cost.toFixed(2)}
+            {formatTokens(tokens)}
           </span>
         )}
 
@@ -174,7 +179,7 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         isRunning={effectivelyRunning}
         outputSummary={invocation.outputSummary}
         compact
-        onCostUpdate={handleCostUpdate}
+        onTokensUpdate={handleTokensUpdate}
       />
     </div>
   );

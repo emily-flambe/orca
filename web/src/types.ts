@@ -44,6 +44,8 @@ export interface Invocation {
   phase: string | null;
   model: string | null;
   agentPrompt: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface TaskWithInvocations extends Task {
@@ -57,6 +59,8 @@ export interface OrcaStatus {
   costInWindow: number;
   budgetLimit: number;
   budgetWindowHours: number;
+  tokensInWindow: number;
+  tokenBudgetLimit: number;
   concurrencyCap: number;
   implementModel: string;
   reviewModel: string;

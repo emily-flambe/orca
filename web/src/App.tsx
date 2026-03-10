@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Task, OrcaStatus } from "./types";
+import { formatTokens } from "./utils/formatTokens";
 import {
   fetchTasks,
   fetchStatus,
@@ -49,8 +50,8 @@ function SettingsPage({
   }
 
   const pct =
-    status.budgetLimit > 0
-      ? Math.min((status.costInWindow / status.budgetLimit) * 100, 100)
+    status.tokenBudgetLimit > 0
+      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
       : 0;
 
   const barColor =
@@ -96,9 +97,9 @@ function SettingsPage({
             />
           </div>
           <span className="text-sm text-gray-300 tabular-nums whitespace-nowrap">
-            ${status.costInWindow.toFixed(2)}
-            <span className="text-gray-500"> / </span>$
-            {status.budgetLimit.toFixed(2)}
+            {formatTokens(status.tokensInWindow)}
+            <span className="text-gray-500"> / </span>
+            {formatTokens(status.tokenBudgetLimit)} tokens
           </span>
         </div>
         <div className="text-xs text-gray-500">

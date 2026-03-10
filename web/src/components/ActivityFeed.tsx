@@ -1,4 +1,5 @@
 import type { ActivityEntry } from "../hooks/useApi";
+import { formatTokens } from "../utils/formatTokens";
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -78,9 +79,11 @@ export default function ActivityFeed({ entries, onNavigate }: Props) {
             {entry.status}
           </span>
           <span className="flex-1" />
-          {entry.costUsd != null && (
+          {(entry.inputTokens != null || entry.outputTokens != null) && (
             <span className="text-xs text-gray-500 font-mono tabular-nums">
-              ${entry.costUsd.toFixed(2)}
+              {formatTokens(
+                (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0),
+              )}
             </span>
           )}
           <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">

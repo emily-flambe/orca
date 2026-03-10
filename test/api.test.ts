@@ -29,6 +29,7 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
+    budgetMaxTokens: 50_000_000,
     schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
@@ -198,7 +199,11 @@ describe("GET /api/status", () => {
     db = createDb(":memory:");
     app = createApiRoutes({
       db,
-      config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      config: makeConfig({
+        budgetMaxCostUsd: 10.0,
+        budgetMaxTokens: 50_000_000,
+        budgetWindowHours: 4,
+      }),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
       stateMap: new Map(),

@@ -18,6 +18,7 @@ import {
   getRunningInvocations,
   countActiveSessions,
   sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
@@ -27,6 +28,7 @@ import {
   getDailyStats,
   getRecentActivity,
   sumCostInWindowRange,
+  sumTokensInWindowRange,
   getSuccessRate12h,
 } from "../db/queries.js";
 import {
@@ -305,6 +307,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       invocationId: id,
       status: "failed",
       costUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
     });
 
     // Write back Linear state to "Todo"
@@ -417,6 +421,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             invocationId: invId,
             status: "failed",
             costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
           });
           break;
         }
@@ -520,6 +526,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       db,
       budgetWindowStart(config.budgetWindowHours),
     );
+    const tokensInWindow = sumTokensInWindow(
+      db,
+      budgetWindowStart(config.budgetWindowHours),
+    );
 
     const draining = isDraining();
     return c.json({
@@ -529,6 +539,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       costInWindow,
       budgetLimit: config.budgetMaxCostUsd,
       budgetWindowHours: config.budgetWindowHours,
+      tokensInWindow,
+      tokenBudgetLimit: config.budgetMaxTokens,
       concurrencyCap: config.concurrencyCap,
       implementModel: config.implementModel,
       reviewModel: config.reviewModel,
@@ -627,6 +639,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const prev24hEnd = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
 
+    const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
+    const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
+    const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
+
     const dailyStats = getDailyStats(db, 14);
     const recentActivity = getRecentActivity(db, 20);
     const successRate12h = getSuccessRate12h(db);
@@ -638,6 +654,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       costLast24h,
       costLast7d,
       costPrev24h,
+      tokensLast24h,
+      tokensLast7d,
+      tokensPrev24h,
       dailyStats,
       recentActivity,
       successRate12h,

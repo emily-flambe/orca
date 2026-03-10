@@ -39,6 +39,8 @@ import {
   budgetWindowStart,
   sumCostInWindow,
   sumCostInWindowRange,
+  sumTokensInWindow,
+  sumTokensInWindowRange,
   // Metrics queries
   getInvocationStats,
   getRecentErrors,
@@ -828,6 +830,75 @@ describe("sumCostInWindowRange", () => {
   test("returns 0 when no events in range", () => {
     const total = sumCostInWindowRange(db, "2030-01-01T00:00:00.000Z", "2030-12-31T00:00:00.000Z");
     expect(total).toBe(0);
+  });
+});
+
+describe("sumTokensInWindow", () => {
+  let db: OrcaDb;
+  beforeEach(() => { db = freshDb(); });
+
+  test("sums input+output tokens within window", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    const recent = new Date(Date.now() - 1000).toISOString();
+    const old = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 1000, outputTokens: 200, recordedAt: recent });
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 500, outputTokens: 100, recordedAt: old });
+
+    const windowStart = budgetWindowStart(4);
+    expect(sumTokensInWindow(db, windowStart)).toBe(1200);
+  });
+
+  test("returns 0 when no events in window", () => {
+    expect(sumTokensInWindow(db, new Date(Date.now() + 1000).toISOString())).toBe(0);
+  });
+
+  test("sums multiple events correctly", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    const ts = new Date(Date.now() - 1000).toISOString();
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 10000, outputTokens: 500, recordedAt: ts });
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 20000, outputTokens: 1000, recordedAt: ts });
+    const windowStart = budgetWindowStart(1);
+    expect(sumTokensInWindow(db, windowStart)).toBe(31500);
+  });
+
+  test("stores and retrieves token fields correctly", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+    const ts = new Date(Date.now() - 500).toISOString();
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 99000, outputTokens: 1000, recordedAt: ts });
+    const windowStart = budgetWindowStart(1);
+    expect(sumTokensInWindow(db, windowStart)).toBe(100000);
+  });
+});
+
+describe("sumTokensInWindowRange", () => {
+  let db: OrcaDb;
+  beforeEach(() => { db = freshDb(); });
+
+  test("sums tokens within [start, end) range", () => {
+    const taskId = seedTask(db);
+    const invId = seedInvocation(db, taskId);
+
+    const t1 = "2024-01-01T00:00:00.000Z";
+    const t2 = "2024-01-01T01:00:00.000Z";
+    const t3 = "2024-01-01T02:00:00.000Z";
+    const t4 = "2024-01-01T03:00:00.000Z";
+
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 1000, outputTokens: 100, recordedAt: t1 });
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 2000, outputTokens: 200, recordedAt: t2 });
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 4000, outputTokens: 400, recordedAt: t3 });
+    insertBudgetEvent(db, { invocationId: invId, inputTokens: 8000, outputTokens: 800, recordedAt: t4 });
+
+    // Range [t2, t4) — should include t2 and t3, exclude t1 and t4
+    const total = sumTokensInWindowRange(db, t2, t4);
+    expect(total).toBe(6600);
+  });
+
+  test("returns 0 when no events in range", () => {
+    expect(sumTokensInWindowRange(db, "2030-01-01T00:00:00.000Z", "2030-12-31T00:00:00.000Z")).toBe(0);
   });
 });
 
