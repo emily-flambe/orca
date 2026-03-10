@@ -46,7 +46,7 @@ import {
   type SessionResult,
 } from "../runner/index.js";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createWorktree, removeWorktree } from "../worktree/index.js";
 import { isTransientGitError, isDllInitError, git } from "../git.js";
@@ -1074,6 +1074,42 @@ function onImplementSuccess(
 // Review success: parse result, merge or request changes
 // ---------------------------------------------------------------------------
 
+/**
+ * Scan the NDJSON session log for a REVIEW_RESULT marker in assistant messages.
+ * Returns "APPROVED", "CHANGES_REQUESTED", or null if not found.
+ */
+function extractMarkerFromLog(invocationId: number): string | null {
+  try {
+    const logPath = join(process.cwd(), "logs", `${invocationId}.ndjson`);
+    if (!existsSync(logPath)) return null;
+    const lines = readFileSync(logPath, "utf8").split("\n");
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const msg = JSON.parse(line) as Record<string, unknown>;
+        if (msg.type !== "assistant") continue;
+        // Extract all text from assistant message content
+        const message = msg.message as Record<string, unknown> | undefined;
+        const content = message?.content;
+        if (!Array.isArray(content)) continue;
+        for (const block of content) {
+          const b = block as Record<string, unknown>;
+          if (b.type === "text" && typeof b.text === "string") {
+            if (b.text.includes("REVIEW_RESULT:APPROVED")) return "APPROVED";
+            if (b.text.includes("REVIEW_RESULT:CHANGES_REQUESTED"))
+              return "CHANGES_REQUESTED";
+          }
+        }
+      } catch {
+        // skip malformed JSON lines
+      }
+    }
+  } catch {
+    // skip if file unreadable
+  }
+  return null;
+}
+
 async function onReviewSuccess(
   deps: SchedulerDeps,
   taskId: string,
@@ -1088,8 +1124,24 @@ async function onReviewSuccess(
   const summary = result.outputSummary ?? "";
 
   // Parse review result marker
-  const approved = summary.includes("REVIEW_RESULT:APPROVED");
-  const changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
+  let approved = summary.includes("REVIEW_RESULT:APPROVED");
+  let changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
+
+  // If marker not found in summary, scan the full NDJSON log for assistant messages
+  if (!approved && !changesRequested) {
+    const markerFromLog = extractMarkerFromLog(invocationId);
+    if (markerFromLog === "APPROVED") {
+      approved = true;
+      log(
+        `task ${taskId}: REVIEW_RESULT:APPROVED found in NDJSON log (not in summary)`,
+      );
+    } else if (markerFromLog === "CHANGES_REQUESTED") {
+      changesRequested = true;
+      log(
+        `task ${taskId}: REVIEW_RESULT:CHANGES_REQUESTED found in NDJSON log (not in summary)`,
+      );
+    }
+  }
 
   if (approved) {
     noMarkerRetryCounts.delete(taskId);

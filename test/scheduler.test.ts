@@ -21,7 +21,8 @@ import {
 import { spawnSession } from "../src/runner/index.js";
 import { isDraining } from "../src/deploy.js";
 import { createWorktree } from "../src/worktree/index.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { findPrForBranch, findPrByUrl } from "../src/github/index.js";
 import { git } from "../src/git.js";
 
@@ -81,6 +82,7 @@ vi.mock("../src/cleanup/index.js", () => ({
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn().mockReturnValue(""),
 }));
 
 // ---------------------------------------------------------------------------
@@ -1070,6 +1072,11 @@ describe("Gate 2: wrong-repo PR URL in agent summary", () => {
    * the worktree has no local changes, the task should still be marked `done`.
    * This was the correct behavior before the fix and must continue to work.
    */
+  // Confirm readFileSync is available in the mock (not just existsSync)
+  test("readFileSync is accessible from the node:fs mock", () => {
+    expect(typeof readFileSync).toBe("function");
+  });
+
   test("no PR URL in summary + no local changes correctly marks task done", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "GATE2-NOURL-DONE-1",
@@ -1144,5 +1151,432 @@ describe("Gate 2: wrong-repo PR URL in agent summary", () => {
 
     const task = getTask(db, taskId)!;
     expect(task.orcaStatus).toBe("done");
+  });
+});
+
+// ===========================================================================
+// 11. NDJSON log fallback for REVIEW_RESULT marker
+// ===========================================================================
+
+describe("NDJSON log fallback for REVIEW_RESULT marker", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+    vi.clearAllMocks();
+    vi.mocked(isDraining).mockReturnValue(false);
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readFileSync).mockReturnValue("");
+  });
+
+  /**
+   * Helper: build a valid NDJSON line containing an assistant message
+   * with REVIEW_RESULT:<marker> in a text content block.
+   */
+  function makeNdjsonLine(marker: string): string {
+    return JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "text",
+            text: `Review complete. REVIEW_RESULT:${marker}`,
+          },
+        ],
+      },
+    });
+  }
+
+  test("APPROVED in NDJSON log (not in summary) transitions task to awaiting_ci", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "NDJSON-APPROVED-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      prBranchName: "orca/NDJSON-APPROVED-1/1",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "review",
+      model: "haiku",
+    });
+
+    // The log file exists and contains APPROVED in an assistant message
+    const logPath = join(process.cwd(), "logs", `${invId}.ndjson`);
+    vi.mocked(existsSync).mockImplementation((p) => p === logPath);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (p === logPath) return makeNdjsonLine("APPROVED");
+      return "";
+    });
+
+    const reviewResult = {
+      subtype: "success",
+      // Deliberately no REVIEW_RESULT marker in the summary
+      outputSummary: "Review complete. The implementation looks good.",
+      costUsd: 0.01,
+      numTurns: 5,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-ndjson-approved",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db);
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/fake-worktree",
+      "review",
+      false,
+    );
+
+    doneResolve(reviewResult);
+
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return (
+        task?.orcaStatus === "awaiting_ci" ||
+        task?.orcaStatus === "changes_requested" ||
+        task?.orcaStatus === "ready" ||
+        task?.orcaStatus === "failed"
+      );
+    });
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("awaiting_ci");
+  });
+
+  test("CHANGES_REQUESTED in NDJSON log (not in summary) transitions task to changes_requested", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "NDJSON-CHANGES-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      prBranchName: "orca/NDJSON-CHANGES-1/1",
+      reviewCycleCount: 0,
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "review",
+      model: "haiku",
+    });
+
+    const logPath = join(process.cwd(), "logs", `${invId}.ndjson`);
+    vi.mocked(existsSync).mockImplementation((p) => p === logPath);
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (p === logPath) return makeNdjsonLine("CHANGES_REQUESTED");
+      return "";
+    });
+
+    const reviewResult = {
+      subtype: "success",
+      // Deliberately no REVIEW_RESULT marker in the summary
+      outputSummary: "Review complete. Some issues found.",
+      costUsd: 0.01,
+      numTurns: 4,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-ndjson-changes",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db, testConfig({ maxReviewCycles: 3 }));
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/fake-worktree",
+      "review",
+      false,
+    );
+
+    doneResolve(reviewResult);
+
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return (
+        task?.orcaStatus === "changes_requested" ||
+        task?.orcaStatus === "awaiting_ci" ||
+        task?.orcaStatus === "ready" ||
+        task?.orcaStatus === "failed"
+      );
+    });
+
+    const task = getTask(db, taskId)!;
+    expect(task.orcaStatus).toBe("changes_requested");
+  });
+
+  test("missing readFileSync from node:fs mock causes extractMarkerFromLog to silently return null", async () => {
+    // This test deliberately does NOT mock readFileSync properly — it proves that
+    // if the mock factory omits readFileSync, the fallback silently fails and the
+    // task ends up with no marker detected (noMarkerRetry path), not awaiting_ci.
+    //
+    // Restore existsSync=true but leave readFileSync as a broken mock that throws.
+    const taskId = seedTask(db, {
+      linearIssueId: "NDJSON-BROKEN-MOCK-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      prBranchName: "orca/NDJSON-BROKEN-MOCK-1/1",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "review",
+      model: "haiku",
+    });
+
+    const logPath = join(process.cwd(), "logs", `${invId}.ndjson`);
+    vi.mocked(existsSync).mockImplementation((p) => p === logPath);
+    // Simulate readFileSync throwing (as it would if the mock factory omitted it)
+    vi.mocked(readFileSync).mockImplementation(() => {
+      throw new Error("readFileSync is not a function");
+    });
+
+    const reviewResult = {
+      subtype: "success",
+      outputSummary: "No marker here.",
+      costUsd: 0.01,
+      numTurns: 3,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-broken",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db, testConfig({ maxRetries: 3 }));
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/fake-worktree",
+      "review",
+      false,
+    );
+
+    doneResolve(reviewResult);
+
+    // The task will NOT reach awaiting_ci — it falls to the noMarker retry path
+    // which resets status to "in_review" (not ready/failed/awaiting_ci/changes_requested).
+    // Wait for the task to leave "running" state (any transition proves handler fired).
+    await waitFor(
+      () => {
+        const task = getTask(db, taskId);
+        return task?.orcaStatus !== "running";
+      },
+      2000,
+    );
+
+    const task = getTask(db, taskId)!;
+    // Should NOT be awaiting_ci — readFileSync threw, fallback was silenced
+    expect(task.orcaStatus).not.toBe("awaiting_ci");
+    expect(task.orcaStatus).not.toBe("changes_requested");
+    // noMarker retry path resets to in_review
+    expect(task.orcaStatus).toBe("in_review");
+  });
+
+  test("malformed JSON lines in NDJSON log are skipped without crashing", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "NDJSON-MALFORMED-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      prBranchName: "orca/NDJSON-MALFORMED-1/1",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "review",
+      model: "haiku",
+    });
+
+    const logPath = join(process.cwd(), "logs", `${invId}.ndjson`);
+    vi.mocked(existsSync).mockImplementation((p) => p === logPath);
+    // Mix malformed lines before the valid APPROVED line
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (p === logPath) {
+        return [
+          "not json at all",
+          '{"type":"assistant","message":{"content":[{"type":"text"',  // truncated JSON
+          "",
+          makeNdjsonLine("APPROVED"),
+        ].join("\n");
+      }
+      return "";
+    });
+
+    const reviewResult = {
+      subtype: "success",
+      outputSummary: "Review done.",
+      costUsd: 0.01,
+      numTurns: 2,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-malformed",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db);
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/fake-worktree",
+      "review",
+      false,
+    );
+
+    doneResolve(reviewResult);
+
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return (
+        task?.orcaStatus === "awaiting_ci" ||
+        task?.orcaStatus === "changes_requested" ||
+        task?.orcaStatus === "ready" ||
+        task?.orcaStatus === "failed"
+      );
+    });
+
+    const task = getTask(db, taskId)!;
+    // APPROVED line exists after malformed lines — should still be detected
+    expect(task.orcaStatus).toBe("awaiting_ci");
+  });
+
+  test("APPROVED in summary takes precedence — NDJSON log is never read", async () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "NDJSON-SUMMARY-WINS-1",
+      orcaStatus: "running",
+      retryCount: 0,
+      prBranchName: "orca/NDJSON-SUMMARY-WINS-1/1",
+    });
+
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "running",
+      phase: "review",
+      model: "haiku",
+    });
+
+    const logPath = join(process.cwd(), "logs", `${invId}.ndjson`);
+    vi.mocked(existsSync).mockImplementation((p) => p === logPath);
+    // NDJSON log contains CHANGES_REQUESTED — but summary has APPROVED
+    vi.mocked(readFileSync).mockImplementation((p) => {
+      if (p === logPath) return makeNdjsonLine("CHANGES_REQUESTED");
+      return "";
+    });
+
+    const reviewResult = {
+      subtype: "success",
+      // Summary has APPROVED — this should win
+      outputSummary: "REVIEW_RESULT:APPROVED — implementation meets requirements.",
+      costUsd: 0.01,
+      numTurns: 5,
+      rateLimitResetsAt: null,
+      exitCode: 0,
+      exitSignal: null,
+    };
+
+    let doneResolve!: (result: any) => void;
+    const donePromise = new Promise<any>((resolve) => {
+      doneResolve = resolve;
+    });
+
+    const mockHandle = {
+      done: donePromise,
+      sessionId: "mock-session-summary-wins",
+      process: { exitCode: null } as any,
+      invocationId: invId,
+      result: null,
+    };
+
+    const deps = makeDeps(db);
+    attachCompletionHandler(
+      deps,
+      taskId,
+      invId,
+      mockHandle as any,
+      "/tmp/fake-worktree",
+      "review",
+      false,
+    );
+
+    doneResolve(reviewResult);
+
+    await waitFor(() => {
+      const task = getTask(db, taskId);
+      return (
+        task?.orcaStatus === "awaiting_ci" ||
+        task?.orcaStatus === "changes_requested" ||
+        task?.orcaStatus === "ready" ||
+        task?.orcaStatus === "failed"
+      );
+    });
+
+    const task = getTask(db, taskId)!;
+    // APPROVED from summary — NDJSON CHANGES_REQUESTED is never consulted
+    expect(task.orcaStatus).toBe("awaiting_ci");
+    // readFileSync should NOT have been called for the log path
+    expect(vi.mocked(readFileSync)).not.toHaveBeenCalledWith(logPath, "utf8");
   });
 });
