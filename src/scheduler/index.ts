@@ -153,6 +153,15 @@ function log(message: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
+
+function isEpermError(err: unknown): boolean {
+  if (err == null || typeof err !== "object") return false;
+  return (err as NodeJS.ErrnoException).code === "EPERM";
+}
+
+// ---------------------------------------------------------------------------
 // Parent evaluation helper
 // ---------------------------------------------------------------------------
 
@@ -323,6 +332,49 @@ async function dispatch(
       }
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
+
+      if (isEpermError(err)) {
+        const count = (transientFailureCounts.get(taskId) ?? 0) + 1;
+        transientFailureCounts.set(taskId, count);
+        if (count < TRANSIENT_FAILURE_LIMIT) {
+          log(
+            `EPERM on worktree directory for task ${taskId} — processes may hold file locks, skipping this tick (${count}/${TRANSIENT_FAILURE_LIMIT})`,
+          );
+          updateTaskStatus(
+            db,
+            taskId,
+            task.orcaStatus === "in_review"
+              ? "in_review"
+              : task.orcaStatus === "changes_requested"
+                ? "changes_requested"
+                : "ready",
+          );
+          updateInvocation(db, invocationId, {
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            outputSummary: `worktree creation failed (EPERM ${count}/${TRANSIENT_FAILURE_LIMIT}, re-queued): ${err}`,
+          });
+          emitTaskUpdated(getTask(db, taskId)!);
+          return;
+        }
+        // Exceeded EPERM skip limit — burn a real retry directly.
+        // Cannot fall through to the isTransientGitError block because
+        // isTransientGitError also returns true for EPERM (code==="EPERM"),
+        // which would re-queue the task indefinitely instead of burning a retry.
+        transientFailureCounts.delete(taskId);
+        log(
+          `EPERM skip limit reached for task ${taskId} after ${count} attempts — burning retry`,
+        );
+        updateTaskStatus(db, taskId, "failed");
+        updateInvocation(db, invocationId, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          outputSummary: `worktree creation failed (EPERM, retry burned): ${err}`,
+        });
+        emitTaskUpdated(getTask(db, taskId)!);
+        handleRetry(deps, taskId, `worktree creation failed (EPERM): ${err}`, phase);
+        return;
+      }
 
       if (isDllInitError(err)) {
         // DLL_INIT is system-wide resource exhaustion. Activate global

@@ -19,7 +19,7 @@ import {
   cleanStaleLockFiles,
   type ExecError,
 } from "../src/git.js";
-import { deriveRepoRoot } from "../src/worktree/index.js";
+import { deriveRepoRoot, killProcessesInDirectory } from "../src/worktree/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -405,6 +405,21 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
     expect(() => retryWrapper(fn, 3)).toThrow();
     // Should retry all 3 attempts before giving up
     expect(fn).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// killProcessesInDirectory
+// ---------------------------------------------------------------------------
+
+describe("killProcessesInDirectory", () => {
+  test("is exported from the worktree module", () => {
+    expect(typeof killProcessesInDirectory).toBe("function");
+  });
+
+  test("does not throw on non-Windows platforms (no-op)", () => {
+    // On Linux/macOS CI, this is a no-op — verify it doesn't throw
+    expect(() => killProcessesInDirectory("/tmp/some-worktree")).not.toThrow();
   });
 });
 

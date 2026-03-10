@@ -37,7 +37,7 @@ function npmInstall(cwd: string): void {
  * causing EPERM when deleting a directory tree. Retry up to 3 times with
  * a 2-second synchronous pause between attempts.
  */
-function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
+export function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       rmSync(dirPath, { recursive: true, force: true });
@@ -76,7 +76,7 @@ function normalizePath(p: string): string {
  * Uses PowerShell to find processes whose command line references the directory
  * and forcefully terminates them. Best-effort: errors are silently ignored.
  */
-function killProcessesInDirectory(dirPath: string): void {
+export function killProcessesInDirectory(dirPath: string): void {
   if (platform() !== "win32") return;
   try {
     // Normalize to backslashes for matching against Windows command lines.
@@ -216,6 +216,7 @@ export function createWorktree(
   // If directory exists but isn't a registered worktree (e.g. stale from a
   // previous failed run), remove it so git worktree add can succeed.
   if (existsSync(worktreePath)) {
+    killProcessesInDirectory(worktreePath);
     rmSyncWithRetry(worktreePath);
   }
 
