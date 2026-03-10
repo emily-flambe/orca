@@ -25,6 +25,7 @@ import {
   updateInvocation,
   updateTaskCiInfo,
   updateTaskDeployInfo,
+  updateTaskFields,
   updateTaskFixReason,
   updateTaskPrBranch,
   updateTaskStatus,
@@ -668,6 +669,42 @@ async function onSessionComplete(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: find the local repo path that matches a GitHub owner/repo slug
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a GitHub owner/repo slug (e.g. "acme/myrepo"), searches all known
+ * local repo paths from the config and returns the first one whose
+ * `git remote get-url origin` resolves to that slug.
+ *
+ * Returns null if no matching local path is found.
+ */
+function findLocalPathForGithubRepo(
+  ownerRepo: string,
+  config: OrcaConfig,
+): string | null {
+  const candidates: string[] = [
+    ...config.projectRepoMap.values(),
+    ...(config.defaultCwd ? [config.defaultCwd] : []),
+  ];
+  const sshPattern = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/;
+  for (const candidatePath of candidates) {
+    try {
+      const remoteUrl = git(["remote", "get-url", "origin"], {
+        cwd: candidatePath,
+      }).trim();
+      const m = remoteUrl.match(sshPattern);
+      if (m && m[1] === ownerRepo) {
+        return candidatePath;
+      }
+    } catch {
+      // path may not exist or may not be a git repo — skip
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Helper: detect whether a worktree has no local commits vs origin/main
 // ---------------------------------------------------------------------------
 
@@ -697,7 +734,7 @@ function onImplementSuccess(
   worktreePath: string,
   result: SessionResult,
 ): void {
-  const { db, client, stateMap } = deps;
+  const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) return;
 
@@ -831,11 +868,36 @@ function onImplementSuccess(
           prInfo = urlInfo;
         }
       } else {
-        log(
-          `task ${taskId}: Gate 2 skipping PR URL from summary (wrong repo): ${extractedUrl}`,
+        // PR URL found in summary but it belongs to a different repo than task.repoPath.
+        // Try to find the actual local path that matches the PR's owner/repo.
+        const extractedOwnerRepo = `${prUrlMatch[1]}/${prUrlMatch[2]}`;
+        const actualPath = findLocalPathForGithubRepo(
+          extractedOwnerRepo,
+          config,
         );
-        wrongRepoUrlFound = true;
-        rejectedUrl = extractedUrl;
+        if (actualPath) {
+          log(
+            `task ${taskId}: Gate 2 detected repo_path mismatch — task.repoPath is ${task.repoPath}, ` +
+              `but PR ${extractedUrl} belongs to ${actualPath} (${extractedOwnerRepo}); ` +
+              `updating task repo_path and proceeding`,
+          );
+          updateTaskFields(db, taskId, { repoPath: actualPath });
+          task.repoPath = actualPath;
+          const urlInfo = findPrByUrl(extractedUrl, actualPath);
+          if (urlInfo.exists) {
+            log(
+              `task ${taskId}: Gate 2 PR confirmed via repo-corrected URL fallback (PR #${urlInfo.number})`,
+            );
+            prInfo = urlInfo;
+          }
+        } else {
+          log(
+            `task ${taskId}: Gate 2 found PR URL in summary (${extractedUrl}) but it belongs to a different repo ` +
+              `(${extractedOwnerRepo}) and no matching local path found — failing for manual review`,
+          );
+          wrongRepoUrlFound = true;
+          rejectedUrl = extractedUrl;
+        }
       }
     }
   }
