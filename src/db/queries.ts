@@ -402,6 +402,20 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
     .all();
 }
 
+/** Clear session IDs from all implement-phase invocations for a task.
+ * Called at startup to ensure dead pre-restart sessions aren't re-used. */
+export function clearImplementSessionIds(db: OrcaDb, taskId: string): void {
+  db.update(invocations)
+    .set({ sessionId: null })
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        eq(invocations.phase, "implement"),
+      ),
+    )
+    .run();
+}
+
 // ---------------------------------------------------------------------------
 // Budget event types
 // ---------------------------------------------------------------------------
