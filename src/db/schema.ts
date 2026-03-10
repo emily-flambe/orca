@@ -65,6 +65,7 @@ export const invocations = sqliteTable("invocations", {
   logPath: text("log_path"),
   phase: text("phase", { enum: ["implement", "review"] as const }),
   model: text("model"),
+  worktreePreserved: integer("worktree_preserved").notNull().default(0),
 });
 
 export const budgetEvents = sqliteTable("budget_events", {

@@ -368,6 +368,32 @@ export function getLastCompletedImplementInvocation(
 }
 
 /**
+ * Find the most recent invocation for a task that was interrupted by a deploy
+ * and had its worktree preserved. Used to reuse the worktree on the next
+ * dispatch rather than creating a fresh one.
+ */
+export function getLastDeployInterruptedInvocation(
+  db: OrcaDb,
+  taskId: string,
+): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        eq(invocations.outputSummary, "interrupted by deploy"),
+        eq(invocations.phase, "implement"),
+        eq(invocations.worktreePreserved, 1),
+        isNotNull(invocations.worktreePath),
+      ),
+    )
+    .orderBy(desc(invocations.id))
+    .limit(1)
+    .get();
+}
+
+/**
  * Find the most recent invocation for a task where the agent hit max turns
  * during the implement phase and has a valid session ID and worktree path.
  * Used to determine if a retry can resume the previous session.

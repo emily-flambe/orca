@@ -20,8 +20,7 @@ import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync, writeBackStatus } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
-import { createGithubWebhookRoute } from "../github/webhook.js";
-import { triggerGracefulDeploy, initDeployState } from "../deploy.js";
+import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
@@ -230,17 +229,6 @@ program
     app.route("/", webhookApp);
     app.route("/", apiApp);
 
-    // GitHub webhook for auto-deploy on push to main (optional)
-    if (config.githubWebhookSecret) {
-      const githubWebhookApp = createGithubWebhookRoute({
-        secret: config.githubWebhookSecret,
-        onPushToMain: (pushSha?: string) =>
-          triggerGracefulDeploy(db, { pushSha }),
-      });
-      app.route("/", githubWebhookApp);
-      console.log("[orca/github-webhook] auto-deploy webhook registered");
-    }
-
     // Static files + SPA fallback (after API routes so API takes priority)
     app.use("/*", serveStatic({ root: "./web/dist" }));
     app.get("*", serveStatic({ root: "./web/dist", path: "index.html" }));
@@ -331,22 +319,38 @@ program
       // Mark all running invocations as failed AND reset their tasks to
       // "ready" so they re-enter the dispatch queue on next startup.
       // Without this, tasks stay orphaned in "running" state forever.
+      //
+      // When shutting down due to a deploy drain, preserve implement-phase
+      // worktrees so the next instance can continue from where work left off.
+      const deployInterrupted = isDraining();
       const running = getRunningInvocations(db);
       for (const inv of running) {
+        const isImplementPhase = inv.phase === "implement";
+        const preserveWorktree = deployInterrupted && isImplementPhase;
+
         updateInvocation(db, inv.id, {
           status: "failed",
           endedAt: new Date().toISOString(),
-          outputSummary: "interrupted by shutdown",
+          outputSummary: deployInterrupted
+            ? "interrupted by deploy"
+            : "interrupted by shutdown",
+          worktreePreserved: preserveWorktree ? 1 : 0,
         });
         updateTaskStatus(db, inv.linearIssueId, "ready");
 
-        // Best-effort worktree cleanup for interrupted sessions
-        if (inv.worktreePath) {
+        // Clean up worktree unless we're preserving it for deploy resume
+        if (!preserveWorktree && inv.worktreePath) {
           try {
             removeWorktree(inv.worktreePath);
           } catch {
             // Worktree may already be removed or in a bad state — ignore
           }
+        }
+
+        if (preserveWorktree) {
+          console.log(
+            `[orca/cli] preserved worktree for deploy resume: ${inv.worktreePath} (task ${inv.linearIssueId})`,
+          );
         }
       }
 

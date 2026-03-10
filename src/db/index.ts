@@ -267,6 +267,18 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE tasks ADD COLUMN stale_session_retry_count INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 11 (deploy-interrupted worktree preservation):
+  //   - Add worktree_preserved column to invocations (1 = worktree was kept for
+  //     reuse on next dispatch, e.g. after deploy interruption or max-turns)
+  //   Sentinel: worktree_preserved column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "worktree_preserved")) {
+    sqlite.exec(
+      "ALTER TABLE invocations ADD COLUMN worktree_preserved INTEGER NOT NULL DEFAULT 0",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

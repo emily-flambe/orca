@@ -10,6 +10,7 @@ import {
   getDispatchableTasks,
   getInvocationsByTask,
   getLastCompletedImplementInvocation,
+  getLastDeployInterruptedInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
@@ -213,28 +214,43 @@ async function dispatch(
     });
   }
 
-  // 2. Detect resume scenario (max-turns retry on implement phase)
+  // 2. Detect resume scenario (max-turns retry or deploy-interrupted on implement phase)
   let resumeSessionId: string | undefined;
   let resumeWorktreePath: string | undefined;
   let resumeBranchName: string | undefined;
+  let isDeployResume = false;
 
-  if (
-    phase === "implement" &&
-    task.orcaStatus !== "changes_requested" &&
-    config.resumeOnMaxTurns
-  ) {
-    const prevInv = getLastMaxTurnsInvocation(db, taskId);
-    if (prevInv && prevInv.worktreePath && existsSync(prevInv.worktreePath)) {
-      resumeSessionId = prevInv.sessionId!;
-      resumeWorktreePath = prevInv.worktreePath;
-      resumeBranchName = prevInv.branchName ?? undefined;
+  if (phase === "implement" && task.orcaStatus !== "changes_requested") {
+    // Check for deploy-interrupted worktree first (takes priority over max-turns resume)
+    const deployInv = getLastDeployInterruptedInvocation(db, taskId);
+    if (deployInv && deployInv.worktreePath && existsSync(deployInv.worktreePath)) {
+      resumeWorktreePath = deployInv.worktreePath;
+      resumeBranchName = deployInv.branchName ?? undefined;
+      isDeployResume = true;
       log(
-        `resume candidate found for task ${taskId}: session ${resumeSessionId}, worktree ${resumeWorktreePath}`,
+        `deploy-resume candidate found for task ${taskId}: worktree ${resumeWorktreePath}`,
       );
-    } else if (prevInv) {
+    } else if (deployInv) {
       log(
-        `resume candidate for task ${taskId} has missing worktree (${prevInv.worktreePath}) — fresh dispatch`,
+        `deploy-resume candidate for task ${taskId} has missing worktree (${deployInv.worktreePath}) — fresh dispatch`,
       );
+    }
+
+    // Max-turns resume (only if no deploy-interrupted worktree found)
+    if (!isDeployResume && config.resumeOnMaxTurns) {
+      const prevInv = getLastMaxTurnsInvocation(db, taskId);
+      if (prevInv && prevInv.worktreePath && existsSync(prevInv.worktreePath)) {
+        resumeSessionId = prevInv.sessionId!;
+        resumeWorktreePath = prevInv.worktreePath;
+        resumeBranchName = prevInv.branchName ?? undefined;
+        log(
+          `resume candidate found for task ${taskId}: session ${resumeSessionId}, worktree ${resumeWorktreePath}`,
+        );
+      } else if (prevInv) {
+        log(
+          `resume candidate for task ${taskId} has missing worktree (${prevInv.worktreePath}) — fresh dispatch`,
+        );
+      }
     }
   }
 
@@ -252,7 +268,7 @@ async function dispatch(
     }
   }
 
-  const isResume = resumeSessionId != null;
+  const isResume = resumeSessionId != null || isDeployResume;
   const isWorktreeResume = resumeWorktreePath != null;
 
   // 3. Determine model for this phase (needed for invocation record)
@@ -283,9 +299,11 @@ async function dispatch(
         ? isResume
           ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, session ${resumeSessionId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
           : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${task.reviewCycleCount}/${config.maxReviewCycles})`
-        : isResume
-          ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
-          : `Dispatched for implementation (invocation #${invocationId})`;
+        : isDeployResume
+          ? `Resuming deploy-interrupted session (invocation #${invocationId})`
+          : isResume
+            ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
+            : `Dispatched for implementation (invocation #${invocationId})`;
   client.createComment(taskId, dispatchComment).catch((err) => {
     log(`comment failed on dispatch for task ${taskId}: ${err}`);
   });
@@ -301,13 +319,13 @@ async function dispatch(
   let worktreeResult: { worktreePath: string; branchName: string };
 
   if (isWorktreeResume) {
-    // Reuse preserved worktree from previous max-turns invocation
+    // Reuse preserved worktree from previous max-turns or deploy-interrupted invocation
     worktreeResult = {
       worktreePath: resumeWorktreePath!,
       branchName: resumeBranchName ?? "unknown",
     };
     log(
-      `reusing preserved worktree for resume: ${worktreeResult.worktreePath}`,
+      `reusing preserved worktree for ${isDeployResume ? "deploy-resume" : "resume"}: ${worktreeResult.worktreePath}`,
     );
   } else {
     try {
@@ -454,8 +472,16 @@ async function dispatch(
         : `${task.agentPrompt}\n\nFix issues from code review.`;
     }
     systemPrompt = config.fixSystemPrompt || undefined;
+  } else if (isDeployResume) {
+    // Deploy-interrupted resume: work was in progress, pick up from current state
+    agentPrompt =
+      `Previous session was interrupted by a deploy. The worktree contains its in-progress work. ` +
+      `Check \`git log\`, \`git status\`, and \`gh pr list --head ${worktreeResult.branchName}\` to understand what was already done. ` +
+      `Continue from where it left off — complete the implementation, commit, push, and open a PR if not already done.\n\n` +
+      `IMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST push on this branch — do NOT create a new branch.`;
+    systemPrompt = config.implementSystemPrompt || undefined;
   } else if (isResume) {
-    // Resume: continuation prompt instead of full task prompt
+    // Max-turns resume: continuation prompt instead of full task prompt
     agentPrompt = `You hit the maximum turn limit. Continue where you left off — complete the implementation, commit, push, and open a PR.\n\nIMPORTANT: This worktree is pre-configured with branch \`${worktreeResult.branchName}\`. You MUST push on this branch — do NOT create a new branch.`;
     systemPrompt = config.implementSystemPrompt || undefined;
   } else {
@@ -493,9 +519,14 @@ async function dispatch(
   activeHandles.set(invocationId, handle);
   emitInvocationStarted({ taskId, invocationId });
 
+  const dispatchVerb = isDeployResume
+    ? "deploy-resumed"
+    : isResume
+      ? "resumed"
+      : "dispatched";
   log(
-    `${isResume ? "resumed" : "dispatched"} task ${taskId} as invocation ${invocationId} ` +
-      `(phase: ${phase}, model: ${model}, branch: ${worktreeResult.branchName}${isResume ? `, session: ${resumeSessionId}` : ""})`,
+    `${dispatchVerb} task ${taskId} as invocation ${invocationId} ` +
+      `(phase: ${phase}, model: ${model}, branch: ${worktreeResult.branchName}${resumeSessionId ? `, session: ${resumeSessionId}` : ""})`,
   );
 
   // 12. Attach completion handler
