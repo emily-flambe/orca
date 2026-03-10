@@ -781,6 +781,8 @@ function onImplementSuccess(
 
   // Hard gate: PR must exist
   let prInfo = findPrForBranch(branchName, task.repoPath);
+  let wrongRepoUrlFound = false;
+  let rejectedUrl: string | undefined;
   if (!prInfo.exists) {
     // Fallback: try to verify via PR URL extracted from Claude's summary.
     // This handles GitHub API lag or branch name mismatches where
@@ -827,6 +829,8 @@ function onImplementSuccess(
         log(
           `task ${taskId}: Gate 2 skipping PR URL from summary (wrong repo): ${extractedUrl}`,
         );
+        wrongRepoUrlFound = true;
+        rejectedUrl = extractedUrl;
       }
     }
   }
@@ -834,7 +838,7 @@ function onImplementSuccess(
   if (!prInfo.exists) {
     // Check objectively (git diff) or via text patterns if no PR was opened
     const noChanges = worktreeHasNoChanges(worktreePath);
-    if (noChanges || isAlreadyDone) {
+    if (!wrongRepoUrlFound && (noChanges || isAlreadyDone)) {
       const reason = noChanges
         ? "no local commits on worktree"
         : "output summary indicates already done";
@@ -872,6 +876,11 @@ function onImplementSuccess(
       return;
     }
 
+    if (wrongRepoUrlFound && noChanges) {
+      log(
+        `task ${taskId}: Gate 2 found PR URL in summary but it belongs to a different repo (${rejectedUrl}) — likely repo_path mismatch; treating as failure for manual review`,
+      );
+    }
     const gateMsg = `no PR found for branch ${branchName}`;
     log(
       `task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`,
