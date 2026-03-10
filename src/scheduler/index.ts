@@ -594,6 +594,11 @@ async function onSessionComplete(
     });
   }
 
+  log(
+    `session complete: task=${taskId} invocation=${invocationId} status=${invocationStatus} ` +
+      `cost=$${result.costUsd != null ? result.costUsd.toFixed(4) : "unknown"} turns=${result.numTurns ?? "unknown"}`,
+  );
+
   // Emit task updated + invocation completed events
   emitTaskUpdated(getTask(db, taskId)!);
   emitInvocationCompleted({
@@ -2063,7 +2068,9 @@ async function tick(deps: SchedulerDeps): Promise<void> {
   // 2. Check budget
   const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
   if (cost >= config.budgetMaxCostUsd) {
-    log("budget exhausted");
+    log(
+      `budget exhausted: $${cost.toFixed(4)} used of $${config.budgetMaxCostUsd} limit`,
+    );
     return;
   }
 
