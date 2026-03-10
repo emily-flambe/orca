@@ -60,7 +60,10 @@ import {
   rebasePrBranch,
   closeSupersededPrs,
 } from "../github/index.js";
-import { cleanupStaleResources, cleanupOldInvocationLogs } from "../cleanup/index.js";
+import {
+  cleanupStaleResources,
+  cleanupOldInvocationLogs,
+} from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
