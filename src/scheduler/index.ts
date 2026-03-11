@@ -21,6 +21,7 @@ import {
   incrementStaleSessionRetryCount,
   insertBudgetEvent,
   insertInvocation,
+  insertTask,
   sumCostInWindow,
   budgetWindowStart,
   updateInvocation,
@@ -31,6 +32,10 @@ import {
   updateTaskPrBranch,
   updateTaskStatus,
   claimTaskForDispatch,
+  getDueCronSchedules,
+  incrementCronRunCount,
+  deleteOldCronTasks,
+  updateCronSchedule,
 } from "../db/queries.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
@@ -45,6 +50,8 @@ import {
   type SessionHandle,
   type SessionResult,
 } from "../runner/index.js";
+import { spawnShellCommand, type ShellHandle } from "../runner/shell.js";
+import { computeNextRunAt } from "../cron/index.js";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -103,6 +110,12 @@ export interface SchedulerHandle {
  * Exported so the CLI shutdown handler can iterate and kill them.
  */
 export const activeHandles = new Map<number, SessionHandle>();
+
+/**
+ * Active shell handles keyed by invocation ID.
+ * Used for cron_shell tasks that run a raw shell command.
+ */
+export const shellHandles = new Map<number, ShellHandle>();
 
 /**
  * Consecutive transient worktree-creation failure count per task ID.
@@ -321,6 +334,60 @@ async function dispatch(
   client.createComment(taskId, dispatchComment).catch((err) => {
     log(`comment failed on dispatch for task ${taskId}: ${err}`);
   });
+
+  // Cron shell tasks: run command directly without a worktree
+  if (task.taskType === "cron_shell") {
+    updateTaskStatus(db, taskId, "running");
+    updateInvocation(db, invocationId, { logPath });
+
+    const shellHandle = spawnShellCommand({
+      command: task.agentPrompt,
+      cwd: task.repoPath,
+      invocationId,
+      projectRoot: process.cwd(),
+    });
+
+    shellHandles.set(invocationId, shellHandle);
+    emitInvocationStarted({ taskId, invocationId });
+    log(`dispatched cron_shell task ${taskId} as invocation ${invocationId}`);
+
+    shellHandle.done
+      .then((result) => {
+        shellHandles.delete(invocationId);
+        const success = result.exitCode === 0;
+        updateInvocation(db, invocationId, {
+          endedAt: new Date().toISOString(),
+          status: success ? "completed" : "failed",
+          outputSummary: result.outputSummary,
+        });
+        updateTaskStatus(db, taskId, success ? "done" : "failed");
+        const updatedTask = getTask(db, taskId);
+        if (updatedTask) emitTaskUpdated(updatedTask);
+        emitInvocationCompleted({
+          taskId,
+          invocationId,
+          status: success ? "completed" : "failed",
+          costUsd: 0,
+        });
+        log(
+          `cron_shell task ${taskId} completed: ${success ? "done" : "failed"} (exit ${result.exitCode})`,
+        );
+      })
+      .catch((err) => {
+        shellHandles.delete(invocationId);
+        log(`cron_shell task ${taskId} completion error: ${err}`);
+        updateInvocation(db, invocationId, {
+          endedAt: new Date().toISOString(),
+          status: "failed",
+          outputSummary: `completion error: ${err}`,
+        });
+        updateTaskStatus(db, taskId, "failed");
+        const updatedTask = getTask(db, taskId);
+        if (updatedTask) emitTaskUpdated(updatedTask);
+      });
+
+    return;
+  }
 
   // 4. Determine worktree base ref
   const useExistingBranch =
@@ -639,6 +706,50 @@ async function onSessionComplete(
 
   // Remove from active handles
   activeHandles.delete(invocationId);
+
+  // Cron tasks use simple done/failed lifecycle — no Gate 2, review, CI, or deploy
+  const cronCheckTask = getTask(db, taskId);
+  if (
+    cronCheckTask?.taskType === "cron_claude" ||
+    cronCheckTask?.taskType === "cron_shell"
+  ) {
+    const success = result.subtype === "success";
+    updateInvocation(db, invocationId, {
+      endedAt: new Date().toISOString(),
+      status: success ? "completed" : "failed",
+      costUsd: result.costUsd,
+      numTurns: result.numTurns,
+      outputSummary: result.outputSummary,
+      sessionId: handle.sessionId,
+    });
+    if (result.costUsd != null && result.costUsd > 0) {
+      insertBudgetEvent(db, {
+        invocationId,
+        costUsd: result.costUsd,
+        recordedAt: new Date().toISOString(),
+      });
+    }
+    updateTaskStatus(db, taskId, success ? "done" : "failed");
+    // Clean up worktree if one was created
+    if (worktreePath) {
+      try {
+        removeWorktree(worktreePath);
+      } catch (err) {
+        log(`worktree removal for cron task ${taskId}: ${err}`);
+      }
+    }
+    const updatedCronTask = getTask(db, taskId);
+    if (updatedCronTask) emitTaskUpdated(updatedCronTask);
+    emitInvocationCompleted({
+      taskId,
+      invocationId,
+      status: success ? "completed" : "failed",
+      costUsd: result.costUsd ?? 0,
+    });
+    emitCurrentStatus(db, config);
+    log(`cron task ${taskId} completed: ${success ? "done" : "failed"}`);
+    return;
+  }
 
   const isSuccess = result.subtype === "success";
   const invocationStatus = isSuccess ? "completed" : "failed";
@@ -1663,6 +1774,107 @@ function checkTimeouts(deps: SchedulerDeps): void {
       );
     }
   }
+
+  // Also check shell handles for timeout
+  for (const [invId, shellHandle] of shellHandles) {
+    const runningInv = running.find((r) => r.id === invId);
+    if (!runningInv) continue;
+    const startedAt = new Date(runningInv.startedAt).getTime();
+    if (startedAt + timeoutMs < now) {
+      log(
+        `shell invocation ${invId} timed out (task ${runningInv.linearIssueId})`,
+      );
+      shellHandle.process.kill("SIGTERM");
+      shellHandles.delete(invId);
+      updateInvocation(db, invId, {
+        status: "timed_out",
+        endedAt: new Date().toISOString(),
+      });
+      updateTaskStatus(db, runningInv.linearIssueId, "failed");
+      const timedOutTask = getTask(db, runningInv.linearIssueId);
+      if (timedOutTask) emitTaskUpdated(timedOutTask);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cron schedule dispatch
+// ---------------------------------------------------------------------------
+
+function checkCronSchedules(deps: SchedulerDeps): void {
+  const { db, config } = deps;
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  const due = getDueCronSchedules(db, nowIso);
+  for (const schedule of due) {
+    const runNum = schedule.runCount + 1;
+    const taskId = `CRON-${schedule.id}-${runNum}`;
+
+    // Compute next run time
+    let nextRunAt: string;
+    try {
+      nextRunAt = computeNextRunAt(schedule.schedule, now);
+    } catch (err) {
+      log(
+        `cron schedule ${schedule.id} (${schedule.name}): invalid schedule "${schedule.schedule}": ${err}`,
+      );
+      // Disable the schedule to prevent log spam
+      updateCronSchedule(db, schedule.id, { enabled: 0 });
+      continue;
+    }
+
+    // Insert task
+    let insertFailed = false;
+    try {
+      insertTask(db, {
+        linearIssueId: taskId,
+        agentPrompt: schedule.prompt,
+        repoPath: schedule.repoPath ?? config.defaultCwd ?? process.cwd(),
+        orcaStatus: "ready",
+        taskType: schedule.type === "shell" ? "cron_shell" : "cron_claude",
+        cronScheduleId: schedule.id,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+    } catch (err: unknown) {
+      // Duplicate key: this run was already created. Still advance the
+      // schedule so it doesn't re-fire on the next tick.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("UNIQUE") || msg.includes("unique")) {
+        log(
+          `cron schedule ${schedule.id}: task ${taskId} already exists — advancing schedule`,
+        );
+        insertFailed = true;
+      } else {
+        log(
+          `cron schedule ${schedule.id}: failed to insert task ${taskId}: ${err}`,
+        );
+        continue;
+      }
+    }
+
+    // Increment run count and update next_run_at (always, even on duplicate)
+    incrementCronRunCount(db, schedule.id, nextRunAt);
+
+    // Auto-disable if maxRuns reached
+    if (schedule.maxRuns != null && runNum >= schedule.maxRuns) {
+      updateCronSchedule(db, schedule.id, { enabled: 0, nextRunAt: null });
+      log(
+        `cron schedule ${schedule.id} (${schedule.name}): reached maxRuns ${schedule.maxRuns}, disabling`,
+      );
+    }
+
+    if (!insertFailed) {
+      // Emit event for newly created task
+      const newTask = getTask(db, taskId);
+      if (newTask) emitTaskUpdated(newTask);
+
+      log(
+        `cron schedule ${schedule.id} (${schedule.name}): created task ${taskId} (run ${runNum})`,
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2337,6 +2549,13 @@ async function tick(deps: SchedulerDeps): Promise<void> {
       try {
         cleanupStaleResources({ db, config });
         cleanupOldInvocationLogs({ db, config });
+        const retentionCutoff = new Date(
+          now - config.cronRetentionDays * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const pruned = deleteOldCronTasks(db, retentionCutoff);
+        if (pruned > 0) {
+          log(`pruned ${pruned} old cron task instances`);
+        }
       } catch (err) {
         log(`cleanup error: ${err}`);
         // If cleanup hit DLL_INIT, activate cooldown
@@ -2349,6 +2568,9 @@ async function tick(deps: SchedulerDeps): Promise<void> {
         }
       }
     }
+
+    // Check cron schedules and create task instances for due schedules
+    checkCronSchedules(deps);
   }
 
   // 1. Count active sessions
@@ -2407,6 +2629,9 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     }
     // Dependency graph filtering only applies to initial implementation (ready)
     if (t.orcaStatus === "ready") {
+      if (t.taskType === "cron_claude" || t.taskType === "cron_shell") {
+        return true; // cron tasks don't go through the Linear dependency graph
+      }
       return graph.isDispatchable(t.linearIssueId, getStatus);
     }
     // in_review and changes_requested are always dispatchable (they've already passed filtering)
@@ -2537,6 +2762,12 @@ export function createScheduler(
             return sessionHandle.done;
           }),
         );
+      }
+
+      // Kill all shell handles
+      for (const [invId, shellHandle] of shellHandles) {
+        log(`killing shell process for invocation ${invId}`);
+        shellHandle.process.kill("SIGTERM");
       }
 
       // We cannot await in a sync function, but the kills are fire-and-forget
