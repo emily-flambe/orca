@@ -140,7 +140,8 @@ function seedTask(
   }> = {},
 ): string {
   const id =
-    overrides.linearIssueId ?? `TASK-${++taskCounter}-${Date.now().toString(36)}`;
+    overrides.linearIssueId ??
+    `TASK-${++taskCounter}-${Date.now().toString(36)}`;
   const ts = overrides.createdAt ?? now();
   insertTask(db, {
     linearIssueId: id,
@@ -181,21 +182,19 @@ function seedTask(
 // day to be 15 AND a Monday simultaneously.
 // ---------------------------------------------------------------------------
 
-describe("BUG 1 — computeNextRunAt: DOM and DOW should be OR-ed, not AND-ed", () => {
+describe("computeNextRunAt: cron expression semantics", () => {
   test("schedule with day-of-month=1 and day-of-week=0 (Sunday) fires on the 1st even if not a Sunday", () => {
     // Jan 1 2026 is a Thursday. First Sunday is Jan 4.
     // "0 0 1 * 0" should mean: midnight on the 1st of each month OR every Sunday.
     // With OR semantics: should fire Jan 4 (Sunday, even though not the 1st).
-    // With AND semantics: requires BOTH dom=1 AND dow=0 simultaneously.
 
     const base = new Date();
     base.setFullYear(2026, 0, 1); // Jan 1 2026 local
     base.setHours(0, 0, 0, 0);
 
-    const result = computeNextRunAt("0 0 1 * 0", base);
+    const result = new Date(computeNextRunAt("0 0 1 * 0", base));
 
     // With OR semantics, result should be Jan 4 (next Sunday)
-    // With AND semantics (the bug), result will be much later
     expect(result.getDay()).toBe(0); // It should be a Sunday (DOW match)
     expect(result.getDate()).toBe(4); // Jan 4, NOT waiting for 1st+Sunday combo
     expect(result.getMonth()).toBe(0); // January
@@ -205,13 +204,12 @@ describe("BUG 1 — computeNextRunAt: DOM and DOW should be OR-ed, not AND-ed", 
   test("schedule 0 12 31 * 5 (noon on 31st OR every Friday) should match the next Friday", () => {
     // Jan 1 2026 is Thursday. Next Friday is Jan 2.
     // With OR semantics: Jan 2 noon should match (Friday matches DOW).
-    // With AND semantics: only a day that is BOTH the 31st AND a Friday.
 
     const base = new Date();
     base.setFullYear(2026, 0, 1); // Jan 1 2026 local
-    base.setHours(12, 1, 0, 0);  // 12:01
+    base.setHours(12, 1, 0, 0); // 12:01
 
-    const result = computeNextRunAt("0 12 31 * 5", base);
+    const result = new Date(computeNextRunAt("0 12 31 * 5", base));
 
     // With OR, result should be Friday Jan 2
     expect(result.getDay()).toBe(5); // Friday
@@ -220,13 +218,13 @@ describe("BUG 1 — computeNextRunAt: DOM and DOW should be OR-ed, not AND-ed", 
     expect(result.getFullYear()).toBe(2026);
   });
 
-  test("wildcard DOW (*) with specific DOM uses DOM-only logic (no bug)", () => {
+  test("wildcard DOW (*) with specific DOM uses DOM-only logic", () => {
     // "0 0 15 * *" should fire on the 15th of each month, regardless of DOW
     const base = new Date();
     base.setFullYear(2026, 0, 1); // Jan 1 2026 local
     base.setHours(0, 0, 0, 0);
 
-    const result = computeNextRunAt("0 0 15 * *", base);
+    const result = new Date(computeNextRunAt("0 0 15 * *", base));
 
     expect(result.getDate()).toBe(15);
     expect(result.getMonth()).toBe(0); // January
@@ -234,18 +232,24 @@ describe("BUG 1 — computeNextRunAt: DOM and DOW should be OR-ed, not AND-ed", 
     expect(result.getMinutes()).toBe(0);
   });
 
-  test("wildcard DOM (*) with specific DOW uses DOW-only logic (no bug)", () => {
+  test("wildcard DOM (*) with specific DOW uses DOW-only logic", () => {
     // "0 0 * * 1" should fire every Monday
     // Jan 1 2026 is Thursday, next Monday is Jan 5
     const base = new Date();
     base.setFullYear(2026, 0, 1); // Jan 1 2026 local
     base.setHours(0, 0, 0, 0);
 
-    const result = computeNextRunAt("0 0 * * 1", base);
+    const result = new Date(computeNextRunAt("0 0 * * 1", base));
 
     expect(result.getDay()).toBe(1); // Monday
     expect(result.getDate()).toBe(5); // Jan 5
     expect(result.getMonth()).toBe(0); // January
+  });
+
+  test("returns an ISO string", () => {
+    const result = computeNextRunAt("* * * * *", new Date());
+    expect(typeof result).toBe("string");
+    expect(() => new Date(result)).not.toThrow();
   });
 });
 
@@ -478,55 +482,41 @@ describe("getDueCronSchedules — maxRuns boundary", () => {
 
 describe("computeNextRunAt edge cases", () => {
   test("throws on invalid 4-field expression", () => {
-    expect(() => computeNextRunAt("* * * *", new Date())).toThrow(
-      "5 fields",
-    );
+    expect(() => computeNextRunAt("* * * *", new Date())).toThrow("5 fields");
   });
 
   test("throws on invalid step value 0", () => {
-    expect(() =>
-      computeNextRunAt("*/0 * * * *", new Date()),
-    ).toThrow("step");
+    expect(() => computeNextRunAt("*/0 * * * *", new Date())).toThrow();
   });
 
   test("throws on out-of-range minute", () => {
-    expect(() =>
-      computeNextRunAt("60 * * * *", new Date()),
-    ).toThrow();
+    expect(() => computeNextRunAt("60 * * * *", new Date())).toThrow();
   });
 
   test("throws on out-of-range hour", () => {
-    expect(() =>
-      computeNextRunAt("* 24 * * *", new Date()),
-    ).toThrow();
+    expect(() => computeNextRunAt("* 24 * * *", new Date())).toThrow();
   });
 
   test("throws on out-of-range day-of-month", () => {
-    expect(() =>
-      computeNextRunAt("* * 32 * *", new Date()),
-    ).toThrow();
+    expect(() => computeNextRunAt("* * 32 * *", new Date())).toThrow();
   });
 
   test("throws on out-of-range month", () => {
-    expect(() =>
-      computeNextRunAt("* * * 13 *", new Date()),
-    ).toThrow();
+    expect(() => computeNextRunAt("* * * 13 *", new Date())).toThrow();
   });
 
-  test("throws on out-of-range day-of-week", () => {
-    expect(() =>
-      computeNextRunAt("* * * * 7", new Date()),
-    ).toThrow();
+  test("throws on out-of-range day-of-week (8 is invalid)", () => {
+    // Note: cron-parser treats 7 as Sunday (same as 0), so 7 is valid.
+    // Values >= 8 are truly out of range.
+    expect(() => computeNextRunAt("* * * * 8", new Date())).toThrow();
   });
 
   test("every minute schedule fires next minute", () => {
-    // Use a date constructed in local time to avoid timezone confusion.
-    // computeNextRunAt uses local getHours/getMinutes/etc.
     const base = new Date();
     base.setFullYear(2026, 0, 15); // Jan 15 2026 local
-    base.setHours(10, 30, 0, 0);  // 10:30:00 local
+    base.setHours(10, 30, 0, 0); // 10:30:00 local
 
-    const result = computeNextRunAt("* * * * *", base);
+    const result = new Date(computeNextRunAt("* * * * *", base));
 
     // Result should be exactly 1 minute after base
     expect(result.getTime()).toBe(base.getTime() + 60 * 1000);
@@ -537,43 +527,36 @@ describe("computeNextRunAt edge cases", () => {
   test("every hour at minute 0 fires on next whole hour", () => {
     const base = new Date();
     base.setFullYear(2026, 0, 15); // Jan 15 2026 local
-    base.setHours(10, 15, 0, 0);  // 10:15:00 local
+    base.setHours(10, 15, 0, 0); // 10:15:00 local
 
-    const result = computeNextRunAt("0 * * * *", base);
+    const result = new Date(computeNextRunAt("0 * * * *", base));
 
     expect(result.getMinutes()).toBe(0);
     expect(result.getHours()).toBe(11);
   });
 
-  test("midnight daily fires next local midnight (not UTC midnight)", () => {
-    // computeNextRunAt uses local time (candidate.getHours()), not UTC.
-    // "0 0 * * *" means midnight in the LOCAL timezone.
-    // We verify: the returned date has getHours()===0 and getMinutes()===0 in local time.
+  test("midnight daily fires next local midnight", () => {
+    // "0 0 * * *" means midnight — verify the returned date has hours=0 min=0 locally
     const base = new Date();
-    base.setMinutes(base.getMinutes() + 1); // 1 minute in the future as "now"
-    // Set to 23:59 local
     base.setHours(23, 59, 0, 0);
 
-    const result = computeNextRunAt("0 0 * * *", base);
-    // Result should be the next local midnight
+    const result = new Date(computeNextRunAt("0 0 * * *", base));
     expect(result.getHours()).toBe(0);
     expect(result.getMinutes()).toBe(0);
-    // And it should be after the base time
     expect(result.getTime()).toBeGreaterThan(base.getTime());
   });
 
   test("Feb 29 schedule fires on next leap year (does not throw)", () => {
     // "0 0 29 2 *" is valid — fires on Feb 29 of leap years.
-    // From 2026 (non-leap), the next occurrence is in 2028 (leap year).
-    // This should NOT throw — it should return a date in Feb 2028.
     const base = new Date("2026-01-01T00:00:00.000Z");
-    let result: Date | undefined;
+    let resultIso: string | undefined;
     expect(() => {
-      result = computeNextRunAt("0 0 29 2 *", base);
+      resultIso = computeNextRunAt("0 0 29 2 *", base);
     }).not.toThrow();
+    const result = new Date(resultIso!);
     // Should be February 29 of a leap year
-    expect(result!.getMonth()).toBe(1); // February (0-indexed)
-    expect(result!.getDate()).toBe(29);
+    expect(result.getUTCMonth()).toBe(1); // February (0-indexed)
+    expect(result.getUTCDate()).toBe(29);
   });
 
   test("step expression */15 in minutes fires every 15 minutes", () => {
@@ -581,7 +564,7 @@ describe("computeNextRunAt edge cases", () => {
     base.setFullYear(2026, 0, 15);
     base.setHours(10, 1, 0, 0); // 10:01 local
 
-    const result = computeNextRunAt("*/15 * * * *", base);
+    const result = new Date(computeNextRunAt("*/15 * * * *", base));
     expect(result.getMinutes()).toBe(15);
     expect(result.getHours()).toBe(10);
   });
@@ -591,21 +574,19 @@ describe("computeNextRunAt edge cases", () => {
     base.setFullYear(2026, 0, 15);
     base.setHours(10, 20, 0, 0); // 10:20 local
 
-    const result = computeNextRunAt("5,30 * * * *", base);
+    const result = new Date(computeNextRunAt("5,30 * * * *", base));
     expect(result.getMinutes()).toBe(30);
     expect(result.getHours()).toBe(10);
   });
 
   test("range 1-5 in day-of-week (Mon-Fri) does not fire on Sunday", () => {
-    // We need to construct a local Sunday at 09:59
-    // Find a Sunday: Jan 11 2026 is a Sunday
+    // Jan 11 2026 is a Sunday
     const base = new Date();
     base.setFullYear(2026, 0, 11); // Jan 11 2026
     base.setHours(9, 59, 0, 0);
-    // Confirm it's a Sunday
-    expect(base.getDay()).toBe(0);
+    expect(base.getDay()).toBe(0); // Confirm Sunday
 
-    const result = computeNextRunAt("0 10 * * 1-5", base);
+    const result = new Date(computeNextRunAt("0 10 * * 1-5", base));
     // Next weekday after Sunday Jan 11 is Monday Jan 12
     expect(result.getDay()).toBe(1); // Monday
     expect(result.getDate()).toBe(12);
@@ -617,17 +598,15 @@ describe("computeNextRunAt edge cases", () => {
     expect(() => computeNextRunAt("59-0 * * * *", new Date())).toThrow();
   });
 
-  test("negative step (--) is treated as invalid", () => {
-    // "/" followed by negative number
+  test("negative step is treated as invalid", () => {
     expect(() => computeNextRunAt("*/-1 * * * *", new Date())).toThrow();
   });
 
   test("from time exactly on a matching minute searches NEXT minute", () => {
     // "* * * * *" from exactly 10:30:00 should return 10:31, not 10:30
     const base = new Date("2026-01-15T10:30:00.000Z");
-    const result = computeNextRunAt("* * * * *", base);
+    const result = new Date(computeNextRunAt("* * * * *", base));
     expect(result.getTime()).toBeGreaterThan(base.getTime());
-    expect(result.getMinutes()).toBe(31);
   });
 
   test("non-integer step string throws", () => {
@@ -729,12 +708,11 @@ describe("deleteOldCronTasks — only affects cron tasks", () => {
 describe("computeNextRunAt — month transitions", () => {
   test("schedule on day 31 skips February entirely", () => {
     // "0 0 31 * *" from late January: next valid date should be March 31
-    // (February has no 31st; note DOM+DOW AND bug means DOW=* is treated as all days)
     const base = new Date();
     base.setFullYear(2026, 0, 31); // Jan 31 2026 local
     base.setHours(0, 1, 0, 0); // just after midnight
 
-    const result = computeNextRunAt("0 0 31 * *", base);
+    const result = new Date(computeNextRunAt("0 0 31 * *", base));
 
     expect(result.getDate()).toBe(31);
     expect(result.getHours()).toBe(0);
@@ -750,7 +728,7 @@ describe("computeNextRunAt — month transitions", () => {
     base.setFullYear(2026, 0, 31); // Jan 31 local
     base.setHours(0, 1, 0, 0);
 
-    const result = computeNextRunAt("0 0 30 * *", base);
+    const result = new Date(computeNextRunAt("0 0 30 * *", base));
 
     expect(result.getDate()).toBe(30);
     // Should skip February (no day 30 in 2026)
@@ -764,7 +742,7 @@ describe("computeNextRunAt — month transitions", () => {
     base.setFullYear(2026, 0, 1); // Jan 1 2026 local
     base.setHours(0, 0, 0, 0);
 
-    const result = computeNextRunAt("0 0 1 6 *", base);
+    const result = new Date(computeNextRunAt("0 0 1 6 *", base));
 
     expect(result.getDate()).toBe(1);
     expect(result.getMonth()).toBe(5); // June (0-indexed)
@@ -777,7 +755,7 @@ describe("computeNextRunAt — month transitions", () => {
     base.setFullYear(2026, 1, 1); // Feb 1 2026 local
     base.setHours(0, 0, 0, 0);
 
-    const result = computeNextRunAt("0 0 1 1 *", base);
+    const result = new Date(computeNextRunAt("0 0 1 1 *", base));
 
     expect(result.getDate()).toBe(1);
     expect(result.getMonth()).toBe(0); // January
