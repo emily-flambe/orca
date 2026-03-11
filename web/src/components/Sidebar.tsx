@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { OrcaStatus, Task } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
-export type Page = "dashboard" | "tasks" | "logs" | "settings";
+export type Page = "dashboard" | "tasks" | "logs" | "settings" | "cron";
 
 const MIN_WIDTH = 150;
 const MAX_WIDTH = 400;
@@ -242,6 +242,14 @@ export default function Sidebar({
                 {tasks.length}
               </span>
             )}
+          </button>
+
+          {/* Cron */}
+          <button
+            className={navItemClass("cron")}
+            onClick={() => onNavigate("cron")}
+          >
+            <span>Cron</span>
           </button>
 
           {/* Logs */}

@@ -1,144 +1,77 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { createWriteStream, mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { createInterface } from "node:readline";
-import type { SessionResult } from "./index.js";
+
+export interface ShellResult {
+  exitCode: number | null;
+  output: string; // combined stdout + stderr
+  timedOut: boolean;
+}
 
 export interface ShellHandle {
-  process: ChildProcess;
-  invocationId: number;
-  done: Promise<SessionResult>;
+  kill(): void;
+  done: Promise<ShellResult>;
 }
 
-export interface SpawnShellOptions {
-  /** Shell command to run. */
-  command: string;
-  /** Working directory for the command. */
-  cwd: string;
-  /** Invocation ID for log file naming. */
-  invocationId: number;
-  /** Project root directory (used to locate the logs/ dir). */
-  projectRoot: string;
-}
+/** Active shell processes keyed by invocation ID — for cleanup on shutdown. */
+export const activeShellHandles = new Map<number, ShellHandle>();
 
 /**
- * Spawn a shell command as a child process and return a ShellHandle.
- *
- * On Windows, uses `cmd /c <command>`.
- * On Unix, uses `/bin/sh -c <command>`.
- *
- * stdout and stderr are written to `<projectRoot>/logs/<invocationId>.ndjson`
- * as NDJSON lines.
- *
- * The `done` promise resolves with a SessionResult when the process exits.
+ * Spawn a shell command, capture combined stdout+stderr, enforce timeout.
+ * Returns a handle with a `done` promise and a `kill()` method.
  */
-export function spawnShellCommand(opts: SpawnShellOptions): ShellHandle {
-  const { command, cwd, invocationId, projectRoot } = opts;
+export function spawnShellCommand(
+  command: string,
+  opts: { cwd?: string; timeoutMs: number; invocationId: number },
+): ShellHandle {
+  const { cwd, timeoutMs, invocationId } = opts;
+  let child: ChildProcess;
 
-  // Ensure logs directory exists.
-  const logsDir = join(projectRoot, "logs");
-  mkdirSync(logsDir, { recursive: true });
-  const logPath = join(logsDir, `${invocationId}.ndjson`);
-  const logStream = createWriteStream(logPath, { flags: "w" });
-
-  // Choose shell based on platform.
-  let spawnCmd: string;
-  let spawnArgs: string[];
-  if (process.platform === "win32") {
-    spawnCmd = "cmd";
-    spawnArgs = ["/c", command];
-  } else {
-    spawnCmd = "/bin/sh";
-    spawnArgs = ["-c", command];
-  }
-
-  const proc = spawn(spawnCmd, spawnArgs, {
+  // Use shell:true so the command string is interpreted as a shell command
+  child = spawn(command, [], {
     cwd,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
+    shell: true,
+    env: process.env,
   });
 
-  // Collect all output lines for outputSummary.
-  const outputLines: string[] = [];
+  const chunks: Buffer[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
 
-  // Process stdout line by line.
-  const rl = createInterface({ input: proc.stdout! });
-  rl.on("line", (line: string) => {
-    outputLines.push(line);
-    const entry = JSON.stringify({ type: "text", text: line });
-    logStream.write(entry + "\n");
-  });
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    // Force-kill after 5 more seconds
+    setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }, 5000);
+  }, timeoutMs);
 
-  // Process stderr line by line.
-  const rlErr = createInterface({ input: proc.stderr! });
-  rlErr.on("line", (line: string) => {
-    const entry = JSON.stringify({ type: "error", text: line });
-    logStream.write(entry + "\n");
-  });
-
-  // Track readline close states.
-  let stdoutClosed = false;
-  let stderrClosed = false;
-  let exitCode: number | null = null;
-  let exitSignal: string | null = null;
-  let exitReceived = false;
-  let resolved = false;
-
-  const done = new Promise<SessionResult>((resolve, reject) => {
-    proc.on("error", (err: Error) => {
-      logStream.end();
-      reject(err);
-    });
-
-    function tryResolve(): void {
-      if (resolved || !exitReceived || !stdoutClosed || !stderrClosed) return;
-      resolved = true;
-
-      const code = exitCode;
-      const success = code === 0;
-
-      // Build output summary: last non-empty line or fallback.
-      const lastLine = [...outputLines].reverse().find((l) => l.trim() !== "");
-      const outputSummary =
-        lastLine ??
-        `exit code ${code !== null ? code : (exitSignal ?? "unknown")}`;
-
-      const result: SessionResult = {
-        subtype: success ? "success" : "error_during_execution",
-        costUsd: null,
-        numTurns: null,
-        exitCode: code,
-        exitSignal,
-        outputSummary,
-      };
-
-      logStream.end(() => {
-        resolve(result);
-      });
-    }
-
-    rl.on("close", () => {
-      stdoutClosed = true;
-      tryResolve();
-    });
-
-    rlErr.on("close", () => {
-      stderrClosed = true;
-      tryResolve();
-    });
-
-    proc.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
-      exitCode = code;
-      exitSignal = signal?.toString() ?? null;
-      exitReceived = true;
-      tryResolve();
+  const done = new Promise<ShellResult>((resolve) => {
+    child.on("close", (exitCode) => {
+      clearTimeout(timeoutId);
+      activeShellHandles.delete(invocationId);
+      const output = Buffer.concat(chunks).toString("utf8");
+      resolve({ exitCode, output, timedOut });
     });
   });
 
-  return {
-    process: proc,
-    invocationId,
+  const handle: ShellHandle = {
+    kill() {
+      clearTimeout(timeoutId);
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+    },
     done,
   };
+
+  activeShellHandles.set(invocationId, handle);
+  return handle;
 }
