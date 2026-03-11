@@ -39,7 +39,11 @@ import {
   insertTask,
   deleteTask,
 } from "../db/queries.js";
-import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
+import {
+  validateCronExpression,
+  describeCronSchedule,
+  computeNextRunAt,
+} from "../cron/index.js";
 import {
   orcaEvents,
   emitTaskUpdated,
@@ -1141,6 +1145,28 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
     incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
     return c.json({ ok: true, taskId });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/cron/validate
+  // -----------------------------------------------------------------------
+  app.post("/api/cron/validate", async (c) => {
+    let body: { expr?: string };
+    try {
+      body = await c.req.json<{ expr?: string }>();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const { expr } = body;
+    if (!expr || typeof expr !== "string" || expr.trim() === "") {
+      return c.json({ valid: false, error: "expr is required" });
+    }
+    const cronError = validateCronExpression(expr);
+    if (cronError !== null) {
+      return c.json({ valid: false, error: cronError });
+    }
+    const description = describeCronSchedule(expr);
+    return c.json({ valid: true, description });
   });
 
   // -----------------------------------------------------------------------

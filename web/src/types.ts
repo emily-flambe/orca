@@ -1,7 +1,28 @@
+export interface CronSchedule {
+  id: number;
+  name: string;
+  type: "claude" | "shell";
+  schedule: string;
+  prompt: string;
+  repoPath: string | null;
+  model: string | null;
+  maxTurns: number | null;
+  timeoutMin: number;
+  maxRuns: number | null;
+  runCount: number;
+  enabled: number; // 0 or 1 (SQLite integer)
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   linearIssueId: string;
   agentPrompt: string;
   repoPath: string;
+  taskType: string | null;
+  cronScheduleId: number | null;
   orcaStatus:
     | "backlog"
     | "ready"

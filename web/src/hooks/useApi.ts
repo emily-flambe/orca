@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, CronSchedule } from "../types";
 
 const BASE = "/api";
 
@@ -177,4 +177,65 @@ export function createTask(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+}
+
+export function fetchCronSchedules(): Promise<CronSchedule[]> {
+  return fetchJson<CronSchedule[]>("/cron");
+}
+
+export function createCronSchedule(
+  data: Omit<
+    CronSchedule,
+    "id" | "runCount" | "lastRunAt" | "nextRunAt" | "createdAt" | "updatedAt"
+  >,
+): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>("/cron", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateCronSchedule(
+  id: number,
+  data: Partial<Omit<CronSchedule, "id" | "createdAt">>,
+): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>(`/cron/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteCronSchedule(id: number): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/cron/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function toggleCronSchedule(id: number): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>(`/cron/${id}/toggle`, {
+    method: "POST",
+  });
+}
+
+export function triggerCronSchedule(
+  id: number,
+): Promise<{ ok: boolean; taskId: string }> {
+  return fetchJson<{ ok: boolean; taskId: string }>(`/cron/${id}/trigger`, {
+    method: "POST",
+  });
+}
+
+export function validateCronExpressionApi(
+  expr: string,
+): Promise<{ valid: boolean; error?: string; description?: string }> {
+  return fetchJson<{ valid: boolean; error?: string; description?: string }>(
+    "/cron/validate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expr }),
+    },
+  );
 }
