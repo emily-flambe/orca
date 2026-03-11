@@ -26,6 +26,27 @@ export interface Task {
   invocationCount: number;
   createdAt: string;
   updatedAt: string;
+  taskType: "linear" | "cron_claude" | "cron_shell";
+  cronScheduleId: number | null;
+}
+
+export interface CronSchedule {
+  id: number;
+  name: string;
+  type: "claude" | "shell";
+  schedule: string;
+  prompt: string;
+  repoPath: string | null;
+  model: string | null;
+  maxTurns: number | null;
+  timeoutMin: number;
+  maxRuns: number | null;
+  runCount: number;
+  enabled: number; // 1 or 0 (SQLite boolean)
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Invocation {

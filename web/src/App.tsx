@@ -15,6 +15,7 @@ import TaskDetail from "./components/TaskDetail";
 import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
+import CronPage from "./components/CronPage";
 
 // Apply dark mode before first render to avoid flash
 document.documentElement.classList.add("dark");
@@ -440,6 +441,8 @@ export default function App() {
         {activePage === "settings" && (
           <SettingsPage status={status} onConfigUpdate={handleConfigUpdate} />
         )}
+
+        {activePage === "cron" && <CronPage />}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ const PAGE_TITLES: Record<Page, string> = {
   tasks: "Tasks",
   logs: "Logs",
   settings: "Settings",
+  cron: "Cron",
 };
 
 interface HeaderProps {

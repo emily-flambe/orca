@@ -10,12 +10,17 @@ import {
   insertInvocation,
   insertBudgetEvent,
   getTask,
+  updateInvocation,
+  getInvocationsByTask,
 } from "../src/db/queries.js";
 import { orcaEvents } from "../src/events.js";
 import type { OrcaDb } from "../src/db/index.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { WorkflowStateMap } from "../src/linear/client.js";
 import type { Hono } from "hono";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,7 +83,14 @@ describe("GET /api/tasks", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
   it("returns empty array when no tasks exist", async () => {
@@ -89,24 +101,33 @@ describe("GET /api/tasks", () => {
   });
 
   it("returns tasks sorted by priority ASC then createdAt ASC", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "LOW-PRIO",
-      priority: 3,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }));
-    insertTask(db, makeTask({
-      linearIssueId: "HIGH-PRIO",
-      priority: 1,
-      createdAt: "2026-01-02T00:00:00.000Z",
-      updatedAt: "2026-01-02T00:00:00.000Z",
-    }));
-    insertTask(db, makeTask({
-      linearIssueId: "HIGH-PRIO-EARLIER",
-      priority: 1,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "LOW-PRIO",
+        priority: 3,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "HIGH-PRIO",
+        priority: 1,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      }),
+    );
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "HIGH-PRIO-EARLIER",
+        priority: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
 
     const res = await app.request("/api/tasks");
     expect(res.status).toBe(200);
@@ -115,8 +136,8 @@ describe("GET /api/tasks", () => {
     expect(body).toHaveLength(3);
     // Priority 1 first (two of them), then priority 3
     expect(body[0].linearIssueId).toBe("HIGH-PRIO-EARLIER"); // prio 1, earlier date
-    expect(body[1].linearIssueId).toBe("HIGH-PRIO");          // prio 1, later date
-    expect(body[2].linearIssueId).toBe("LOW-PRIO");           // prio 3
+    expect(body[1].linearIssueId).toBe("HIGH-PRIO"); // prio 1, later date
+    expect(body[2].linearIssueId).toBe("LOW-PRIO"); // prio 3
   });
 
   it("returns all task fields correctly", async () => {
@@ -154,7 +175,14 @@ describe("GET /api/tasks/:id", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
   it("returns task with invocations array", async () => {
@@ -208,25 +236,34 @@ describe("GET /api/status", () => {
 
   it("returns correct status object with all fields", async () => {
     // Insert a ready task
-    insertTask(db, makeTask({
-      linearIssueId: "READY-1",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "READY-1",
+        orcaStatus: "ready" as const,
+      }),
+    );
     // Insert a running task with a running invocation
-    insertTask(db, makeTask({
-      linearIssueId: "RUNNING-1",
-      orcaStatus: "running" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "RUNNING-1",
+        orcaStatus: "running" as const,
+      }),
+    );
     insertInvocation(db, {
       linearIssueId: "RUNNING-1",
       startedAt: now(),
       status: "running",
     });
     // Insert a done task (should not appear in queued or active)
-    insertTask(db, makeTask({
-      linearIssueId: "DONE-1",
-      orcaStatus: "done" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "DONE-1",
+        orcaStatus: "done" as const,
+      }),
+    );
 
     // Insert a budget event in the current window
     const invId = insertInvocation(db, {
@@ -259,7 +296,14 @@ describe("GET /api/events (SSE)", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    app = createApiRoutes({ db, config: makeConfig(), syncTasks: vi.fn().mockResolvedValue(0), client: {} as any, stateMap: new Map(), projectMeta: [] });
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
   });
 
   it("returns content-type text/event-stream and streams events", async () => {
@@ -386,11 +430,14 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("backlog -> ready: succeeds and resets counters", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-1",
-      orcaStatus: "backlog" as const,
-      retryCount: 3,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-1",
+        orcaStatus: "backlog" as const,
+        retryCount: 3,
+      }),
+    );
 
     const res = await postStatus("T-1", { status: "ready" });
     expect(res.status).toBe(200);
@@ -404,10 +451,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("ready -> done: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-2",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-2",
+        orcaStatus: "ready" as const,
+      }),
+    );
 
     const res = await postStatus("T-2", { status: "done" });
     expect(res.status).toBe(200);
@@ -417,11 +467,14 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("done -> backlog: succeeds and resets counters", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-3",
-      orcaStatus: "done" as const,
-      retryCount: 2,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-3",
+        orcaStatus: "done" as const,
+        retryCount: 2,
+      }),
+    );
 
     const res = await postStatus("T-3", { status: "backlog" });
     expect(res.status).toBe(200);
@@ -433,11 +486,14 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("failed -> ready: succeeds (re-queue via status endpoint)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-4",
-      orcaStatus: "failed" as const,
-      retryCount: 5,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-4",
+        orcaStatus: "failed" as const,
+        retryCount: 5,
+      }),
+    );
 
     const res = await postStatus("T-4", { status: "ready" });
     expect(res.status).toBe(200);
@@ -448,10 +504,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("failed -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-5",
-      orcaStatus: "failed" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-5",
+        orcaStatus: "failed" as const,
+      }),
+    );
 
     const res = await postStatus("T-5", { status: "backlog" });
     expect(res.status).toBe(200);
@@ -461,10 +520,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("ready -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-6",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-6",
+        orcaStatus: "ready" as const,
+      }),
+    );
 
     const res = await postStatus("T-6", { status: "backlog" });
     expect(res.status).toBe(200);
@@ -515,10 +577,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("returns 409 when setting same status as current", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-SAME",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-SAME",
+        orcaStatus: "ready" as const,
+      }),
+    );
 
     const res = await postStatus("T-SAME", { status: "ready" });
     expect(res.status).toBe(409);
@@ -527,20 +592,26 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("returns 409 when setting done on already-done task", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONE-SAME",
-      orcaStatus: "done" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-DONE-SAME",
+        orcaStatus: "done" as const,
+      }),
+    );
 
     const res = await postStatus("T-DONE-SAME", { status: "done" });
     expect(res.status).toBe(409);
   });
 
   it("returns 409 when setting backlog on already-backlog task", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-BL-SAME",
-      orcaStatus: "backlog" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-BL-SAME",
+        orcaStatus: "backlog" as const,
+      }),
+    );
 
     const res = await postStatus("T-BL-SAME", { status: "backlog" });
     expect(res.status).toBe(409);
@@ -588,11 +659,14 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("resets retryCount and reviewCycleCount when moving to ready", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-1",
-      orcaStatus: "failed" as const,
-      retryCount: 5,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-COUNTERS-1",
+        orcaStatus: "failed" as const,
+        retryCount: 5,
+      }),
+    );
 
     // Set reviewCycleCount using updateTaskFields
     const { updateTaskFields } = await import("../src/db/queries.js");
@@ -612,11 +686,14 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("resets retryCount and reviewCycleCount when moving to backlog", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-2",
-      orcaStatus: "done" as const,
-      retryCount: 2,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-COUNTERS-2",
+        orcaStatus: "done" as const,
+        retryCount: 2,
+      }),
+    );
 
     const { updateTaskFields } = await import("../src/db/queries.js");
     updateTaskFields(db, "T-COUNTERS-2", { reviewCycleCount: 4 });
@@ -630,11 +707,14 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("does NOT reset counters when moving to done (uses updateTaskStatus)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-COUNTERS-3",
-      orcaStatus: "ready" as const,
-      retryCount: 3,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-COUNTERS-3",
+        orcaStatus: "ready" as const,
+        retryCount: 3,
+      }),
+    );
 
     const res = await postStatus("T-COUNTERS-3", { status: "done" });
     expect(res.status).toBe(200);
@@ -645,13 +725,17 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("resets staleSessionRetryCount when moving to ready", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-STALE-1",
-      orcaStatus: "failed" as const,
-      retryCount: 1,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-STALE-1",
+        orcaStatus: "failed" as const,
+        retryCount: 1,
+      }),
+    );
 
-    const { updateTaskFields, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    const { updateTaskFields, incrementStaleSessionRetryCount } =
+      await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
@@ -667,13 +751,17 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("resets staleSessionRetryCount when moving to backlog", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-STALE-2",
-      orcaStatus: "failed" as const,
-      retryCount: 2,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-STALE-2",
+        orcaStatus: "failed" as const,
+        retryCount: 2,
+      }),
+    );
 
-    const { incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    const { incrementStaleSessionRetryCount } =
+      await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "T-STALE-2");
     incrementStaleSessionRetryCount(db, "T-STALE-2");
 
@@ -692,10 +780,13 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("sets doneAt when moving to done", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONEAT",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-DONEAT",
+        orcaStatus: "ready" as const,
+      }),
+    );
 
     await postStatus("T-DONEAT", { status: "done" });
 
@@ -704,10 +795,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("clears doneAt when moving from done to backlog", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DONEAT-CLEAR",
-      orcaStatus: "done" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-DONEAT-CLEAR",
+        orcaStatus: "done" as const,
+      }),
+    );
     // Set doneAt
     const { updateTaskStatus: uts } = await import("../src/db/queries.js");
     uts(db, "T-DONEAT-CLEAR", "done");
@@ -726,10 +820,13 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("emits task:updated event after status change", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-EVENT",
-      orcaStatus: "backlog" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-EVENT",
+        orcaStatus: "backlog" as const,
+      }),
+    );
 
     await postStatus("T-EVENT", { status: "ready" });
 
@@ -746,10 +843,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("does NOT emit task:updated on error (409)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-NO-EVENT",
-      orcaStatus: "ready" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-NO-EVENT",
+        orcaStatus: "ready" as const,
+      }),
+    );
 
     await postStatus("T-NO-EVENT", { status: "ready" });
     expect(taskUpdatedSpy).not.toHaveBeenCalled();
@@ -760,10 +860,13 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("running -> done: succeeds (kills session logic does not crash without active handles)", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-RUNNING",
-      orcaStatus: "running" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-RUNNING",
+        orcaStatus: "running" as const,
+      }),
+    );
     // Insert a running invocation
     insertInvocation(db, {
       linearIssueId: "T-RUNNING",
@@ -779,10 +882,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("dispatched -> backlog: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-DISPATCHED",
-      orcaStatus: "dispatched" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-DISPATCHED",
+        orcaStatus: "dispatched" as const,
+      }),
+    );
 
     const res = await postStatus("T-DISPATCHED", { status: "backlog" });
     expect(res.status).toBe(200);
@@ -792,10 +898,13 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   it("in_review -> ready: succeeds", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-REVIEW",
-      orcaStatus: "in_review" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-REVIEW",
+        orcaStatus: "in_review" as const,
+      }),
+    );
 
     const res = await postStatus("T-REVIEW", { status: "ready" });
     expect(res.status).toBe(200);
@@ -809,10 +918,13 @@ describe("POST /api/tasks/:id/status", () => {
   // -----------------------------------------------------------------------
 
   it("ignores extra fields in request body", async () => {
-    insertTask(db, makeTask({
-      linearIssueId: "T-EXTRA",
-      orcaStatus: "backlog" as const,
-    }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "T-EXTRA",
+        orcaStatus: "backlog" as const,
+      }),
+    );
 
     const res = await postStatus("T-EXTRA", {
       status: "ready",
@@ -925,7 +1037,9 @@ describe("POST /api/tasks", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    createIssueMock = vi.fn().mockResolvedValue({ id: "issue-abc", identifier: "PROJ-42" });
+    createIssueMock = vi
+      .fn()
+      .mockResolvedValue({ id: "issue-abc", identifier: "PROJ-42" });
     syncTasksMock = vi.fn().mockResolvedValue(0);
     stateMap = new Map([
       ["Backlog", { id: "state-backlog", type: "backlog" }],
@@ -958,33 +1072,43 @@ describe("POST /api/tasks", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ id: "issue-abc", identifier: "PROJ-42" });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Fix the thing",
-      teamId: "team-1",
-      stateId: "state-todo",
-    }));
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Fix the thing",
+        teamId: "team-1",
+        stateId: "state-todo",
+      }),
+    );
   });
 
   it("uses backlog state when status=backlog", async () => {
     await post({ title: "Someday task", status: "backlog" });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({
-      stateId: "state-backlog",
-    }));
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stateId: "state-backlog",
+      }),
+    );
   });
 
   it("passes priority to createIssue", async () => {
     await post({ title: "Urgent bug", priority: 1 });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }));
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ priority: 1 }),
+    );
   });
 
   it("ignores out-of-range priority", async () => {
     await post({ title: "Bad prio", priority: 99 });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ priority: undefined }));
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ priority: undefined }),
+    );
   });
 
   it("trims whitespace from title", async () => {
     await post({ title: "  spaces  " });
-    expect(createIssueMock).toHaveBeenCalledWith(expect.objectContaining({ title: "spaces" }));
+    expect(createIssueMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "spaces" }),
+    );
   });
 
   it("triggers sync after creation", async () => {
@@ -1020,7 +1144,9 @@ describe("POST /api/tasks", () => {
       syncTasks: vi.fn().mockResolvedValue(0),
       client: { createIssue: createIssueMock } as any,
       stateMap,
-      projectMeta: [{ id: "proj-empty", name: "Empty", description: "", teamIds: [] }],
+      projectMeta: [
+        { id: "proj-empty", name: "Empty", description: "", teamIds: [] },
+      ],
     });
     const res = await appNoTeam.request("/api/tasks", {
       method: "POST",
@@ -1110,13 +1236,20 @@ describe("POST /api/invocations/:id/abort", () => {
   });
 
   it("aborts a running invocation and returns ok", async () => {
-    insertTask(db, makeTask({ linearIssueId: "ABORT-TASK-2", orcaStatus: "running" as const }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "ABORT-TASK-2",
+        orcaStatus: "running" as const,
+      }),
+    );
     insertInvocation(db, {
       linearIssueId: "ABORT-TASK-2",
       startedAt: now(),
       status: "running",
     });
-    const { getInvocationsByTask, getTask } = await import("../src/db/queries.js");
+    const { getInvocationsByTask, getTask } =
+      await import("../src/db/queries.js");
     const invocations = getInvocationsByTask(db, "ABORT-TASK-2");
     const id = invocations[0].id;
 
@@ -1137,14 +1270,21 @@ describe("POST /api/invocations/:id/abort", () => {
   });
 
   it("resets staleSessionRetryCount when aborting", async () => {
-    insertTask(db, makeTask({ linearIssueId: "ABORT-TASK-3", orcaStatus: "running" as const }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "ABORT-TASK-3",
+        orcaStatus: "running" as const,
+      }),
+    );
     insertInvocation(db, {
       linearIssueId: "ABORT-TASK-3",
       startedAt: now(),
       status: "running",
     });
 
-    const { getInvocationsByTask, getTask, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    const { getInvocationsByTask, getTask, incrementStaleSessionRetryCount } =
+      await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
     incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
 
@@ -1176,7 +1316,10 @@ describe("POST /api/tasks/:id/retry", () => {
       db,
       config: makeConfig(),
       syncTasks: vi.fn().mockResolvedValue(0),
-      client: { updateIssueState: vi.fn().mockResolvedValue(true), createComment: vi.fn().mockResolvedValue({}) } as any,
+      client: {
+        updateIssueState: vi.fn().mockResolvedValue(true),
+        createComment: vi.fn().mockResolvedValue({}),
+      } as any,
       stateMap: new Map([["Todo", { id: "state-todo", type: "unstarted" }]]),
       projectMeta: [],
     });
@@ -1194,7 +1337,10 @@ describe("POST /api/tasks/:id/retry", () => {
   });
 
   it("returns 409 when task is not failed", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-1", orcaStatus: "ready" as const }));
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "RETRY-TASK-1", orcaStatus: "ready" as const }),
+    );
     const res = await postRetry("RETRY-TASK-1");
     expect(res.status).toBe(409);
     const body = await res.json();
@@ -1202,7 +1348,14 @@ describe("POST /api/tasks/:id/retry", () => {
   });
 
   it("resets counters and moves failed task to ready", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-2", orcaStatus: "failed" as const, retryCount: 3 }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "RETRY-TASK-2",
+        orcaStatus: "failed" as const,
+        retryCount: 3,
+      }),
+    );
     const { getTask, updateTaskFields } = await import("../src/db/queries.js");
     updateTaskFields(db, "RETRY-TASK-2", { reviewCycleCount: 2 });
 
@@ -1218,9 +1371,16 @@ describe("POST /api/tasks/:id/retry", () => {
   });
 
   it("resets staleSessionRetryCount when retrying a failed task", async () => {
-    insertTask(db, makeTask({ linearIssueId: "RETRY-TASK-3", orcaStatus: "failed" as const }));
+    insertTask(
+      db,
+      makeTask({
+        linearIssueId: "RETRY-TASK-3",
+        orcaStatus: "failed" as const,
+      }),
+    );
 
-    const { getTask, incrementStaleSessionRetryCount } = await import("../src/db/queries.js");
+    const { getTask, incrementStaleSessionRetryCount } =
+      await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
     incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
     incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
@@ -1233,5 +1393,106 @@ describe("POST /api/tasks/:id/retry", () => {
 
     const task = getTask(db, "RETRY-TASK-3");
     expect(task!.staleSessionRetryCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/invocations/:id/logs — cron_shell log retrieval
+// ---------------------------------------------------------------------------
+
+describe("GET /api/invocations/:id/logs — cron_shell", () => {
+  let db: OrcaDb;
+  let app: Hono;
+  let tmpLogDir: string;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+    });
+    tmpLogDir = join(tmpdir(), `orca-test-logs-${Date.now()}`);
+    mkdirSync(tmpLogDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(tmpLogDir, { recursive: true, force: true });
+    } catch {
+      /* ignore cleanup errors */
+    }
+  });
+
+  it("returns 404 when cron_shell log file does not exist", async () => {
+    insertTask(db, makeTask({ linearIssueId: "SHELL-LOG-1" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "SHELL-LOG-1",
+      startedAt: now(),
+      status: "completed",
+    });
+    updateInvocation(db, invId, { logPath: join(tmpLogDir, "missing.ndjson") });
+
+    const res = await app.request(`/api/invocations/${invId}/logs`);
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toMatch(/log file not found/i);
+  });
+
+  it("returns parsed NDJSON lines from cron_shell log file", async () => {
+    insertTask(db, makeTask({ linearIssueId: "SHELL-LOG-2" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "SHELL-LOG-2",
+      startedAt: now(),
+      status: "completed",
+    });
+    const logFile = join(tmpLogDir, `${invId}.ndjson`);
+    const entry = {
+      type: "shell_output",
+      exitCode: 0,
+      timedOut: false,
+      output: "hello world\n",
+      timestamp: now(),
+    };
+    writeFileSync(logFile, JSON.stringify(entry) + "\n", "utf-8");
+    updateInvocation(db, invId, { logPath: logFile });
+
+    const res = await app.request(`/api/invocations/${invId}/logs`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toHaveLength(1);
+    expect(body.lines[0]).toMatchObject({
+      type: "shell_output",
+      exitCode: 0,
+      output: "hello world\n",
+    });
+  });
+
+  it("returns parsed NDJSON lines for failed cron_shell log", async () => {
+    insertTask(db, makeTask({ linearIssueId: "SHELL-LOG-3" }));
+    const invId = insertInvocation(db, {
+      linearIssueId: "SHELL-LOG-3",
+      startedAt: now(),
+      status: "failed",
+    });
+    const logFile = join(tmpLogDir, `${invId}.ndjson`);
+    const entry = {
+      type: "shell_output",
+      exitCode: 1,
+      timedOut: false,
+      output: "command not found\n",
+      timestamp: now(),
+    };
+    writeFileSync(logFile, JSON.stringify(entry) + "\n", "utf-8");
+    updateInvocation(db, invId, { logPath: logFile });
+
+    const res = await app.request(`/api/invocations/${invId}/logs`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lines).toHaveLength(1);
+    expect(body.lines[0]).toMatchObject({ type: "shell_output", exitCode: 1 });
   });
 });
