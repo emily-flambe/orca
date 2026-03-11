@@ -340,11 +340,10 @@ async function dispatch(
     updateTaskStatus(db, taskId, "running");
     updateInvocation(db, invocationId, { logPath });
 
-    const shellHandle = spawnShellCommand({
-      command: task.agentPrompt,
-      cwd: task.repoPath,
+    const shellHandle = spawnShellCommand(task.agentPrompt ?? "", {
+      cwd: task.repoPath ?? undefined,
+      timeoutMs: config.sessionTimeoutMin * 60 * 1000,
       invocationId,
-      projectRoot: process.cwd(),
     });
 
     shellHandles.set(invocationId, shellHandle);
@@ -358,7 +357,7 @@ async function dispatch(
         updateInvocation(db, invocationId, {
           endedAt: new Date().toISOString(),
           status: success ? "completed" : "failed",
-          outputSummary: result.outputSummary,
+          outputSummary: result.output,
         });
         updateTaskStatus(db, taskId, success ? "done" : "failed");
         const updatedTask = getTask(db, taskId);
@@ -1784,7 +1783,7 @@ function checkTimeouts(deps: SchedulerDeps): void {
       log(
         `shell invocation ${invId} timed out (task ${runningInv.linearIssueId})`,
       );
-      shellHandle.process.kill("SIGTERM");
+      shellHandle.kill();
       shellHandles.delete(invId);
       updateInvocation(db, invId, {
         status: "timed_out",
@@ -2767,7 +2766,7 @@ export function createScheduler(
       // Kill all shell handles
       for (const [invId, shellHandle] of shellHandles) {
         log(`killing shell process for invocation ${invId}`);
-        shellHandle.process.kill("SIGTERM");
+        shellHandle.kill();
       }
 
       // We cannot await in a sync function, but the kills are fire-and-forget

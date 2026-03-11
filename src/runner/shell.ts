@@ -24,10 +24,8 @@ export function spawnShellCommand(
   opts: { cwd?: string; timeoutMs: number; invocationId: number },
 ): ShellHandle {
   const { cwd, timeoutMs, invocationId } = opts;
-  let child: ChildProcess;
-
   // Use shell:true so the command string is interpreted as a shell command
-  child = spawn(command, [], {
+  const child: ChildProcess = spawn(command, [], {
     cwd,
     shell: true,
     env: process.env,

@@ -164,9 +164,7 @@ function CronForm({
           value={form.prompt}
           onChange={(e) => set("prompt", e.target.value)}
           placeholder={
-            form.type === "shell"
-              ? "e.g. npm run sync"
-              : "Describe the task..."
+            form.type === "shell" ? "e.g. npm run sync" : "Describe the task..."
           }
         />
       </div>
@@ -447,9 +445,7 @@ export default function CronPage() {
                 </span>
                 <span>Next: {formatNextRun(s.nextRunAt)}</span>
                 <span>Runs: {s.runCount}</span>
-                {s.maxRuns != null && (
-                  <span>Max: {s.maxRuns}</span>
-                )}
+                {s.maxRuns != null && <span>Max: {s.maxRuns}</span>}
                 {s.repoPath && (
                   <span className="truncate max-w-[200px]" title={s.repoPath}>
                     {s.repoPath}
