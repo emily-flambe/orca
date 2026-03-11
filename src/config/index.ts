@@ -44,6 +44,7 @@ export interface OrcaConfig {
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
+  cronRetentionDays: number;
 }
 
 function exitWithError(message: string): never {
@@ -328,6 +329,7 @@ Steps:
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
+    cronRetentionDays: readIntOrDefault("ORCA_CRON_RETENTION_DAYS", 7),
   };
 }
 

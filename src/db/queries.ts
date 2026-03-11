@@ -785,11 +785,17 @@ export function getTasksByCronSchedule(db: OrcaDb, scheduleId: number): Task[] {
  * Returns the count of deleted rows.
  */
 export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
+  // Only delete terminal cron tasks (done or failed) — never active/running ones.
+  const terminalStatuses: TaskStatus[] = ["done", "failed"];
   const oldTasks = db
     .select({ id: tasks.linearIssueId })
     .from(tasks)
     .where(
-      and(isNotNull(tasks.cronScheduleId), lt(tasks.createdAt, beforeDate)),
+      and(
+        isNotNull(tasks.cronScheduleId),
+        lt(tasks.createdAt, beforeDate),
+        inArray(tasks.orcaStatus, terminalStatuses),
+      ),
     )
     .all();
 
