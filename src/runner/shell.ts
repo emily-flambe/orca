@@ -42,21 +42,29 @@ function ensureLogsDir(projectRoot: string): string {
 }
 
 /**
- * Concatenate raw Buffers and decode to a UTF-8 string, trimming any
- * incomplete multi-byte sequence at the end.
+ * Concatenate raw Buffers and decode to a UTF-8 string, enforcing a byte cap.
  *
- * When the OS delivers stdout/stderr in chunks that split multi-byte UTF-8
- * sequences (e.g. a 3-byte € split across two chunks), the collected raw
- * bytes may end with 1–2 bytes of an incomplete sequence.  Calling
- * Buffer.toString() on such a buffer inserts U+FFFD replacement characters,
- * which are 3 bytes each — silently exceeding the 1 MB cap.  Trimming the
- * incomplete tail first avoids this.
+ * Two problems are addressed:
+ *
+ * 1. Incomplete tail sequence: OS chunks that split a multi-byte UTF-8
+ *    sequence at the very end of the collected bytes would cause
+ *    Buffer.toString() to insert U+FFFD replacement characters.  The tail
+ *    scan trims any such incomplete sequence.
+ *
+ * 2. Invalid mid-stream sequences: When chunk boundaries split a multi-byte
+ *    sequence and only some bytes are stored (due to the cap), the resulting
+ *    raw buffer may contain isolated start or continuation bytes that are
+ *    invalid UTF-8.  Buffer.toString() replaces each invalid byte with
+ *    U+FFFD (3 UTF-8 bytes), silently inflating the decoded string beyond
+ *    maxBytes.  After decoding we re-enforce the cap on the string's UTF-8
+ *    byte length.
  */
-function concatChunksToString(chunks: Buffer[]): string {
+function concatChunksToString(chunks: Buffer[], maxBytes: number): string {
   const buf = Buffer.concat(chunks);
   // Scan the last 3 bytes for a multi-byte sequence start byte whose sequence
   // extends beyond the buffer end.
   const end = buf.length;
+  let trimEnd = end;
   for (let i = Math.max(0, end - 3); i < end; i++) {
     const b = buf[i]!;
     if ((b & 0x80) === 0) continue; // ASCII — always complete
@@ -69,10 +77,24 @@ function concatChunksToString(chunks: Buffer[]): string {
     else continue; // Unrecognised high byte — leave to toString()
     if (i + seqLen > end) {
       // Incomplete sequence at tail — trim it.
-      return buf.subarray(0, i).toString();
+      trimEnd = i;
+      break;
     }
   }
-  return buf.toString();
+
+  const str = buf.subarray(0, trimEnd).toString();
+
+  // Second cap: replacement characters from invalid mid-stream bytes may
+  // inflate the re-encoded UTF-8 byte length above maxBytes.  Enforce the
+  // cap on the decoded string.
+  if (Buffer.byteLength(str, "utf8") <= maxBytes) {
+    return str;
+  }
+  // Re-encode and find the last UTF-8 sequence boundary at or before maxBytes.
+  const enc = Buffer.from(str, "utf8");
+  let cut = maxBytes;
+  while (cut > 0 && (enc[cut]! & 0xc0) === 0x80) cut--;
+  return enc.subarray(0, cut).toString("utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +148,11 @@ export function spawnShellCommand(
   const proc = spawn(command, [], {
     shell: true,
     stdio: ["ignore", "pipe", "pipe"],
+    // Create a new process group on Unix so we can kill the entire tree
+    // (shell + any child processes it spawns) with process.kill(-pid, signal).
+    // Without this, killing the shell leaves child processes alive holding the
+    // stdout/stderr pipe open, which prevents the 'close' event from firing.
+    ...(platform() !== "win32" ? { detached: true } : {}),
   });
 
   // Mutable capture state.
@@ -239,10 +266,8 @@ export function spawnShellCommand(
 
       const result: ShellResult = {
         exitCode: code,
-        // Buffer.concat + single toString() correctly decodes multi-byte UTF-8
-        // sequences that were split across OS-level chunk boundaries.
-        stdout: concatChunksToString(stdoutChunks),
-        stderr: concatChunksToString(stderrChunks),
+        stdout: concatChunksToString(stdoutChunks, MAX_BUFFER_BYTES),
+        stderr: concatChunksToString(stderrChunks, MAX_BUFFER_BYTES),
         timedOut,
       };
 
@@ -272,8 +297,8 @@ export function spawnShellCommand(
       );
       const result: ShellResult = {
         exitCode: null,
-        stdout: concatChunksToString(stdoutChunks),
-        stderr: concatChunksToString(stderrChunks),
+        stdout: concatChunksToString(stdoutChunks, MAX_BUFFER_BYTES),
+        stderr: concatChunksToString(stderrChunks, MAX_BUFFER_BYTES),
         timedOut,
       };
       logStream.end(() => {
@@ -306,8 +331,8 @@ export function spawnShellCommand(
         // Resolve the done promise so the scheduler is not left hanging.
         resolve({
           exitCode: proc.exitCode,
-          stdout: concatChunksToString(stdoutChunks),
-          stderr: concatChunksToString(stderrChunks),
+          stdout: concatChunksToString(stdoutChunks, MAX_BUFFER_BYTES),
+          stderr: concatChunksToString(stderrChunks, MAX_BUFFER_BYTES),
           timedOut,
         });
       }
@@ -349,11 +374,27 @@ export async function killShellProcess(
   }
 
   // Unix: SIGTERM → wait 5s → SIGKILL
-  proc.kill("SIGTERM");
+  // Send signal to the entire process group (negative PID) so child processes
+  // spawned by the shell also receive the signal and release their pipe handles.
+  // Falls back to proc.kill() if the PID is unavailable.
+  const killGroup = (signal: NodeJS.Signals): void => {
+    if (proc.pid !== undefined) {
+      try {
+        process.kill(-proc.pid, signal);
+      } catch {
+        proc.kill(signal);
+      }
+    } else {
+      proc.kill(signal);
+    }
+  };
+
+  killGroup("SIGTERM");
 
   let killTimerId: ReturnType<typeof setTimeout> | undefined;
   const killTimer = new Promise<"timeout">((resolve) => {
     killTimerId = setTimeout(() => resolve("timeout"), 5_000);
+    killTimerId.unref();
   });
 
   const raceResult = await Promise.race([
@@ -362,7 +403,7 @@ export async function killShellProcess(
   ]);
 
   if (raceResult === "timeout") {
-    proc.kill("SIGKILL");
+    killGroup("SIGKILL");
   } else {
     clearTimeout(killTimerId);
   }
