@@ -904,8 +904,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
-    const { name, type, schedule, prompt, repoPath, timeoutMin, maxRuns } =
-      body as Record<string, unknown>;
+    const {
+      name,
+      type,
+      schedule,
+      prompt,
+      repoPath,
+      model,
+      maxTurns,
+      timeoutMin,
+      maxRuns,
+    } = body as Record<string, unknown>;
 
     if (!name || typeof name !== "string" || name.trim() === "") {
       return c.json({ error: "name is required" }, 400);
@@ -950,6 +959,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         400,
       );
     }
+    if (model !== undefined && model !== null) {
+      const MODEL_SHORTCUTS_CRON = new Set(["opus", "sonnet", "haiku"]);
+      if (
+        typeof model !== "string" ||
+        (!MODEL_SHORTCUTS_CRON.has(model) && !model.startsWith("claude-"))
+      ) {
+        return c.json(
+          {
+            error:
+              "model must be one of opus/sonnet/haiku or a full model ID (claude-...)",
+          },
+          400,
+        );
+      }
+    }
+    if (
+      maxTurns !== undefined &&
+      maxTurns !== null &&
+      (typeof maxTurns !== "number" ||
+        !Number.isInteger(maxTurns) ||
+        maxTurns <= 0)
+    ) {
+      return c.json({ error: "maxTurns must be a positive integer" }, 400);
+    }
 
     const now = new Date().toISOString();
     const nextRunAt = computeNextRunAt(schedule as string);
@@ -959,6 +992,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       schedule: schedule as string,
       prompt: (prompt as string).trim(),
       repoPath: typeof repoPath === "string" ? repoPath : null,
+      model: typeof model === "string" ? model : null,
+      maxTurns: typeof maxTurns === "number" ? maxTurns : null,
       timeoutMin: typeof timeoutMin === "number" ? timeoutMin : 30,
       maxRuns: typeof maxRuns === "number" ? maxRuns : null,
       enabled: 1,
@@ -996,6 +1031,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       schedule,
       prompt,
       repoPath,
+      model,
+      maxTurns,
       timeoutMin,
       maxRuns,
       enabled,
@@ -1046,12 +1083,38 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         400,
       );
     }
+    if (model !== undefined && model !== null) {
+      const MODEL_SHORTCUTS_CRON = new Set(["opus", "sonnet", "haiku"]);
+      if (
+        typeof model !== "string" ||
+        (!MODEL_SHORTCUTS_CRON.has(model) && !model.startsWith("claude-"))
+      ) {
+        return c.json(
+          {
+            error:
+              "model must be one of opus/sonnet/haiku or a full model ID (claude-...)",
+          },
+          400,
+        );
+      }
+    }
+    if (
+      maxTurns !== undefined &&
+      maxTurns !== null &&
+      (typeof maxTurns !== "number" ||
+        !Number.isInteger(maxTurns) ||
+        maxTurns <= 0)
+    ) {
+      return c.json({ error: "maxTurns must be a positive integer" }, 400);
+    }
 
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = (name as string).trim();
     if (type !== undefined) updates.type = type;
     if (prompt !== undefined) updates.prompt = (prompt as string).trim();
     if (repoPath !== undefined) updates.repoPath = repoPath as string | null;
+    if (model !== undefined) updates.model = model as string | null;
+    if (maxTurns !== undefined) updates.maxTurns = maxTurns as number | null;
     if (timeoutMin !== undefined)
       updates.timeoutMin = timeoutMin as number | null;
     if (maxRuns !== undefined) updates.maxRuns = maxRuns as number | null;
