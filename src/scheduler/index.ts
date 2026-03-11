@@ -5,32 +5,21 @@ import type { OrcaDb } from "../db/index.js";
 import {
   countActiveSessions,
   getAllTasks,
-  getAwaitingCiTasks,
-  getDeployingTasks,
   getDispatchableTasks,
-  getInvocationsByTask,
   getLastCompletedImplementInvocation,
   getLastDeployInterruptedInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
   getTask,
-  incrementMergeAttemptCount,
-  resetMergeAttemptCount,
   incrementRetryCount,
-  incrementReviewCycleCount,
-  incrementStaleSessionRetryCount,
   insertBudgetEvent,
   insertInvocation,
   insertTask,
   sumCostInWindow,
   budgetWindowStart,
   updateInvocation,
-  updateTaskCiInfo,
-  updateTaskDeployInfo,
-  updateTaskFields,
-  updateTaskFixReason,
-  updateTaskPrBranch,
   updateTaskStatus,
+  updateTaskFixReason,
   claimTaskForDispatch,
   getDueCronSchedules,
   incrementCronRunCount,
@@ -53,26 +42,14 @@ import {
 import { spawnShellCommand, type ShellHandle } from "../runner/shell.js";
 import { computeNextRunAt } from "../cron/index.js";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   createWorktree,
   removeWorktree,
   WorktreeLockedError,
 } from "../worktree/index.js";
-import { isTransientGitError, isDllInitError, git } from "../git.js";
-import {
-  findPrForBranch,
-  findPrByUrl,
-  getMergeCommitSha,
-  getPrCheckStatus,
-  getWorkflowRunStatus,
-  mergePr,
-  getPrMergeState,
-  updatePrBranch,
-  rebasePrBranch,
-  closeSupersededPrs,
-} from "../github/index.js";
+import { isTransientGitError, isDllInitError } from "../git.js";
 import {
   cleanupStaleResources,
   cleanupOldInvocationLogs,
@@ -80,6 +57,18 @@ import {
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
+import { onImplementSuccess, type Gate2State } from "./gates/gate2.js";
+// mergeAndFinalize is called indirectly via ci-gate.ts and deploy-gate.ts
+import { checkPrCi, type CiGateState } from "./gates/ci-gate.js";
+import { checkDeployments, type DeployGateState } from "./gates/deploy-gate.js";
+import {
+  onSessionFailure,
+  type FailureClassifierState,
+} from "./phases/failure-classifier.js";
+import {
+  onReviewSuccess,
+  type ReviewResultParserState,
+} from "./phases/review-result-parser.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,7 +128,6 @@ const worktreeBurnedRetries = new Map<string, number>();
  * of looping indefinitely.
  */
 const noMarkerRetryCounts = new Map<string, number>();
-const NO_MARKER_RETRY_LIMIT = 3;
 
 /**
  * In-memory cooldown map for rate-limited tasks.
@@ -815,12 +803,57 @@ async function onSessionComplete(
     }
   }
 
+  const failureClassifierState: FailureClassifierState = {
+    rateLimitCooldowns,
+    terminalWriteBackTasks,
+  };
+
   if (isSuccess) {
     if (phase === "implement") {
-      onImplementSuccess(deps, taskId, invocationId, worktreePath, result);
+      const gate2State: Gate2State = { terminalWriteBackTasks };
+      onImplementSuccess(
+        deps,
+        gate2State,
+        taskId,
+        invocationId,
+        worktreePath,
+        result,
+        (
+          _deps,
+          _taskId,
+          _invocationId,
+          _worktreePath,
+          _result,
+          _phase,
+          _isFixPhase,
+        ) =>
+          onSessionFailure(
+            _deps,
+            failureClassifierState,
+            _taskId,
+            _invocationId,
+            _worktreePath,
+            _result,
+            _phase,
+            _isFixPhase,
+            handleRetry,
+          ),
+      );
     } else {
+      const reviewState: ReviewResultParserState = {
+        noMarkerRetryCounts,
+        terminalWriteBackTasks,
+      };
       try {
-        await onReviewSuccess(deps, taskId, invocationId, worktreePath, result);
+        await onReviewSuccess(
+          deps,
+          reviewState,
+          taskId,
+          invocationId,
+          worktreePath,
+          result,
+          handleRetry,
+        );
       } catch (err) {
         log(`onReviewSuccess error for task ${taskId}: ${err}`);
       }
@@ -828,765 +861,19 @@ async function onSessionComplete(
   } else {
     onSessionFailure(
       deps,
+      failureClassifierState,
       taskId,
       invocationId,
       worktreePath,
       result,
       phase,
       isFixPhase,
+      handleRetry,
     );
   }
 
   // Evaluate parent status if this task is a child
   triggerParentEval(deps, taskId);
-}
-
-// ---------------------------------------------------------------------------
-// Helper: find the local repo path that matches a GitHub owner/repo slug
-// ---------------------------------------------------------------------------
-
-/**
- * Given a GitHub owner/repo slug (e.g. "acme/myrepo"), searches all known
- * local repo paths from the config and returns the first one whose
- * `git remote get-url origin` resolves to that slug.
- *
- * Returns null if no matching local path is found.
- */
-function findLocalPathForGithubRepo(
-  ownerRepo: string,
-  config: OrcaConfig,
-): string | null {
-  const candidates: string[] = [
-    ...config.projectRepoMap.values(),
-    ...(config.defaultCwd ? [config.defaultCwd] : []),
-  ];
-  const sshPattern = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/;
-  for (const candidatePath of candidates) {
-    try {
-      const remoteUrl = git(["remote", "get-url", "origin"], {
-        cwd: candidatePath,
-      }).trim();
-      const m = remoteUrl.match(sshPattern);
-      if (m && m[1] === ownerRepo) {
-        return candidatePath;
-      }
-    } catch {
-      // path may not exist or may not be a git repo — skip
-    }
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Helper: detect whether a worktree has no local commits vs origin/main
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true if the worktree at `worktreePath` has no commits ahead of
- * `origin/main`. Used to objectively detect "already done" tasks where
- * Claude succeeded but made no changes (because none were needed).
- */
-function worktreeHasNoChanges(worktreePath: string): boolean {
-  try {
-    if (!existsSync(worktreePath)) return false;
-    const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
-    return diff.trim() === "";
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Implement success: verify PR, transition to in_review
-// ---------------------------------------------------------------------------
-
-function onImplementSuccess(
-  deps: SchedulerDeps,
-  taskId: string,
-  invocationId: number,
-  worktreePath: string,
-  result: SessionResult,
-): void {
-  const { db, config, client, stateMap } = deps;
-  const task = getTask(db, taskId);
-  if (!task) return;
-
-  // Get branch name from the invocation record
-  const invocations = getInvocationsByTask(db, taskId);
-  const thisInv = invocations.find((inv) => inv.id === invocationId);
-  const branchName = thisInv?.branchName ?? task.prBranchName;
-
-  // Check if Claude indicated the work is already on main (no branch/PR needed)
-  const summary = result.outputSummary?.toLowerCase() ?? "";
-  const alreadyDonePatterns = [
-    "already complete",
-    "already implemented",
-    "already merged",
-    "already on main",
-    "already on `main`",
-    "already on `origin/main`",
-    "already exists",
-    "already satisfied",
-    "already done",
-    "nothing to do",
-    "no changes needed",
-    "acceptance criteria",
-  ];
-  const isAlreadyDone = alreadyDonePatterns.some((p) => summary.includes(p));
-
-  // Hard gate: branch name is required
-  if (!branchName) {
-    // Objective check: if the worktree has no commits ahead of origin/main,
-    // Claude made no changes — the task was already complete.
-    const noChanges = worktreeHasNoChanges(worktreePath);
-    if (noChanges || isAlreadyDone) {
-      const reason = noChanges
-        ? "no local commits on worktree"
-        : "output summary indicates already done";
-      log(
-        `task ${taskId}: work already complete on main (${reason}) — marking done`,
-      );
-      updateTaskStatus(db, taskId, "done");
-      emitTaskUpdated(getTask(db, taskId)!);
-      terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on already-done for task ${taskId}: ${err}`);
-      });
-      try {
-        const closedCount = closeSupersededPrs(
-          taskId,
-          0,
-          0,
-          "",
-          task.repoPath,
-          "Closed: the task was already complete on the main branch — no changes were needed.",
-        );
-        if (closedCount > 0) {
-          log(
-            `closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`,
-          );
-        }
-      } catch (err) {
-        log(`PR cleanup for already-done task ${taskId}: ${err}`);
-      }
-      try {
-        removeWorktree(worktreePath);
-      } catch (err) {
-        log(`worktree removal for already-done task ${taskId}: ${err}`);
-      }
-      return;
-    }
-
-    const gateMsg = "no branch name found on invocation or task";
-    log(`task ${taskId}: ${gateMsg} — treating as failure`);
-    updateInvocation(db, invocationId, {
-      status: "failed",
-      outputSummary: `Post-implementation gate failed: ${gateMsg}`,
-    });
-    onSessionFailure(
-      deps,
-      taskId,
-      invocationId,
-      worktreePath,
-      result,
-      "implement",
-    );
-    return;
-  }
-
-  // Hard gate: PR must exist
-  let prInfo = findPrForBranch(branchName, task.repoPath);
-  let wrongRepoUrlFound = false;
-  let rejectedUrl: string | undefined;
-  if (!prInfo.exists) {
-    // Fallback: try to verify via PR URL extracted from Claude's summary.
-    // This handles GitHub API lag or branch name mismatches where
-    // `gh pr list --head <branch>` returns empty but the PR was created.
-    const rawSummary = result.outputSummary ?? "";
-    const prUrlMatch = rawSummary.match(
-      /https:\/\/github\.com\/([^\s/]+)\/([^\s/]+)\/pull\/(\d+)/,
-    );
-    if (prUrlMatch) {
-      const extractedUrl = prUrlMatch[0];
-      // Validate the extracted URL belongs to the same repo as task.repoPath.
-      // This prevents an unrelated PR URL mentioned in the summary from
-      // hijacking Gate 2 (e.g. a reference PR from another org/repo).
-      let repoUrlPrefix: string | null = null;
-      try {
-        const remoteUrl = git(["remote", "get-url", "origin"], {
-          cwd: task.repoPath,
-        }).trim();
-        // Normalize SSH → HTTPS: git@github.com:owner/repo.git → https://github.com/owner/repo
-        const sshMatch = remoteUrl.match(
-          /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/,
-        );
-        if (sshMatch) {
-          repoUrlPrefix = `https://github.com/${sshMatch[1]}/pull/`;
-        }
-      } catch {
-        // If we can't get the remote URL, skip the validation (allow fallback)
-      }
-      const urlBelongsToRepo =
-        repoUrlPrefix === null || extractedUrl.startsWith(repoUrlPrefix);
-      if (urlBelongsToRepo) {
-        log(
-          `task ${taskId}: Gate 2 branch lookup found no PR for ${branchName}, ` +
-            `trying PR URL from summary: ${extractedUrl}`,
-        );
-        const urlInfo = findPrByUrl(extractedUrl, task.repoPath);
-        if (urlInfo.exists) {
-          log(
-            `task ${taskId}: Gate 2 PR confirmed via URL fallback (PR #${urlInfo.number})`,
-          );
-          prInfo = urlInfo;
-        }
-      } else {
-        // PR URL found in summary but it belongs to a different repo than task.repoPath.
-        // Try to find the actual local path that matches the PR's owner/repo.
-        const extractedOwnerRepo = `${prUrlMatch[1]}/${prUrlMatch[2]}`;
-        const actualPath = findLocalPathForGithubRepo(
-          extractedOwnerRepo,
-          config,
-        );
-        if (actualPath) {
-          log(
-            `task ${taskId}: Gate 2 detected repo_path mismatch — task.repoPath is ${task.repoPath}, ` +
-              `but PR ${extractedUrl} belongs to ${actualPath} (${extractedOwnerRepo}); ` +
-              `updating task repo_path and proceeding`,
-          );
-          updateTaskFields(db, taskId, { repoPath: actualPath });
-          task.repoPath = actualPath;
-          const urlInfo = findPrByUrl(extractedUrl, actualPath);
-          if (urlInfo.exists) {
-            log(
-              `task ${taskId}: Gate 2 PR confirmed via repo-corrected URL fallback (PR #${urlInfo.number})`,
-            );
-            prInfo = urlInfo;
-          }
-        } else {
-          log(
-            `task ${taskId}: Gate 2 found PR URL in summary (${extractedUrl}) but it belongs to a different repo ` +
-              `(${extractedOwnerRepo}) and no matching local path found — failing for manual review`,
-          );
-          wrongRepoUrlFound = true;
-          rejectedUrl = extractedUrl;
-        }
-      }
-    }
-  }
-
-  if (!prInfo.exists) {
-    // Check objectively (git diff) or via text patterns if no PR was opened
-    const noChanges = worktreeHasNoChanges(worktreePath);
-    if (!wrongRepoUrlFound && (noChanges || isAlreadyDone)) {
-      const reason = noChanges
-        ? "no local commits on worktree"
-        : "output summary indicates already done";
-      log(
-        `task ${taskId}: work already complete on main (no PR needed, ${reason}) — marking done`,
-      );
-      updateTaskStatus(db, taskId, "done");
-      emitTaskUpdated(getTask(db, taskId)!);
-      terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on already-done for task ${taskId}: ${err}`);
-      });
-      try {
-        const closedCount = closeSupersededPrs(
-          taskId,
-          0,
-          0,
-          "",
-          task.repoPath,
-          "Closed: the task was already complete on the main branch — no changes were needed.",
-        );
-        if (closedCount > 0) {
-          log(
-            `closed ${closedCount} orphaned PR(s) for already-done task ${taskId}`,
-          );
-        }
-      } catch (err) {
-        log(`PR cleanup for already-done task ${taskId}: ${err}`);
-      }
-      try {
-        removeWorktree(worktreePath);
-      } catch (err) {
-        log(`worktree removal for already-done task ${taskId}: ${err}`);
-      }
-      return;
-    }
-
-    if (wrongRepoUrlFound && noChanges) {
-      log(
-        `task ${taskId}: Gate 2 found PR URL in summary but it belongs to a different repo (${rejectedUrl}) — likely repo_path mismatch; treating as failure for manual review`,
-      );
-    }
-    const gateMsg = `no PR found for branch ${branchName}`;
-    log(
-      `task ${taskId}: implementation succeeded but ${gateMsg} — treating as failure`,
-    );
-    updateInvocation(db, invocationId, {
-      status: "failed",
-      outputSummary: `Post-implementation gate failed: ${gateMsg}`,
-    });
-    onSessionFailure(
-      deps,
-      taskId,
-      invocationId,
-      worktreePath,
-      result,
-      "implement",
-    );
-    return;
-  }
-
-  // Store the PR branch name and PR number on the task
-  updateTaskPrBranch(db, taskId, branchName);
-  if (prInfo.number != null) {
-    updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
-  }
-
-  // Close any superseded PRs for this task
-  if (prInfo.number != null) {
-    const supersededCount = closeSupersededPrs(
-      taskId,
-      prInfo.number,
-      invocationId,
-      branchName,
-      task.repoPath,
-    );
-    if (supersededCount > 0) {
-      log(`closed ${supersededCount} superseded PR(s) for task ${taskId}`);
-    }
-  } else {
-    log(
-      `skipping superseded PR closure for task ${taskId}: no PR number available`,
-    );
-  }
-
-  // Attach PR link to Linear issue (fire-and-forget)
-  if (prInfo.url) {
-    client
-      .createAttachment(task.linearIssueId, prInfo.url, "Pull Request")
-      .catch((err) => {
-        log(`failed to attach PR link to Linear issue ${taskId}: ${err}`);
-      });
-  }
-
-  // Transition to in_review
-  updateTaskStatus(db, taskId, "in_review");
-  emitTaskUpdated(getTask(db, taskId)!);
-
-  // Write-back "In Review"
-  if (!terminalWriteBackTasks.has(taskId)) {
-    writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-      log(`write-back failed on implement success for task ${taskId}: ${err}`);
-    });
-  }
-
-  // Post implementation success comment (fire-and-forget)
-  client
-    .createComment(
-      taskId,
-      `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${branchName}\``,
-    )
-    .catch((err) => {
-      log(`comment failed on implement success for task ${taskId}: ${err}`);
-    });
-
-  // Clean up worktree
-  try {
-    removeWorktree(worktreePath);
-  } catch (err) {
-    log(`worktree removal failed for invocation ${invocationId}: ${err}`);
-  }
-
-  log(
-    `task ${taskId} implementation complete → in_review (invocation ${invocationId}, ` +
-      `PR #${prInfo.number ?? "?"}, cost: $${result.costUsd ?? "unknown"}, turns: ${result.numTurns ?? "unknown"})`,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Review success: parse result, merge or request changes
-// ---------------------------------------------------------------------------
-
-/**
- * Scan the NDJSON session log for a REVIEW_RESULT marker in assistant messages.
- * Returns "APPROVED", "CHANGES_REQUESTED", or null if not found.
- */
-function extractMarkerFromLog(invocationId: number): string | null {
-  try {
-    const logPath = join(process.cwd(), "logs", `${invocationId}.ndjson`);
-    if (!existsSync(logPath)) return null;
-    const lines = readFileSync(logPath, "utf8").split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line) as Record<string, unknown>;
-        if (msg.type !== "assistant") continue;
-        // Extract all text from assistant message content
-        const message = msg.message as Record<string, unknown> | undefined;
-        const content = message?.content;
-        if (!Array.isArray(content)) continue;
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === "text" && typeof b.text === "string") {
-            if (b.text.includes("REVIEW_RESULT:APPROVED")) return "APPROVED";
-            if (b.text.includes("REVIEW_RESULT:CHANGES_REQUESTED"))
-              return "CHANGES_REQUESTED";
-          }
-        }
-      } catch {
-        // skip malformed JSON lines
-      }
-    }
-  } catch {
-    // skip if file unreadable
-  }
-  return null;
-}
-
-async function onReviewSuccess(
-  deps: SchedulerDeps,
-  taskId: string,
-  invocationId: number,
-  worktreePath: string,
-  result: SessionResult,
-): Promise<void> {
-  const { db, config, client, stateMap } = deps;
-  const task = getTask(db, taskId);
-  if (!task) return;
-
-  const summary = result.outputSummary ?? "";
-
-  // Parse review result marker
-  let approved = summary.includes("REVIEW_RESULT:APPROVED");
-  let changesRequested = summary.includes("REVIEW_RESULT:CHANGES_REQUESTED");
-
-  // If marker not found in summary, scan the full NDJSON log for assistant messages
-  if (!approved && !changesRequested) {
-    const markerFromLog = extractMarkerFromLog(invocationId);
-    if (markerFromLog === "APPROVED") {
-      approved = true;
-      log(
-        `task ${taskId}: REVIEW_RESULT:APPROVED found in NDJSON log (not in summary)`,
-      );
-    } else if (markerFromLog === "CHANGES_REQUESTED") {
-      changesRequested = true;
-      log(
-        `task ${taskId}: REVIEW_RESULT:CHANGES_REQUESTED found in NDJSON log (not in summary)`,
-      );
-    }
-  }
-
-  if (approved) {
-    noMarkerRetryCounts.delete(taskId);
-    // Clean up worktree
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(`worktree removal failed for invocation ${invocationId}: ${err}`);
-    }
-
-    // Transition to awaiting_ci — Orca will poll CI on the PR and merge when it passes
-    const ciNow = new Date().toISOString();
-    updateTaskCiInfo(db, taskId, { ciStartedAt: ciNow });
-    updateTaskStatus(db, taskId, "awaiting_ci");
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    // Write-back (no-op for awaiting_ci, Linear stays at "In Review")
-    if (!terminalWriteBackTasks.has(taskId)) {
-      writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
-        log(`write-back failed on review approved for task ${taskId}: ${err}`);
-      });
-    }
-
-    // Post comment (fire-and-forget)
-    client
-      .createComment(
-        taskId,
-        `Review approved — awaiting CI checks on PR #${task.prNumber ?? "?"} before merging`,
-      )
-      .catch((err) => {
-        log(`comment failed on review approved for task ${taskId}: ${err}`);
-      });
-
-    log(
-      `task ${taskId} review approved → awaiting_ci (invocation ${invocationId}, ` +
-        `PR #${task.prNumber ?? "?"})`,
-    );
-  } else if (changesRequested) {
-    noMarkerRetryCounts.delete(taskId);
-    if (task.reviewCycleCount < config.maxReviewCycles) {
-      // Increment cycle count and send back for fixes
-      incrementReviewCycleCount(db, taskId);
-      updateTaskStatus(db, taskId, "changes_requested");
-      emitTaskUpdated(getTask(db, taskId)!);
-
-      if (!terminalWriteBackTasks.has(taskId)) {
-        writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on changes requested for task ${taskId}: ${err}`,
-            );
-          },
-        );
-      }
-
-      // Post changes requested comment (fire-and-forget)
-      client
-        .createComment(
-          taskId,
-          `Review requested changes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-        )
-        .catch((err) => {
-          log(`comment failed on changes requested for task ${taskId}: ${err}`);
-        });
-
-      try {
-        removeWorktree(worktreePath);
-      } catch (err) {
-        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
-      }
-
-      log(
-        `task ${taskId} review requested changes → changes_requested ` +
-          `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-      );
-    } else {
-      // Review cycles exhausted — leave as in_review for human intervention
-      updateTaskStatus(db, taskId, "in_review");
-      emitTaskUpdated(getTask(db, taskId)!);
-
-      try {
-        removeWorktree(worktreePath);
-      } catch (err) {
-        log(`worktree removal failed for invocation ${invocationId}: ${err}`);
-      }
-
-      log(
-        `task ${taskId} review cycles exhausted (${config.maxReviewCycles}), ` +
-          `leaving as in_review for human intervention`,
-      );
-    }
-  } else {
-    // No review result marker found — retry review up to NO_MARKER_RETRY_LIMIT times
-    const noMarkerCount = (noMarkerRetryCounts.get(taskId) ?? 0) + 1;
-    noMarkerRetryCounts.set(taskId, noMarkerCount);
-
-    if (noMarkerCount >= NO_MARKER_RETRY_LIMIT) {
-      // Too many retries without a marker — burn a real retry
-      log(
-        `task ${taskId}: ${noMarkerCount} reviews without REVIEW_RESULT marker — treating as failure`,
-      );
-      noMarkerRetryCounts.delete(taskId);
-      updateTaskStatus(db, taskId, "failed");
-      emitTaskUpdated(getTask(db, taskId)!);
-      handleRetry(
-        deps,
-        taskId,
-        "review completed without REVIEW_RESULT marker after multiple attempts",
-        "review",
-      );
-    } else {
-      log(
-        `task ${taskId}: review completed but no REVIEW_RESULT marker found (${noMarkerCount}/${NO_MARKER_RETRY_LIMIT}) — retrying review`,
-      );
-      updateTaskStatus(db, taskId, "in_review");
-      emitTaskUpdated(getTask(db, taskId)!);
-    }
-
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(`worktree removal failed for invocation ${invocationId}: ${err}`);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Session failure handler
-// ---------------------------------------------------------------------------
-
-function onSessionFailure(
-  deps: SchedulerDeps,
-  taskId: string,
-  invocationId: number,
-  worktreePath: string,
-  result: SessionResult,
-  phase: DispatchPhase,
-  isFixPhase = false,
-): void {
-  const { db, config, client, stateMap } = deps;
-
-  log(
-    `task ${taskId} failed (invocation ${invocationId}, ` +
-      `subtype: ${result.subtype}, summary: ${result.outputSummary})`,
-  );
-
-  // Rate-limited: re-queue without burning a retry slot.
-  if (result.subtype === "rate_limited") {
-    // Record cooldown expiry if we know when the limit resets.
-    if (result.rateLimitResetsAt) {
-      const expiresAt = new Date(result.rateLimitResetsAt).getTime();
-      if (!isNaN(expiresAt)) {
-        rateLimitCooldowns.set(taskId, expiresAt);
-      }
-    }
-
-    // Put task back in the queue for the same phase, without incrementing retryCount.
-    const requeueStatus =
-      phase === "review" ? ("in_review" as const) : ("ready" as const);
-    updateTaskStatus(db, taskId, requeueStatus);
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    client
-      .createComment(
-        taskId,
-        `Rate limited (${result.outputSummary}) — will retry automatically when quota resets`,
-      )
-      .catch((err) => {
-        log(`comment failed on rate limit for task ${taskId}: ${err}`);
-      });
-
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(
-        `worktree removal on rate limit for invocation ${invocationId}: ${err}`,
-      );
-    }
-    return;
-  }
-
-  // Stale session resume — clear session ID and re-dispatch fresh instead of burning a retry
-  if (
-    result.subtype === "error_during_execution" &&
-    result.outputSummary?.includes("No conversation found with session ID")
-  ) {
-    log(
-      `task ${taskId}: stale session detected — clearing session and re-dispatching fresh`,
-    );
-    // Clear the stale session from the CURRENT invocation
-    updateInvocation(db, invocationId, {
-      sessionId: null,
-    });
-    // Also clear the session from the ORIGINAL completed invocation that provided
-    // the session ID, so getLastCompletedImplementInvocation won't return it again
-    const sourceInv = getLastCompletedImplementInvocation(db, taskId);
-    if (sourceInv) {
-      log(
-        `task ${taskId}: clearing stale session from source invocation ${sourceInv.id}`,
-      );
-      updateInvocation(db, sourceInv.id, { sessionId: null });
-    }
-    // Increment stale-session retry counter and cap at 3 to prevent runaway loops
-    const staleRetries = incrementStaleSessionRetryCount(db, taskId);
-    const maxStaleSessionRetries = 3;
-    if (staleRetries >= maxStaleSessionRetries) {
-      log(
-        `task ${taskId}: stale session retry limit reached (${staleRetries}/${maxStaleSessionRetries}) — permanently failing`,
-      );
-      updateTaskStatus(db, taskId, "failed");
-      const failedTask = getTask(db, taskId);
-      emitTaskUpdated(failedTask!);
-      client
-        .createComment(
-          taskId,
-          `Task permanently failed: stale session detected ${staleRetries} times in a row. The Claude session cannot be resumed — manual intervention required.`,
-        )
-        .catch((err) => {
-          log(`comment failed on stale session cap for task ${taskId}: ${err}`);
-        });
-      try {
-        removeWorktree(worktreePath);
-      } catch (err) {
-        log(
-          `worktree removal on stale session cap for invocation ${invocationId}: ${err}`,
-        );
-      }
-      return;
-    }
-
-    // Re-queue without burning a retry
-    const staleTask = getTask(db, taskId);
-    const requeueStatus =
-      phase === "review"
-        ? ("in_review" as const)
-        : staleTask && staleTask.reviewCycleCount > 0
-          ? ("changes_requested" as const)
-          : ("ready" as const);
-    updateTaskStatus(db, taskId, requeueStatus);
-    emitTaskUpdated(staleTask!);
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(
-        `worktree removal on stale session for invocation ${invocationId}: ${err}`,
-      );
-    }
-    return;
-  }
-
-  // Content filtering: permanent failure — retries are futile (same prompt → same block)
-  if (
-    result.outputSummary?.includes("Output blocked by content filtering policy")
-  ) {
-    log(
-      `task ${taskId}: content filtering — permanently failing without retries (retries would be futile)`,
-    );
-    updateTaskStatus(db, taskId, "failed");
-    emitTaskUpdated(getTask(db, taskId)!);
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(
-        `worktree removal on content filter for invocation ${invocationId}: ${err}`,
-      );
-    }
-    terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-      (err) => {
-        log(`write-back failed on content filter for task ${taskId}: ${err}`);
-      },
-    );
-    client
-      .createComment(
-        taskId,
-        `Task permanently failed: output blocked by Claude's content filtering policy. Retries skipped — the same prompt would produce the same result.`,
-      )
-      .catch((err) => {
-        log(`comment failed on content filter for task ${taskId}: ${err}`);
-      });
-    return;
-  }
-
-  updateTaskStatus(db, taskId, "failed");
-  emitTaskUpdated(getTask(db, taskId)!);
-
-  // Preserve worktree for resume when max turns hit on fresh implement phase.
-  // Fix sessions (implement on changes_requested) create their own fresh worktree
-  // from the PR branch but still resume the previous session via sessionId.
-  const preserveForResume =
-    result.subtype === "error_max_turns" &&
-    config.resumeOnMaxTurns &&
-    phase === "implement" &&
-    !isFixPhase;
-
-  if (preserveForResume) {
-    log(`preserving worktree for resume: ${worktreePath}`);
-  } else {
-    // Clean up worktree so retries start fresh
-    try {
-      removeWorktree(worktreePath);
-    } catch (err) {
-      log(`worktree removal on failure for invocation ${invocationId}: ${err}`);
-    }
-  }
-
-  // Retry logic — review failures retry as in_review, not ready
-  handleRetry(deps, taskId, result.outputSummary, phase);
 }
 
 // ---------------------------------------------------------------------------
@@ -1914,595 +1201,16 @@ function triggerSelfDeploy(): void {
 // Deploy monitoring
 // ---------------------------------------------------------------------------
 
-/** Last poll time per task ID, for throttling. */
+/** Last poll time per task ID, for throttling deploy checks. */
 const deployPollTimes = new Map<string, number>();
-
-/** Last time cleanup ran (epoch ms), for throttling. */
-let lastCleanupTime = 0;
-
-async function checkDeployments(deps: SchedulerDeps): Promise<void> {
-  const { db, config, client, stateMap } = deps;
-
-  if (config.deployStrategy === "none") return;
-
-  const deploying = getDeployingTasks(db);
-  if (deploying.length === 0) return;
-
-  const now = Date.now();
-  const pollIntervalMs = config.deployPollIntervalSec * 1000;
-  const timeoutMs = config.deployTimeoutMin * 60 * 1000;
-
-  for (const task of deploying) {
-    const taskId = task.linearIssueId;
-
-    // Throttle: skip if polled too recently
-    const lastPoll = deployPollTimes.get(taskId) ?? 0;
-    if (now - lastPoll < pollIntervalMs) continue;
-    deployPollTimes.set(taskId, now);
-
-    // Timeout check
-    if (task.deployStartedAt) {
-      const startedAt = new Date(task.deployStartedAt).getTime();
-      if (startedAt + timeoutMs < now) {
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-        deployPollTimes.delete(taskId);
-
-        terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on deploy timeout for task ${taskId}: ${err}`,
-            );
-          },
-        );
-
-        // Post deploy timeout comment (fire-and-forget)
-        client
-          .createComment(
-            taskId,
-            `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
-          )
-          .catch((err) => {
-            log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
-          });
-
-        log(
-          `task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`,
-        );
-        continue;
-      }
-    }
-
-    // Defensive: no SHA means we can't monitor — mark done with warning
-    if (!task.mergeCommitSha) {
-      updateTaskStatus(db, taskId, "done");
-      emitTaskUpdated(getTask(db, taskId)!);
-      deployPollTimes.delete(taskId);
-
-      terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
-      });
-
-      client.createComment(taskId, "Task complete").catch((err) => {
-        log(`comment failed on done (no SHA) for task ${taskId}: ${err}`);
-      });
-
-      log(
-        `task ${taskId} deploying → done (no merge commit SHA, skipping CI check)`,
-      );
-      triggerParentEval(deps, taskId);
-      continue;
-    }
-
-    // Poll GitHub Actions
-    const status = await getWorkflowRunStatus(
-      task.mergeCommitSha,
-      task.repoPath,
-    );
-
-    if (status === "success") {
-      updateTaskStatus(db, taskId, "done");
-      emitTaskUpdated(getTask(db, taskId)!);
-      deployPollTimes.delete(taskId);
-
-      terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy success for task ${taskId}: ${err}`);
-      });
-
-      // Post done comment (fire-and-forget)
-      client.createComment(taskId, "Task complete").catch((err) => {
-        log(`comment failed on deploy success for task ${taskId}: ${err}`);
-      });
-
-      log(
-        `task ${taskId} deploy succeeded → done (SHA: ${task.mergeCommitSha})`,
-      );
-      triggerParentEval(deps, taskId);
-
-      // Self-deploy: if this task's repo is the Orca project, restart with new code
-      if (isOrcaProjectTask(task.repoPath)) {
-        triggerSelfDeploy();
-      }
-    } else if (status === "failure") {
-      updateTaskStatus(db, taskId, "failed");
-      emitTaskUpdated(getTask(db, taskId)!);
-      deployPollTimes.delete(taskId);
-
-      terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-        (err) => {
-          log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
-        },
-      );
-
-      // Post deploy failure comment (fire-and-forget)
-      client
-        .createComment(
-          taskId,
-          `Deploy CI failed for commit ${task.mergeCommitSha} — task failed permanently`,
-        )
-        .catch((err) => {
-          log(`comment failed on deploy failure for task ${taskId}: ${err}`);
-        });
-
-      log(
-        `task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`,
-      );
-    }
-    // "pending", "in_progress", "no_runs" → skip, poll again next interval
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Pre-merge CI gate: poll PR checks, merge on success
-// ---------------------------------------------------------------------------
 
 /** Last poll time per task ID, for throttling CI checks. */
 const ciPollTimes = new Map<string, number>();
 
-async function checkPrCi(deps: SchedulerDeps): Promise<void> {
-  const { db, config, client, stateMap } = deps;
+/** Last time cleanup ran (epoch ms), for throttling. */
+let lastCleanupTime = 0;
 
-  const awaitingCi = getAwaitingCiTasks(db);
-  if (awaitingCi.length === 0) return;
-
-  const now = Date.now();
-  const pollIntervalMs = config.deployPollIntervalSec * 1000;
-  const timeoutMs = config.deployTimeoutMin * 60 * 1000;
-
-  for (const task of awaitingCi) {
-    const taskId = task.linearIssueId;
-
-    // Throttle: skip if polled too recently
-    const lastPoll = ciPollTimes.get(taskId) ?? 0;
-    if (now - lastPoll < pollIntervalMs) continue;
-    ciPollTimes.set(taskId, now);
-
-    // Timeout check
-    if (task.ciStartedAt) {
-      const startedAt = new Date(task.ciStartedAt).getTime();
-      if (startedAt + timeoutMs < now) {
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-        ciPollTimes.delete(taskId);
-
-        terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(`write-back failed on CI timeout for task ${taskId}: ${err}`);
-          },
-        );
-
-        client
-          .createComment(
-            taskId,
-            `CI timed out after ${config.deployTimeoutMin}min — task failed`,
-          )
-          .catch((err) => {
-            log(`comment failed on CI timeout for task ${taskId}: ${err}`);
-          });
-
-        log(`task ${taskId} CI timed out after ${config.deployTimeoutMin}min`);
-        continue;
-      }
-    }
-
-    // No PR number: can't check CI — merge immediately
-    if (!task.prNumber) {
-      log(
-        `task ${taskId} awaiting_ci but no PR number — skipping CI, marking done`,
-      );
-      await mergeAndFinalize(deps, taskId);
-      ciPollTimes.delete(taskId);
-      continue;
-    }
-
-    // Poll PR check status
-    const status = await getPrCheckStatus(task.prNumber, task.repoPath);
-
-    if (status === "success" || status === "no_checks") {
-      // CI passed or no checks configured — merge the PR
-      await mergeAndFinalize(deps, taskId);
-      ciPollTimes.delete(taskId);
-    } else if (status === "failure") {
-      ciPollTimes.delete(taskId);
-
-      // Check review cycle cap
-      if (task.reviewCycleCount < config.maxReviewCycles) {
-        incrementReviewCycleCount(db, taskId);
-        updateTaskStatus(db, taskId, "changes_requested");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-            (err) => {
-              log(`write-back failed on CI failure for task ${taskId}: ${err}`);
-            },
-          );
-        }
-
-        client
-          .createComment(
-            taskId,
-            `CI failed on PR #${task.prNumber} — requesting fixes (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-          )
-          .catch((err) => {
-            log(`comment failed on CI failure for task ${taskId}: ${err}`);
-          });
-
-        log(
-          `task ${taskId} CI failed → changes_requested ` +
-            `(cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-        );
-      } else {
-        // Cycles exhausted — mark as failed
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`,
-            );
-          },
-        );
-
-        client
-          .createComment(
-            taskId,
-            `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`,
-            );
-          });
-
-        log(`task ${taskId} CI failed, cycles exhausted → failed`);
-      }
-    }
-    // "pending" → skip, poll again next interval
-  }
-}
-
-/**
- * Merge a PR programmatically and transition the task to done/deploying.
- */
-async function mergeAndFinalize(
-  deps: SchedulerDeps,
-  taskId: string,
-): Promise<void> {
-  const { db, config, client, stateMap } = deps;
-  const task = getTask(db, taskId);
-  if (!task) return;
-
-  if (task.prNumber) {
-    // Pre-flight: check merge state before attempting merge
-    const mergeState = await getPrMergeState(task.prNumber, task.repoPath);
-    log(
-      `task ${taskId} PR #${task.prNumber} mergeStateStatus: ${mergeState.mergeStateStatus}`,
-    );
-
-    if (mergeState.mergeStateStatus === "BEHIND") {
-      // Branch is behind main but has no conflicts — update it
-      log(`task ${taskId} PR #${task.prNumber} is BEHIND — updating branch`);
-      const updated = await updatePrBranch(task.prNumber, task.repoPath);
-      if (!updated) {
-        log(
-          `task ${taskId} PR #${task.prNumber} branch update failed — proceeding with merge anyway`,
-        );
-      } else {
-        log(`task ${taskId} PR #${task.prNumber} branch updated successfully`);
-      }
-    } else if (mergeState.mergeStateStatus === "CONFLICTING") {
-      // Merge conflicts — trigger a fix-phase invocation to rebase and resolve
-      log(
-        `task ${taskId} PR #${task.prNumber} has CONFLICTING state — triggering conflict resolution fix phase`,
-      );
-
-      if (task.reviewCycleCount < config.maxReviewCycles) {
-        incrementReviewCycleCount(db, taskId);
-        updateTaskFixReason(db, taskId, "merge_conflict");
-        updateTaskStatus(db, taskId, "changes_requested");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        client
-          .createComment(
-            taskId,
-            `PR #${task.prNumber} has merge conflicts — dispatching fix phase to rebase and resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-          )
-          .catch((err) => {
-            log(`comment failed on merge conflict for task ${taskId}: ${err}`);
-          });
-
-        log(
-          `task ${taskId} → changes_requested (merge conflict, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-        );
-      } else {
-        // Review cycles exhausted — fail the task
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-            );
-          },
-        );
-
-        client
-          .createComment(
-            taskId,
-            `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-            );
-          });
-
-        log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
-      }
-      return;
-    }
-
-    const mergeResult = await mergePr(task.prNumber, task.repoPath);
-
-    if (!mergeResult.merged) {
-      // Check if PR was already merged (race condition fallback)
-      let alreadyMerged = false;
-      if (task.prBranchName) {
-        const prInfo = findPrForBranch(task.prBranchName, task.repoPath);
-        alreadyMerged = prInfo.merged === true;
-      }
-
-      if (!alreadyMerged) {
-        // Genuine merge failure. Increment the attempt counter first.
-        const freshTask = getTask(db, taskId);
-        const attemptsSoFar = (freshTask?.mergeAttemptCount ?? 0) + 1;
-        incrementMergeAttemptCount(db, taskId);
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        const maxMergeAttempts = 3;
-
-        // On the first failure, attempt a rebase onto main before giving up.
-        // This handles "not up to date" and conflict-based merge failures.
-        if (attemptsSoFar === 1 && task.prBranchName) {
-          log(
-            `task ${taskId} merge attempt 1 failed — attempting rebase of ${task.prBranchName} onto origin/main`,
-          );
-          const rebaseResult = rebasePrBranch(task.prBranchName, task.repoPath);
-
-          if (rebaseResult.success) {
-            // Rebase succeeded. Force-push has been done; CI will re-run on the
-            // new commits. Stay in awaiting_ci so the CI poll loop will pick it
-            // up again and re-attempt the merge once CI passes.
-            client
-              .createComment(
-                taskId,
-                `Merge failed for PR #${task.prNumber}: ${mergeResult.error}\n\nRebased branch \`${task.prBranchName}\` onto \`main\` and force-pushed — waiting for CI to re-run before retrying merge.`,
-              )
-              .catch((err) => {
-                log(
-                  `comment failed on rebase success for task ${taskId}: ${err}`,
-                );
-              });
-
-            log(
-              `task ${taskId} rebase succeeded — force-pushed, keeping awaiting_ci for CI re-run`,
-            );
-            return;
-          }
-
-          if (rebaseResult.hasConflicts) {
-            // Rebase has conflicts — dispatch a fix-phase agent to resolve them,
-            // same as when we detect CONFLICTING in the pre-flight check.
-            log(
-              `task ${taskId} rebase has conflicts — triggering conflict resolution fix phase`,
-            );
-
-            if (task.reviewCycleCount < config.maxReviewCycles) {
-              incrementReviewCycleCount(db, taskId);
-              updateTaskFixReason(db, taskId, "merge_conflict");
-              // Reset merge attempt counter so the next awaiting_ci cycle
-              // starts fresh (mergeAttemptCount was incremented before the
-              // rebase attempt and would otherwise skip the rebase on re-entry).
-              resetMergeAttemptCount(db, taskId);
-              updateTaskStatus(db, taskId, "changes_requested");
-              emitTaskUpdated(getTask(db, taskId)!);
-
-              client
-                .createComment(
-                  taskId,
-                  `Merge failed for PR #${task.prNumber} and rebase has conflicts — dispatching fix phase to resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-                )
-                .catch((err) => {
-                  log(
-                    `comment failed on rebase conflict for task ${taskId}: ${err}`,
-                  );
-                });
-
-              log(
-                `task ${taskId} → changes_requested (rebase conflicts, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-              );
-            } else {
-              // Review cycles exhausted — fail the task
-              updateTaskStatus(db, taskId, "failed");
-              emitTaskUpdated(getTask(db, taskId)!);
-
-              terminalWriteBackTasks.add(taskId);
-              writeBackStatus(
-                client,
-                taskId,
-                "failed_permanent",
-                stateMap,
-              ).catch((err) => {
-                log(
-                  `write-back failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                );
-              });
-
-              client
-                .createComment(
-                  taskId,
-                  `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
-                )
-                .catch((err) => {
-                  log(
-                    `comment failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                  );
-                });
-
-              log(
-                `task ${taskId} rebase conflicts — review cycles exhausted → failed`,
-              );
-            }
-            return;
-          }
-
-          // Rebase failed for another reason (push error, network, etc.).
-          // Log it and fall through to the standard retry logic below.
-          log(
-            `task ${taskId} rebase failed (non-conflict): ${rebaseResult.error} — falling back to merge retry`,
-          );
-        }
-
-        if (attemptsSoFar < maxMergeAttempts) {
-          // Keep task in awaiting_ci — the CI poll loop will call mergeAndFinalize again.
-          client
-            .createComment(
-              taskId,
-              `Merge attempt ${attemptsSoFar}/${maxMergeAttempts} failed for PR #${task.prNumber}: ${mergeResult.error}. Will retry automatically on next scheduler tick.`,
-            )
-            .catch((err) => {
-              log(`comment failed on merge retry for task ${taskId}: ${err}`);
-            });
-
-          log(
-            `task ${taskId} merge attempt ${attemptsSoFar}/${maxMergeAttempts} failed — keeping awaiting_ci for retry`,
-          );
-          return;
-        }
-
-        // Exhausted retries — escalate to failed but preserve the PR.
-        // Write "In Review" (not Cancelled) so the PR stays open and the branch is not deleted.
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "in_review", stateMap).catch(
-            (err) => {
-              log(
-                `write-back failed on merge escalation for task ${taskId}: ${err}`,
-              );
-            },
-          );
-        }
-
-        client
-          .createComment(
-            taskId,
-            `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please resolve the merge blocker and merge manually, or reset this issue to Todo to re-implement.`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on merge escalation for task ${taskId}: ${err}`,
-            );
-          });
-
-        log(
-          `task ${taskId} merge failed after ${attemptsSoFar} attempts — escalated, PR preserved, status=failed`,
-        );
-        return;
-      }
-      // PR was already merged by someone else — continue normally
-      log(`task ${taskId} PR #${task.prNumber} already merged — proceeding`);
-    }
-  }
-
-  // After merge: transition to deploying (if github_actions) or done
-  if (config.deployStrategy === "github_actions") {
-    let mergeCommitSha: string | null = null;
-    if (task.prNumber) {
-      mergeCommitSha = await getMergeCommitSha(task.prNumber, task.repoPath);
-    }
-
-    const now = new Date().toISOString();
-    updateTaskDeployInfo(db, taskId, {
-      mergeCommitSha,
-      prNumber: task.prNumber ?? null,
-      deployStartedAt: now,
-    });
-    updateTaskStatus(db, taskId, "deploying");
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    client
-      .createComment(
-        taskId,
-        `PR #${task.prNumber ?? "?"} merged — monitoring deploy CI for commit ${mergeCommitSha ?? "unknown"}`,
-      )
-      .catch((err) => {
-        log(`comment failed on merge+deploy for task ${taskId}: ${err}`);
-      });
-
-    log(
-      `task ${taskId} merged → deploying (PR #${task.prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
-    );
-  } else {
-    // deploy_strategy = "none" — go straight to done
-    updateTaskStatus(db, taskId, "done");
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on merge+done for task ${taskId}: ${err}`);
-    });
-
-    client
-      .createComment(
-        taskId,
-        `PR #${task.prNumber ?? "?"} merged — task complete`,
-      )
-      .catch((err) => {
-        log(`comment failed on merge+done for task ${taskId}: ${err}`);
-      });
-
-    log(`task ${taskId} merged → done`);
-
-    // Self-deploy: if this task's repo is the Orca project, restart with new code
-    if (isOrcaProjectTask(task.repoPath)) {
-      triggerSelfDeploy();
-    }
-
-    triggerParentEval(deps, taskId);
-  }
-}
+// checkDeployments, checkPrCi, and mergeAndFinalize are imported from the gates modules above.
 
 // ---------------------------------------------------------------------------
 // Tick — multi-phase dispatch
@@ -2522,10 +1230,27 @@ async function tick(deps: SchedulerDeps): Promise<void> {
 
   if (!draining) {
     // Check deploying tasks (non-blocking per-task polling)
-    await checkDeployments(deps);
+    const deployGateState: DeployGateState = {
+      deployPollTimes,
+      terminalWriteBackTasks,
+    };
+    await checkDeployments(
+      deps,
+      deployGateState,
+      triggerParentEval,
+      isOrcaProjectTask,
+      triggerSelfDeploy,
+    );
 
     // Check awaiting_ci tasks (poll PR checks, merge when CI passes)
-    await checkPrCi(deps);
+    const ciGateState: CiGateState = { ciPollTimes, terminalWriteBackTasks };
+    await checkPrCi(
+      deps,
+      ciGateState,
+      triggerParentEval,
+      isOrcaProjectTask,
+      triggerSelfDeploy,
+    );
 
     // Global DLL_INIT cooldown — skip dispatch and cleanup entirely.
     // DLL_INIT is system-wide resource exhaustion; spawning ANY process
