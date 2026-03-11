@@ -2529,7 +2529,7 @@ export function createScheduler(
       log(
         `started (interval: ${config.schedulerIntervalSec}s, ` +
           `concurrency: ${config.concurrencyCap}, ` +
-          `budget: $${config.budgetMaxCostUsd}/${config.budgetWindowHours}h)`,
+          `budget: ${(config.budgetMaxTokens / 1_000_000).toFixed(0)}M tokens/${config.budgetWindowHours}h)`,
       );
     },
 
