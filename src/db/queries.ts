@@ -10,7 +10,6 @@ import {
   and,
   isNotNull,
   isNull,
-  avg,
   lt,
   lte,
   or,
