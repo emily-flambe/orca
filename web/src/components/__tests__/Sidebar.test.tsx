@@ -24,6 +24,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     doneAt: null,
     projectName: null,
     invocationCount: 0,
+    taskType: "linear",
+    cronScheduleId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -107,6 +109,16 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getByText("Tasks"));
     expect(onNavigate).toHaveBeenCalledWith("tasks");
+  });
+
+  it("shows Cron nav item and calls onNavigate('cron') when clicked", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
+
+    const cronButton = screen.getByText("Cron").closest("button");
+    expect(cronButton).toBeInTheDocument();
+    fireEvent.click(cronButton!);
+    expect(onNavigate).toHaveBeenCalledWith("cron");
   });
 
   it("shows project list when tasks have projectName", () => {

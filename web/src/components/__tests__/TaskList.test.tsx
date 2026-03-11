@@ -24,6 +24,8 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     doneAt: null,
     projectName: null,
     invocationCount: 0,
+    taskType: "linear",
+    cronScheduleId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -151,6 +153,52 @@ describe("TaskList", () => {
 
     expect(screen.queryByText("ENG-ZERO")).not.toBeInTheDocument();
     expect(screen.getByText("ENG-ONE")).toBeInTheDocument();
+  });
+
+  it("shows cron badge for cron_claude tasks", () => {
+    const tasks = [
+      makeTask({
+        linearIssueId: "CRON-1",
+        taskType: "cron_claude",
+        cronScheduleId: 42,
+        orcaStatus: "running",
+      }),
+    ];
+    render(<TaskList {...defaultProps} tasks={tasks} />);
+
+    expect(screen.getByText("CRON-1")).toBeInTheDocument();
+    expect(screen.getByText("cron")).toBeInTheDocument();
+  });
+
+  it("shows cron badge for cron_shell tasks", () => {
+    const tasks = [
+      makeTask({
+        linearIssueId: "CRON-2",
+        taskType: "cron_shell",
+        cronScheduleId: 7,
+        orcaStatus: "done",
+        invocationCount: 1,
+        doneAt: new Date().toISOString(),
+      }),
+    ];
+    render(<TaskList {...defaultProps} tasks={tasks} />);
+
+    expect(screen.getByText("CRON-2")).toBeInTheDocument();
+    expect(screen.getByText("cron")).toBeInTheDocument();
+  });
+
+  it("does not show cron badge for linear tasks", () => {
+    const tasks = [
+      makeTask({
+        linearIssueId: "ENG-99",
+        taskType: "linear",
+        orcaStatus: "ready",
+      }),
+    ];
+    render(<TaskList {...defaultProps} tasks={tasks} />);
+
+    expect(screen.getByText("ENG-99")).toBeInTheDocument();
+    expect(screen.queryByText("cron")).not.toBeInTheDocument();
   });
 
   describe("sort behavior", () => {

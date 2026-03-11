@@ -479,6 +479,11 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                     {task.projectName}
                   </Badge>
                 )}
+                {(task.taskType === "cron_claude" || task.taskType === "cron_shell") && (
+                  <Badge className="shrink-0 !text-[10px] !px-1.5 !py-0 !text-amber-500 !bg-amber-500/10 !border-amber-500/30">
+                    cron
+                  </Badge>
+                )}
                 <div
                   className="relative shrink-0 ml-auto"
                   ref={

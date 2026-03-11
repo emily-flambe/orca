@@ -1,4 +1,4 @@
-import type { Task, TaskWithInvocations, OrcaStatus } from "../types";
+import type { Task, TaskWithInvocations, OrcaStatus, CronSchedule, CronScheduleWithTasks } from "../types";
 
 const BASE = "/api";
 
@@ -177,4 +177,64 @@ export function createTask(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+}
+
+export function fetchCronSchedules(): Promise<CronSchedule[]> {
+  return fetchJson<CronSchedule[]>("/cron");
+}
+
+export function fetchCronSchedule(id: number): Promise<CronScheduleWithTasks> {
+  return fetchJson<CronScheduleWithTasks>(`/cron/${id}`);
+}
+
+export function createCronSchedule(data: {
+  name: string;
+  type: "claude" | "shell";
+  schedule: string;
+  prompt: string;
+  repoPath?: string;
+  model?: string;
+  maxTurns?: number;
+  timeoutMin?: number;
+  maxRuns?: number;
+}): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>("/cron", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateCronSchedule(
+  id: number,
+  data: Partial<{
+    name: string;
+    type: "claude" | "shell";
+    schedule: string;
+    prompt: string;
+    repoPath: string | null;
+    model: string | null;
+    maxTurns: number | null;
+    timeoutMin: number;
+    maxRuns: number | null;
+    enabled: number;
+  }>,
+): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>(`/cron/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteCronSchedule(id: number): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/cron/${id}`, { method: "DELETE" });
+}
+
+export function toggleCronSchedule(id: number): Promise<CronSchedule> {
+  return fetchJson<CronSchedule>(`/cron/${id}/toggle`, { method: "POST" });
+}
+
+export function triggerCronSchedule(id: number): Promise<{ taskId: string }> {
+  return fetchJson<{ taskId: string }>(`/cron/${id}/trigger`, { method: "POST" });
 }

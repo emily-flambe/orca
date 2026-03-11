@@ -4,6 +4,7 @@ const PAGE_TITLES: Record<Page, string> = {
   dashboard: "Dashboard",
   tasks: "Tasks",
   logs: "Logs",
+  cron: "Cron",
   settings: "Settings",
 };
 

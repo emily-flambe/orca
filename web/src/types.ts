@@ -24,6 +24,8 @@ export interface Task {
   doneAt: string | null;
   projectName: string | null;
   invocationCount: number;
+  taskType: "linear" | "cron_claude" | "cron_shell";
+  cronScheduleId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +50,29 @@ export interface Invocation {
 
 export interface TaskWithInvocations extends Task {
   invocations: Invocation[];
+}
+
+export interface CronSchedule {
+  id: number;
+  name: string;
+  type: "claude" | "shell";
+  schedule: string;
+  prompt: string;
+  repoPath: string | null;
+  model: string | null;
+  maxTurns: number | null;
+  timeoutMin: number;
+  maxRuns: number | null;
+  runCount: number;
+  enabled: number; // 1 = enabled, 0 = disabled (SQLite integer)
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CronScheduleWithTasks extends CronSchedule {
+  recentTasks: Task[];
 }
 
 export interface OrcaStatus {
