@@ -3,6 +3,7 @@ import type { Invocation } from "../types";
 import { fetchRunningInvocations } from "../hooks/useApi";
 import { useSSE } from "../hooks/useSSE";
 import LiveRunWidget from "./LiveRunWidget";
+import { formatTokens } from "../App";
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -37,6 +38,8 @@ export default function ActiveSessionsGrid() {
       invocationId: number;
       status: string;
       costUsd: number;
+      inputTokens: number;
+      outputTokens: number;
     }) => {
       setRunning((prev) => {
         const completed = prev.find((inv) => inv.id === data.invocationId);
@@ -44,7 +47,8 @@ export default function ActiveSessionsGrid() {
           setLastCompleted({
             ...completed,
             status: data.status as Invocation["status"],
-            costUsd: data.costUsd,
+            inputTokens: data.inputTokens,
+            outputTokens: data.outputTokens,
             endedAt: new Date().toISOString(),
           });
         }
@@ -82,9 +86,14 @@ export default function ActiveSessionsGrid() {
               {lastCompleted.endedAt && (
                 <span className="ml-1">({timeAgo(lastCompleted.endedAt)})</span>
               )}
-              {lastCompleted.costUsd != null && (
+              {(lastCompleted.inputTokens != null ||
+                lastCompleted.outputTokens != null) && (
                 <span className="ml-1">
-                  ${lastCompleted.costUsd.toFixed(2)}
+                  {formatTokens(
+                    (lastCompleted.inputTokens ?? 0) +
+                      (lastCompleted.outputTokens ?? 0),
+                  )}{" "}
+                  tok
                 </span>
               )}
             </div>

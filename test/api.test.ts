@@ -29,6 +29,7 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
+    budgetMaxTokens: 50_000_000,
     schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
@@ -198,7 +199,7 @@ describe("GET /api/status", () => {
     db = createDb(":memory:");
     app = createApiRoutes({
       db,
-      config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      config: makeConfig({ budgetMaxTokens: 50_000_000, budgetWindowHours: 4 }),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
       stateMap: new Map(),
@@ -237,6 +238,8 @@ describe("GET /api/status", () => {
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 2.5,
+      inputTokens: 1500,
+      outputTokens: 1000,
       recordedAt: now(),
     });
 
@@ -247,8 +250,8 @@ describe("GET /api/status", () => {
     expect(body.activeSessions).toBe(1);
     expect(body.activeTaskIds).toEqual(["RUNNING-1"]);
     expect(body.queuedTasks).toBe(1);
-    expect(body.costInWindow).toBeCloseTo(2.5);
-    expect(body.budgetLimit).toBe(10.0);
+    expect(body.tokensInWindow).toBe(2500); // 1500 + 1000
+    expect(body.tokenBudgetLimit).toBe(50_000_000);
     expect(body.budgetWindowHours).toBe(4);
   });
 });

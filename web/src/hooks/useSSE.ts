@@ -11,6 +11,8 @@ export interface SSECallbacks {
     invocationId: number;
     status: string;
     costUsd: number;
+    inputTokens: number;
+    outputTokens: number;
   }) => void;
   onStatusUpdated?: (status: unknown) => void;
   onTasksRefreshed?: () => void;

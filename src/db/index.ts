@@ -319,6 +319,27 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "cron_schedule_id")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN cron_schedule_id INTEGER");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 14 (token-based budget tracking):
+  //   - Add input_tokens, output_tokens columns to invocations
+  //   - Add input_tokens, output_tokens columns to budget_events
+  //   Sentinel: input_tokens column doesn't exist on invocations table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "invocations", "input_tokens")) {
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN input_tokens INTEGER");
+    sqlite.exec("ALTER TABLE invocations ADD COLUMN output_tokens INTEGER");
+  }
+  if (!hasColumn(sqlite, "budget_events", "input_tokens")) {
+    // cost_usd is kept for backward compat; add token columns with default 0
+    // so existing rows (if any) are valid for the NOT NULL constraint.
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0",
+    );
+    sqlite.exec(
+      "ALTER TABLE budget_events ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

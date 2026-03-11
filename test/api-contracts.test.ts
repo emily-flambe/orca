@@ -46,6 +46,7 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
+    budgetMaxTokens: 50_000_000,
     schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
@@ -507,8 +508,8 @@ describe("GET /api/status — contract", () => {
     expect(typeof body.activeSessions).toBe("number");
     expect(Array.isArray(body.activeTaskIds)).toBe(true);
     expect(typeof body.queuedTasks).toBe("number");
-    expect(typeof body.costInWindow).toBe("number");
-    expect(typeof body.budgetLimit).toBe("number");
+    expect(typeof body.tokensInWindow).toBe("number");
+    expect(typeof body.tokenBudgetLimit).toBe("number");
     expect(typeof body.budgetWindowHours).toBe("number");
     expect(typeof body.concurrencyCap).toBe("number");
     expect(typeof body.implementModel).toBe("string");
@@ -596,9 +597,9 @@ describe("GET /api/metrics — contract", () => {
     expect(body.tasksByStatus).not.toBeNull();
     expect(typeof body.invocationStats).toBe("object");
     expect(Array.isArray(body.recentErrors)).toBe(true);
-    expect(typeof body.costLast24h).toBe("number");
-    expect(typeof body.costLast7d).toBe("number");
-    expect(typeof body.costPrev24h).toBe("number");
+    expect(typeof body.tokensLast24h).toBe("number");
+    expect(typeof body.tokensLast7d).toBe("number");
+    expect(typeof body.tokensPrev24h).toBe("number");
     expect(Array.isArray(body.dailyStats)).toBe(true);
     expect(Array.isArray(body.recentActivity)).toBe(true);
   });

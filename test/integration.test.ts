@@ -18,7 +18,7 @@ import {
   incrementRetryCount,
   insertInvocation,
   insertBudgetEvent,
-  sumCostInWindow,
+  sumTokensInWindow,
   countActiveSessions,
   getDispatchableTasks,
 } from "../src/db/queries.js";
@@ -408,25 +408,29 @@ describe("9.5 - Budget enforcement", () => {
     db = freshDb();
   });
 
-  test("sumCostInWindow returns correct total for recent events", () => {
+  test("sumTokensInWindow returns correct total for recent events", () => {
     const taskId = seedTask(db, { linearIssueId: "BUDGET-1" });
     const invId = seedInvocationForBudget(db, taskId);
 
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 1.5,
+      inputTokens: 1000,
+      outputTokens: 500,
       recordedAt: now(),
     });
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 2.0,
+      inputTokens: 2000,
+      outputTokens: 1000,
       recordedAt: now(),
     });
 
     // Window start = 1 hour ago
     const windowStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const total = sumCostInWindow(db, windowStart);
-    expect(total).toBeCloseTo(3.5);
+    const total = sumTokensInWindow(db, windowStart);
+    expect(total).toBe(4500); // (1000+500) + (2000+1000)
   });
 
   test("events outside the window are excluded", () => {
@@ -440,6 +444,8 @@ describe("9.5 - Budget enforcement", () => {
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 100.0,
+      inputTokens: 1000000,
+      outputTokens: 500000,
       recordedAt: oldTimestamp,
     });
 
@@ -447,6 +453,8 @@ describe("9.5 - Budget enforcement", () => {
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 0.5,
+      inputTokens: 300,
+      outputTokens: 200,
       recordedAt: now(),
     });
 
@@ -454,34 +462,38 @@ describe("9.5 - Budget enforcement", () => {
     const windowStart = new Date(
       Date.now() - 4 * 60 * 60 * 1000,
     ).toISOString();
-    const total = sumCostInWindow(db, windowStart);
+    const total = sumTokensInWindow(db, windowStart);
 
-    // Only the recent 0.5 should be counted, not the old 100.0
-    expect(total).toBeCloseTo(0.5);
+    // Only the recent event (300+200=500) should be counted, not the old 1.5M
+    expect(total).toBe(500);
   });
 
-  test("sumCostInWindow returns 0 when no events exist", () => {
+  test("sumTokensInWindow returns 0 when no events exist", () => {
     const windowStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const total = sumCostInWindow(db, windowStart);
+    const total = sumTokensInWindow(db, windowStart);
     expect(total).toBe(0);
   });
 
-  test("budget check logic: dispatch blocked when cost >= max", () => {
-    const budgetMaxCostUsd = 10.0;
+  test("budget check logic: dispatch blocked when tokens >= max", () => {
+    const budgetMaxTokens = 10_000_000;
     const budgetWindowHours = 4;
 
     const taskId = seedTask(db, { linearIssueId: "BUDGET-BLOCK" });
     const invId = seedInvocationForBudget(db, taskId);
 
-    // Insert events totaling $10.50 (over budget)
+    // Insert events totaling 10.5M tokens (over budget)
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 7.0,
+      inputTokens: 7_000_000,
+      outputTokens: 0,
       recordedAt: now(),
     });
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 3.5,
+      inputTokens: 3_500_000,
+      outputTokens: 0,
       recordedAt: now(),
     });
 
@@ -489,22 +501,22 @@ describe("9.5 - Budget enforcement", () => {
     const windowStart = new Date(
       Date.now() - budgetWindowHours * 60 * 60 * 1000,
     ).toISOString();
-    const cost = sumCostInWindow(db, windowStart);
+    const tokens = sumTokensInWindow(db, windowStart);
 
-    // Budget is exhausted: cost ($10.50) >= max ($10.00)
-    expect(cost).toBeGreaterThanOrEqual(budgetMaxCostUsd);
+    // Budget is exhausted: tokens (10.5M) >= max (10M)
+    expect(tokens).toBeGreaterThanOrEqual(budgetMaxTokens);
 
     // Ready tasks exist but should NOT be dispatched
     const readyTasks = getDispatchableTasks(db, ["ready"]);
     expect(readyTasks.length).toBeGreaterThan(0);
 
     // The tick would return early here -- this is the guard condition
-    const shouldSkipDispatch = cost >= budgetMaxCostUsd;
+    const shouldSkipDispatch = tokens >= budgetMaxTokens;
     expect(shouldSkipDispatch).toBe(true);
   });
 
-  test("budget check logic: dispatch allowed when cost < max", () => {
-    const budgetMaxCostUsd = 10.0;
+  test("budget check logic: dispatch allowed when tokens < max", () => {
+    const budgetMaxTokens = 10_000_000;
     const budgetWindowHours = 4;
 
     const taskId = seedTask(db, { linearIssueId: "BUDGET-OK" });
@@ -513,17 +525,19 @@ describe("9.5 - Budget enforcement", () => {
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 2.0,
+      inputTokens: 1000,
+      outputTokens: 500,
       recordedAt: now(),
     });
 
     const windowStart = new Date(
       Date.now() - budgetWindowHours * 60 * 60 * 1000,
     ).toISOString();
-    const cost = sumCostInWindow(db, windowStart);
+    const tokens = sumTokensInWindow(db, windowStart);
 
-    expect(cost).toBeLessThan(budgetMaxCostUsd);
+    expect(tokens).toBeLessThan(budgetMaxTokens);
 
-    const shouldSkipDispatch = cost >= budgetMaxCostUsd;
+    const shouldSkipDispatch = tokens >= budgetMaxTokens;
     expect(shouldSkipDispatch).toBe(false);
   });
 

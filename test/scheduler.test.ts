@@ -152,6 +152,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
+    budgetMaxTokens: 50_000_000,
     schedulerIntervalSec: 3600, // long interval — we trigger ticks manually
     claudePath: "claude",
     defaultMaxTurns: 20,
@@ -439,9 +440,9 @@ describe("Budget exhaustion gating", () => {
   });
 
   test("does not dispatch when budget is exhausted", async () => {
-    const config = testConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 });
+    const config = testConfig({ budgetMaxTokens: 10_000_000, budgetWindowHours: 4 });
 
-    // Insert a budget event that exceeds the cap
+    // Insert a budget event that exceeds the token cap (15M > 10M)
     const helperTaskId = seedTask(db, {
       linearIssueId: "BUDGET-HELPER-1",
       orcaStatus: "done",
@@ -456,6 +457,8 @@ describe("Budget exhaustion gating", () => {
     insertBudgetEvent(db, {
       invocationId: helperId,
       costUsd: 15.0,
+      inputTokens: 15_000_000,
+      outputTokens: 0,
       recordedAt: new Date().toISOString(),
     });
 

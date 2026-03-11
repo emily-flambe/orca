@@ -9,7 +9,7 @@ import {
   insertTask,
   getAllTasks,
   getRunningInvocations,
-  sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
@@ -425,10 +425,16 @@ program
     ).length;
 
     // Budget
-    const costInWindow = sumCostInWindow(
+    const tokensInWindow = sumTokensInWindow(
       db,
       budgetWindowStart(config.budgetWindowHours),
     );
+
+    function formatTokens(n: number): string {
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+      return String(n);
+    }
 
     console.log("=== Orca Status ===");
     console.log();
@@ -437,7 +443,7 @@ program
     );
     console.log(`Queued tasks:    ${readyCount}`);
     console.log(
-      `Budget:          $${costInWindow.toFixed(2)} / $${config.budgetMaxCostUsd.toFixed(2)} (${config.budgetWindowHours}h window)`,
+      `Budget:          ${formatTokens(tokensInWindow)} / ${formatTokens(config.budgetMaxTokens)} tokens (${config.budgetWindowHours}h window)`,
     );
     console.log(`Failed tasks:    ${failedCount}`);
   });

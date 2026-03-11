@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
 import { abortInvocation } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import { formatTokens } from "../App";
 
 interface Props {
   invocation: Invocation;
   /** Called after a successful cancel request */
   onCancelled?: () => void;
+  onTokenUpdate?: (inputTokens: number, outputTokens: number) => void;
 }
 
 function useLiveDuration(startedAt: string, endedAt: string | null): string {
@@ -31,7 +33,17 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
   const isRunning = invocation.status === "running";
   const duration = useLiveDuration(invocation.startedAt, invocation.endedAt);
 
-  const [cost, setCost] = useState<number | null>(invocation.costUsd);
+  const [liveTokens, setLiveTokens] = useState<{
+    input: number;
+    output: number;
+  } | null>(
+    invocation.inputTokens != null || invocation.outputTokens != null
+      ? {
+          input: invocation.inputTokens ?? 0,
+          output: invocation.outputTokens ?? 0,
+        }
+      : null,
+  );
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -46,9 +58,12 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         .trim() || null
     : null;
 
-  const handleCostUpdate = useCallback((c: number) => {
-    setCost(c);
-  }, []);
+  const handleTokenUpdate = useCallback(
+    (inputTokens: number, outputTokens: number) => {
+      setLiveTokens({ input: inputTokens, output: outputTokens });
+    },
+    [],
+  );
 
   const handleCancel = useCallback(async () => {
     if (
@@ -105,10 +120,10 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
 
         <span className="flex-1" />
 
-        {/* Cost */}
-        {cost != null && (
+        {/* Token count */}
+        {liveTokens != null && (
           <span className="text-xs text-gray-400 tabular-nums font-mono">
-            ${cost.toFixed(2)}
+            {formatTokens(liveTokens.input + liveTokens.output)} tok
           </span>
         )}
 
@@ -174,7 +189,7 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         isRunning={effectivelyRunning}
         outputSummary={invocation.outputSummary}
         compact
-        onCostUpdate={handleCostUpdate}
+        onTokenUpdate={handleTokenUpdate}
       />
     </div>
   );

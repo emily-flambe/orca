@@ -21,7 +21,7 @@ import {
   incrementStaleSessionRetryCount,
   insertBudgetEvent,
   insertInvocation,
-  sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskCiInfo,
@@ -648,23 +648,32 @@ async function onSessionComplete(
     endedAt: new Date().toISOString(),
     status: invocationStatus,
     costUsd: result.costUsd,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
     numTurns: result.numTurns,
     outputSummary: result.outputSummary,
     sessionId: handle.sessionId,
   });
 
-  // 2. Insert budget event if cost > 0
-  if (result.costUsd != null && result.costUsd > 0) {
+  // 2. Insert budget event if tokens are available (always insert if we have data)
+  const hasTokens =
+    result.inputTokens != null ||
+    result.outputTokens != null;
+  if (hasTokens || (result.costUsd != null && result.costUsd > 0)) {
     insertBudgetEvent(db, {
       invocationId,
-      costUsd: result.costUsd,
+      costUsd: result.costUsd ?? 0,
+      inputTokens: result.inputTokens ?? 0,
+      outputTokens: result.outputTokens ?? 0,
       recordedAt: new Date().toISOString(),
     });
   }
 
+  const totalTokens =
+    (result.inputTokens ?? 0) + (result.outputTokens ?? 0);
   log(
     `session complete: task=${taskId} invocation=${invocationId} status=${invocationStatus} ` +
-      `cost=$${result.costUsd != null ? result.costUsd.toFixed(4) : "unknown"} turns=${result.numTurns ?? "unknown"}`,
+      `tokens=${totalTokens > 0 ? totalTokens : "unknown"} turns=${result.numTurns ?? "unknown"}`,
   );
 
   // Emit task updated + invocation completed events
@@ -674,6 +683,8 @@ async function onSessionComplete(
     invocationId,
     status: invocationStatus,
     costUsd: result.costUsd ?? 0,
+    inputTokens: result.inputTokens ?? 0,
+    outputTokens: result.outputTokens ?? 0,
   });
 
   // Emit current status
@@ -1491,15 +1502,15 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
       t.orcaStatus === "in_review" ||
       t.orcaStatus === "changes_requested",
   ).length;
-  const costInWindow = sumCostInWindow(
+  const tokensInWindow = sumTokensInWindow(
     db,
     budgetWindowStart(config.budgetWindowHours),
   );
   emitStatusUpdated({
     activeSessions,
     queuedTasks,
-    costInWindow,
-    budgetLimit: config.budgetMaxCostUsd,
+    tokensInWindow,
+    tokenBudgetLimit: config.budgetMaxTokens,
     budgetWindowHours: config.budgetWindowHours,
   });
 }
@@ -2357,11 +2368,14 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 2. Check budget
-  const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
-  if (cost >= config.budgetMaxCostUsd) {
+  // 2. Check budget (token-based)
+  const tokensUsed = sumTokensInWindow(
+    db,
+    budgetWindowStart(config.budgetWindowHours),
+  );
+  if (tokensUsed >= config.budgetMaxTokens) {
     log(
-      `budget exhausted: $${cost.toFixed(4)} used of $${config.budgetMaxCostUsd} limit`,
+      `budget exhausted: ${tokensUsed.toLocaleString()} tokens used of ${config.budgetMaxTokens.toLocaleString()} limit`,
     );
     return;
   }

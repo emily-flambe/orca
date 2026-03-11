@@ -466,6 +466,45 @@ export function insertBudgetEvent(db: OrcaDb, event: NewBudgetEvent): void {
   db.insert(budgetEvents).values(event).run();
 }
 
+/**
+ * Sum input_tokens + output_tokens from budget_events where recorded_at >= windowStart.
+ * Returns 0 if no events match.
+ */
+export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
+  const result = db
+    .select({
+      total: sql<number>`coalesce(sum(${budgetEvents.inputTokens} + ${budgetEvents.outputTokens}), 0)`,
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return result?.total ? Number(result.total) : 0;
+}
+
+/**
+ * Sum input_tokens + output_tokens from budget_events where recorded_at is within [windowStart, windowEnd).
+ * Returns 0 if no events match.
+ */
+export function sumTokensInWindowRange(
+  db: OrcaDb,
+  windowStart: string,
+  windowEnd: string,
+): number {
+  const result = db
+    .select({
+      total: sql<number>`coalesce(sum(${budgetEvents.inputTokens} + ${budgetEvents.outputTokens}), 0)`,
+    })
+    .from(budgetEvents)
+    .where(
+      and(
+        gte(budgetEvents.recordedAt, windowStart),
+        lt(budgetEvents.recordedAt, windowEnd),
+      ),
+    )
+    .get();
+  return result?.total ? Number(result.total) : 0;
+}
+
 /** Returns an ISO timestamp for the start of a budget window `hours` hours ago. */
 export function budgetWindowStart(hours: number): string {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -493,10 +532,10 @@ export interface InvocationStats {
   byStatus: { status: string; count: number }[];
   /** Average session duration in seconds for completed invocations. */
   avgDurationSecs: number | null;
-  /** Average cost in USD for completed invocations. */
-  avgCostUsd: number | null;
-  /** Total cost in USD across all completed invocations. */
-  totalCostUsd: number | null;
+  /** Average total tokens (input + output) for completed invocations. */
+  avgTokens: number | null;
+  /** Total tokens (input + output) across all completed invocations. */
+  totalTokens: number | null;
 }
 
 /** Aggregate invocation statistics for the metrics dashboard. */
@@ -516,10 +555,10 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
     .where(eq(invocations.status, "completed"))
     .get();
 
-  const costResult = db
+  const tokenResult = db
     .select({
-      avgCost: avg(invocations.costUsd),
-      totalCost: sum(invocations.costUsd),
+      avgTokens: sql<number>`avg(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0))`,
+      totalTokens: sql<number>`sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0))`,
     })
     .from(invocations)
     .where(eq(invocations.status, "completed"))
@@ -528,8 +567,10 @@ export function getInvocationStats(db: OrcaDb): InvocationStats {
   return {
     byStatus,
     avgDurationSecs: durationResult?.avgDuration ?? null,
-    avgCostUsd: costResult?.avgCost ? Number(costResult.avgCost) : null,
-    totalCostUsd: costResult?.totalCost ? Number(costResult.totalCost) : null,
+    avgTokens: tokenResult?.avgTokens ? Number(tokenResult.avgTokens) : null,
+    totalTokens: tokenResult?.totalTokens
+      ? Number(tokenResult.totalTokens)
+      : null,
   };
 }
 
@@ -541,7 +582,8 @@ export interface RecentError {
   status: string;
   outputSummary: string | null;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 /** Get the most recent failed or timed-out invocations. */
@@ -555,7 +597,8 @@ export function getRecentErrors(db: OrcaDb, limit = 20): RecentError[] {
       status: invocations.status,
       outputSummary: invocations.outputSummary,
       phase: invocations.phase,
-      costUsd: invocations.costUsd,
+      inputTokens: invocations.inputTokens,
+      outputTokens: invocations.outputTokens,
     })
     .from(invocations)
     .where(inArray(invocations.status, ["failed", "timed_out"]))
@@ -572,7 +615,7 @@ export interface DailyStatEntry {
   date: string; // "YYYY-MM-DD"
   completed: number;
   failed: number;
-  costUsd: number;
+  tokens: number;
 }
 
 export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
@@ -583,7 +626,7 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
       date: sql<string>`date(${invocations.startedAt})`,
       completed: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
       failed: sql<number>`sum(case when ${invocations.status} in ('failed', 'timed_out') then 1 else 0 end)`,
-      costUsd: sql<number>`coalesce(sum(${invocations.costUsd}), 0)`,
+      tokens: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
     .from(invocations)
     .where(gte(invocations.startedAt, since))
@@ -602,7 +645,7 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
       date: dateStr,
       completed: row ? Number(row.completed) : 0,
       failed: row ? Number(row.failed) : 0,
-      costUsd: row ? Number(row.costUsd) : 0,
+      tokens: row ? Number(row.tokens) : 0,
     });
   }
   return result;
@@ -634,7 +677,8 @@ export interface ActivityEntry {
   endedAt: string | null;
   status: string;
   phase: string | null;
-  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
@@ -646,7 +690,8 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
       endedAt: invocations.endedAt,
       status: invocations.status,
       phase: invocations.phase,
-      costUsd: invocations.costUsd,
+      inputTokens: invocations.inputTokens,
+      outputTokens: invocations.outputTokens,
     })
     .from(invocations)
     .orderBy(desc(invocations.id))
