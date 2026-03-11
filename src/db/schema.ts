@@ -1,5 +1,11 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 
+export const CRON_TYPES = ["claude", "shell"] as const;
+export type CronType = (typeof CRON_TYPES)[number];
+
+export const TASK_TYPES = ["linear", "cron_claude", "cron_shell"] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
+
 export const TASK_STATUSES = [
   "backlog",
   "ready",
@@ -44,6 +50,8 @@ export const tasks = sqliteTable("tasks", {
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),
   projectName: text("project_name"),
+  taskType: text("task_type").notNull().default("linear"),
+  cronScheduleId: integer("cron_schedule_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -75,4 +83,23 @@ export const budgetEvents = sqliteTable("budget_events", {
     .references(() => invocations.id),
   costUsd: real("cost_usd").notNull(),
   recordedAt: text("recorded_at").notNull(),
+});
+
+export const cronSchedules = sqliteTable("cron_schedules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  type: text("type", { enum: CRON_TYPES }).notNull(),
+  schedule: text("schedule").notNull(),
+  prompt: text("prompt").notNull(),
+  repoPath: text("repo_path"),
+  model: text("model"),
+  maxTurns: integer("max_turns"),
+  timeoutMin: integer("timeout_min").notNull().default(30),
+  maxRuns: integer("max_runs"),
+  runCount: integer("run_count").notNull().default(0),
+  enabled: integer("enabled").notNull().default(1),
+  lastRunAt: text("last_run_at"),
+  nextRunAt: text("next_run_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });

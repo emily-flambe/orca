@@ -9,11 +9,20 @@ import {
   inArray,
   and,
   isNotNull,
+  isNull,
   avg,
   lt,
+  lte,
+  or,
 } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
-import { tasks, invocations, budgetEvents, type TaskStatus } from "./schema.js";
+import {
+  tasks,
+  invocations,
+  budgetEvents,
+  cronSchedules,
+  type TaskStatus,
+} from "./schema.js";
 import type { OrcaDb } from "./index.js";
 
 // ---------------------------------------------------------------------------
@@ -665,4 +674,128 @@ export function sumCostInWindowRange(
     )
     .get();
   return result?.total ? Number(result.total) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Cron schedule types
+// ---------------------------------------------------------------------------
+type NewCronSchedule = InferInsertModel<typeof cronSchedules>;
+export type CronSchedule = typeof cronSchedules.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Cron schedule queries
+// ---------------------------------------------------------------------------
+
+/** Insert a new cron schedule and return its auto-generated id. */
+export function insertCronSchedule(
+  db: OrcaDb,
+  schedule: NewCronSchedule,
+): number {
+  const result = db
+    .insert(cronSchedules)
+    .values(schedule)
+    .returning({ id: cronSchedules.id })
+    .get();
+  return result.id;
+}
+
+/** Update fields on a cron schedule. */
+export function updateCronSchedule(
+  db: OrcaDb,
+  id: number,
+  updates: Partial<Omit<NewCronSchedule, "id" | "createdAt">>,
+): void {
+  db.update(cronSchedules)
+    .set({ ...updates, updatedAt: new Date().toISOString() })
+    .where(eq(cronSchedules.id, id))
+    .run();
+}
+
+/** Delete a cron schedule by id. */
+export function deleteCronSchedule(db: OrcaDb, id: number): void {
+  db.delete(cronSchedules).where(eq(cronSchedules.id, id)).run();
+}
+
+/** Get a single cron schedule by id. */
+export function getCronSchedule(
+  db: OrcaDb,
+  id: number,
+): CronSchedule | undefined {
+  return db.select().from(cronSchedules).where(eq(cronSchedules.id, id)).get();
+}
+
+/** Get all cron schedules. */
+export function getAllCronSchedules(db: OrcaDb): CronSchedule[] {
+  return db.select().from(cronSchedules).all();
+}
+
+/**
+ * Get cron schedules that are due to run.
+ * Filters: enabled=1, next_run_at IS NOT NULL, next_run_at <= now,
+ * and (max_runs IS NULL OR run_count < max_runs)
+ */
+export function getDueCronSchedules(db: OrcaDb, now: string): CronSchedule[] {
+  return db
+    .select()
+    .from(cronSchedules)
+    .where(
+      and(
+        eq(cronSchedules.enabled, 1),
+        isNotNull(cronSchedules.nextRunAt),
+        lte(cronSchedules.nextRunAt, now),
+        or(
+          isNull(cronSchedules.maxRuns),
+          sql`${cronSchedules.runCount} < ${cronSchedules.maxRuns}`,
+        ),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Increment run_count by 1 and update last_run_at and next_run_at.
+ */
+export function incrementCronRunCount(
+  db: OrcaDb,
+  id: number,
+  nextRunAt: string,
+): void {
+  db.update(cronSchedules)
+    .set({
+      runCount: sql`${cronSchedules.runCount} + 1`,
+      lastRunAt: new Date().toISOString(),
+      nextRunAt,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(cronSchedules.id, id))
+    .run();
+}
+
+/** Get all tasks spawned by a specific cron schedule. */
+export function getTasksByCronSchedule(db: OrcaDb, scheduleId: number): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.cronScheduleId, scheduleId))
+    .all();
+}
+
+/**
+ * Delete cron-spawned tasks created before the given date.
+ * Returns the count of deleted rows.
+ */
+export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
+  const oldTasks = db
+    .select({ id: tasks.linearIssueId })
+    .from(tasks)
+    .where(
+      and(isNotNull(tasks.cronScheduleId), lt(tasks.createdAt, beforeDate)),
+    )
+    .all();
+
+  for (const task of oldTasks) {
+    deleteTask(db, task.id);
+  }
+
+  return oldTasks.length;
 }

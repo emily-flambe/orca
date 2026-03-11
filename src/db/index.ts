@@ -51,6 +51,26 @@ CREATE TABLE IF NOT EXISTS budget_events (
   recorded_at TEXT NOT NULL
 )`;
 
+const CREATE_CRON_SCHEDULES = `
+CREATE TABLE IF NOT EXISTS cron_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('claude','shell')),
+  schedule TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  repo_path TEXT,
+  model TEXT,
+  max_turns INTEGER,
+  timeout_min INTEGER NOT NULL DEFAULT 30,
+  max_runs INTEGER,
+  run_count INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_run_at TEXT,
+  next_run_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`;
+
 /**
  * Check if a column exists in a table using PRAGMA table_info.
  */
@@ -279,6 +299,26 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE invocations ADD COLUMN worktree_preserved INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 12 (cron task type):
+  //   - Add task_type column to tasks (distinguishes linear vs cron tasks)
+  //   Sentinel: task_type column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "task_type")) {
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN task_type TEXT NOT NULL DEFAULT 'linear'",
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 13 (cron schedule FK):
+  //   - Add cron_schedule_id column to tasks (FK to cron_schedules)
+  //   Sentinel: cron_schedule_id column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "cron_schedule_id")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN cron_schedule_id INTEGER");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
@@ -297,6 +337,7 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_TASKS);
   sqlite.exec(CREATE_INVOCATIONS);
   sqlite.exec(CREATE_BUDGET_EVENTS);
+  sqlite.exec(CREATE_CRON_SCHEDULES);
 
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.
