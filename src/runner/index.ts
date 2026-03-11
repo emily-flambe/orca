@@ -317,7 +317,7 @@ function resolveClaudeCliFromShim(
   }
 }
 
-function resolveClaudeBinary(requested: string): {
+export function resolveClaudeBinary(requested: string): {
   command: string;
   prefixArgs: string[];
 } {

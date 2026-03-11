@@ -181,8 +181,18 @@ program
       console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
     }
 
+    // Label filter cache (shared between fullSync and webhook handler)
+    const labelIdCache = new Map<string, string>();
+
     // Full sync: populate tasks table + dependency graph
-    const syncedIssues = await fullSync(db, client, graph, config);
+    const syncedIssues = await fullSync(
+      db,
+      client,
+      graph,
+      config,
+      undefined,
+      labelIdCache,
+    );
 
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
@@ -233,13 +243,15 @@ program
       graph,
       config,
       stateMap,
+      labelIdCache,
     });
 
     // Create API routes
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () => fullSync(db, client, graph, config, stateMap),
+      syncTasks: () =>
+        fullSync(db, client, graph, config, stateMap, labelIdCache),
       client,
       stateMap,
       projectMeta,
@@ -307,6 +319,7 @@ program
       graph,
       config,
       stateMap,
+      labelIdCache,
       isTunnelConnected: () =>
         config.externalTunnel ? true : tunnel!.isTunnelConnected(),
     });
@@ -440,6 +453,18 @@ program
       `Budget:          $${costInWindow.toFixed(2)} / $${config.budgetMaxCostUsd.toFixed(2)} (${config.budgetWindowHours}h window)`,
     );
     console.log(`Failed tasks:    ${failedCount}`);
+  });
+
+// ---------------------------------------------------------------------------
+// orca init
+// ---------------------------------------------------------------------------
+
+program
+  .command("init")
+  .description("Interactive setup wizard")
+  .action(async () => {
+    const { runInit } = await import("./init.js");
+    await runInit();
   });
 
 // ---------------------------------------------------------------------------

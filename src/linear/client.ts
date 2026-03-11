@@ -31,6 +31,7 @@ export interface LinearIssue {
   parentTitle: string | null;
   parentDescription: string | null;
   childIds: string[];
+  labels: string[];
 }
 
 /** Maps state name (e.g. "In Progress", "In Review") to { id, type }. */
@@ -205,6 +206,7 @@ export class LinearClient {
             inverseRelations { nodes { type issue { id identifier } } }
             parent { id identifier title description }
             children { nodes { id identifier } }
+            labels { nodes { name } }
           }
         }
       }
@@ -253,6 +255,9 @@ export class LinearClient {
             children: {
               nodes: Array<{ id: string; identifier: string }>;
             };
+            labels?: {
+              nodes: Array<{ name: string }>;
+            };
           }>;
         };
       }>(graphql, variables);
@@ -282,6 +287,7 @@ export class LinearClient {
           parentTitle: node.parent?.title ?? null,
           parentDescription: node.parent?.description ?? null,
           childIds: (node.children?.nodes ?? []).map((c) => c.identifier),
+          labels: (node.labels?.nodes ?? []).map((l) => l.name),
         });
       }
 
@@ -469,5 +475,156 @@ export class LinearClient {
       throw new Error("LinearClient: issueCreate returned success=false");
     }
     return data.issueCreate.issue;
+  }
+
+  // -------------------------------------------------------------------------
+  // fetchViewer — validate API key and get workspace info
+  // -------------------------------------------------------------------------
+
+  async fetchViewer(): Promise<{
+    id: string;
+    name: string;
+    organizationName: string;
+  }> {
+    const graphql = `
+      query {
+        viewer {
+          id
+          name
+          organization { name }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      viewer: {
+        id: string;
+        name: string;
+        organization: { name: string };
+      };
+    }>(graphql);
+
+    return {
+      id: data.viewer.id,
+      name: data.viewer.name,
+      organizationName: data.viewer.organization.name,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // fetchAllProjects — list all accessible projects (for init wizard)
+  // -------------------------------------------------------------------------
+
+  async fetchAllProjects(): Promise<
+    Array<{ id: string; name: string; description: string }>
+  > {
+    const graphql = `
+      query($after: String) {
+        projects(first: 50, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id name description content }
+        }
+      }
+    `;
+
+    const allProjects: Array<{
+      id: string;
+      name: string;
+      description: string;
+    }> = [];
+    let cursor: string | null = null;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      const variables: Record<string, unknown> = {};
+      if (cursor) variables.after = cursor;
+
+      const data = await this.query<{
+        projects: {
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nodes: Array<{
+            id: string;
+            name: string | null;
+            description: string | null;
+            content: string | null;
+          }>;
+        };
+      }>(graphql, variables);
+
+      for (const p of data.projects.nodes) {
+        allProjects.push({
+          id: p.id,
+          name: p.name ?? "(untitled)",
+          description: p.content || p.description || "",
+        });
+      }
+
+      hasNextPage = data.projects.pageInfo.hasNextPage;
+      cursor = data.projects.pageInfo.endCursor;
+    }
+
+    return allProjects;
+  }
+
+  // -------------------------------------------------------------------------
+  // createWebhook — set up Linear webhook for a team
+  // -------------------------------------------------------------------------
+
+  async createWebhook(
+    teamId: string,
+    url: string,
+    secret: string,
+  ): Promise<{ id: string }> {
+    const graphql = `
+      mutation($input: WebhookCreateInput!) {
+        webhookCreate(input: $input) {
+          success
+          webhook { id }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      webhookCreate: {
+        success: boolean;
+        webhook: { id: string } | null;
+      };
+    }>(graphql, {
+      input: {
+        url,
+        secret,
+        teamId,
+        resourceTypes: ["Issue", "Comment", "Project"],
+        enabled: true,
+      },
+    });
+
+    if (!data.webhookCreate.success || !data.webhookCreate.webhook) {
+      throw new Error("LinearClient: webhookCreate returned success=false");
+    }
+
+    return data.webhookCreate.webhook;
+  }
+
+  // -------------------------------------------------------------------------
+  // fetchLabelIdByName — resolve label name to ID (for label filtering)
+  // -------------------------------------------------------------------------
+
+  async fetchLabelIdByName(name: string): Promise<string | undefined> {
+    const graphql = `
+      query($name: String!) {
+        issueLabels(filter: { name: { eq: $name } }, first: 1) {
+          nodes { id name }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      issueLabels: {
+        nodes: Array<{ id: string; name: string }>;
+      };
+    }>(graphql, { name });
+
+    return data.issueLabels.nodes[0]?.id;
   }
 }
