@@ -15,8 +15,8 @@
 //      own a nanosecond before the timeout kills it, timedOut can still be true.
 //   6. logStream error handler marks SSE done but does NOT call resolve() —
 //      handle.done promise never settles if process is still running.
-//   7. invocationLogs is registered before the process even starts — a second
-//      concurrent call with the same invocationId silently overwrites it.
+//   7. invocationLogs registration guard: a second concurrent call with the
+//      same invocationId must not silently overwrite the first logState entry.
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import {
@@ -254,9 +254,10 @@ describe("invocationLogs lifecycle", () => {
     expect(hasStdoutLine).toBe(true);
   });
 
-  test("duplicate invocationId: second call overwrites first logState entry", () => {
-    // BUG: if two calls use the same invocationId, the second silently replaces
-    // the first in invocationLogs. The first process's SSE clients are orphaned.
+  test("duplicate invocationId: second call does not overwrite first logState entry", () => {
+    // Guard: if two calls use the same invocationId, the second must NOT
+    // overwrite the first in invocationLogs — SSE clients subscribed to the
+    // first process's logState would otherwise be silently orphaned.
     const handle1 = spawnShellCommand(
       `node -e "setTimeout(()=>{},5000)"`,
       2005,
@@ -270,11 +271,8 @@ describe("invocationLogs lifecycle", () => {
       2005, // SAME invocationId
       tmpDir2,
     );
-    const logState2 = invocationLogs.get(2005);
-
-    // After second call, the map entry should still be logState1 (not silently
-    // overwritten). This assertion documents the bug: it WILL FAIL because
-    // shell.ts calls invocationLogs.set() unconditionally.
+    // The guard in spawnShellCommand (`if (!invocationLogs.has(invocationId))`)
+    // prevents the second call from overwriting the first logState entry.
     expect(invocationLogs.get(2005)).toBe(logState1);
 
     void killShellProcess(handle1);
