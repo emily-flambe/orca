@@ -53,7 +53,7 @@ import {
 import { spawnShellCommand, type ShellHandle } from "../runner/shell.js";
 import { computeNextRunAt } from "../cron/index.js";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   createWorktree,
@@ -354,6 +354,21 @@ async function dispatch(
       .then((result) => {
         shellHandles.delete(invocationId);
         const success = result.exitCode === 0;
+        // Write output to NDJSON log file so the API can serve it
+        try {
+          const absLogPath = join(process.cwd(), logPath);
+          mkdirSync(join(process.cwd(), "logs"), { recursive: true });
+          const entry = JSON.stringify({
+            type: "shell_output",
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+            output: result.output,
+            timestamp: new Date().toISOString(),
+          });
+          writeFileSync(absLogPath, entry + "\n", "utf-8");
+        } catch (writeErr) {
+          log(`cron_shell task ${taskId} failed to write log: ${writeErr}`);
+        }
         updateInvocation(db, invocationId, {
           endedAt: new Date().toISOString(),
           status: success ? "completed" : "failed",
@@ -375,6 +390,19 @@ async function dispatch(
       .catch((err) => {
         shellHandles.delete(invocationId);
         log(`cron_shell task ${taskId} completion error: ${err}`);
+        // Write error to NDJSON log file
+        try {
+          const absLogPath = join(process.cwd(), logPath);
+          mkdirSync(join(process.cwd(), "logs"), { recursive: true });
+          const entry = JSON.stringify({
+            type: "shell_error",
+            error: String(err),
+            timestamp: new Date().toISOString(),
+          });
+          writeFileSync(absLogPath, entry + "\n", "utf-8");
+        } catch {
+          /* ignore secondary write failure */
+        }
         updateInvocation(db, invocationId, {
           endedAt: new Date().toISOString(),
           status: "failed",
