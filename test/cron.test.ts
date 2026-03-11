@@ -2,12 +2,23 @@
 // Cron utility tests — adversarial coverage
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect } from "vitest";
+import { describe, test, it, expect, beforeEach, vi } from "vitest";
 import {
   computeNextRunAt,
   validateCronExpression,
   describeCronSchedule,
 } from "../src/cron/index.js";
+import { createDb } from "../src/db/index.js";
+import { createApiRoutes } from "../src/api/routes.js";
+import {
+  insertCronSchedule,
+  getCronSchedule,
+  getTasksByCronSchedule,
+  insertTask,
+} from "../src/db/queries.js";
+import type { OrcaDb } from "../src/db/index.js";
+import type { OrcaConfig } from "../src/config/index.js";
+import type { Hono } from "hono";
 
 // ---------------------------------------------------------------------------
 // computeNextRunAt
@@ -237,5 +248,740 @@ describe("describeCronSchedule", () => {
     // Fires at 9am but only in January (month=1)
     const result = describeCronSchedule("0 9 * 1 *");
     expect(result).not.toBe("Daily at 9:00 AM");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// API route test helpers
+// ---------------------------------------------------------------------------
+
+function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
+  return {
+    defaultCwd: "/tmp",
+    concurrencyCap: 3,
+    sessionTimeoutMin: 45,
+    maxRetries: 3,
+    budgetWindowHours: 4,
+    budgetMaxCostUsd: 10.0,
+    schedulerIntervalSec: 10,
+    claudePath: "claude",
+    defaultMaxTurns: 20,
+    implementSystemPrompt: "",
+    reviewSystemPrompt: "",
+    fixSystemPrompt: "",
+    maxReviewCycles: 3,
+    reviewMaxTurns: 30,
+    disallowedTools: "",
+    port: 3000,
+    dbPath: ":memory:",
+    linearApiKey: "test",
+    linearWebhookSecret: "test",
+    linearProjectIds: ["test-project"],
+    linearReadyStateType: "unstarted",
+    tunnelHostname: "test.example.com",
+    projectRepoMap: new Map(),
+    logPath: "orca.log",
+    ...overrides,
+  };
+}
+
+function makeApp(db: OrcaDb): Hono {
+  return createApiRoutes({
+    db,
+    config: makeConfig(),
+    syncTasks: vi.fn().mockResolvedValue(0),
+    client: {} as never,
+    stateMap: new Map(),
+    projectMeta: [],
+  });
+}
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function makeSchedule(overrides?: Record<string, unknown>) {
+  return {
+    name: "test schedule",
+    type: "claude" as const,
+    schedule: "* * * * *",
+    prompt: "do something",
+    repoPath: "/tmp/repo",
+    timeoutMin: 30,
+    maxRuns: null,
+    enabled: 1,
+    nextRunAt: new Date(Date.now() + 60000).toISOString(),
+    runCount: 0,
+    createdAt: now(),
+    updatedAt: now(),
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/cron — validation
+// ---------------------------------------------------------------------------
+
+describe("POST /api/cron — validation", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  async function post(body: unknown) {
+    return app.request("/api/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("rejects missing name", async () => {
+    const res = await post({
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/name/i);
+  });
+
+  it("rejects empty name", async () => {
+    const res = await post({
+      name: "  ",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/name/i);
+  });
+
+  it("rejects missing prompt", async () => {
+    const res = await post({
+      name: "test",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/prompt/i);
+  });
+
+  it("rejects empty prompt", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/prompt/i);
+  });
+
+  it("rejects missing type", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/type/i);
+  });
+
+  it("rejects invalid type value", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "bash",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/type/i);
+  });
+
+  it("rejects missing schedule", async () => {
+    const res = await post({ name: "test", prompt: "do", type: "shell" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/schedule/i);
+  });
+
+  it("rejects invalid cron expression in schedule", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "bad cron",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/schedule/i);
+  });
+
+  it("rejects claude type without repoPath", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "claude",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/repoPath/i);
+  });
+
+  it("rejects claude type with empty repoPath", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "claude",
+      schedule: "* * * * *",
+      repoPath: "  ",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/repoPath/i);
+  });
+
+  it("rejects timeoutMin=0", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      timeoutMin: 0,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/timeoutMin/i);
+  });
+
+  it("rejects timeoutMin=-1", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      timeoutMin: -1,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/timeoutMin/i);
+  });
+
+  it("rejects non-integer timeoutMin (1.5)", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      timeoutMin: 1.5,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/timeoutMin/i);
+  });
+
+  it("rejects maxRuns=0", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxRuns: 0,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/maxRuns/i);
+  });
+
+  it("rejects maxRuns=-1", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxRuns: -1,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/maxRuns/i);
+  });
+
+  it("rejects non-integer maxRuns (2.5)", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxRuns: 2.5,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/maxRuns/i);
+  });
+
+  it("accepts maxRuns=null explicitly", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxRuns: null,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("accepts timeoutMin=null explicitly", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      timeoutMin: null,
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 400 on malformed JSON body", async () => {
+    const res = await app.request("/api/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "not json at all {{{",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("creates schedule with correct nextRunAt computed from schedule", async () => {
+    const before = Date.now();
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    const after = Date.now();
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    const nextRun = new Date(body.nextRunAt).getTime();
+    expect(nextRun).toBeGreaterThan(before);
+    expect(nextRun).toBeLessThan(after + 61000);
+  });
+
+  it("shell type without repoPath is accepted", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 400 on non-object JSON body (array)", async () => {
+    const res = await app.request("/api/cron", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify([1, 2, 3]),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/cron/:id — not found and invalid id
+// ---------------------------------------------------------------------------
+
+describe("GET /api/cron/:id", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  it("returns 404 for non-existent id", async () => {
+    const res = await app.request("/api/cron/9999");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
+
+  it("returns 400 for non-numeric id", async () => {
+    const res = await app.request("/api/cron/abc");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns schedule with recentTasks array when schedule exists", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await app.request(`/api/cron/${id}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.id).toBe(id);
+    expect(Array.isArray(body.recentTasks)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/cron/:id — update behavior
+// ---------------------------------------------------------------------------
+
+describe("PUT /api/cron/:id — update behavior", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  async function put(id: number, body: unknown) {
+    return app.request(`/api/cron/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("returns 404 for non-existent id", async () => {
+    const res = await put(9999, { name: "new" });
+    expect(res.status).toBe(404);
+  });
+
+  it("when schedule field changes, nextRunAt is recomputed", async () => {
+    const oldNextRunAt = "2020-01-01T00:00:00.000Z";
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ nextRunAt: oldNextRunAt, schedule: "0 9 * * *" }),
+    );
+
+    const res = await put(id, { schedule: "0 18 * * *" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nextRunAt).not.toBe(oldNextRunAt);
+    expect(new Date(body.nextRunAt).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("when schedule field is NOT changed, nextRunAt is preserved as-is", async () => {
+    const fixedNextRunAt = "2099-12-31T23:59:00.000Z";
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ nextRunAt: fixedNextRunAt }),
+    );
+
+    const res = await put(id, { name: "updated name" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.nextRunAt).toBe(fixedNextRunAt);
+  });
+
+  it("rejects invalid cron expression in schedule update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { schedule: "not valid cron" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/schedule/i);
+  });
+
+  it("rejects timeoutMin=0 in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { timeoutMin: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects maxRuns=-1 in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { maxRuns: -1 });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects empty name in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { name: "" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/name/i);
+  });
+
+  it("rejects invalid type in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { type: "invalid" });
+    expect(res.status).toBe(400);
+  });
+
+  it("enabled field: truthy value sets to 1", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ enabled: 0 }));
+    const res = await put(id, { enabled: true });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(1);
+  });
+
+  it("enabled field: falsy value sets to 0", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ enabled: 1 }));
+    const res = await put(id, { enabled: false });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/cron/:id — cascade behavior
+// ---------------------------------------------------------------------------
+
+describe("DELETE /api/cron/:id", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  it("returns 404 for non-existent id", async () => {
+    const res = await app.request("/api/cron/9999", { method: "DELETE" });
+    expect(res.status).toBe(404);
+  });
+
+  it("deletes the schedule", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await app.request(`/api/cron/${id}`, { method: "DELETE" });
+    expect(res.status).toBe(200);
+    expect(getCronSchedule(db, id)).toBeUndefined();
+  });
+
+  it("deletes associated tasks before the schedule", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const taskId = `cron-${id}-1234`;
+    insertTask(db, {
+      linearIssueId: taskId,
+      agentPrompt: "do something",
+      repoPath: "/tmp",
+      orcaStatus: "ready",
+      taskType: "cron_shell",
+      cronScheduleId: id,
+      createdAt: now(),
+      updatedAt: now(),
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+    expect(getTasksByCronSchedule(db, id)).toHaveLength(1);
+
+    const res = await app.request(`/api/cron/${id}`, { method: "DELETE" });
+    expect(res.status).toBe(200);
+
+    expect(getCronSchedule(db, id)).toBeUndefined();
+    expect(getTasksByCronSchedule(db, id)).toHaveLength(0);
+  });
+
+  it("returns 400 for non-numeric id", async () => {
+    const res = await app.request("/api/cron/notanumber", { method: "DELETE" });
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/cron/:id/toggle — enabled flip
+// ---------------------------------------------------------------------------
+
+describe("POST /api/cron/:id/toggle", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  async function toggle(id: number) {
+    return app.request(`/api/cron/${id}/toggle`, { method: "POST" });
+  }
+
+  it("returns 404 for non-existent id", async () => {
+    const res = await toggle(9999);
+    expect(res.status).toBe(404);
+  });
+
+  it("flips enabled from 1 to 0", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ enabled: 1 }));
+    const res = await toggle(id);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(0);
+  });
+
+  it("flips enabled from 0 to 1", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ enabled: 0 }));
+    const res = await toggle(id);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(1);
+  });
+
+  it("double-toggle returns to original state", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ enabled: 1 }));
+    await toggle(id);
+    const res = await toggle(id);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.enabled).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/cron/:id/trigger — task ID uniqueness and side effects
+// ---------------------------------------------------------------------------
+
+describe("POST /api/cron/:id/trigger", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  async function trigger(id: number) {
+    return app.request(`/api/cron/${id}/trigger`, { method: "POST" });
+  }
+
+  it("returns 404 for non-existent schedule id", async () => {
+    const res = await trigger(9999);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for non-numeric id", async () => {
+    const res = await app.request("/api/cron/bad/trigger", { method: "POST" });
+    expect(res.status).toBe(400);
+  });
+
+  it("creates a task with status ready", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await trigger(id);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.taskId).toBeDefined();
+
+    const tasks = getTasksByCronSchedule(db, id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].orcaStatus).toBe("ready");
+  });
+
+  it("increments runCount after trigger", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ runCount: 0 }));
+    await trigger(id);
+    const updated = getCronSchedule(db, id);
+    expect(updated?.runCount).toBe(1);
+  });
+
+  it("updates nextRunAt after trigger", async () => {
+    const oldNextRunAt = "2020-01-01T00:00:00.000Z";
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ nextRunAt: oldNextRunAt }),
+    );
+    await trigger(id);
+    const updated = getCronSchedule(db, id);
+    expect(updated?.nextRunAt).not.toBe(oldNextRunAt);
+    expect(new Date(updated!.nextRunAt!).getTime()).toBeGreaterThan(
+      Date.now() - 5000,
+    );
+  });
+
+  it("concurrent triggers with same Date.now() produce unique task IDs", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+
+    const fixedMs = 1741564800000;
+    vi.spyOn(Date, "now").mockReturnValue(fixedMs);
+
+    const res1 = await trigger(id);
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json();
+    expect(body1.taskId).toMatch(new RegExp(`^cron-${id}-${fixedMs}-`));
+
+    const res2 = await trigger(id);
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json();
+    expect(body2.taskId).toMatch(new RegExp(`^cron-${id}-${fixedMs}-`));
+
+    expect(body1.taskId).not.toBe(body2.taskId);
+
+    vi.restoreAllMocks();
+  });
+
+  it("task type is cron_claude for claude schedule", async () => {
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ type: "claude", repoPath: "/repo" }),
+    );
+    await trigger(id);
+    const tasks = getTasksByCronSchedule(db, id);
+    expect(tasks[0].taskType).toBe("cron_claude");
+  });
+
+  it("task type is cron_shell for shell schedule", async () => {
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ type: "shell", repoPath: null }),
+    );
+    await trigger(id);
+    const tasks = getTasksByCronSchedule(db, id);
+    expect(tasks[0].taskType).toBe("cron_shell");
+  });
+
+  it("task repoPath is empty string when schedule repoPath is null", async () => {
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ type: "shell", repoPath: null }),
+    );
+    await trigger(id);
+    const tasks = getTasksByCronSchedule(db, id);
+    expect(tasks[0].repoPath).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/cron — listing
+// ---------------------------------------------------------------------------
+
+describe("GET /api/cron", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  it("returns empty array when no schedules", async () => {
+    const res = await app.request("/api/cron");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([]);
+  });
+
+  it("returns all schedules", async () => {
+    insertCronSchedule(db, makeSchedule({ name: "first" }));
+    insertCronSchedule(db, makeSchedule({ name: "second" }));
+    const res = await app.request("/api/cron");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(2);
   });
 });
