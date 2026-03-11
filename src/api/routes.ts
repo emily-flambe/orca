@@ -29,7 +29,17 @@ import {
   getRecentActivity,
   sumCostInWindowRange,
   getSuccessRate12h,
+  getAllCronSchedules,
+  getCronSchedule,
+  insertCronSchedule,
+  updateCronSchedule,
+  deleteCronSchedule,
+  incrementCronRunCount,
+  getTasksByCronSchedule,
+  insertTask,
+  deleteTask,
 } from "../db/queries.js";
+import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
   orcaEvents,
   emitTaskUpdated,
@@ -855,6 +865,282 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       // Block until aborted
       await new Promise(() => {});
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/cron
+  // -----------------------------------------------------------------------
+  app.get("/api/cron", (c) => {
+    const schedules = getAllCronSchedules(db);
+    return c.json(schedules);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/cron/:id
+  // -----------------------------------------------------------------------
+  app.get("/api/cron/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const schedule = getCronSchedule(db, id);
+    if (!schedule) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const allTasks = getTasksByCronSchedule(db, id);
+    const recentTasks = allTasks
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+      .slice(0, 20);
+    return c.json({ ...schedule, recentTasks });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/cron
+  // -----------------------------------------------------------------------
+  app.post("/api/cron", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const { name, type, schedule, prompt, repoPath, timeoutMin, maxRuns } =
+      body as Record<string, unknown>;
+
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return c.json({ error: "name is required" }, 400);
+    }
+    if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
+      return c.json({ error: "prompt is required" }, 400);
+    }
+    if (type !== "claude" && type !== "shell") {
+      return c.json({ error: 'type must be "claude" or "shell"' }, 400);
+    }
+    if (!schedule || typeof schedule !== "string") {
+      return c.json({ error: "schedule is required" }, 400);
+    }
+    const scheduleError = validateCronExpression(schedule);
+    if (scheduleError !== null) {
+      return c.json({ error: `invalid schedule: ${scheduleError}` }, 400);
+    }
+    if (
+      type === "claude" &&
+      (!repoPath || typeof repoPath !== "string" || repoPath.trim() === "")
+    ) {
+      return c.json({ error: "repoPath is required for claude type" }, 400);
+    }
+    if (
+      timeoutMin !== undefined &&
+      timeoutMin !== null &&
+      (typeof timeoutMin !== "number" ||
+        !Number.isInteger(timeoutMin) ||
+        timeoutMin <= 0)
+    ) {
+      return c.json({ error: "timeoutMin must be a positive integer" }, 400);
+    }
+    if (
+      maxRuns !== undefined &&
+      maxRuns !== null &&
+      (typeof maxRuns !== "number" ||
+        !Number.isInteger(maxRuns) ||
+        maxRuns <= 0)
+    ) {
+      return c.json(
+        { error: "maxRuns must be a positive integer or null" },
+        400,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const nextRunAt = computeNextRunAt(schedule as string);
+    const id = insertCronSchedule(db, {
+      name: (name as string).trim(),
+      type: type as "claude" | "shell",
+      schedule: schedule as string,
+      prompt: (prompt as string).trim(),
+      repoPath: typeof repoPath === "string" ? repoPath : null,
+      timeoutMin: typeof timeoutMin === "number" ? timeoutMin : 30,
+      maxRuns: typeof maxRuns === "number" ? maxRuns : null,
+      enabled: 1,
+      nextRunAt,
+      runCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = getCronSchedule(db, id);
+    return c.json(created, 201);
+  });
+
+  // -----------------------------------------------------------------------
+  // PUT /api/cron/:id
+  // -----------------------------------------------------------------------
+  app.put("/api/cron/:id", async (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const existing = getCronSchedule(db, id);
+    if (!existing) {
+      return c.json({ error: "not found" }, 404);
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    const {
+      name,
+      type,
+      schedule,
+      prompt,
+      repoPath,
+      timeoutMin,
+      maxRuns,
+      enabled,
+    } = body as Record<string, unknown>;
+
+    if (
+      name !== undefined &&
+      (typeof name !== "string" || name.trim() === "")
+    ) {
+      return c.json({ error: "name must be a non-empty string" }, 400);
+    }
+    if (
+      prompt !== undefined &&
+      (typeof prompt !== "string" || prompt.trim() === "")
+    ) {
+      return c.json({ error: "prompt must be a non-empty string" }, 400);
+    }
+    if (type !== undefined && type !== "claude" && type !== "shell") {
+      return c.json({ error: 'type must be "claude" or "shell"' }, 400);
+    }
+    if (schedule !== undefined) {
+      if (typeof schedule !== "string") {
+        return c.json({ error: "schedule must be a string" }, 400);
+      }
+      const scheduleError = validateCronExpression(schedule);
+      if (scheduleError !== null) {
+        return c.json({ error: `invalid schedule: ${scheduleError}` }, 400);
+      }
+    }
+    if (
+      timeoutMin !== undefined &&
+      timeoutMin !== null &&
+      (typeof timeoutMin !== "number" ||
+        !Number.isInteger(timeoutMin) ||
+        timeoutMin <= 0)
+    ) {
+      return c.json({ error: "timeoutMin must be a positive integer" }, 400);
+    }
+    if (
+      maxRuns !== undefined &&
+      maxRuns !== null &&
+      (typeof maxRuns !== "number" ||
+        !Number.isInteger(maxRuns) ||
+        maxRuns <= 0)
+    ) {
+      return c.json(
+        { error: "maxRuns must be a positive integer or null" },
+        400,
+      );
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = (name as string).trim();
+    if (type !== undefined) updates.type = type;
+    if (prompt !== undefined) updates.prompt = (prompt as string).trim();
+    if (repoPath !== undefined) updates.repoPath = repoPath as string | null;
+    if (timeoutMin !== undefined)
+      updates.timeoutMin = timeoutMin as number | null;
+    if (maxRuns !== undefined) updates.maxRuns = maxRuns as number | null;
+    if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
+
+    if (schedule !== undefined) {
+      updates.schedule = schedule as string;
+      updates.nextRunAt = computeNextRunAt(schedule as string);
+    }
+
+    updateCronSchedule(
+      db,
+      id,
+      updates as Parameters<typeof updateCronSchedule>[2],
+    );
+    const updated = getCronSchedule(db, id);
+    return c.json(updated);
+  });
+
+  // -----------------------------------------------------------------------
+  // DELETE /api/cron/:id
+  // -----------------------------------------------------------------------
+  app.delete("/api/cron/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const existing = getCronSchedule(db, id);
+    if (!existing) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const cronTasks = getTasksByCronSchedule(db, id);
+    for (const task of cronTasks) {
+      deleteTask(db, task.linearIssueId);
+    }
+    deleteCronSchedule(db, id);
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/cron/:id/toggle
+  // -----------------------------------------------------------------------
+  app.post("/api/cron/:id/toggle", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const schedule = getCronSchedule(db, id);
+    if (!schedule) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const newEnabled = schedule.enabled ? 0 : 1;
+    updateCronSchedule(db, id, { enabled: newEnabled });
+    const updated = getCronSchedule(db, id);
+    return c.json(updated);
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/cron/:id/trigger
+  // -----------------------------------------------------------------------
+  app.post("/api/cron/:id/trigger", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const schedule = getCronSchedule(db, id);
+    if (!schedule) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const now = new Date().toISOString();
+    const taskId = `cron-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    insertTask(db, {
+      linearIssueId: taskId,
+      agentPrompt: schedule.prompt,
+      repoPath: schedule.repoPath ?? "",
+      orcaStatus: "ready",
+      taskType: schedule.type === "claude" ? "cron_claude" : "cron_shell",
+      cronScheduleId: schedule.id,
+      createdAt: now,
+      updatedAt: now,
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+    incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
+    return c.json({ ok: true, taskId });
   });
 
   // -----------------------------------------------------------------------
