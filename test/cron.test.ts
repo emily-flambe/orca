@@ -218,4 +218,24 @@ describe("describeCronSchedule", () => {
     const result = describeCronSchedule("0 */2 * * *");
     expect(result).toContain("2 hours");
   });
+
+  test("month-specific expression does not produce generic description", () => {
+    // '0 9 * JAN *' only fires in January — must NOT return 'Daily at 9:00 AM'
+    const result = describeCronSchedule("0 9 * JAN *");
+    expect(result).not.toBe("Daily at 9:00 AM");
+    // Should fall back to the generic Cron: prefix
+    expect(result).toContain("9");
+  });
+
+  test("* * * JAN * does not return 'Every minute'", () => {
+    // Only fires in January — 'Every minute' is misleading
+    const result = describeCronSchedule("* * * JAN *");
+    expect(result).not.toBe("Every minute");
+  });
+
+  test("0 9 * 1 * does not return 'Daily at 9:00 AM'", () => {
+    // Fires at 9am but only in January (month=1)
+    const result = describeCronSchedule("0 9 * 1 *");
+    expect(result).not.toBe("Daily at 9:00 AM");
+  });
 });

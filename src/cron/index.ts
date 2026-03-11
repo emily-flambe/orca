@@ -56,36 +56,59 @@ export function describeCronSchedule(expr: string): string {
     return expr;
   }
 
-  const [minute, hour, dom, , dow] = parts;
+  const [minute, hour, dom, month, dow] = parts;
 
   // Every minute: * * * * *
-  if (minute === "*" && hour === "*" && dom === "*" && dow === "*") {
+  if (
+    minute === "*" &&
+    hour === "*" &&
+    dom === "*" &&
+    month === "*" &&
+    dow === "*"
+  ) {
     return "Every minute";
   }
 
   // Every N minutes: */N * * * *
-  const everyNMinutes = minute?.match(/^\*\/(\d+)$/);
-  if (everyNMinutes && hour === "*" && dom === "*" && dow === "*") {
+  const everyNMinutes = minute.match(/^\*\/(\d+)$/);
+  if (
+    everyNMinutes &&
+    hour === "*" &&
+    dom === "*" &&
+    month === "*" &&
+    dow === "*"
+  ) {
     return `Every ${everyNMinutes[1]} minutes`;
   }
 
   // Every hour: 0 * * * *
-  if (minute === "0" && hour === "*" && dom === "*" && dow === "*") {
+  if (
+    minute === "0" &&
+    hour === "*" &&
+    dom === "*" &&
+    month === "*" &&
+    dow === "*"
+  ) {
     return "Every hour";
   }
 
   // Every N hours: 0 */N * * *
-  const everyNHours = hour?.match(/^\*\/(\d+)$/);
-  if (minute === "0" && everyNHours && dom === "*" && dow === "*") {
+  const everyNHours = hour.match(/^\*\/(\d+)$/);
+  if (
+    minute === "0" &&
+    everyNHours &&
+    dom === "*" &&
+    month === "*" &&
+    dow === "*"
+  ) {
     return `Every ${everyNHours[1]} hours`;
   }
 
-  // Specific hour patterns require a fixed hour number
-  const hourNum = hour !== undefined ? parseInt(hour, 10) : NaN;
-  const isFixedHour =
-    hour !== undefined && /^\d+$/.test(hour) && !isNaN(hourNum);
+  // Specific hour patterns require a fixed hour number and wildcard month
+  const hourNum = parseInt(hour, 10);
+  const isFixedHour = /^\d+$/.test(hour) && !isNaN(hourNum);
 
-  if (minute === "0" && isFixedHour) {
+  if (minute === "0" && isFixedHour && month === "*") {
     const ampm = hourNum < 12 ? "AM" : "PM";
     const displayHour = hourNum % 12 === 0 ? 12 : hourNum % 12;
     const timeStr = `${displayHour}:00 ${ampm}`;
@@ -105,8 +128,14 @@ export function describeCronSchedule(expr: string): string {
       "Friday",
       "Saturday",
     ];
-    const dowNum = dow !== undefined ? parseInt(dow, 10) : NaN;
-    if (dom === "*" && dow !== undefined && /^\d+$/.test(dow) && !isNaN(dowNum) && dowNum >= 0 && dowNum <= 6) {
+    const dowNum = parseInt(dow, 10);
+    if (
+      dom === "*" &&
+      /^\d+$/.test(dow) &&
+      !isNaN(dowNum) &&
+      dowNum >= 0 &&
+      dowNum <= 6
+    ) {
       return `Weekly on ${dayNames[dowNum]} at ${timeStr}`;
     }
 
