@@ -108,7 +108,9 @@ describe("CronPage", () => {
 
       await user.click(screen.getByText("New schedule"));
 
-      expect(screen.getByPlaceholderText("e.g. Nightly sync")).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("e.g. Nightly sync"),
+      ).toBeInTheDocument();
       expect(screen.getByPlaceholderText("0 2 * * *")).toBeInTheDocument();
     });
 
@@ -151,10 +153,7 @@ describe("CronPage", () => {
         screen.getByPlaceholderText("e.g. Nightly sync"),
         "My new schedule",
       );
-      await user.type(
-        screen.getByPlaceholderText("0 2 * * *"),
-        "*/5 * * * *",
-      );
+      await user.type(screen.getByPlaceholderText("0 2 * * *"), "*/5 * * * *");
       await user.type(
         screen.getByPlaceholderText("Describe the task..."),
         "Do something useful",
@@ -173,7 +172,11 @@ describe("CronPage", () => {
   describe("Enable/disable toggle", () => {
     it("calls updateCronSchedule with flipped enabled value and updates list", async () => {
       const user = userEvent.setup();
-      const schedule = makeCronSchedule({ id: 1, name: "Toggle me", enabled: 1 });
+      const schedule = makeCronSchedule({
+        id: 1,
+        name: "Toggle me",
+        enabled: 1,
+      });
       const updatedSchedule = { ...schedule, enabled: 0 as const };
       mockFetchCronSchedules.mockResolvedValue([schedule]);
       mockUpdateCronSchedule.mockResolvedValue(updatedSchedule);
@@ -195,7 +198,11 @@ describe("CronPage", () => {
 
     it("calls updateCronSchedule with enabled=1 when schedule is disabled", async () => {
       const user = userEvent.setup();
-      const schedule = makeCronSchedule({ id: 1, name: "Disabled one", enabled: 0 });
+      const schedule = makeCronSchedule({
+        id: 1,
+        name: "Disabled one",
+        enabled: 0,
+      });
       const updatedSchedule = { ...schedule, enabled: 1 as const };
       mockFetchCronSchedules.mockResolvedValue([schedule]);
       mockUpdateCronSchedule.mockResolvedValue(updatedSchedule);
