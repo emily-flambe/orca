@@ -124,8 +124,10 @@ describe("createWorktree — baseRef branch-already-exists handling", () => {
 
     mockGit.mockImplementation((args: string[]) => {
       if (args[0] === "worktree" && args[1] === "list") return "";
-      // show-ref --verify: branch does NOT exist (throws)
+      // show-ref --verify: branch does NOT exist locally (throws)
       if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      // ls-remote: branch exists on remote
+      if (args[0] === "ls-remote") return `abc123\trefs/heads/${baseRef}`;
       return "";
     });
 
@@ -325,5 +327,156 @@ describe("createWorktree — stale directory removal", () => {
     expect(caught).toBeDefined();
     expect((caught as Error).message).toBe("ENOENT: no such file");
     expect((caught as Error).name).not.toBe("WorktreeLockedError");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createWorktree — conflict detection and resolution
+// ---------------------------------------------------------------------------
+
+describe("createWorktree — conflict detection and resolution", () => {
+  let mockGit: ReturnType<typeof vi.fn>;
+  let mockExistsSync: ReturnType<typeof vi.fn>;
+  let mockReaddirSync: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const gitModule = await import("../src/git.js");
+    mockGit = vi.mocked(gitModule.git);
+
+    const fsModule = await import("node:fs");
+    mockExistsSync = vi.mocked(fsModule.existsSync);
+    mockReaddirSync = vi.mocked(fsModule.readdirSync);
+
+    mockReaddirSync.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("resets to origin/main and logs a warning when git diff --check detects conflict markers", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const worktreePath = join(PARENT, "orca-EMI-600");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    const conflictError = new Error(
+      "git command failed: git diff --check\nexit: 2\ncwd: " + worktreePath,
+    );
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      // diff --check fails — conflict markers found
+      if (args[0] === "diff" && args[1] === "--check") throw conflictError;
+      // grep returns the conflicted file
+      if (args[0] === "grep") return "test/cron.test.ts";
+      return "";
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = createWorktree(repoPath, "EMI-600", 1);
+    expect(result.worktreePath).toBe(worktreePath);
+
+    // Must have logged a warning mentioning the conflicted file
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(" "));
+    const conflictWarn = warnCalls.find((msg) =>
+      msg.includes("conflict markers detected"),
+    );
+    expect(conflictWarn).toBeDefined();
+    expect(conflictWarn).toContain("test/cron.test.ts");
+    expect(conflictWarn).toContain("resetting to origin/main");
+
+    // Must have reset to origin/main
+    const resetCalls = mockGit.mock.calls.filter(
+      (call) =>
+        call[0][0] === "reset" &&
+        call[0][1] === "--hard" &&
+        call[0][2] === "origin/main",
+    );
+    expect(resetCalls.length).toBeGreaterThanOrEqual(1);
+    // The reset must target the worktree
+    expect(resetCalls.some((c) => c[1]?.cwd === worktreePath)).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  test("does not reset when git diff --check passes (no conflict markers)", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      // diff --check succeeds (no conflicts)
+      return "";
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    createWorktree(repoPath, "EMI-601", 1);
+
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(" "));
+    const conflictWarn = warnCalls.find((msg) =>
+      msg.includes("conflict markers detected"),
+    );
+    expect(conflictWarn).toBeUndefined();
+
+    // No reset --hard origin/main from conflict resolution
+    const resetCalls = mockGit.mock.calls.filter(
+      (call) =>
+        call[0][0] === "reset" &&
+        call[0][1] === "--hard" &&
+        call[0][2] === "origin/main",
+    );
+    expect(resetCalls).toHaveLength(0);
+
+    warnSpy.mockRestore();
+  });
+
+  test("logs '(unknown)' for conflicted files when git grep finds nothing", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      if (args[0] === "diff" && args[1] === "--check")
+        throw new Error("conflict");
+      // grep also fails (no matches)
+      if (args[0] === "grep") throw new Error("no matches");
+      return "";
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    createWorktree(repoPath, "EMI-602", 1);
+
+    const warnCalls = warnSpy.mock.calls.map((c) => c.join(" "));
+    const conflictWarn = warnCalls.find((msg) =>
+      msg.includes("conflict markers detected"),
+    );
+    expect(conflictWarn).toBeDefined();
+    expect(conflictWarn).toContain("(unknown)");
+
+    warnSpy.mockRestore();
   });
 });

@@ -110,6 +110,36 @@ function killProcessesInDirectory(dirPath: string): void {
 }
 
 /**
+ * Detect and resolve merge conflicts in a worktree.
+ *
+ * Runs `git diff --check` to detect conflict markers in the working tree.
+ * If any are found, logs a warning with the affected file names and
+ * hard-resets to `origin/main` to give the agent a clean starting point.
+ *
+ * @param worktreePath - Absolute path to the worktree directory
+ */
+function detectAndResolveConflicts(worktreePath: string): void {
+  try {
+    git(["diff", "--check"], { cwd: worktreePath });
+  } catch {
+    // git diff --check exits non-zero when conflict markers are found.
+    // Get conflicted file names for the warning via git grep.
+    let conflictedFiles: string[] = [];
+    try {
+      const grepOut = git(["grep", "-l", "^<<<<<<< "], { cwd: worktreePath });
+      conflictedFiles = grepOut.split("\n").filter(Boolean);
+    } catch {
+      // grep exited non-zero (no matches or error) — file list unknown
+    }
+    console.warn(
+      `[orca/worktree] conflict markers detected in ${worktreePath} — ` +
+        `resetting to origin/main. Conflicted files: ${conflictedFiles.join(", ") || "(unknown)"}`,
+    );
+    git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+  }
+}
+
+/**
  * Check whether a git worktree is already registered at the given path.
  */
 function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
@@ -246,6 +276,7 @@ export function createWorktree(
     } else {
       resetWorktree(worktreePath);
     }
+    detectAndResolveConflicts(worktreePath);
     return { worktreePath, branchName };
   }
 
@@ -338,6 +369,7 @@ export function createWorktree(
     }
   }
 
+  detectAndResolveConflicts(worktreePath);
   return { worktreePath, branchName };
 }
 
