@@ -50,6 +50,9 @@ import {
   updatePrBranch,
   rebasePrBranch,
   getWorkflowRunStatus,
+  pushAndCreatePr,
+  closeSupersededPrs,
+  closePrsForCanceledTask,
 } from "../src/github/index.js";
 import { git } from "../src/git.js";
 
@@ -1045,5 +1048,374 @@ describe("rebasePrBranch", () => {
 
     expect(result).toEqual({ success: true });
     expect(rmSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pushAndCreatePr
+// ---------------------------------------------------------------------------
+
+describe("pushAndCreatePr", () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset();
+    gitMock.mockReset();
+    gitMock.mockReturnValue(undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns PrInfo on success when PR URL is returned", () => {
+    const prUrl = "https://github.com/owner/repo/pull/42";
+    const prViewData = {
+      url: prUrl,
+      number: 42,
+      state: "OPEN",
+      headRefName: "orca/EMI-100-inv-1",
+    };
+    // First execFileSync call: gh pr create → returns URL
+    // Second execFileSync call: gh pr view (from findPrByUrl) → returns JSON
+    execFileSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(JSON.stringify(prViewData));
+
+    const result = pushAndCreatePr("orca/EMI-100-inv-1", "EMI-100", "/repo");
+
+    expect(result).toEqual({
+      exists: true,
+      url: prUrl,
+      number: 42,
+      merged: false,
+      headBranch: "orca/EMI-100-inv-1",
+    });
+  });
+
+  test("passes correct args to gh pr create", () => {
+    const prUrl = "https://github.com/owner/repo/pull/1";
+    execFileSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(
+        JSON.stringify({ url: prUrl, number: 1, state: "OPEN" }),
+      );
+
+    pushAndCreatePr("orca/EMI-5-inv-2", "EMI-5", "/repo");
+
+    const [cmd, args] = execFileSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toContain("pr");
+    expect(args).toContain("create");
+    expect(args).toContain("--head");
+    expect(args).toContain("orca/EMI-5-inv-2");
+    // taskId appears in the --title value as "[EMI-5] ..."
+    const titleIdx = args.indexOf("--title");
+    expect(titleIdx).toBeGreaterThan(-1);
+    expect(args[titleIdx + 1]).toContain("EMI-5");
+  });
+
+  test("returns { exists: false } when git push fails", () => {
+    gitMock.mockImplementationOnce(() => {
+      throw new Error("remote rejected");
+    });
+
+    const result = pushAndCreatePr("orca/branch", "TASK-1", "/repo");
+
+    expect(result).toEqual({ exists: false });
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  test("returns { exists: false } when gh pr create fails", () => {
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("gh pr create failed");
+    });
+
+    const result = pushAndCreatePr("orca/branch", "TASK-1", "/repo");
+
+    expect(result).toEqual({ exists: false });
+  });
+
+  test("returns { exists: false } when gh pr create returns non-http output", () => {
+    execFileSyncMock.mockReturnValueOnce("some error message");
+
+    const result = pushAndCreatePr("orca/branch", "TASK-1", "/repo");
+
+    expect(result).toEqual({ exists: false });
+  });
+
+  test("calls git push with correct args", () => {
+    const prUrl = "https://github.com/owner/repo/pull/10";
+    execFileSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(
+        JSON.stringify({ url: prUrl, number: 10, state: "OPEN" }),
+      );
+
+    pushAndCreatePr("orca/EMI-10-inv-1", "EMI-10", "/my/repo");
+
+    expect(gitMock).toHaveBeenCalledWith(
+      ["push", "-u", "origin", "orca/EMI-10-inv-1"],
+      { cwd: "/my/repo" },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeSupersededPrs
+// ---------------------------------------------------------------------------
+
+describe("closeSupersededPrs", () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns 0 when gh pr list fails", () => {
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("gh error");
+    });
+
+    const result = closeSupersededPrs(
+      "EMI-100",
+      99,
+      5,
+      "orca/EMI-100-inv-5",
+      "/repo",
+    );
+
+    expect(result).toBe(0);
+  });
+
+  test("closes PRs matching prefix, skips the new branch", () => {
+    const prs = [
+      { headRefName: "orca/EMI-100-inv-3", number: 30 },
+      { headRefName: "orca/EMI-100-inv-4", number: 40 },
+      { headRefName: "orca/EMI-100-inv-5", number: 50 }, // new branch — skip
+      { headRefName: "orca/EMI-999-inv-1", number: 9 }, // different task — skip
+    ];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs)) // pr list
+      .mockReturnValue(""); // pr close calls
+
+    const result = closeSupersededPrs(
+      "EMI-100",
+      50,
+      5,
+      "orca/EMI-100-inv-5",
+      "/repo",
+    );
+
+    expect(result).toBe(2);
+    // Should close #30 and #40, not #50 or #9
+    const closeCalls = execFileSyncMock.mock.calls.slice(1);
+    expect(closeCalls).toHaveLength(2);
+    expect(closeCalls[0][1]).toContain("30");
+    expect(closeCalls[1][1]).toContain("40");
+  });
+
+  test("returns 0 when no PRs match the task prefix", () => {
+    const prs = [
+      { headRefName: "orca/OTHER-1-inv-1", number: 1 },
+      { headRefName: "feature/unrelated", number: 2 },
+    ];
+    execFileSyncMock.mockReturnValueOnce(JSON.stringify(prs));
+
+    const result = closeSupersededPrs(
+      "EMI-100",
+      99,
+      5,
+      "orca/EMI-100-inv-5",
+      "/repo",
+    );
+
+    expect(result).toBe(0);
+  });
+
+  test("continues and counts only successful closes when one close fails", () => {
+    const prs = [
+      { headRefName: "orca/EMI-100-inv-1", number: 10 },
+      { headRefName: "orca/EMI-100-inv-2", number: 20 },
+    ];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs)) // pr list
+      .mockImplementationOnce(() => {
+        throw new Error("close failed");
+      }) // close #10 fails
+      .mockReturnValueOnce(""); // close #20 succeeds
+
+    const result = closeSupersededPrs(
+      "EMI-100",
+      99,
+      5,
+      "orca/EMI-100-inv-5",
+      "/repo",
+    );
+
+    expect(result).toBe(1);
+  });
+
+  test("uses custom comment when provided", () => {
+    const prs = [{ headRefName: "orca/EMI-100-inv-1", number: 10 }];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closeSupersededPrs(
+      "EMI-100",
+      99,
+      5,
+      "orca/EMI-100-inv-5",
+      "/repo",
+      "Custom close comment",
+    );
+
+    const closeArgs = execFileSyncMock.mock.calls[1][1] as string[];
+    expect(closeArgs).toContain("Custom close comment");
+  });
+
+  test("passes correct args to gh pr list", () => {
+    execFileSyncMock.mockReturnValueOnce(JSON.stringify([]));
+
+    closeSupersededPrs("EMI-100", 99, 5, "orca/EMI-100-inv-5", "/my/repo");
+
+    const [cmd, args, opts] = execFileSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toEqual([
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--json",
+      "headRefName,number",
+      "--limit",
+      "200",
+    ]);
+    expect(opts.cwd).toBe("/my/repo");
+  });
+
+  test("passes --delete-branch to gh pr close", () => {
+    const prs = [{ headRefName: "orca/EMI-100-inv-1", number: 11 }];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closeSupersededPrs("EMI-100", 99, 5, "orca/EMI-100-inv-5", "/repo");
+
+    const closeArgs = execFileSyncMock.mock.calls[1][1] as string[];
+    expect(closeArgs).toContain("--delete-branch");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closePrsForCanceledTask
+// ---------------------------------------------------------------------------
+
+describe("closePrsForCanceledTask", () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns 0 when gh pr list fails", () => {
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("gh error");
+    });
+
+    const result = closePrsForCanceledTask("EMI-200", "/repo");
+
+    expect(result).toBe(0);
+  });
+
+  test("closes all PRs matching the task prefix", () => {
+    const prs = [
+      { headRefName: "orca/EMI-200-inv-1", number: 11 },
+      { headRefName: "orca/EMI-200-inv-2", number: 22 },
+      { headRefName: "orca/EMI-999-inv-1", number: 99 }, // different task — skip
+    ];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValue("");
+
+    const result = closePrsForCanceledTask("EMI-200", "/repo");
+
+    expect(result).toBe(2);
+    const closeCalls = execFileSyncMock.mock.calls.slice(1);
+    expect(closeCalls).toHaveLength(2);
+    expect(closeCalls[0][1]).toContain("11");
+    expect(closeCalls[1][1]).toContain("22");
+  });
+
+  test("returns 0 when no PRs match the task prefix", () => {
+    execFileSyncMock.mockReturnValueOnce(
+      JSON.stringify([{ headRefName: "orca/OTHER-1-inv-1", number: 1 }]),
+    );
+
+    const result = closePrsForCanceledTask("EMI-200", "/repo");
+
+    expect(result).toBe(0);
+  });
+
+  test("continues and counts only successful closes when one fails", () => {
+    const prs = [
+      { headRefName: "orca/EMI-200-inv-1", number: 11 },
+      { headRefName: "orca/EMI-200-inv-2", number: 22 },
+    ];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockImplementationOnce(() => {
+        throw new Error("close failed");
+      })
+      .mockReturnValueOnce("");
+
+    const result = closePrsForCanceledTask("EMI-200", "/repo");
+
+    expect(result).toBe(1);
+  });
+
+  test("passes correct args to gh pr list", () => {
+    execFileSyncMock.mockReturnValueOnce(JSON.stringify([]));
+
+    closePrsForCanceledTask("EMI-200", "/my/repo");
+
+    const [cmd, args, opts] = execFileSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toEqual([
+      "pr",
+      "list",
+      "--state",
+      "open",
+      "--json",
+      "headRefName,number",
+      "--limit",
+      "200",
+    ]);
+    expect(opts.cwd).toBe("/my/repo");
+  });
+
+  test("passes --delete-branch and canceled comment to gh pr close", () => {
+    const prs = [{ headRefName: "orca/EMI-200-inv-1", number: 5 }];
+    execFileSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closePrsForCanceledTask("EMI-200", "/repo");
+
+    const closeArgs = execFileSyncMock.mock.calls[1][1] as string[];
+    expect(closeArgs).toContain("--delete-branch");
+    const commentIdx = closeArgs.indexOf("--comment");
+    expect(commentIdx).toBeGreaterThan(-1);
+    expect(closeArgs[commentIdx + 1]).toContain("EMI-200");
+    expect(closeArgs[commentIdx + 1]).toContain("canceled");
   });
 });
