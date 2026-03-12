@@ -1168,7 +1168,11 @@ function onImplementSuccess(
   }
 
   // Store the PR branch name and PR number on the task
-  updateTaskPrBranch(db, taskId, branchName);
+  const storedBranch = prInfo.headBranch ?? branchName;
+  if (prInfo.headBranch && prInfo.headBranch !== branchName) {
+    log(`task ${taskId}: PR head branch (${prInfo.headBranch}) differs from invocation branch (${branchName}) — using PR head branch`);
+  }
+  updateTaskPrBranch(db, taskId, storedBranch);
   if (prInfo.number != null) {
     updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
   }

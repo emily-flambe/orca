@@ -15,6 +15,7 @@ export interface PrInfo {
   url?: string;
   number?: number;
   merged?: boolean;
+  headBranch?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export function findPrForBranch(
           "--head",
           branchName,
           "--json",
-          "url,number,state",
+          "url,number,state,headRefName",
           "--limit",
           "1",
         ],
@@ -89,6 +90,7 @@ export function findPrForBranch(
         url: string;
         number: number;
         state: string;
+        headRefName: string;
       }[];
       if (prs.length > 0) {
         const pr = prs[0]!;
@@ -97,6 +99,7 @@ export function findPrForBranch(
           url: pr.url,
           number: pr.number,
           merged: pr.state === "MERGED",
+          headBranch: pr.headRefName,
         };
       }
       // Empty result — may be GitHub API lag. Retry with backoff.
@@ -137,13 +140,14 @@ export function findPrForBranch(
  */
 export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
   try {
-    const output = gh(["pr", "view", prUrl, "--json", "url,number,state"], {
+    const output = gh(["pr", "view", prUrl, "--json", "url,number,state,headRefName"], {
       cwd,
     });
     const data = JSON.parse(output) as {
       url?: string;
       number?: number;
       state?: string;
+      headRefName?: string;
     };
     if (typeof data.number !== "number" || typeof data.url !== "string") {
       console.warn(
@@ -156,6 +160,7 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       url: data.url,
       number: data.number,
       merged: data.state === "MERGED",
+      headBranch: data.headRefName,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
