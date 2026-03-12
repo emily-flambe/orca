@@ -962,6 +962,247 @@ describe("LogViewer", () => {
     });
   });
 
+  describe("auto-scroll and jump-to-bottom button", () => {
+    it("jump-to-bottom button is hidden by default", async () => {
+      mockFetchInvocationLogs.mockResolvedValue({
+        lines: [{ type: "stdout", text: "some content" }],
+      });
+      renderLogViewer();
+      await waitFor(() => screen.getByText("some content"));
+      expect(
+        screen.queryByText("↓ Jump to bottom"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("jump-to-bottom button appears when user scrolls away from bottom", async () => {
+      mockFetchInvocationLogs.mockResolvedValue({
+        lines: [{ type: "stdout", text: "scrollable content" }],
+      });
+      renderLogViewer();
+      await waitFor(() => screen.getByText("scrollable content"));
+
+      const container = screen
+        .getByText("scrollable content")
+        .closest(".overflow-y-auto") as HTMLElement;
+
+      // Mock scroll position far from bottom (distance = 800 >= 50)
+      Object.defineProperty(container, "scrollHeight", {
+        value: 1000,
+        configurable: true,
+      });
+      Object.defineProperty(container, "scrollTop", {
+        value: 0,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(container, "clientHeight", {
+        value: 200,
+        configurable: true,
+      });
+
+      fireEvent.scroll(container);
+
+      expect(screen.getByText("↓ Jump to bottom")).toBeInTheDocument();
+    });
+
+    it("jump-to-bottom button disappears when user scrolls back to bottom", async () => {
+      mockFetchInvocationLogs.mockResolvedValue({
+        lines: [{ type: "stdout", text: "scrollable content" }],
+      });
+      renderLogViewer();
+      await waitFor(() => screen.getByText("scrollable content"));
+
+      const container = screen
+        .getByText("scrollable content")
+        .closest(".overflow-y-auto") as HTMLElement;
+
+      Object.defineProperty(container, "scrollHeight", {
+        value: 1000,
+        configurable: true,
+      });
+      Object.defineProperty(container, "clientHeight", {
+        value: 200,
+        configurable: true,
+      });
+
+      // Scroll away from bottom to show the button
+      Object.defineProperty(container, "scrollTop", {
+        value: 0,
+        configurable: true,
+        writable: true,
+      });
+      fireEvent.scroll(container);
+      expect(screen.getByText("↓ Jump to bottom")).toBeInTheDocument();
+
+      // Scroll back to bottom (distance = 1000 - 800 - 200 = 0 < 50)
+      Object.defineProperty(container, "scrollTop", {
+        value: 800,
+        configurable: true,
+        writable: true,
+      });
+      fireEvent.scroll(container);
+      expect(
+        screen.queryByText("↓ Jump to bottom"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("clicking jump-to-bottom button hides the button", async () => {
+      mockFetchInvocationLogs.mockResolvedValue({
+        lines: [{ type: "stdout", text: "content below fold" }],
+      });
+      renderLogViewer();
+      await waitFor(() => screen.getByText("content below fold"));
+
+      const container = screen
+        .getByText("content below fold")
+        .closest(".overflow-y-auto") as HTMLElement;
+
+      Object.defineProperty(container, "scrollHeight", {
+        value: 1000,
+        configurable: true,
+      });
+      Object.defineProperty(container, "scrollTop", {
+        value: 0,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(container, "clientHeight", {
+        value: 200,
+        configurable: true,
+      });
+      fireEvent.scroll(container);
+
+      const btn = screen.getByText("↓ Jump to bottom");
+      fireEvent.click(btn);
+      expect(
+        screen.queryByText("↓ Jump to bottom"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("clicking jump-to-bottom button sets scrollTop to scrollHeight", async () => {
+      mockFetchInvocationLogs.mockResolvedValue({
+        lines: [{ type: "stdout", text: "content below fold" }],
+      });
+      renderLogViewer();
+      await waitFor(() => screen.getByText("content below fold"));
+
+      const container = screen
+        .getByText("content below fold")
+        .closest(".overflow-y-auto") as HTMLElement;
+
+      let scrollTopValue = 0;
+      Object.defineProperty(container, "scrollHeight", {
+        value: 1000,
+        configurable: true,
+      });
+      Object.defineProperty(container, "scrollTop", {
+        get: () => scrollTopValue,
+        set: (v: number) => {
+          scrollTopValue = v;
+        },
+        configurable: true,
+      });
+      Object.defineProperty(container, "clientHeight", {
+        value: 200,
+        configurable: true,
+      });
+      fireEvent.scroll(container);
+
+      fireEvent.click(screen.getByText("↓ Jump to bottom"));
+      expect(scrollTopValue).toBe(1000);
+    });
+
+    it("auto-scrolls to bottom when pinned and new lines arrive", async () => {
+      mockFetchInvocationLogs.mockReturnValue(new Promise(() => {}));
+      renderLogViewer({ invocationId: 1, isRunning: true });
+
+      // Dispatch first line so the container renders
+      await act(async () => {
+        MockEventSource.instances[0].dispatchEvent(
+          "log",
+          JSON.stringify({ type: "stdout", text: "first line" }),
+        );
+      });
+
+      // Container now exists — mock scrollHeight and track scrollTop
+      const container = screen
+        .getByText("first line")
+        .closest(".overflow-y-auto") as HTMLElement;
+      let scrollTopValue = 0;
+      Object.defineProperty(container, "scrollHeight", {
+        value: 500,
+        configurable: true,
+      });
+      Object.defineProperty(container, "scrollTop", {
+        get: () => scrollTopValue,
+        set: (v: number) => {
+          scrollTopValue = v;
+        },
+        configurable: true,
+      });
+
+      // Dispatch a second line — pinnedRef is true by default so scrollToBottom fires
+      await act(async () => {
+        MockEventSource.instances[0].dispatchEvent(
+          "log",
+          JSON.stringify({ type: "stdout", text: "second line" }),
+        );
+      });
+
+      expect(scrollTopValue).toBe(500);
+    });
+
+    it("does not auto-scroll when unpinned (user scrolled up)", async () => {
+      mockFetchInvocationLogs.mockReturnValue(new Promise(() => {}));
+      renderLogViewer({ invocationId: 1, isRunning: true });
+
+      // Dispatch first line so the container renders
+      await act(async () => {
+        MockEventSource.instances[0].dispatchEvent(
+          "log",
+          JSON.stringify({ type: "stdout", text: "initial line" }),
+        );
+      });
+
+      const container = screen
+        .getByText("initial line")
+        .closest(".overflow-y-auto") as HTMLElement;
+
+      // Mock scroll properties and simulate scroll away from bottom to unpin
+      Object.defineProperty(container, "scrollHeight", {
+        value: 1000,
+        configurable: true,
+      });
+      Object.defineProperty(container, "clientHeight", {
+        value: 200,
+        configurable: true,
+      });
+      let scrollTopValue = 0;
+      Object.defineProperty(container, "scrollTop", {
+        get: () => scrollTopValue,
+        set: (v: number) => {
+          scrollTopValue = v;
+        },
+        configurable: true,
+      });
+
+      // scrollTop=0, distance=800 >= 50, so pinnedRef becomes false
+      fireEvent.scroll(container);
+      // Reset tracker so we can verify nothing changes
+      scrollTopValue = 0;
+
+      await act(async () => {
+        MockEventSource.instances[0].dispatchEvent(
+          "log",
+          JSON.stringify({ type: "stdout", text: "new line while unpinned" }),
+        );
+      });
+
+      // scrollTop should NOT be set to scrollHeight since unpinned
+      expect(scrollTopValue).toBe(0);
+    });
+  });
+
   describe("multiple line types rendered together", () => {
     it("renders a mix of stderr, stdout, and system lines", async () => {
       mockFetchInvocationLogs.mockResolvedValue({
