@@ -1,11 +1,4 @@
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -21,10 +14,7 @@ import {
   resolveClaudeBinary,
   type SessionResult,
 } from "../src/runner/index.js";
-import {
-  spawnShellCommand,
-  activeShellHandles,
-} from "../src/runner/shell.js";
+import { spawnShellCommand, activeShellHandles } from "../src/runner/shell.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -333,7 +323,9 @@ describe("NDJSON stream parsing", () => {
     const result = await handle.done;
     // The marker should be prepended since truncation would have cut it off
     expect(result.outputSummary).toContain("REVIEW_RESULT:APPROVED");
-    expect(result.outputSummary.startsWith("REVIEW_RESULT:APPROVED")).toBe(true);
+    expect(result.outputSummary.startsWith("REVIEW_RESULT:APPROVED")).toBe(
+      true,
+    );
   });
 
   test("REVIEW_RESULT:CHANGES_REQUESTED is prepended when after 500 chars", async () => {
@@ -357,7 +349,9 @@ describe("NDJSON stream parsing", () => {
 
     const result = await handle.done;
     expect(result.outputSummary).toContain("REVIEW_RESULT:CHANGES_REQUESTED");
-    expect(result.outputSummary.startsWith("REVIEW_RESULT:CHANGES_REQUESTED")).toBe(true);
+    expect(
+      result.outputSummary.startsWith("REVIEW_RESULT:CHANGES_REQUESTED"),
+    ).toBe(true);
   });
 
   test("PR URL is prepended when it appears after 500 chars", async () => {
@@ -404,7 +398,8 @@ describe("NDJSON stream parsing", () => {
 
     const result = await handle.done;
     // Should not be duplicated
-    const count = (result.outputSummary.match(/REVIEW_RESULT:APPROVED/g) || []).length;
+    const count = (result.outputSummary.match(/REVIEW_RESULT:APPROVED/g) || [])
+      .length;
     expect(count).toBe(1);
   });
 
@@ -774,7 +769,9 @@ describe("invocationLogs Map management", () => {
 
     // Buffer and emitter should have received the lines
     expect(receivedLines.length).toBeGreaterThanOrEqual(2);
-    expect(receivedLines.some((l) => l.includes('"session_id":"line-test"'))).toBe(true);
+    expect(
+      receivedLines.some((l) => l.includes('"session_id":"line-test"')),
+    ).toBe(true);
     expect(receivedLines.some((l) => l.includes('"type":"result"'))).toBe(true);
   });
 
@@ -860,7 +857,9 @@ describe("Session argument construction", () => {
    * Helper: run a mock script that prints process.argv as a JSON result message,
    * then return the parsed argv array from the result.
    */
-  async function getArgv(opts: Parameters<typeof spawnSession>[0]): Promise<string[]> {
+  async function getArgv(
+    opts: Parameters<typeof spawnSession>[0],
+  ): Promise<string[]> {
     const result = await spawnSession(opts).done;
     // argv is serialized as the result text
     return JSON.parse(result.outputSummary) as string[];
@@ -1102,11 +1101,12 @@ describe("spawnShellCommand", () => {
   test("captures stderr in combined output", async () => {
     const id = nextId();
     const cmd =
-      process.platform === "win32"
-        ? "echo errline 1>&2"
-        : "echo errline >&2";
+      process.platform === "win32" ? "echo errline 1>&2" : "echo errline >&2";
 
-    const handle = spawnShellCommand(cmd, { timeoutMs: 10_000, invocationId: id });
+    const handle = spawnShellCommand(cmd, {
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
     const result = await handle.done;
     expect(result.output).toContain("errline");
   });
@@ -1115,11 +1115,12 @@ describe("spawnShellCommand", () => {
     const id = nextId();
     // Use a command that runs long enough to check
     const cmd =
-      process.platform === "win32"
-        ? "ping -n 3 127.0.0.1 > nul"
-        : "sleep 5";
+      process.platform === "win32" ? "ping -n 3 127.0.0.1 > nul" : "sleep 5";
 
-    const handle = spawnShellCommand(cmd, { timeoutMs: 10_000, invocationId: id });
+    const handle = spawnShellCommand(cmd, {
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
     expect(activeShellHandles.has(id)).toBe(true);
     // Clean up
     handle.kill();
@@ -1145,7 +1146,10 @@ describe("spawnShellCommand", () => {
       const id = nextId();
       const cmd = "sleep 30";
 
-      const handle = spawnShellCommand(cmd, { timeoutMs: 500, invocationId: id });
+      const handle = spawnShellCommand(cmd, {
+        timeoutMs: 500,
+        invocationId: id,
+      });
       const result = await handle.done;
       expect(result.timedOut).toBe(true);
     },
@@ -1158,7 +1162,10 @@ describe("spawnShellCommand", () => {
       const id = nextId();
       const cmd = "sleep 30";
 
-      const handle = spawnShellCommand(cmd, { timeoutMs: 60_000, invocationId: id });
+      const handle = spawnShellCommand(cmd, {
+        timeoutMs: 60_000,
+        invocationId: id,
+      });
       // Give it a moment to start
       await new Promise((r) => setTimeout(r, 100));
       handle.kill();
@@ -1173,7 +1180,10 @@ describe("spawnShellCommand", () => {
     const id = nextId();
     const cmd = process.platform === "win32" ? "exit /b 5" : "exit 5";
 
-    const handle = spawnShellCommand(cmd, { timeoutMs: 5_000, invocationId: id });
+    const handle = spawnShellCommand(cmd, {
+      timeoutMs: 5_000,
+      invocationId: id,
+    });
     const result = await handle.done;
     expect(result.exitCode).toBe(5);
     expect(result.timedOut).toBe(false);
