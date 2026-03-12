@@ -32,7 +32,13 @@ vi.mock("../src/git.js", () => ({
   git: vi.fn(),
 }));
 
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn(),
+  rmSync: vi.fn(),
+}));
+
 import { execFileSync, execFile } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import {
   findPrForBranch,
   findPrByUrl,
@@ -42,11 +48,16 @@ import {
   getPrMergeState,
   mergePr,
   updatePrBranch,
+  rebasePrBranch,
   getWorkflowRunStatus,
 } from "../src/github/index.js";
+import { git } from "../src/git.js";
 
 const execFileSyncMock = execFileSync as unknown as ReturnType<typeof vi.fn>;
 const execFileMock = execFile as unknown as ReturnType<typeof vi.fn>;
+const gitMock = git as unknown as ReturnType<typeof vi.fn>;
+const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
+const rmSyncMock = rmSync as unknown as ReturnType<typeof vi.fn>;
 
 /**
  * Mock a successful async gh call. ghAsync destructures { stdout } from the
@@ -824,5 +835,215 @@ describe("getWorkflowRunStatus", () => {
       "--limit",
       "20",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rebasePrBranch
+// ---------------------------------------------------------------------------
+
+describe("rebasePrBranch", () => {
+  const branch = "orca/EMI-123-inv-456";
+  const repoPath = "/home/user/myrepo";
+
+  beforeEach(() => {
+    gitMock.mockReset();
+    existsSyncMock.mockReset();
+    rmSyncMock.mockReset();
+    // Default: git succeeds for all calls
+    gitMock.mockReturnValue(undefined);
+    // Default: tempPath doesn't exist (so rmSync fallback is skipped)
+    existsSyncMock.mockReturnValue(false);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns success when fetch, worktree add, checkout, rebase, and push all succeed", () => {
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({ success: true });
+    // fetch, worktree add, checkout, rebase, push, worktree remove = 6 calls
+    expect(gitMock).toHaveBeenCalledTimes(6);
+  });
+
+  test("passes correct fetch args", () => {
+    rebasePrBranch(branch, repoPath);
+
+    expect(gitMock).toHaveBeenCalledWith(["fetch", "origin"], {
+      cwd: repoPath,
+    });
+  });
+
+  test("passes correct worktree add args (--force --detach)", () => {
+    rebasePrBranch(branch, repoPath);
+
+    const worktreeCall = gitMock.mock.calls.find(
+      ([args]: [string[]]) => args[0] === "worktree" && args[1] === "add",
+    );
+    expect(worktreeCall).toBeDefined();
+    const [args] = worktreeCall!;
+    expect(args).toContain("--force");
+    expect(args).toContain("--detach");
+  });
+
+  test("encodes slashes in branch name in worktree path", () => {
+    rebasePrBranch(branch, repoPath);
+
+    const worktreeCall = gitMock.mock.calls.find(
+      ([args]: [string[]]) => args[0] === "worktree" && args[1] === "add",
+    );
+    // args: ["worktree", "add", "--force", "--detach", tempPath]
+    const tempPath: string = worktreeCall![0][4];
+    // slashes in branch name become dashes
+    expect(tempPath).toContain("orca-EMI-123-inv-456");
+  });
+
+  test("returns fetch failure when git fetch throws", () => {
+    gitMock.mockImplementationOnce(() => {
+      throw new Error("network timeout");
+    });
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({
+      success: false,
+      hasConflicts: false,
+      error: expect.stringContaining("fetch failed"),
+    });
+    // Only the fetch call should have been made
+    expect(gitMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns worktree add failure when git worktree add throws", () => {
+    // fetch succeeds, worktree add fails
+    gitMock
+      .mockReturnValueOnce(undefined) // fetch
+      .mockImplementationOnce(() => {
+        throw new Error("worktree locked");
+      });
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({
+      success: false,
+      hasConflicts: false,
+      error: expect.stringContaining("worktree add failed"),
+    });
+    expect(gitMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("returns checkout failure and cleans up worktree when checkout throws", () => {
+    // fetch, worktree add succeed; checkout fails
+    gitMock
+      .mockReturnValueOnce(undefined) // fetch
+      .mockReturnValueOnce(undefined) // worktree add
+      .mockImplementationOnce(() => {
+        throw new Error("ref not found");
+      }); // checkout
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({
+      success: false,
+      hasConflicts: false,
+      error: expect.stringContaining("checkout failed"),
+    });
+    // Should attempt cleanup: worktree remove
+    const worktreeRemoveCall = gitMock.mock.calls.find(
+      ([args]: [string[]]) =>
+        args[0] === "worktree" && args[1] === "remove",
+    );
+    expect(worktreeRemoveCall).toBeDefined();
+  });
+
+  test("returns hasConflicts:true when rebase fails", () => {
+    // fetch, worktree add, checkout succeed; rebase fails
+    gitMock
+      .mockReturnValueOnce(undefined) // fetch
+      .mockReturnValueOnce(undefined) // worktree add
+      .mockReturnValueOnce(undefined) // checkout
+      .mockImplementationOnce(() => {
+        throw new Error("CONFLICT (content)");
+      }) // rebase
+      .mockReturnValueOnce(undefined) // rebase --abort
+      .mockReturnValueOnce(undefined); // worktree remove (cleanup)
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({ success: false, hasConflicts: true });
+  });
+
+  test("returns push failure and cleans up when force-push throws", () => {
+    // fetch, worktree add, checkout, rebase succeed; push fails
+    gitMock
+      .mockReturnValueOnce(undefined) // fetch
+      .mockReturnValueOnce(undefined) // worktree add
+      .mockReturnValueOnce(undefined) // checkout
+      .mockReturnValueOnce(undefined) // rebase
+      .mockImplementationOnce(() => {
+        throw new Error("rejected: stale info");
+      }); // push
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({
+      success: false,
+      hasConflicts: false,
+      error: expect.stringContaining("push failed"),
+    });
+    // Cleanup should still run after push failure
+    const worktreeRemoveCall = gitMock.mock.calls.find(
+      ([args]: [string[]]) =>
+        args[0] === "worktree" && args[1] === "remove",
+    );
+    expect(worktreeRemoveCall).toBeDefined();
+  });
+
+  test("falls back to rmSync when git worktree remove fails during cleanup", () => {
+    // All main steps succeed, but worktree remove during cleanup throws
+    const tempPathHolder: { path?: string } = {};
+
+    gitMock.mockImplementation((...callArgs: unknown[]) => {
+      const args = callArgs[0] as string[];
+      if (args[0] === "worktree" && args[1] === "add") {
+        // Capture the tempPath from the worktree add call
+        tempPathHolder.path = args[3];
+      }
+      if (args[0] === "worktree" && args[1] === "remove") {
+        throw new Error("EPERM");
+      }
+      return undefined;
+    });
+    existsSyncMock.mockReturnValue(true);
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({ success: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining("rebase"),
+      { recursive: true, force: true },
+    );
+  });
+
+  test("skips rmSync when tempPath does not exist in cleanup fallback", () => {
+    // worktree remove fails, existsSync returns false → rmSync not called
+    gitMock.mockImplementation((...callArgs: unknown[]) => {
+      const args = callArgs[0] as string[];
+      if (args[0] === "worktree" && args[1] === "remove") {
+        throw new Error("EPERM");
+      }
+      return undefined;
+    });
+    existsSyncMock.mockReturnValue(false);
+
+    const result = rebasePrBranch(branch, repoPath);
+
+    expect(result).toEqual({ success: true });
+    expect(rmSyncMock).not.toHaveBeenCalled();
   });
 });
