@@ -338,7 +338,52 @@ export function createWorktree(
     }
   }
 
+  // Detect and resolve merge conflicts (e.g. from a prior failed rebase)
+  const conflictedFiles = hasConflictMarkers(worktreePath);
+  if (conflictedFiles.length > 0) {
+    console.warn(
+      `[orca/worktree] merge conflicts detected in ${worktreePath} (${conflictedFiles.join(", ")}) — resetting to origin/main`,
+    );
+    git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+  }
+
   return { worktreePath, branchName };
+}
+
+/**
+ * Check whether tracked files in the worktree contain merge conflict markers.
+ *
+ * Runs `git diff --check` which detects conflict markers (`<<<<<<<`, `=======`,
+ * `>>>>>>>`). Returns the list of file names that have conflicts, or an empty
+ * array if the worktree is clean. Errors are caught and treated as clean
+ * (non-fatal).
+ */
+function hasConflictMarkers(worktreePath: string): string[] {
+  try {
+    execFileSync("git", ["diff", "--check"], {
+      encoding: "utf-8",
+      cwd: worktreePath,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    // Exit 0 means no issues — no conflict markers
+    return [];
+  } catch (err: unknown) {
+    const execErr = err as { stdout?: string; status?: number | null };
+    // git diff --check exits non-zero when it finds issues
+    if (execErr.status && execErr.stdout) {
+      const files = new Set<string>();
+      for (const line of execErr.stdout.split("\n")) {
+        // Output format: "filename:linenum: leftover conflict marker"
+        const match = line.match(/^(.+?):\d+:/);
+        if (match) {
+          files.add(match[1]);
+        }
+      }
+      return [...files];
+    }
+    // Some other error (e.g. git not found, not a repo) — treat as clean
+    return [];
+  }
 }
 
 /**
