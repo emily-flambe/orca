@@ -57,6 +57,49 @@ function sleepSyncMs(ms: number): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Push the current branch and create a PR via `gh pr create`.
+ * Returns PrInfo on success, { exists: false } on failure.
+ */
+export function pushAndCreatePr(
+  branchName: string,
+  taskId: string,
+  cwd: string,
+): PrInfo {
+  try {
+    // Push the branch
+    git(["push", "-u", "origin", branchName], { cwd });
+
+    // Create PR — gh pr create outputs the PR URL as plain text
+    const prUrl = gh(
+      [
+        "pr",
+        "create",
+        "--head",
+        branchName,
+        "--title",
+        `[${taskId}] Auto-recovered: implement phase completed without PR`,
+        "--body",
+        `This PR was auto-created by orca after the implement agent completed work but failed to push/create a PR.\n\nTask: ${taskId}`,
+      ],
+      { cwd },
+    );
+
+    // prUrl is the plain-text URL output by gh pr create
+    if (prUrl && prUrl.startsWith("http")) {
+      // Use findPrByUrl to get structured PR info
+      return findPrByUrl(prUrl, cwd);
+    }
+    return { exists: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[orca/github] pushAndCreatePr failed for ${branchName}: ${msg}`,
+    );
+    return { exists: false };
+  }
+}
+
+/**
  * Find a PR for the given branch name.
  *
  * Uses `gh pr list --head <branch>` to check if a PR exists.
@@ -140,9 +183,12 @@ export function findPrForBranch(
  */
 export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
   try {
-    const output = gh(["pr", "view", prUrl, "--json", "url,number,state,headRefName"], {
-      cwd,
-    });
+    const output = gh(
+      ["pr", "view", prUrl, "--json", "url,number,state,headRefName"],
+      {
+        cwd,
+      },
+    );
     const data = JSON.parse(output) as {
       url?: string;
       number?: number;

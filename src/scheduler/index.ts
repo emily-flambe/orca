@@ -64,6 +64,7 @@ import { isTransientGitError, isDllInitError, git } from "../git.js";
 import {
   findPrForBranch,
   findPrByUrl,
+  pushAndCreatePr,
   getMergeCommitSha,
   getPrCheckStatus,
   getWorkflowRunStatus,
@@ -1102,6 +1103,44 @@ function onImplementSuccess(
     }
   }
 
+  // --- Recovery: check for unpushed work in the worktree ---
+  if (!prInfo.exists && existsSync(worktreePath)) {
+    try {
+      // Check for unpushed commits
+      const unpushedLog = git(["log", "origin/main..HEAD", "--oneline"], {
+        cwd: worktreePath,
+      }).trim();
+      if (unpushedLog) {
+        const commitCount = unpushedLog.split("\n").length;
+        log(
+          `task ${taskId}: Gate 2 found ${commitCount} unpushed commit(s) — attempting auto-push and PR creation`,
+        );
+
+        const recoveredPr = pushAndCreatePr(branchName, taskId, worktreePath);
+        if (recoveredPr.exists) {
+          log(
+            `task ${taskId}: Gate 2 auto-recovery succeeded — PR #${recoveredPr.number} created`,
+          );
+          prInfo = recoveredPr;
+        }
+      } else {
+        // Check for uncommitted changes
+        const statusOutput = git(["status", "--porcelain"], {
+          cwd: worktreePath,
+        }).trim();
+        if (statusOutput) {
+          const changedFiles = statusOutput.split("\n").length;
+          log(
+            `task ${taskId}: Gate 2 found ${changedFiles} uncommitted changed file(s) in worktree — agent failed to commit`,
+          );
+          // Don't try to commit for the agent — too risky. Just log for diagnostics.
+        }
+      }
+    } catch (err) {
+      log(`task ${taskId}: Gate 2 recovery check failed: ${err}`);
+    }
+  }
+
   if (!prInfo.exists) {
     // Check objectively (git diff) or via text patterns if no PR was opened
     const noChanges = worktreeHasNoChanges(worktreePath);
@@ -1170,7 +1209,9 @@ function onImplementSuccess(
   // Store the PR branch name and PR number on the task
   const storedBranch = prInfo.headBranch ?? branchName;
   if (prInfo.headBranch && prInfo.headBranch !== branchName) {
-    log(`task ${taskId}: PR head branch (${prInfo.headBranch}) differs from invocation branch (${branchName}) — using PR head branch`);
+    log(
+      `task ${taskId}: PR head branch (${prInfo.headBranch}) differs from invocation branch (${branchName}) — using PR head branch`,
+    );
   }
   updateTaskPrBranch(db, taskId, storedBranch);
   if (prInfo.number != null) {
