@@ -142,6 +142,20 @@ function branchExists(repoPath: string, branchName: string): boolean {
 }
 
 /**
+ * Check whether a branch exists on the remote (origin).
+ */
+function remoteRefExists(repoPath: string, branchName: string): boolean {
+  try {
+    const output = git(["ls-remote", "--heads", "origin", branchName], {
+      cwd: repoPath,
+    });
+    return output.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Copy all `.env*` files from the source directory to the destination.
  * Silently succeeds if no `.env*` files exist.
  */
@@ -220,8 +234,15 @@ export function createWorktree(
   ) {
     if (baseRef) {
       // For review/fix phases, reset to the remote tracking branch
-      git(["fetch", "origin"], { cwd: worktreePath });
-      git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
+      try {
+        git(["fetch", "origin"], { cwd: worktreePath });
+        git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
+      } catch {
+        console.warn(
+          `[orca/worktree] reset to origin/${baseRef} failed, falling back to origin/main`,
+        );
+        git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+      }
     } else {
       resetWorktree(worktreePath);
     }
@@ -254,14 +275,22 @@ export function createWorktree(
       // "branch is checked out" errors, then sync to origin.
       git(["worktree", "add", worktreePath, baseRef], { cwd: repoPath });
       git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
-    } else {
-      // Branch doesn't exist locally — create it tracking origin.
+    } else if (remoteRefExists(repoPath, baseRef)) {
+      // Branch exists on remote — create tracking branch
       git(
         ["worktree", "add", "-b", baseRef, worktreePath, `origin/${baseRef}`],
         {
           cwd: repoPath,
         },
       );
+    } else {
+      // Remote ref gone (branch deleted or name mismatch) — fall back to origin/main
+      console.warn(
+        `[orca/worktree] remote ref origin/${baseRef} not found, falling back to origin/main`,
+      );
+      git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
+        cwd: repoPath,
+      });
     }
   } else {
     // If branch already exists, delete it first
