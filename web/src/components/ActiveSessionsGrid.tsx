@@ -87,9 +87,14 @@ export default function ActiveSessionsGrid() {
               {lastCompleted.endedAt && (
                 <span className="ml-1">({timeAgo(lastCompleted.endedAt)})</span>
               )}
-              {(lastCompleted.inputTokens != null || lastCompleted.outputTokens != null) && (
+              {(lastCompleted.inputTokens != null ||
+                lastCompleted.outputTokens != null) && (
                 <span className="ml-1">
-                  {formatTokens((lastCompleted.inputTokens ?? 0) + (lastCompleted.outputTokens ?? 0))} tokens
+                  {formatTokens(
+                    (lastCompleted.inputTokens ?? 0) +
+                      (lastCompleted.outputTokens ?? 0),
+                  )}{" "}
+                  tokens
                 </span>
               )}
             </div>

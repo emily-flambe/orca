@@ -81,7 +81,9 @@ export default function ActivityFeed({ entries, onNavigate }: Props) {
           <span className="flex-1" />
           {(entry.inputTokens != null || entry.outputTokens != null) && (
             <span className="text-xs text-gray-500 font-mono tabular-nums">
-              {formatTokens((entry.inputTokens ?? 0) + (entry.outputTokens ?? 0))}
+              {formatTokens(
+                (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0),
+              )}
             </span>
           )}
           <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">

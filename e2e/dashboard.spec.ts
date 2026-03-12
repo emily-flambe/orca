@@ -33,6 +33,8 @@ const mockStatus = {
   costInWindow: 0,
   budgetLimit: 50,
   budgetWindowHours: 24,
+  tokensInWindow: 12500,
+  tokenBudgetLimit: 100000,
   concurrencyCap: 3,
   implementModel: "sonnet",
   reviewModel: "sonnet",
@@ -124,10 +126,9 @@ test.describe("Dashboard smoke test", () => {
     await expect(page.getByRole("button", { name: "Logs" })).toBeVisible();
   });
 
-  test("dashboard subscription billing notice is visible", async ({ page }) => {
-    await expect(
-      page.getByText(/Cost metrics are not tracked/),
-    ).toBeVisible();
+  test("dashboard token budget gauge is visible", async ({ page }) => {
+    await expect(page.getByText(/active/).first()).toBeVisible();
+    await expect(page.getByText(/Queued/).first()).toBeVisible();
   });
 
   test("SSE endpoint /api/events is requested", async ({ page }) => {
