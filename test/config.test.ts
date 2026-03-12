@@ -42,9 +42,7 @@ function setEnv(vars: Record<string, string | undefined>): void {
   }
 }
 
-function withEnv(
-  vars: Record<string, string | undefined>,
-): () => void {
+function withEnv(vars: Record<string, string | undefined>): () => void {
   const saved: Record<string, string | undefined> = {};
   for (const key of Object.keys(vars)) {
     saved[key] = process.env[key];
