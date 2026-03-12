@@ -16,10 +16,7 @@ function makeSignature(body: string, secret = SECRET): string {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
 }
 
-function makeRequest(
-  body: string,
-  headers: Record<string, string>,
-): Request {
+function makeRequest(body: string, headers: Record<string, string>): Request {
   return new Request("http://localhost/api/webhooks/github", {
     method: "POST",
     body,
