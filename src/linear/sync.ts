@@ -51,6 +51,7 @@ export interface WebhookEvent {
     state?: { id: string; name: string; type: string };
     teamId?: string;
     projectId?: string;
+    labelIds?: string[];
   };
 }
 
@@ -306,14 +307,37 @@ export async function fullSync(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
+  labelIdCache?: Map<string, string>,
 ): Promise<LinearIssue[]> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
-  for (const issue of issues) {
+  // Label filtering: if ORCA_TASK_FILTER_LABEL is set, only process matching issues
+  let filteredIssues = issues;
+  if (config.taskFilterLabel && labelIdCache) {
+    // Refresh the label cache
+    labelIdCache.clear();
+    const labelId = await client.fetchLabelIdByName(config.taskFilterLabel);
+    if (labelId) {
+      labelIdCache.set(config.taskFilterLabel, labelId);
+      filteredIssues = issues.filter((issue) =>
+        issue.labels.includes(config.taskFilterLabel!),
+      );
+      log(
+        `label filter: ${filteredIssues.length}/${issues.length} issues match label "${config.taskFilterLabel}"`,
+      );
+    } else {
+      // Fail open: label not found in Linear, process all issues
+      log(
+        `label filter: label "${config.taskFilterLabel}" not found in Linear, processing all issues (fail open)`,
+      );
+    }
+  }
+
+  for (const issue of filteredIssues) {
     upsertTask(db, issue, config);
   }
 
-  graph.rebuild(issues);
+  graph.rebuild(filteredIssues);
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
@@ -321,8 +345,8 @@ export async function fullSync(
   }
 
   emitTasksRefreshed();
-  log(`full sync complete: ${issues.length} issues`);
-  return issues;
+  log(`full sync complete: ${filteredIssues.length} issues`);
+  return filteredIssues;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +360,22 @@ export async function processWebhookEvent(
   config: OrcaConfig,
   stateMap: WorkflowStateMap,
   event: WebhookEvent,
+  labelIdCache?: Map<string, string>,
 ): Promise<void> {
+  // Label filtering: if configured and cache is populated, check labelIds
+  if (config.taskFilterLabel && labelIdCache && labelIdCache.size > 0) {
+    const requiredLabelId = labelIdCache.get(config.taskFilterLabel);
+    if (requiredLabelId) {
+      const eventLabelIds = event.data.labelIds;
+      if (!eventLabelIds || !eventLabelIds.includes(requiredLabelId)) {
+        log(
+          `label filter: skipping webhook for ${event.data.identifier} (missing required label)`,
+        );
+        return;
+      }
+    }
+  }
+
   // Check for write-back echo
   const stateName = event.data.state?.name;
   if (stateName && isExpectedChange(event.data.identifier, stateName)) {
@@ -374,6 +413,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
+    labels: [],
   };
 
   // Only upsert if we have state info

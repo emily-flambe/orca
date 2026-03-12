@@ -38,6 +38,7 @@ export interface OrcaConfig {
   linearApiKey: string;
   linearWebhookSecret: string;
   linearProjectIds: string[];
+  taskFilterLabel: string | undefined;
   tunnelHostname: string;
   // GitHub webhook (optional — enables auto-deploy on push to main)
   githubWebhookSecret: string | undefined;
@@ -324,6 +325,7 @@ Steps:
     linearApiKey,
     linearWebhookSecret,
     linearProjectIds,
+    taskFilterLabel: readEnv("ORCA_TASK_FILTER_LABEL"),
     tunnelHostname,
     githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
     tunnelToken,
