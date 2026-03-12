@@ -9,6 +9,7 @@ export interface OrcaConfig {
   maxRetries: number;
   budgetWindowHours: number;
   budgetMaxCostUsd: number;
+  budgetMaxTokens: number;
   schedulerIntervalSec: number;
   claudePath: string;
   defaultMaxTurns: number;
@@ -266,6 +267,10 @@ Steps:
     budgetMaxCostUsd: readPositiveNumberOrDefault(
       "ORCA_BUDGET_MAX_COST_USD",
       100.0,
+    ),
+    budgetMaxTokens: readPositiveNumberOrDefault(
+      "ORCA_BUDGET_MAX_TOKENS",
+      50_000_000,
     ),
     schedulerIntervalSec: readIntOrDefault("ORCA_SCHEDULER_INTERVAL_SEC", 10),
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),

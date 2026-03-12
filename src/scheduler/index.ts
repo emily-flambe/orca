@@ -23,6 +23,7 @@ import {
   insertInvocation,
   insertTask,
   sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   updateInvocation,
   updateTaskCiInfo,
@@ -383,6 +384,8 @@ async function dispatch(
           invocationId,
           status: success ? "completed" : "failed",
           costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
         });
         log(
           `cron_shell task ${taskId} completed: ${success ? "done" : "failed"} (exit ${result.exitCode})`,
@@ -773,6 +776,8 @@ async function onSessionComplete(
       invocationId,
       status: success ? "completed" : "failed",
       costUsd: result.costUsd ?? 0,
+      inputTokens: result.inputTokens ?? 0,
+      outputTokens: result.outputTokens ?? 0,
     });
     emitCurrentStatus(db, config);
     log(`cron task ${taskId} completed: ${success ? "done" : "failed"}`);
@@ -787,23 +792,32 @@ async function onSessionComplete(
     endedAt: new Date().toISOString(),
     status: invocationStatus,
     costUsd: result.costUsd,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
     numTurns: result.numTurns,
     outputSummary: result.outputSummary,
     sessionId: handle.sessionId,
   });
 
-  // 2. Insert budget event if cost > 0
-  if (result.costUsd != null && result.costUsd > 0) {
+  // 2. Insert budget event if cost or tokens > 0
+  if (
+    (result.costUsd != null && result.costUsd > 0) ||
+    (result.inputTokens != null && result.inputTokens > 0) ||
+    (result.outputTokens != null && result.outputTokens > 0)
+  ) {
     insertBudgetEvent(db, {
       invocationId,
-      costUsd: result.costUsd,
+      costUsd: result.costUsd ?? 0,
+      inputTokens: result.inputTokens ?? 0,
+      outputTokens: result.outputTokens ?? 0,
       recordedAt: new Date().toISOString(),
     });
   }
 
+  const totalTokens = (result.inputTokens ?? 0) + (result.outputTokens ?? 0);
   log(
     `session complete: task=${taskId} invocation=${invocationId} status=${invocationStatus} ` +
-      `cost=$${result.costUsd != null ? result.costUsd.toFixed(4) : "unknown"} turns=${result.numTurns ?? "unknown"}`,
+      `cost=$${result.costUsd != null ? result.costUsd.toFixed(4) : "unknown"} tokens=${totalTokens} turns=${result.numTurns ?? "unknown"}`,
   );
 
   // Emit task updated + invocation completed events
@@ -813,6 +827,8 @@ async function onSessionComplete(
     invocationId,
     status: invocationStatus,
     costUsd: result.costUsd ?? 0,
+    inputTokens: result.inputTokens ?? 0,
+    outputTokens: result.outputTokens ?? 0,
   });
 
   // Emit current status
@@ -1674,16 +1690,17 @@ function emitCurrentStatus(db: OrcaDb, config: OrcaConfig): void {
       t.orcaStatus === "in_review" ||
       t.orcaStatus === "changes_requested",
   ).length;
-  const costInWindow = sumCostInWindow(
-    db,
-    budgetWindowStart(config.budgetWindowHours),
-  );
+  const statusWindowStart = budgetWindowStart(config.budgetWindowHours);
+  const costInWindow = sumCostInWindow(db, statusWindowStart);
+  const tokensInWindow = sumTokensInWindow(db, statusWindowStart);
   emitStatusUpdated({
     activeSessions,
     queuedTasks,
     costInWindow,
     budgetLimit: config.budgetMaxCostUsd,
     budgetWindowHours: config.budgetWindowHours,
+    tokensInWindow,
+    tokenBudgetLimit: config.budgetMaxTokens,
   });
 }
 

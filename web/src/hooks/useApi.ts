@@ -104,6 +104,8 @@ export interface RecentError {
   outputSummary: string | null;
   phase: string | null;
   costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface DailyStatEntry {
@@ -111,6 +113,7 @@ export interface DailyStatEntry {
   completed: number;
   failed: number;
   costUsd: number;
+  tokens: number;
 }
 
 export interface ActivityEntry {
@@ -121,6 +124,8 @@ export interface ActivityEntry {
   status: string;
   phase: string | null;
   costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
 }
 
 export interface MetricsData {
@@ -130,11 +135,16 @@ export interface MetricsData {
     avgDurationSecs: number | null;
     avgCostUsd: number | null;
     totalCostUsd: number | null;
+    avgTokens: number | null;
+    totalTokens: number | null;
   };
   recentErrors: RecentError[];
   costLast24h: number;
   costLast7d: number;
   costPrev24h: number;
+  tokensLast24h: number;
+  tokensLast7d: number;
+  tokensPrev24h: number;
   dailyStats: DailyStatEntry[];
   recentActivity: ActivityEntry[];
   successRate12h: number | null;

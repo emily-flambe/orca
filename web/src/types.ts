@@ -59,6 +59,8 @@ export interface Invocation {
   branchName: string | null;
   worktreePath: string | null;
   costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
   numTurns: number | null;
   outputSummary: string | null;
   logPath: string | null;
@@ -78,6 +80,8 @@ export interface OrcaStatus {
   costInWindow: number;
   budgetLimit: number;
   budgetWindowHours: number;
+  tokensInWindow: number;
+  tokenBudgetLimit: number;
   concurrencyCap: number;
   implementModel: string;
   reviewModel: string;

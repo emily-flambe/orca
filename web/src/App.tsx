@@ -8,6 +8,7 @@ import {
 } from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
 import Sidebar from "./components/Sidebar";
+import { formatTokens } from "./utils/formatTokens";
 import type { Page } from "./components/Sidebar";
 import Header from "./components/Header";
 import TaskList from "./components/TaskList";
@@ -50,8 +51,8 @@ function SettingsPage({
   }
 
   const pct =
-    status.budgetLimit > 0
-      ? Math.min((status.costInWindow / status.budgetLimit) * 100, 100)
+    status.tokenBudgetLimit > 0
+      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
       : 0;
 
   const barColor =
@@ -84,10 +85,10 @@ function SettingsPage({
         Settings
       </h2>
 
-      {/* Budget card */}
+      {/* Token budget card */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
         <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
-          Budget
+          Token Budget
         </div>
         <div className="flex items-center gap-3">
           <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
@@ -97,9 +98,9 @@ function SettingsPage({
             />
           </div>
           <span className="text-sm text-gray-300 tabular-nums whitespace-nowrap">
-            ${status.costInWindow.toFixed(2)}
-            <span className="text-gray-500"> / </span>$
-            {status.budgetLimit.toFixed(2)}
+            {formatTokens(status.tokensInWindow)}
+            <span className="text-gray-500"> / </span>
+            {formatTokens(status.tokenBudgetLimit)}
           </span>
         </div>
         <div className="text-xs text-gray-500">

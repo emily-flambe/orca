@@ -126,6 +126,8 @@ describe("createWorktree — baseRef branch-already-exists handling", () => {
       if (args[0] === "worktree" && args[1] === "list") return "";
       // show-ref --verify: branch does NOT exist (throws)
       if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      // ls-remote: remote ref DOES exist
+      if (args[0] === "ls-remote") return "abc123\trefs/heads/" + baseRef;
       return "";
     });
 

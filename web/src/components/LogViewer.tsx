@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import { fetchInvocationLogs } from "../hooks/useApi";
+import { formatTokens } from "../utils/formatTokens";
 
 interface Props {
   invocationId: number;
@@ -48,6 +49,7 @@ interface LogLine {
   cost_usd?: number;
   num_turns?: number;
   result?: string;
+  usage?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,11 +207,21 @@ function ProcessExitLine({ line }: { line: LogLine }) {
 }
 
 function ResultFooter({ line }: { line: LogLine }) {
-  const cost = line.total_cost_usd ?? line.cost_usd;
+  const usage = line.usage as Record<string, number> | undefined;
+  const inputTokens = usage
+    ? (usage.input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0)
+    : null;
+  const outputTokens = usage ? (usage.output_tokens ?? 0) : null;
+  const totalTokens =
+    inputTokens != null && outputTokens != null
+      ? inputTokens + outputTokens
+      : null;
   return (
     <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 font-mono flex gap-4">
       <span>Result: {line.subtype ?? "unknown"}</span>
-      {cost != null && <span>Cost: ${cost.toFixed(2)}</span>}
+      {totalTokens != null && <span>Tokens: {formatTokens(totalTokens)}</span>}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
       {typeof line.result === "string" && line.result.length > 0 && (
         <span className="truncate max-w-md" title={line.result}>
