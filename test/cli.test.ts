@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CLI command tests — add and status subcommands
+// CLI command tests — add, status, and start subcommands
 // ---------------------------------------------------------------------------
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
@@ -13,6 +13,13 @@ const mockGetAllTasks = vi.fn(() => []);
 const mockGetRunningInvocations = vi.fn(() => []);
 const mockSumCostInWindow = vi.fn(() => 0);
 const mockBudgetWindowStart = vi.fn(() => new Date().toISOString());
+
+// start command mocks
+const mockFetchProjectMetadata = vi.fn(() => Promise.resolve([]));
+const mockFetchWorkflowStates = vi.fn(() => Promise.resolve(new Map()));
+const mockLinearCreateComment = vi.fn(() => Promise.resolve());
+const mockFullSync = vi.fn(() => Promise.resolve([]));
+const mockCreateScheduler = vi.fn(() => ({ stop: vi.fn() }));
 
 vi.mock("../src/db/queries.js", () => ({
   insertTask: mockInsertTask,
@@ -38,18 +45,37 @@ vi.mock("../src/config/index.js", () => ({
     linearApiKey: "test-key",
     linearProjectIds: [],
     projectRepoMap: new Map(),
+    // start command fields
+    logPath: "/tmp/orca-test.log",
+    logMaxSizeMb: 10,
+    port: 4000,
+    concurrencyCap: 1,
+    schedulerIntervalSec: 10,
+    externalTunnel: true, // skip cloudflared spawn in tests
+    githubWebhookSecret: undefined,
+    cloudflaredPath: "cloudflared",
+    tunnelToken: undefined,
   })),
   parseRepoPath: vi.fn(),
   validateProjectRepoPaths: vi.fn(),
 }));
 
 // Mock everything that `start` pulls in so module-level imports don't fail
-vi.mock("../src/scheduler/index.js", () => ({ createScheduler: vi.fn() }));
+vi.mock("../src/scheduler/index.js", () => ({
+  createScheduler: mockCreateScheduler,
+}));
 vi.mock("../src/scheduler/state.js", () => ({ setSchedulerHandle: vi.fn() }));
-vi.mock("../src/linear/client.js", () => ({ LinearClient: vi.fn() }));
+vi.mock("../src/linear/client.js", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  LinearClient: vi.fn(function (this: any) {
+    this.fetchProjectMetadata = mockFetchProjectMetadata;
+    this.fetchWorkflowStates = mockFetchWorkflowStates;
+    this.createComment = mockLinearCreateComment;
+  }),
+}));
 vi.mock("../src/linear/graph.js", () => ({ DependencyGraph: vi.fn() }));
 vi.mock("../src/linear/sync.js", () => ({
-  fullSync: vi.fn(),
+  fullSync: mockFullSync,
   writeBackStatus: vi.fn(),
 }));
 vi.mock("../src/linear/webhook.js", () => ({
@@ -78,12 +104,13 @@ vi.mock("@hono/node-server/serve-static", () => ({
   serveStatic: vi.fn(),
 }));
 vi.mock("hono", () => ({
-  Hono: vi.fn(() => ({
-    route: vi.fn(),
-    use: vi.fn(),
-    get: vi.fn(),
-    fetch: vi.fn(),
-  })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  Hono: vi.fn(function (this: any) {
+    this.route = vi.fn();
+    this.use = vi.fn();
+    this.get = vi.fn();
+    this.fetch = vi.fn();
+  }),
 }));
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -296,6 +323,15 @@ describe("orca status", () => {
       linearApiKey: "test-key",
       linearProjectIds: [],
       projectRepoMap: new Map(),
+      logPath: "/tmp/orca-test.log",
+      logMaxSizeMb: 10,
+      port: 4000,
+      concurrencyCap: 1,
+      schedulerIntervalSec: 10,
+      externalTunnel: true,
+      githubWebhookSecret: undefined,
+      cloudflaredPath: "cloudflared",
+      tunnelToken: undefined,
     } as ReturnType<typeof loadConfig>);
 
     await runCli(["status"]);
@@ -330,5 +366,97 @@ describe("orca status", () => {
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("[TASK-A, TASK-B]");
+  });
+});
+
+describe("orca start", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation((code?: number | string) => {
+      throw new Error(`process.exit(${code})`);
+    });
+    // Default: no orphaned invocations, no tasks
+    mockGetRunningInvocations.mockReturnValue([]);
+    mockGetAllTasks.mockReturnValue([]);
+  });
+
+  test("start command initializes scheduler", async () => {
+    await runCli(["start"]);
+
+    await vi.waitFor(() => {
+      expect(mockCreateScheduler).toHaveBeenCalled();
+    });
+  });
+
+  test("--scheduler-paused passes paused:true to createScheduler", async () => {
+    await runCli(["start", "--scheduler-paused"]);
+
+    await vi.waitFor(() => {
+      expect(mockCreateScheduler).toHaveBeenCalledWith(
+        expect.anything(),
+        { paused: true },
+      );
+    });
+  });
+
+  test("without --scheduler-paused, createScheduler receives paused:undefined", async () => {
+    await runCli(["start"]);
+
+    await vi.waitFor(() => {
+      expect(mockCreateScheduler).toHaveBeenCalledWith(
+        expect.anything(),
+        { paused: undefined },
+      );
+    });
+  });
+
+  test("--scheduler-paused prints paused message", async () => {
+    await runCli(["start", "--scheduler-paused"]);
+
+    await vi.waitFor(() => {
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("PAUSED");
+    });
+  });
+
+  test("without --scheduler-paused prints started message with concurrency", async () => {
+    await runCli(["start"]);
+
+    await vi.waitFor(() => {
+      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(output).toContain("Orca scheduler started");
+      expect(output).toContain("concurrency: 1");
+    });
+  });
+
+  test("orphaned invocations are marked failed on startup", async () => {
+    const { updateInvocation } = await import("../src/db/queries.js");
+    mockGetRunningInvocations
+      .mockReturnValueOnce([
+        { id: "inv-1", linearIssueId: "TASK-1" },
+        { id: "inv-2", linearIssueId: "TASK-2" },
+      ])
+      .mockReturnValue([]);
+
+    await runCli(["start"]);
+
+    await vi.waitFor(() => {
+      expect(mockCreateScheduler).toHaveBeenCalled();
+    });
+
+    expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
+      expect.anything(),
+      "inv-1",
+      expect.objectContaining({ status: "failed", outputSummary: "orphaned by crash/restart" }),
+    );
+    expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
+      expect.anything(),
+      "inv-2",
+      expect.objectContaining({ status: "failed", outputSummary: "orphaned by crash/restart" }),
+    );
   });
 });
