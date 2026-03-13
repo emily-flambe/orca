@@ -71,13 +71,14 @@ describe("ActivityFeed — timed_out status rendering", () => {
 });
 
 describe("ActivityFeed — all status visual coverage", () => {
-  const cases: Array<{ status: string; colorWord: string; dotClass: string }> = [
-    { status: "completed", colorWord: "green", dotClass: "bg-green-400" },
-    { status: "running", colorWord: "blue", dotClass: "bg-blue-400" },
-    { status: "failed", colorWord: "red", dotClass: "bg-red-400" },
-    { status: "timed_out", colorWord: "orange", dotClass: "bg-orange-400" },
-    { status: "retrying", colorWord: "yellow", dotClass: "bg-yellow-400" },
-  ];
+  const cases: Array<{ status: string; colorWord: string; dotClass: string }> =
+    [
+      { status: "completed", colorWord: "green", dotClass: "bg-green-400" },
+      { status: "running", colorWord: "blue", dotClass: "bg-blue-400" },
+      { status: "failed", colorWord: "red", dotClass: "bg-red-400" },
+      { status: "timed_out", colorWord: "orange", dotClass: "bg-orange-400" },
+      { status: "retrying", colorWord: "yellow", dotClass: "bg-yellow-400" },
+    ];
 
   for (const { status, colorWord, dotClass } of cases) {
     it(`status="${status}" gets color ${colorWord} and dot ${dotClass}`, () => {
