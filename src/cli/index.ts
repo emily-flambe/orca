@@ -344,7 +344,7 @@ program
 
     // Graceful shutdown
     let shuttingDown = false;
-    const shutdown = () => {
+    const shutdown = (exitCode = 0) => {
       if (shuttingDown) return;
       shuttingDown = true;
       console.log("Orca shutting down...");
@@ -406,12 +406,28 @@ program
       }
 
       setTimeout(() => {
-        process.exit(0);
+        process.exit(exitCode);
       }, 2000);
     };
 
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    process.on("unhandledRejection", (reason: unknown) => {
+      const detail =
+        reason instanceof Error
+          ? (reason.stack ?? reason.message)
+          : String(reason);
+      console.error(`[orca] unhandledRejection: ${detail}`);
+      // Log and continue — don't crash the daemon
+    });
+
+    process.on("uncaughtException", (err: Error) => {
+      console.error(
+        `[orca] uncaughtException: ${err.stack ?? err.message}`,
+      );
+      shutdown(1);
+    });
+
+    process.on("SIGTERM", () => shutdown());
+    process.on("SIGINT", () => shutdown());
   });
 
 // ---------------------------------------------------------------------------
