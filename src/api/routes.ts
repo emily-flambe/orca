@@ -54,7 +54,7 @@ import {
 } from "../events.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs } from "../runner/index.js";
-import { writeBackStatus, findStateByType } from "../linear/sync.js";
+import { writeBackStatus, writeBackStatusWithRetry, findStateByType } from "../linear/sync.js";
 import { getFailedWriteBackCount } from "../linear/write-back-queue.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
@@ -326,9 +326,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Write back Linear state to "Todo"
-    writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
-    );
+    writeBackStatusWithRetry(client, taskId, "retry", stateMap);
 
     console.log(`[orca/api] audit: abort invocation=${id} task=${taskId}`);
 
@@ -459,9 +457,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back to Linear
     const linearTransition = newStatus === "ready" ? "retry" : newStatus;
-    writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
-    );
+    writeBackStatusWithRetry(client, taskId, linearTransition, stateMap);
 
     console.log(
       `[orca/api] audit: status change task=${taskId} ${oldStatus} -> ${newStatus} sessionKilled=${sessionKilled}`,
@@ -495,9 +491,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back "Todo" to Linear
-    writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
-    );
+    writeBackStatusWithRetry(client, taskId, "retry", stateMap);
 
     // Post comment to Linear
     client

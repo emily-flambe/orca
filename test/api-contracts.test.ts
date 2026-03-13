@@ -26,6 +26,7 @@ vi.mock("../src/runner/index.js", () => ({
 }));
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
+  writeBackStatusWithRetry: vi.fn(),
   findStateByType: vi
     .fn()
     .mockReturnValue({ id: "state-123", type: "unstarted" }),

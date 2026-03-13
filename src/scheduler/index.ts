@@ -1399,9 +1399,7 @@ async function onReviewSuccess(
 
     // Write-back (no-op for awaiting_ci, Linear stays at "In Review")
     if (!terminalWriteBackTasks.has(taskId)) {
-      writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch((err) => {
-        log(`write-back failed on review approved for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "awaiting_ci", stateMap);
     }
 
     // Post comment (fire-and-forget)
