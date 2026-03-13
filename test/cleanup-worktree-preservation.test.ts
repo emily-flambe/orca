@@ -816,4 +816,51 @@ describe("Cleanup - drain mode skips cleanup to protect active worktrees", () =>
     expect(removeWorktreeMock).not.toHaveBeenCalled();
     expect(rmSyncMock).not.toHaveBeenCalled();
   });
+
+  test("full drain cycle: cleanup skipped during drain, in_review worktree preserved after drain ends", () => {
+    // Seed an in_review task with a registered worktree
+    const taskId = seedTask(db, {
+      linearIssueId: "T-FULL-CYCLE",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "in_review",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "completed",
+    });
+    updateInvocation(db, invId, {
+      worktreePath: "/tmp/fake-repo-T-FULL-CYCLE",
+      phase: "implement",
+    });
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list")
+        return (
+          "worktree /tmp/fake-repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
+          "worktree /tmp/fake-repo-T-FULL-CYCLE\nHEAD def456\nbranch refs/heads/orca/T-FULL-CYCLE-inv-1\n"
+        );
+      if (args[0] === "for-each-ref") return "";
+      return "";
+    });
+
+    // Phase 1: setDraining() → isDraining() returns true
+    isDrainingMock.mockReturnValue(true);
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // During drain: cleanup exits early — no git calls, no removals
+    expect(gitMock).not.toHaveBeenCalled();
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+
+    // Phase 2: Drain ends → isDraining() returns false
+    isDrainingMock.mockReturnValue(false);
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // After drain: in_review worktree must still be preserved (not removed)
+    expect(removeWorktreeMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("fake-repo-T-FULL-CYCLE"),
+    );
+  });
 });
