@@ -81,7 +81,11 @@ import {
 } from "../cleanup/index.js";
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
-import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
+import {
+  writeBackStatus,
+  writeBackStatusWithRetry,
+  evaluateParentStatuses,
+} from "../linear/sync.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -559,13 +563,7 @@ async function dispatch(
           // Write-back to Linear as Canceled (fire-and-forget)
           if (!terminalWriteBackTasks.has(taskId)) {
             terminalWriteBackTasks.add(taskId);
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              (writeErr) => {
-                log(
-                  `write-back failed on permanent worktree failure for task ${taskId}: ${writeErr}`,
-                );
-              },
-            );
+            writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
             client
               .createComment(
                 taskId,
@@ -1017,9 +1015,7 @@ function onImplementSuccess(
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on already-done for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "done", stateMap);
       try {
         const closedCount = closeSupersededPrs(
           taskId,
@@ -1194,9 +1190,7 @@ function onImplementSuccess(
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on already-done for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "done", stateMap);
       try {
         const closedCount = closeSupersededPrs(
           taskId,
@@ -1291,9 +1285,7 @@ function onImplementSuccess(
 
   // Write-back "In Review"
   if (!terminalWriteBackTasks.has(taskId)) {
-    writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-      log(`write-back failed on implement success for task ${taskId}: ${err}`);
-    });
+    writeBackStatusWithRetry(client, taskId, "in_review", stateMap);
   }
 
   // Post implementation success comment (fire-and-forget)
@@ -1437,13 +1429,7 @@ async function onReviewSuccess(
       emitTaskUpdated(getTask(db, taskId)!);
 
       if (!terminalWriteBackTasks.has(taskId)) {
-        writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on changes requested for task ${taskId}: ${err}`,
-            );
-          },
-        );
+        writeBackStatusWithRetry(client, taskId, "changes_requested", stateMap);
       }
 
       // Post changes requested comment (fire-and-forget)
@@ -1658,11 +1644,7 @@ function onSessionFailure(
       );
     }
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-      (err) => {
-        log(`write-back failed on content filter for task ${taskId}: ${err}`);
-      },
-    );
+    writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
     client
       .createComment(
         taskId,
@@ -1764,9 +1746,7 @@ function handleRetry(
     // write-back and reset retryCount to 0 via resolveConflict/upsertTask,
     // causing an infinite retry loop.
     if (phase === "review" && !terminalWriteBackTasks.has(taskId)) {
-      writeBackStatus(client, taskId, "in_review", stateMap).catch((err) => {
-        log(`write-back failed on retry for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "in_review", stateMap);
     }
 
     // Post retry comments (fire-and-forget)
@@ -1788,13 +1768,7 @@ function handleRetry(
 
     // Write-back on permanent failure (fire-and-forget)
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-      (err) => {
-        log(
-          `write-back failed on permanent failure for task ${taskId}: ${err}`,
-        );
-      },
-    );
+    writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
     // Post permanent failure comment (fire-and-forget)
     client
@@ -2062,13 +2036,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         deployPollTimes.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on deploy timeout for task ${taskId}: ${err}`,
-            );
-          },
-        );
+        writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
         // Post deploy timeout comment (fire-and-forget)
         client
@@ -2094,9 +2062,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy (no SHA) for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "done", stateMap);
 
       client.createComment(taskId, "Task complete").catch((err) => {
         log(`comment failed on done (no SHA) for task ${taskId}: ${err}`);
@@ -2121,9 +2087,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-        log(`write-back failed on deploy success for task ${taskId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, taskId, "done", stateMap);
 
       // Post done comment (fire-and-forget)
       client.createComment(taskId, "Task complete").catch((err) => {
@@ -2145,11 +2109,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       deployPollTimes.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
-      writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-        (err) => {
-          log(`write-back failed on deploy failure for task ${taskId}: ${err}`);
-        },
-      );
+      writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
       // Post deploy failure comment (fire-and-forget)
       client
@@ -2203,11 +2163,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         ciPollTimes.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(`write-back failed on CI timeout for task ${taskId}: ${err}`);
-          },
-        );
+        writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
         client
           .createComment(
@@ -2250,11 +2206,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-            (err) => {
-              log(`write-back failed on CI failure for task ${taskId}: ${err}`);
-            },
-          );
+          writeBackStatusWithRetry(client, taskId, "changes_requested", stateMap);
         }
 
         client
@@ -2276,13 +2228,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         emitTaskUpdated(getTask(db, taskId)!);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`,
-            );
-          },
-        );
+        writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
         client
           .createComment(
@@ -2361,13 +2307,7 @@ async function mergeAndFinalize(
         emitTaskUpdated(getTask(db, taskId)!);
 
         terminalWriteBackTasks.add(taskId);
-        writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-            );
-          },
-        );
+        writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
         client
           .createComment(
@@ -2470,16 +2410,7 @@ async function mergeAndFinalize(
               emitTaskUpdated(getTask(db, taskId)!);
 
               terminalWriteBackTasks.add(taskId);
-              writeBackStatus(
-                client,
-                taskId,
-                "failed_permanent",
-                stateMap,
-              ).catch((err) => {
-                log(
-                  `write-back failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                );
-              });
+              writeBackStatusWithRetry(client, taskId, "failed_permanent", stateMap);
 
               client
                 .createComment(
@@ -2529,13 +2460,7 @@ async function mergeAndFinalize(
         emitTaskUpdated(getTask(db, taskId)!);
 
         if (!terminalWriteBackTasks.has(taskId)) {
-          writeBackStatus(client, taskId, "in_review", stateMap).catch(
-            (err) => {
-              log(
-                `write-back failed on merge escalation for task ${taskId}: ${err}`,
-              );
-            },
-          );
+          writeBackStatusWithRetry(client, taskId, "in_review", stateMap);
         }
 
         client
@@ -2593,9 +2518,7 @@ async function mergeAndFinalize(
     emitTaskUpdated(getTask(db, taskId)!);
 
     terminalWriteBackTasks.add(taskId);
-    writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on merge+done for task ${taskId}: ${err}`);
-    });
+    writeBackStatusWithRetry(client, taskId, "done", stateMap);
 
     client
       .createComment(

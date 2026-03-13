@@ -65,6 +65,7 @@ vi.mock("../src/git.js", () => ({
 
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
+  writeBackStatusWithRetry: vi.fn(),
   evaluateParentStatuses: vi.fn().mockResolvedValue(undefined),
 }));
 

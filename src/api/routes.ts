@@ -55,6 +55,7 @@ import {
 import { activeHandles } from "../scheduler/index.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
+import { getFailedWriteBackCount } from "../linear/write-back-queue.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
 
@@ -575,6 +576,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
+      failedWriteBacks: getFailedWriteBackCount(),
     });
   });
 

@@ -21,6 +21,7 @@ import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
 import { closePrsForCanceledTask } from "../github/index.js";
 import { emitTaskUpdated, emitTasksRefreshed } from "../events.js";
+import { scheduleWithRetry } from "./write-back-queue.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -638,7 +639,8 @@ export async function writeBackStatus(
     return;
   }
 
-  // Register expected change for loop prevention before the API call
+  // Register expected change for loop prevention before the API call.
+  // If the call fails, remove the guard so legitimate webhooks aren't suppressed.
   registerExpectedChange(taskId, targetStateName);
 
   try {
@@ -647,7 +649,28 @@ export async function writeBackStatus(
       `wrote back status: task ${taskId} -> Linear state "${targetStateName}"`,
     );
   } catch (err) {
-    // Write-back failures are logged but do not block Orca's internal state transition
-    log(`write-back failed for task ${taskId}: ${err}`);
+    expectedChanges.delete(taskId);
+    throw err;
   }
+}
+
+export function writeBackStatusWithRetry(
+  client: LinearClient,
+  taskId: string,
+  orcaTransition:
+    | "dispatched"
+    | "in_review"
+    | "deploying"
+    | "awaiting_ci"
+    | "done"
+    | "changes_requested"
+    | "failed_permanent"
+    | "retry"
+    | "backlog",
+  stateMap: WorkflowStateMap,
+): void {
+  scheduleWithRetry(
+    () => writeBackStatus(client, taskId, orcaTransition, stateMap),
+    `task ${taskId} -> ${orcaTransition}`,
+  );
 }
