@@ -19,8 +19,15 @@ import {
 } from "../db/queries.js";
 import { activeHandles } from "../scheduler/index.js";
 import { killSession } from "../runner/index.js";
+import { withRetry, TaskFailureTracker } from "../scheduler/async-utils.js";
 import { closePrsForCanceledTask } from "../github/index.js";
 import { emitTaskUpdated, emitTasksRefreshed } from "../events.js";
+
+/** Tracks consecutive killSession failures per task ID in conflict resolution. */
+export const killConflictFailureTracker = new TaskFailureTracker(
+  2,
+  "[orca/sync]",
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -454,9 +461,26 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
       (inv) => inv.linearIssueId === taskId && inv.id === invId,
     );
     if (matchingInv) {
-      killSession(handle).catch((err) => {
-        log(`error killing session for task ${taskId}: ${err}`);
-      });
+      withRetry(() => killSession(handle), {
+        attempts: 3,
+        delayMs: 500,
+        label: `kill conflicted session for task ${taskId}`,
+        onFailure: (attempt, err) => {
+          killConflictFailureTracker.record(taskId);
+          killConflictFailureTracker.logFailure(
+            taskId,
+            `kill attempt ${attempt} failed for conflicted session (task ${taskId}): ${err}`,
+          );
+        },
+      })
+        .then(() => {
+          killConflictFailureTracker.clear(taskId);
+        })
+        .catch((err) => {
+          console.error(
+            `[orca/sync] CRITICAL: failed to kill conflicted session for task ${taskId} after 3 attempts — process may be orphaned: ${err}`,
+          );
+        });
       updateInvocation(db, invId, {
         status: "failed",
         endedAt: new Date().toISOString(),

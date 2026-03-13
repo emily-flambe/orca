@@ -50,9 +50,13 @@ import {
   type InvocationCompletedPayload,
   type StatusPayload,
 } from "../events.js";
-import { activeHandles } from "../scheduler/index.js";
+import { activeHandles, killFailureTracker } from "../scheduler/index.js";
 import { killSession, invocationLogs } from "../runner/index.js";
-import { writeBackStatus, findStateByType } from "../linear/sync.js";
+import {
+  writeBackStatus,
+  findStateByType,
+  killConflictFailureTracker,
+} from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
 
@@ -1169,6 +1173,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
     incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
     return c.json({ ok: true, taskId });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/error-counts
+  // -----------------------------------------------------------------------
+  app.get("/api/error-counts", (c) => {
+    return c.json({
+      killFailures: killFailureTracker.getAll(),
+      killConflictFailures: killConflictFailureTracker.getAll(),
+    });
   });
 
   // -----------------------------------------------------------------------

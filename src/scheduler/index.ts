@@ -82,6 +82,7 @@ import {
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
+import { withRetry, TaskFailureTracker } from "./async-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +128,9 @@ export const shellHandles = new Map<number, ShellHandle>();
  */
 const transientFailureCounts = new Map<string, number>();
 const TRANSIENT_FAILURE_LIMIT = 5;
+
+/** Tracks consecutive killSession failures per invocation ID (as string). */
+export const killFailureTracker = new TaskFailureTracker(3);
 
 /**
  * Per-task count of times the transient worktree-creation circuit breaker
@@ -1840,9 +1844,26 @@ function checkTimeouts(deps: SchedulerDeps): void {
       // Find and kill the matching session handle
       const handle = activeHandles.get(inv.id);
       if (handle) {
-        killSession(handle).catch((err) => {
-          log(`error killing timed-out session ${inv.id}: ${err}`);
-        });
+        withRetry(() => killSession(handle), {
+          attempts: 3,
+          delayMs: 1000,
+          label: `kill timed-out session ${inv.id}`,
+          onFailure: (attempt, err) => {
+            killFailureTracker.record(String(inv.id));
+            killFailureTracker.logFailure(
+              String(inv.id),
+              `kill attempt ${attempt} failed for timed-out session ${inv.id} (task ${inv.linearIssueId}): ${err}`,
+            );
+          },
+        })
+          .then(() => {
+            killFailureTracker.clear(String(inv.id));
+          })
+          .catch((err) => {
+            console.error(
+              `[orca/scheduler] CRITICAL: failed to kill timed-out session ${inv.id} after 3 attempts — process may be orphaned: ${err}`,
+            );
+          });
         activeHandles.delete(inv.id);
       }
 
