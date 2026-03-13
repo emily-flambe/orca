@@ -105,7 +105,16 @@ function log(message: string): void {
 // 4.2 State mapping
 // ---------------------------------------------------------------------------
 
-function mapLinearStateToOrcaStatus(stateName: string): TaskStatus | null {
+function mapLinearStateToOrcaStatus(
+  stateName: string,
+  config?: OrcaConfig,
+): TaskStatus | null {
+  // Check overrides first
+  if (config?.stateMapOverrides?.[stateName]) {
+    const override = config.stateMapOverrides[stateName];
+    if (override === "skip") return null;
+    return override as TaskStatus;
+  }
   switch (stateName) {
     case "Backlog":
       return "backlog";
@@ -146,7 +155,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
     return;
   }
 
-  const orcaStatus = mapLinearStateToOrcaStatus(issue.state.name);
+  const orcaStatus = mapLinearStateToOrcaStatus(issue.state.name, config);
 
   // Skip backlog and unknown states
   if (orcaStatus === null) return;
@@ -419,7 +428,7 @@ export async function processWebhookEvent(
   // Only upsert if we have state info
   if (event.data.state) {
     // Resolve conflicts BEFORE upsert overwrites the Orca status
-    resolveConflict(db, event.data.identifier, event.data.state.name);
+    resolveConflict(db, event.data.identifier, event.data.state.name, config);
 
     upsertTask(db, issueFromEvent, config);
 
@@ -472,6 +481,7 @@ export function resolveConflict(
   db: OrcaDb,
   taskId: string,
   linearStateName: string,
+  config?: OrcaConfig,
 ): void {
   const task = getTask(db, taskId);
   if (!task) return;
@@ -488,7 +498,10 @@ export function resolveConflict(
     return;
   }
 
-  const expectedOrcaStatus = mapLinearStateToOrcaStatus(linearStateName);
+  const expectedOrcaStatus = mapLinearStateToOrcaStatus(
+    linearStateName,
+    config,
+  );
   if (expectedOrcaStatus === null) return;
 
   // If statuses match, no conflict
