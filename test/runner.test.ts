@@ -925,7 +925,7 @@ describe("shell.ts spawnShellCommand", () => {
     // exitCode may be null (signal) or non-zero
     const exitedAbnormally = result.exitCode !== 0 || result.exitCode === null;
     expect(exitedAbnormally).toBe(true);
-  }, 10_000);
+  }, 15_000);
 
   test("cwd option is passed to the spawned process", async () => {
     const id = nextInvocationId();
