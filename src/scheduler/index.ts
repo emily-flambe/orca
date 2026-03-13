@@ -2212,6 +2212,13 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
     // Poll PR check status
     const status = await getPrCheckStatus(task.prNumber, task.repoPath);
 
+    if (status === "error") {
+      log(
+        `task ${taskId} PR #${task.prNumber} — gh CLI error polling checks, will retry next tick`,
+      );
+      continue;
+    }
+
     if (status === "success" || status === "no_checks") {
       // CI passed or no checks configured — merge the PR
       await mergeAndFinalize(deps, taskId);
@@ -2295,6 +2302,13 @@ async function mergeAndFinalize(
     log(
       `task ${taskId} PR #${task.prNumber} mergeStateStatus: ${mergeState.mergeStateStatus}`,
     );
+
+    if (mergeState.mergeStateStatus === "ERROR") {
+      log(
+        `task ${taskId} PR #${task.prNumber} — gh CLI error fetching merge state, will retry next tick`,
+      );
+      return;
+    }
 
     if (mergeState.mergeStateStatus === "BEHIND") {
       // Branch is behind main but has no conflicts — update it

@@ -441,15 +441,20 @@ describe("getPrCheckStatus", () => {
     expect(result).toBe("success");
   });
 
-  test("returns no_checks on gh CLI failure", async () => {
+  test("returns error on gh CLI failure", async () => {
+    vi.useFakeTimers();
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
       callback(err, null);
     });
 
-    const result = await getPrCheckStatus(1, "/tmp/repo");
-    expect(result).toBe("no_checks");
+    const resultPromise = getPrCheckStatus(1, "/tmp/repo");
+    // Advance timers past all retry delays (1000 + 2000 + 3000 = 6000ms)
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    vi.useRealTimers();
+    expect(result).toBe("error");
   });
 
   test("calls gh pr checks with correct args", async () => {
@@ -502,17 +507,22 @@ describe("getPrMergeState", () => {
     });
   });
 
-  test("returns UNKNOWN values on failure", async () => {
+  test("returns ERROR mergeStateStatus on gh CLI failure", async () => {
+    vi.useFakeTimers();
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
       callback(err, null);
     });
 
-    const result = await getPrMergeState(1, "/tmp/repo");
+    const resultPromise = getPrMergeState(1, "/tmp/repo");
+    // Advance timers past all retry delays (1000 + 2000 + 3000 = 6000ms)
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    vi.useRealTimers();
     expect(result).toEqual({
       mergeable: "UNKNOWN",
-      mergeStateStatus: "UNKNOWN",
+      mergeStateStatus: "ERROR",
     });
   });
 

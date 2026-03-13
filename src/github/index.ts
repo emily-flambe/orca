@@ -271,6 +271,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries: number,
+  delayMs: number,
+  onRetry?: (attempt: number, total: number, err: unknown) => void,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (onRetry) onRetry(attempt + 1, retries, err);
+      if (attempt < retries) await sleep(delayMs * (attempt + 1));
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * Get the merge commit SHA for a PR by number.
  * Retries up to 3 times with 2s delay (merge is async on GitHub's side).
@@ -521,7 +540,7 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
+export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks" | "error";
 
 /**
  * Check CI check status on a PR by number.
@@ -537,9 +556,20 @@ export async function getPrCheckStatus(
   cwd: string,
 ): Promise<PrCheckStatus> {
   try {
-    const output = await ghAsync(
-      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
-      { cwd },
+    const output = await withRetry(
+      () =>
+        ghAsync(
+          ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+          { cwd },
+        ),
+      3,
+      1000,
+      (attempt, total, err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[orca/github] gh transient failure (attempt ${attempt}/${total}): ${msg}`,
+        );
+      },
     );
     const checks = JSON.parse(output) as {
       name: string;
@@ -559,7 +589,7 @@ export async function getPrCheckStatus(
 
     return "success";
   } catch {
-    return "no_checks";
+    return "error";
   }
 }
 
@@ -597,9 +627,26 @@ export async function getPrMergeState(
   cwd: string,
 ): Promise<PrMergeState> {
   try {
-    const output = await ghAsync(
-      ["pr", "view", String(prNumber), "--json", "mergeable,mergeStateStatus"],
-      { cwd },
+    const output = await withRetry(
+      () =>
+        ghAsync(
+          [
+            "pr",
+            "view",
+            String(prNumber),
+            "--json",
+            "mergeable,mergeStateStatus",
+          ],
+          { cwd },
+        ),
+      3,
+      1000,
+      (attempt, total, err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[orca/github] gh transient failure (attempt ${attempt}/${total}): ${msg}`,
+        );
+      },
     );
     const data = JSON.parse(output) as {
       mergeable: string;
@@ -610,7 +657,7 @@ export async function getPrMergeState(
       mergeStateStatus: data.mergeStateStatus,
     };
   } catch {
-    return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" };
+    return { mergeable: "UNKNOWN", mergeStateStatus: "ERROR" };
   }
 }
 
