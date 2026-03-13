@@ -13,7 +13,7 @@ import {
   updateInvocation,
   getLastDeployInterruptedInvocation,
   getInvocationsByTask,
-  clearImplementSessionIds,
+  clearSessionIds,
 } from "../src/db/queries.js";
 
 // ---------------------------------------------------------------------------
@@ -263,10 +263,10 @@ describe("getLastDeployInterruptedInvocation — no status filter", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG 4: The shutdown handler in cli/index.ts calls clearImplementSessionIds()
+// BUG 4: The shutdown handler in cli/index.ts calls clearSessionIds()
 // for ALL running invocations — including deploy-interrupted ones.
 //
-// This test proves that after calling clearImplementSessionIds(), the
+// This test proves that after calling clearSessionIds(), the
 // invocation that was marked as deploy-interrupted still has its sessionId
 // cleared, which (while not fatal for the worktree resume path which uses
 // worktreePath/branchName) demonstrates that the function's blanket application
@@ -275,7 +275,7 @@ describe("getLastDeployInterruptedInvocation — no status filter", () => {
 // More importantly: what if the shutdown handler is called BEFORE the
 // worktreePreserved flag is set? The current code structure is:
 //   1. updateInvocation(..., { worktreePreserved: 1 })
-//   2. clearImplementSessionIds(...)   <-- clears sessionId from this SAME invocation
+//   2. clearSessionIds(...)   <-- clears sessionId from this SAME invocation
 //
 // The deploy-interrupted invocation has its sessionId cleared immediately,
 // meaning the invocation record shows worktreePreserved=1 but sessionId=null.
@@ -284,14 +284,14 @@ describe("getLastDeployInterruptedInvocation — no status filter", () => {
 // analogous max-turns invocation which REQUIRES sessionId to be non-null.
 // ---------------------------------------------------------------------------
 
-describe("clearImplementSessionIds blanket clears deploy-interrupted invocations", () => {
+describe("clearSessionIds blanket clears deploy-interrupted invocations", () => {
   let db: OrcaDb;
 
   beforeEach(() => {
     db = freshDb();
   });
 
-  test("clearImplementSessionIds clears sessionId from deploy-interrupted invocation", () => {
+  test("clearSessionIds clears sessionId from deploy-interrupted invocation", () => {
     const taskId = seedTask(db);
 
     const invId = seedDeployInterruptedInvocation(db, taskId, {
@@ -307,7 +307,7 @@ describe("clearImplementSessionIds blanket clears deploy-interrupted invocations
     expect(before.worktreePreserved).toBe(1);
 
     // Simulate what shutdown handler does after preserving worktree
-    clearImplementSessionIds(db, taskId);
+    clearSessionIds(db, taskId);
 
     // After clearing, sessionId is null but worktreePreserved=1 is intact
     const after = getInvocationsByTask(db, taskId).find((i) => i.id === invId)!;
