@@ -2156,3 +2156,111 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     expect(deleteCalls).toHaveLength(1);
   });
 });
+
+describe("Cleanup - worktree preservation for active review states", () => {
+  let db: OrcaDb;
+  let gitMock: ReturnType<typeof vi.fn>;
+  let removeWorktreeMock: ReturnType<typeof vi.fn>;
+  let cleanupStaleResources: typeof import("../src/cleanup/index.js").cleanupStaleResources;
+  let listOpenPrBranchesMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const gitMod = await import("../src/git.js");
+    gitMock = gitMod.git as unknown as ReturnType<typeof vi.fn>;
+    gitMock.mockReset();
+    gitMock.mockReturnValue("");
+
+    const wtMod = await import("../src/worktree/index.js");
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    removeWorktreeMock.mockReset();
+
+    const ghMod = await import("../src/github/index.js");
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    listOpenPrBranchesMock.mockReset();
+    listOpenPrBranchesMock.mockReturnValue(new Set());
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupStaleResources = cleanupMod.cleanupStaleResources;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  for (const status of [
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+  ] as const) {
+    test(`preserves worktree for task in ${status} state`, () => {
+      const taskId = seedTask(db, {
+        linearIssueId: `T-${status}`,
+        repoPath: "/tmp/fake-repo",
+        orcaStatus: status,
+      });
+      // Simulate completed implement invocation with a worktree
+      const invId = insertInvocation(db, {
+        linearIssueId: taskId,
+        startedAt: now(),
+        status: "completed",
+      });
+      updateInvocation(db, invId, {
+        worktreePath: "/tmp/fake-repo-T-" + status,
+        phase: "implement",
+      });
+
+      // Make git worktree list return our worktree
+      gitMock.mockImplementation((args: string[]) => {
+        if (args[0] === "worktree" && args[1] === "list") {
+          return `worktree /tmp/fake-repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /tmp/fake-repo-T-${status}\nHEAD def456\nbranch refs/heads/orca/T-${status}-inv-1\n`;
+        }
+        return "";
+      });
+
+      cleanupStaleResources({ db, config: testConfig() });
+
+      // removeWorktree must NOT be called for the active review task's worktree
+      expect(removeWorktreeMock).not.toHaveBeenCalledWith(
+        expect.stringContaining(`fake-repo-T-${status}`),
+      );
+    });
+  }
+
+  test("does NOT preserve worktrees for terminal-state tasks", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "T-done",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "done",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "completed",
+    });
+    updateInvocation(db, invId, {
+      worktreePath: "/tmp/fake-repo-T-done",
+      phase: "implement",
+    });
+
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") {
+        return `worktree /tmp/fake-repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /tmp/fake-repo-T-done\nHEAD def456\nbranch refs/heads/orca/T-done-inv-1\n`;
+      }
+      return "";
+    });
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // Done task's worktree SHOULD be removed
+    expect(removeWorktreeMock).toHaveBeenCalledWith(
+      expect.stringContaining("fake-repo-T-done"),
+    );
+  });
+});

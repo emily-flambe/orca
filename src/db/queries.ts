@@ -403,6 +403,28 @@ export function getLastMaxTurnsInvocation(
 }
 
 /**
+ * Find the most recent invocation for a task that has a valid worktree path.
+ * Used to identify which worktree to preserve for tasks in active review/CI states.
+ */
+export function getLastInvocationWithWorktree(
+  db: OrcaDb,
+  taskId: string,
+): Invocation | undefined {
+  return db
+    .select()
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.linearIssueId, taskId),
+        isNotNull(invocations.worktreePath),
+      ),
+    )
+    .orderBy(desc(invocations.id))
+    .limit(1)
+    .get();
+}
+
+/**
  * Find the most recent invocation for a task that was interrupted by a deploy
  * and has a preserved worktree (worktree_preserved = 1) during the implement phase.
  * Used to determine if a retry can reuse the preserved worktree.

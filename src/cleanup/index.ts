@@ -8,6 +8,7 @@ import type { OrcaDb } from "../db/index.js";
 import {
   getAllTasks,
   getInvocation,
+  getLastInvocationWithWorktree,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
 } from "../db/queries.js";
@@ -137,6 +138,23 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
   for (const t of readyTasks) {
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
+    if (inv?.worktreePath) {
+      preservedWorktreePaths.add(inv.worktreePath);
+    }
+  }
+
+  // Also preserve worktrees for tasks in active review/CI states — their
+  // worktrees must survive the deploy cycle so the fix phase has code to work on.
+  const ACTIVE_REVIEW_STATUSES = new Set([
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+  ]);
+  const activeReviewTasks = allTasks.filter((t) =>
+    ACTIVE_REVIEW_STATUSES.has(t.orcaStatus),
+  );
+  for (const t of activeReviewTasks) {
+    const inv = getLastInvocationWithWorktree(db, t.linearIssueId);
     if (inv?.worktreePath) {
       preservedWorktreePaths.add(inv.worktreePath);
     }
