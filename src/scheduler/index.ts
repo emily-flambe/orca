@@ -703,8 +703,8 @@ export function attachCompletionHandler(
       );
     })
     .catch((err) => {
-      log(
-        `completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`,
+      console.error(
+        `[orca/scheduler] completion handler error for invocation ${invocationId} (task ${taskId}): ${err}`,
       );
       activeHandles.delete(invocationId);
       try {
@@ -2006,6 +2006,9 @@ function triggerSelfDeploy(): void {
 /** Last poll time per task ID, for throttling. */
 const deployPollTimes = new Map<string, number>();
 
+/** Consecutive deploy run check error count per task ID. */
+const deployCheckErrorCounts = new Map<string, number>();
+
 /** Last time cleanup ran (epoch ms), for throttling. */
 let lastCleanupTime = 0;
 
@@ -2036,6 +2039,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
         deployPollTimes.delete(taskId);
+        deployCheckErrorCounts.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2068,6 +2072,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
+      deployCheckErrorCounts.delete(taskId);
 
       terminalWriteBackTasks.add(taskId);
       writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
@@ -2092,6 +2097,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
     );
 
     if (status === "success") {
+      deployCheckErrorCounts.delete(taskId);
       updateTaskStatus(db, taskId, "done");
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
@@ -2116,6 +2122,7 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         triggerSelfDeploy();
       }
     } else if (status === "failure") {
+      deployCheckErrorCounts.delete(taskId);
       updateTaskStatus(db, taskId, "failed");
       emitTaskUpdated(getTask(db, taskId)!);
       deployPollTimes.delete(taskId);
@@ -2140,8 +2147,20 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
       log(
         `task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`,
       );
+    } else if (status === "run_error") {
+      const errorCount = (deployCheckErrorCounts.get(taskId) ?? 0) + 1;
+      deployCheckErrorCounts.set(taskId, errorCount);
+      if (errorCount >= 3) {
+        console.warn(
+          `[orca/scheduler] task ${taskId} deploy check failed ${errorCount} consecutive times — skipping tick`,
+        );
+      } else {
+        log(
+          `task ${taskId} deploy check error (attempt ${errorCount}) — skipping tick`,
+        );
+      }
     }
-    // "pending", "in_progress", "no_runs" → skip, poll again next interval
+    // "pending", "in_progress", "no_runs", "run_error" → skip, poll again next interval
   }
 }
 
@@ -2151,6 +2170,9 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 
 /** Last poll time per task ID, for throttling CI checks. */
 const ciPollTimes = new Map<string, number>();
+
+/** Consecutive CI check error count per task ID. */
+const ciCheckErrorCounts = new Map<string, number>();
 
 async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   const { db, config, client, stateMap } = deps;
@@ -2177,6 +2199,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
         ciPollTimes.delete(taskId);
+        ciCheckErrorCounts.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2206,11 +2229,29 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       );
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciCheckErrorCounts.delete(taskId);
       continue;
     }
 
     // Poll PR check status
     const status = await getPrCheckStatus(task.prNumber, task.repoPath);
+
+    if (status === "check_error") {
+      const errorCount = (ciCheckErrorCounts.get(taskId) ?? 0) + 1;
+      ciCheckErrorCounts.set(taskId, errorCount);
+      if (errorCount >= 3) {
+        console.warn(
+          `[orca/scheduler] task ${taskId} CI check failed ${errorCount} consecutive times — skipping tick`,
+        );
+      } else {
+        log(
+          `task ${taskId} CI check error (attempt ${errorCount}) — skipping tick`,
+        );
+      }
+      continue; // Skip, don't merge
+    } else {
+      ciCheckErrorCounts.delete(taskId); // Reset on any successful response
+    }
 
     if (status === "success" || status === "no_checks") {
       // CI passed or no checks configured — merge the PR
@@ -2218,6 +2259,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       ciPollTimes.delete(taskId);
     } else if (status === "failure") {
       ciPollTimes.delete(taskId);
+      ciCheckErrorCounts.delete(taskId);
 
       // Check review cycle cap
       if (task.reviewCycleCount < config.maxReviewCycles) {
@@ -2278,6 +2320,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   }
 }
 
+
 /**
  * Merge a PR programmatically and transition the task to done/deploying.
  */
@@ -2288,6 +2331,9 @@ async function mergeAndFinalize(
   const { db, config, client, stateMap } = deps;
   const task = getTask(db, taskId);
   if (!task) return;
+
+  // Clean up error counter — task is leaving awaiting_ci regardless of merge outcome
+  ciCheckErrorCounts.delete(taskId);
 
   if (task.prNumber) {
     // Pre-flight: check merge state before attempting merge

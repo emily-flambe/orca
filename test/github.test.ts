@@ -367,9 +367,11 @@ describe("getMergeCommitSha", () => {
 describe("getPrCheckStatus", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -441,15 +443,17 @@ describe("getPrCheckStatus", () => {
     expect(result).toBe("success");
   });
 
-  test("returns no_checks on gh CLI failure", async () => {
+  test("returns check_error on gh CLI failure after retries", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
       callback(err, null);
     });
 
-    const result = await getPrCheckStatus(1, "/tmp/repo");
-    expect(result).toBe("no_checks");
+    const promise = getPrCheckStatus(1, "/tmp/repo");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result).toBe("check_error");
   });
 
   test("calls gh pr checks with correct args", async () => {
@@ -719,9 +723,11 @@ describe("listOpenPrBranches", () => {
 describe("getWorkflowRunStatus", () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -844,15 +850,17 @@ describe("getWorkflowRunStatus", () => {
     expect(result).toBe("success");
   });
 
-  test("returns no_runs on gh CLI failure", async () => {
+  test("returns run_error on gh CLI failure after retries", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
       callback(err, null);
     });
 
-    const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
-    expect(result).toBe("no_runs");
+    const promise = getWorkflowRunStatus("abc123", "/tmp/repo");
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    expect(result).toBe("run_error");
   });
 
   test("calls gh run list with correct args", async () => {

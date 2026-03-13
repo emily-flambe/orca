@@ -521,7 +521,12 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
+export type PrCheckStatus =
+  | "pending"
+  | "success"
+  | "failure"
+  | "no_checks"
+  | "check_error";
 
 /**
  * Check CI check status on a PR by number.
@@ -530,37 +535,48 @@ export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
  * - Any pending/queued → "pending"
  * - Any fail → "failure"
  * - All pass/skipping → "success"
- * - CLI error or no checks → "no_checks"
+ * - Empty checks array → "no_checks" (no CI configured, valid success condition)
+ * - CLI error after 3 attempts → "check_error"
  */
 export async function getPrCheckStatus(
   prNumber: number,
   cwd: string,
 ): Promise<PrCheckStatus> {
-  try {
-    const output = await ghAsync(
-      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
-      { cwd },
-    );
-    const checks = JSON.parse(output) as {
-      name: string;
-      state: string;
-      bucket: string;
-    }[];
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const output = await ghAsync(
+        ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+        { cwd },
+      );
+      const checks = JSON.parse(output) as {
+        name: string;
+        state: string;
+        bucket: string;
+      }[];
 
-    if (checks.length === 0) return "no_checks";
+      if (checks.length === 0) return "no_checks";
 
-    const hasPending = checks.some(
-      (c) => c.bucket === "pending" || c.bucket === "queued",
-    );
-    if (hasPending) return "pending";
+      const hasPending = checks.some(
+        (c) => c.bucket === "pending" || c.bucket === "queued",
+      );
+      if (hasPending) return "pending";
 
-    const hasFail = checks.some((c) => c.bucket === "fail");
-    if (hasFail) return "failure";
+      const hasFail = checks.some((c) => c.bucket === "fail");
+      if (hasFail) return "failure";
 
-    return "success";
-  } catch {
-    return "no_checks";
+      return "success";
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
   }
+  console.warn(
+    `[orca/github] getPrCheckStatus failed after 3 attempts for PR #${prNumber}: ${lastErr}`,
+  );
+  return "check_error";
 }
 
 /**
@@ -749,7 +765,8 @@ export type WorkflowRunStatus =
   | "in_progress"
   | "success"
   | "failure"
-  | "no_runs";
+  | "no_runs"
+  | "run_error";
 
 /**
  * Check GitHub Actions workflow run status for a given commit SHA.
@@ -758,50 +775,59 @@ export async function getWorkflowRunStatus(
   commitSha: string,
   cwd: string,
 ): Promise<WorkflowRunStatus> {
-  try {
-    const output = await ghAsync(
-      [
-        "run",
-        "list",
-        "--commit",
-        commitSha,
-        "--json",
-        "status,conclusion",
-        "--limit",
-        "20",
-      ],
-      { cwd },
-    );
-    const runs = JSON.parse(output) as {
-      status: string;
-      conclusion: string | null;
-    }[];
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const output = await ghAsync(
+        [
+          "run",
+          "list",
+          "--commit",
+          commitSha,
+          "--json",
+          "status,conclusion",
+          "--limit",
+          "20",
+        ],
+        { cwd },
+      );
+      const runs = JSON.parse(output) as {
+        status: string;
+        conclusion: string | null;
+      }[];
 
-    if (runs.length === 0) return "no_runs";
+      if (runs.length === 0) return "no_runs";
 
-    // If any run is still in progress or queued, overall is in_progress
-    const hasInProgress = runs.some(
-      (r) =>
-        r.status === "in_progress" ||
-        r.status === "queued" ||
-        r.status === "waiting" ||
-        r.status === "pending",
-    );
-    if (hasInProgress) return "in_progress";
+      // If any run is still in progress or queued, overall is in_progress
+      const hasInProgress = runs.some(
+        (r) =>
+          r.status === "in_progress" ||
+          r.status === "queued" ||
+          r.status === "waiting" ||
+          r.status === "pending",
+      );
+      if (hasInProgress) return "in_progress";
 
-    // All runs completed — check conclusions
-    const hasFailed = runs.some(
-      (r) =>
-        r.conclusion === "failure" ||
-        r.conclusion === "cancelled" ||
-        r.conclusion === "timed_out",
-    );
-    if (hasFailed) return "failure";
+      // All runs completed — check conclusions
+      const hasFailed = runs.some(
+        (r) =>
+          r.conclusion === "failure" ||
+          r.conclusion === "cancelled" ||
+          r.conclusion === "timed_out",
+      );
+      if (hasFailed) return "failure";
 
-    // All completed with success/skipped/neutral
-    return "success";
-  } catch {
-    // gh CLI error — treat as no runs (will retry)
-    return "no_runs";
+      // All completed with success/skipped/neutral
+      return "success";
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
   }
+  console.warn(
+    `[orca/github] getWorkflowRunStatus failed after 3 attempts for commit ${commitSha}: ${lastErr}`,
+  );
+  return "run_error";
 }
