@@ -10,10 +10,9 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
 } from "node:fs";
-import { join, basename, dirname, resolve } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { EventEmitter } from "node:events";
 
@@ -193,47 +192,27 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
  * This deletes conversation transcripts (jsonl files) for the main repo too,
  * but that's acceptable — agent sessions are ephemeral.
  */
-function cleanStaleClaudeProjectDirs(
-  worktreePath: string,
-  repoPath?: string,
-): void {
+function cleanStaleClaudeProjectDirs(worktreePath: string): void {
   try {
     const projectsDir = join(homedir(), ".claude", "projects");
 
-    if (!repoPath) {
-      process.stderr.write(
-        `[orca/runner] warning: no repoPath provided, skipping stale Claude project dir cleanup\n`,
-      );
-      return;
-    }
+    // Compute Claude's key for this specific worktree path.
+    // Claude replaces all : \ / with - to form the directory name.
+    const worktreeKey = worktreePath
+      .split("\\")
+      .join("-")
+      .split("/")
+      .join("-")
+      .split(":")
+      .join("-");
 
-    const repoName = basename(repoPath);
+    const fullPath = join(projectsDir, worktreeKey);
+    if (!existsSync(fullPath)) return;
 
-    // Claude's key format: replace all : \ / with -
-    // The parent dir of worktrees is the same as the parent dir of the repo.
-    const repoParentPath = join(repoPath, "..");
-    const parentKey = repoParentPath.replace(/[:\\/]/g, "-") + "-";
-
-    // Match: <parentKey><repoName> (exact = main repo)
-    // Match: <parentKey><repoName>-* (worktree dirs like orca-EMI-88)
-    const mainRepoKey = parentKey + repoName;
-
-    const entries = readdirSync(projectsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      // Match the main repo dir exactly OR any worktree dir (has - suffix)
-      if (
-        entry.name !== mainRepoKey &&
-        !entry.name.startsWith(mainRepoKey + "-")
-      )
-        continue;
-
-      const fullPath = join(projectsDir, entry.name);
-      rmSync(fullPath, { recursive: true, force: true });
-      process.stderr.write(
-        `[orca/runner] cleaned stale Claude project dir: ${entry.name}\n`,
-      );
-    }
+    rmSync(fullPath, { recursive: true, force: true });
+    process.stderr.write(
+      `[orca/runner] cleaned stale Claude project dir: ${worktreeKey}\n`,
+    );
   } catch (err) {
     process.stderr.write(
       `[orca/runner] warning: failed to clean stale Claude project dirs: ${err}\n`,
@@ -400,7 +379,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // Claude Code identifies projects by path, but resolves git worktrees to the
   // first-seen path — causing sessions to run in the wrong directory. Removing
   // stale project dirs forces Claude to create a fresh one for this worktree.
-  cleanStaleClaudeProjectDirs(options.worktreePath, options.repoPath);
+  cleanStaleClaudeProjectDirs(options.worktreePath);
 
   // Strip Claude nesting-detection env vars so child sessions don't refuse to
   // start.  Use filter (not delete) because delete on a spread of process.env
