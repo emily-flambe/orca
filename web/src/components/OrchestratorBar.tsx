@@ -10,6 +10,7 @@ interface Props {
   onSync: () => Promise<void>;
   onConfigUpdate: (config: {
     concurrencyCap?: number;
+    tokenBudgetLimit?: number;
     implementModel?: string;
     reviewModel?: string;
     fixModel?: string;
@@ -26,6 +27,8 @@ export default function OrchestratorBar({
   const [syncing, setSyncing] = useState(false);
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
+  const [editingTokenLimit, setEditingTokenLimit] = useState(false);
+  const [tokenLimitInput, setTokenLimitInput] = useState("");
   const [showModal, setShowModal] = useState(false);
 
   if (!status) {
@@ -74,6 +77,27 @@ export default function OrchestratorBar({
     }
   };
 
+  const startEditTokenLimit = () => {
+    setTokenLimitInput(String(status.tokenBudgetLimit));
+    setEditingTokenLimit(true);
+  };
+
+  const saveTokenLimit = async () => {
+    const val = parseInt(tokenLimitInput, 10);
+    if (!Number.isNaN(val) && val >= 1 && val !== status.tokenBudgetLimit) {
+      await onConfigUpdate({ tokenBudgetLimit: val });
+    }
+    setEditingTokenLimit(false);
+  };
+
+  const handleTokenLimitKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      saveTokenLimit();
+    } else if (e.key === "Escape") {
+      setEditingTokenLimit(false);
+    }
+  };
+
   return (
     <>
       <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0">
@@ -89,7 +113,25 @@ export default function OrchestratorBar({
           <span className="text-gray-300 tabular-nums text-xs sm:text-sm">
             {formatTokens(status.tokensInWindow)}
             <span className="text-gray-500"> / </span>
-            {formatTokens(status.tokenBudgetLimit)}
+            {editingTokenLimit ? (
+              <input
+                type="text"
+                value={tokenLimitInput}
+                onChange={(e) => setTokenLimitInput(e.target.value)}
+                onBlur={saveTokenLimit}
+                onKeyDown={handleTokenLimitKeyDown}
+                autoFocus
+                className="w-20 bg-gray-800 border border-gray-600 rounded px-1 text-center text-gray-200 text-xs sm:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            ) : (
+              <button
+                onClick={startEditTokenLimit}
+                className="text-gray-300 hover:text-blue-400 cursor-pointer border-b border-dashed border-gray-600 hover:border-blue-400 transition-colors"
+                title="Click to change token budget limit"
+              >
+                {formatTokens(status.tokenBudgetLimit)}
+              </button>
+            )}
           </span>
         </div>
 
