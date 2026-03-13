@@ -13,11 +13,7 @@ import {
 } from "vitest";
 import { createHmac } from "node:crypto";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import {
-  insertTask,
-  getTask,
-  updateTaskStatus,
-} from "../src/db/queries.js";
+import { insertTask, getTask, updateTaskStatus } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
@@ -236,7 +232,10 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
 
     expect(stateMap).toBeInstanceOf(Map);
     expect(stateMap.get("Todo")).toEqual({ id: "ws-1", type: "unstarted" });
-    expect(stateMap.get("In Progress")).toEqual({ id: "ws-2", type: "started" });
+    expect(stateMap.get("In Progress")).toEqual({
+      id: "ws-2",
+      type: "started",
+    });
     expect(stateMap.get("Done")).toEqual({ id: "ws-3", type: "completed" });
     expect(stateMap.get("Canceled")).toEqual({ id: "ws-4", type: "canceled" });
     expect(stateMap.size).toBe(4);
@@ -261,13 +260,11 @@ describe("10.1 - LinearClient with mock GraphQL responses", () => {
   test("auth error (401) throws without retrying", async () => {
     const client = await getClient();
 
-    mockFetch.mockResolvedValue(
-      new Response("Unauthorized", { status: 401 }),
-    );
+    mockFetch.mockResolvedValue(new Response("Unauthorized", { status: 401 }));
 
-    await expect(
-      client.fetchProjectIssues(["proj-1"]),
-    ).rejects.toThrow(/authentication failed/);
+    await expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(
+      /authentication failed/,
+    );
 
     // Should NOT retry on 401
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -321,8 +318,16 @@ describe("10.2 - DependencyGraph", () => {
 
   function makeIssue(
     id: string,
-    relations: { type: string; issueId: string; issueIdentifier: string }[] = [],
-    inverseRelations: { type: string; issueId: string; issueIdentifier: string }[] = [],
+    relations: {
+      type: string;
+      issueId: string;
+      issueIdentifier: string;
+    }[] = [],
+    inverseRelations: {
+      type: string;
+      issueId: string;
+      issueIdentifier: string;
+    }[] = [],
   ) {
     return {
       id,
@@ -365,9 +370,11 @@ describe("10.2 - DependencyGraph", () => {
 
     // B is blocked by A (via B's inverseRelations)
     const issueA = makeIssue("A");
-    const issueB = makeIssue("B", [], [
-      { type: "blocks", issueId: "A", issueIdentifier: "A" },
-    ]);
+    const issueB = makeIssue(
+      "B",
+      [],
+      [{ type: "blocks", issueId: "A", issueIdentifier: "A" }],
+    );
 
     graph.rebuild([issueA, issueB]);
 
@@ -402,7 +409,9 @@ describe("10.2 - DependencyGraph", () => {
     graph.rebuild([issueA, makeIssue("B")]);
 
     // B is blocked by A, A is running
-    expect(graph.isDispatchable("B", (id) => (id === "A" ? "running" : "ready"))).toBe(false);
+    expect(
+      graph.isDispatchable("B", (id) => (id === "A" ? "running" : "ready")),
+    ).toBe(false);
   });
 
   test("computeEffectivePriority: inherits urgent priority from blocked chain", () => {
@@ -474,7 +483,6 @@ describe("10.2 - DependencyGraph", () => {
       expect.stringContaining("cycle detected"),
     );
   });
-
 });
 
 // ===========================================================================
@@ -637,7 +645,8 @@ describe("10.4 - Write-back loop prevention", () => {
 describe("10.5 - Webhook HMAC verification", () => {
   // Mock processWebhookEvent to avoid needing real DB/scheduler deps in webhook route
   vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
+    const actual =
+      await importOriginal<typeof import("../src/linear/sync.js")>();
     return {
       ...actual,
       processWebhookEvent: vi.fn().mockResolvedValue(undefined),
@@ -738,7 +747,8 @@ describe("10.5 - Webhook HMAC verification", () => {
 describe("10.6 - Polling fallback", () => {
   // We need to mock fullSync to track calls without actually running it
   vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
+    const actual =
+      await importOriginal<typeof import("../src/linear/sync.js")>();
     return {
       ...actual,
       fullSync: vi.fn().mockResolvedValue(undefined),
@@ -919,9 +929,8 @@ describe("10.6 - Polling fallback", () => {
   });
 
   test("backoff caps at MAX_BACKOFF_MS (5 minutes)", async () => {
-    const { computeBackoffMs, MAX_BACKOFF_MS } = await import(
-      "../src/linear/poller.js"
-    );
+    const { computeBackoffMs, MAX_BACKOFF_MS } =
+      await import("../src/linear/poller.js");
 
     // At 10 failures: 30s * 2^9 = 15360s — must cap at 300s
     expect(computeBackoffMs(10)).toBe(MAX_BACKOFF_MS);
