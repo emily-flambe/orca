@@ -161,9 +161,38 @@ const terminalWriteBackTasks = new Set<string>();
  * DLL_INIT is a system-wide condition, not per-repo. Pausing everything
  * prevents the death spiral where retries spawn more processes into an
  * already-exhausted system.
+ *
+ * Uses exponential backoff: 2min → 4min → 8min → 16min (capped).
+ * Consecutive DLL_INIT hits double the cooldown; a successful git op
+ * resets both the cooldown and the backoff multiplier.
  */
 let globalDllCooldownUntil = 0;
-const GLOBAL_DLL_COOLDOWN_MS = 120_000; // 2 minutes
+const GLOBAL_DLL_COOLDOWN_BASE_MS = 120_000; // 2 minutes
+const GLOBAL_DLL_COOLDOWN_MAX_MS = 960_000; // 16 minutes
+let globalDllCooldownCurrentMs = GLOBAL_DLL_COOLDOWN_BASE_MS;
+
+/**
+ * Activate the global DLL_INIT cooldown with exponential backoff.
+ * Each consecutive activation doubles the cooldown (capped at max).
+ */
+function activateDllCooldown(source: string): void {
+  globalDllCooldownUntil = Date.now() + globalDllCooldownCurrentMs;
+  log(
+    `DLL_INIT ${source} — global cooldown for ${globalDllCooldownCurrentMs / 1000}s (all git ops paused)`,
+  );
+  globalDllCooldownCurrentMs = Math.min(
+    globalDllCooldownCurrentMs * 2,
+    GLOBAL_DLL_COOLDOWN_MAX_MS,
+  );
+}
+
+/**
+ * Reset the DLL cooldown and backoff multiplier after a successful git op.
+ */
+function resetDllCooldown(): void {
+  globalDllCooldownUntil = 0;
+  globalDllCooldownCurrentMs = GLOBAL_DLL_COOLDOWN_BASE_MS;
+}
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -449,7 +478,7 @@ async function dispatch(
       worktreeBurnedRetries.delete(taskId);
       if (globalDllCooldownUntil > 0) {
         log("worktree creation succeeded — clearing DLL_INIT cooldown");
-        globalDllCooldownUntil = 0;
+        resetDllCooldown();
       }
     } catch (err) {
       log(`worktree creation failed for task ${taskId}: ${err}`);
@@ -477,12 +506,7 @@ async function dispatch(
       }
 
       if (isDllInitError(err)) {
-        // DLL_INIT is system-wide resource exhaustion. Activate global
-        // cooldown to stop ALL git operations (dispatch + cleanup).
-        globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
-        log(
-          `DLL_INIT detected — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s (all git ops paused)`,
-        );
+        activateDllCooldown("in worktree creation");
       }
 
       if (isTransientGitError(err)) {
@@ -2649,10 +2673,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
         log(`cleanup error: ${err}`);
         // If cleanup hit DLL_INIT, activate cooldown
         if (isDllInitError(err)) {
-          globalDllCooldownUntil = Date.now() + GLOBAL_DLL_COOLDOWN_MS;
-          log(
-            `DLL_INIT in cleanup — global cooldown for ${GLOBAL_DLL_COOLDOWN_MS / 1000}s`,
-          );
+          activateDllCooldown("in cleanup");
           return;
         }
       }
