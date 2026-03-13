@@ -24,29 +24,40 @@ export function spawnShellCommand(
   opts: { cwd?: string; timeoutMs: number; invocationId: number },
 ): ShellHandle {
   const { cwd, timeoutMs, invocationId } = opts;
-  // Use shell:true so the command string is interpreted as a shell command
+  // Use shell:true so the command string is interpreted as a shell command.
+  // On Unix, detached:true creates a new process group so we can kill the
+  // entire tree (shell + children) via process.kill(-pid). On Windows,
+  // process groups work differently so we fall back to child.kill().
+  const useProcessGroup = process.platform !== "win32";
   const child: ChildProcess = spawn(command, [], {
     cwd,
     shell: true,
     env: process.env,
+    detached: useProcessGroup,
   });
 
   const chunks: Buffer[] = [];
   child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
   child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
 
+  function killTree(signal: NodeJS.Signals) {
+    try {
+      if (useProcessGroup && child.pid != null) {
+        process.kill(-child.pid, signal);
+      } else {
+        child.kill(signal);
+      }
+    } catch {
+      /* ignore — process may already be gone */
+    }
+  }
+
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
+    killTree("SIGTERM");
     // Force-kill after 5 more seconds
-    setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }, 5000);
+    setTimeout(() => killTree("SIGKILL"), 5000);
   }, timeoutMs);
 
   const done = new Promise<ShellResult>((resolve) => {
@@ -61,11 +72,7 @@ export function spawnShellCommand(
   const handle: ShellHandle = {
     kill() {
       clearTimeout(timeoutId);
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* ignore */
-      }
+      killTree("SIGTERM");
     },
     done,
   };
