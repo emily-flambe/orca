@@ -480,13 +480,15 @@ function killRunningSession(db: OrcaDb, taskId: string): void {
           console.error(
             `[orca/sync] CRITICAL: failed to kill conflicted session for task ${taskId} after 3 attempts — process may be orphaned: ${err}`,
           );
+        })
+        .finally(() => {
+          updateInvocation(db, invId, {
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            outputSummary: "interrupted by Linear state change",
+          });
+          activeHandles.delete(invId);
         });
-      updateInvocation(db, invId, {
-        status: "failed",
-        endedAt: new Date().toISOString(),
-        outputSummary: "interrupted by Linear state change",
-      });
-      activeHandles.delete(invId);
       break;
     }
   }

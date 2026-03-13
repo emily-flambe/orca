@@ -132,6 +132,12 @@ const TRANSIENT_FAILURE_LIMIT = 5;
 /** Tracks consecutive killSession failures per invocation ID (as string). */
 export const killFailureTracker = new TaskFailureTracker(3);
 
+/** Tracks consecutive getPrMergeState failures per task ID. */
+export const mergeStateFailureTracker = new TaskFailureTracker(3);
+
+/** Tracks consecutive mergePr failures per task ID. */
+export const mergePrFailureTracker = new TaskFailureTracker(3);
+
 /**
  * Per-task count of times the transient worktree-creation circuit breaker
  * has tripped. After config.maxWorktreeRetries trips, the task is
@@ -1863,25 +1869,38 @@ function checkTimeouts(deps: SchedulerDeps): void {
             console.error(
               `[orca/scheduler] CRITICAL: failed to kill timed-out session ${inv.id} after 3 attempts — process may be orphaned: ${err}`,
             );
+          })
+          .finally(() => {
+            activeHandles.delete(inv.id);
+            // Mark invocation as timed_out
+            updateInvocation(db, inv.id, {
+              status: "timed_out",
+              endedAt: new Date().toISOString(),
+            });
+            // Mark task as failed
+            updateTaskStatus(db, inv.linearIssueId, "failed");
+            // Attempt retry
+            handleRetry(
+              deps,
+              inv.linearIssueId,
+              `session timed out after ${config.sessionTimeoutMin}min`,
+            );
           });
-        activeHandles.delete(inv.id);
+      } else {
+        // Mark invocation as timed_out
+        updateInvocation(db, inv.id, {
+          status: "timed_out",
+          endedAt: new Date().toISOString(),
+        });
+        // Mark task as failed
+        updateTaskStatus(db, inv.linearIssueId, "failed");
+        // Attempt retry
+        handleRetry(
+          deps,
+          inv.linearIssueId,
+          `session timed out after ${config.sessionTimeoutMin}min`,
+        );
       }
-
-      // Mark invocation as timed_out
-      updateInvocation(db, inv.id, {
-        status: "timed_out",
-        endedAt: new Date().toISOString(),
-      });
-
-      // Mark task as failed
-      updateTaskStatus(db, inv.linearIssueId, "failed");
-
-      // Attempt retry
-      handleRetry(
-        deps,
-        inv.linearIssueId,
-        `session timed out after ${config.sessionTimeoutMin}min`,
-      );
     }
   }
 
@@ -2312,7 +2331,31 @@ async function mergeAndFinalize(
 
   if (task.prNumber) {
     // Pre-flight: check merge state before attempting merge
-    const mergeState = await getPrMergeState(task.prNumber, task.repoPath);
+    const mergeState = await withRetry(
+      async () => {
+        const state = await getPrMergeState(task.prNumber!, task.repoPath);
+        if (state.mergeStateStatus === "UNKNOWN" && state.mergeable === "UNKNOWN") {
+          throw new Error(`getPrMergeState returned UNKNOWN for PR #${task.prNumber}`);
+        }
+        return state;
+      },
+      {
+        attempts: 3,
+        delayMs: 2000,
+        label: `getPrMergeState for task ${taskId} PR #${task.prNumber}`,
+        onFailure: (attempt, err) => {
+          mergeStateFailureTracker.record(taskId);
+          mergeStateFailureTracker.logFailure(
+            taskId,
+            `getPrMergeState attempt ${attempt} failed for task ${taskId}: ${err}`,
+          );
+        },
+      },
+    ).catch((err) => {
+      // All retries exhausted — fall back to UNKNOWN state
+      log(`getPrMergeState failed for task ${taskId} after 3 attempts: ${err}`);
+      return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" } as const;
+    });
     log(
       `task ${taskId} PR #${task.prNumber} mergeStateStatus: ${mergeState.mergeStateStatus}`,
     );
@@ -2382,7 +2425,35 @@ async function mergeAndFinalize(
       return;
     }
 
-    const mergeResult = await mergePr(task.prNumber, task.repoPath);
+    const mergeResult = await withRetry(
+      async () => {
+        const result = await mergePr(task.prNumber!, task.repoPath);
+        if (!result.merged) {
+          throw new Error(result.error ?? "merge failed");
+        }
+        return result;
+      },
+      {
+        attempts: 3,
+        delayMs: 2000,
+        label: `mergePr for task ${taskId} PR #${task.prNumber}`,
+        onFailure: (attempt, err) => {
+          mergePrFailureTracker.record(taskId);
+          mergePrFailureTracker.logFailure(
+            taskId,
+            `mergePr attempt ${attempt} failed for task ${taskId}: ${err}`,
+          );
+        },
+      },
+    )
+      .then((r) => {
+        mergePrFailureTracker.clear(taskId);
+        return r;
+      })
+      .catch((err) => {
+        // All retries exhausted
+        return { merged: false, error: String(err) } as const;
+      });
 
     if (!mergeResult.merged) {
       // Check if PR was already merged (race condition fallback)

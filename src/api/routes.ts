@@ -1180,8 +1180,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.get("/api/error-counts", (c) => {
     return c.json({
-      killFailures: killFailureTracker.getAll(),
-      killConflictFailures: killConflictFailureTracker.getAll(),
+      killFailuresByInvocationId: killFailureTracker.getAll(),
+      killConflictFailuresByTaskId: killConflictFailureTracker.getAll(),
     });
   });
 
