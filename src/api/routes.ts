@@ -607,6 +607,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       }
     }
 
+    if ("tokenBudgetLimit" in body) {
+      const val = body.tokenBudgetLimit;
+      if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
+        return c.json(
+          { error: "tokenBudgetLimit must be a positive integer" },
+          400,
+        );
+      }
+      const oldVal = config.budgetMaxTokens;
+      config.budgetMaxTokens = val;
+      configChanges.push(`tokenBudgetLimit: ${oldVal} -> ${val}`);
+    }
+
     if (configChanges.length > 0) {
       console.log(
         `[orca/api] audit: config update ${configChanges.join(", ")}`,
@@ -616,6 +629,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return c.json({
       ok: true,
       concurrencyCap: config.concurrencyCap,
+      tokenBudgetLimit: config.budgetMaxTokens,
       implementModel: config.implementModel,
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,

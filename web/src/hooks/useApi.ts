@@ -67,12 +67,14 @@ export function updateTaskStatus(
 
 export function updateConfig(config: {
   concurrencyCap?: number;
+  tokenBudgetLimit?: number;
   implementModel?: string;
   reviewModel?: string;
   fixModel?: string;
 }): Promise<{
   ok: boolean;
   concurrencyCap: number;
+  tokenBudgetLimit: number;
   implementModel: string;
   reviewModel: string;
   fixModel: string;
@@ -80,6 +82,7 @@ export function updateConfig(config: {
   return fetchJson<{
     ok: boolean;
     concurrencyCap: number;
+    tokenBudgetLimit: number;
     implementModel: string;
     reviewModel: string;
     fixModel: string;
