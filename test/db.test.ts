@@ -977,8 +977,8 @@ describe("getRecentActivity", () => {
   });
 
   test("respects limit parameter", () => {
-    const t = seedTask(db);
     for (let i = 0; i < 5; i++) {
+      const t = seedTask(db);
       seedInvocation(db, t, { status: "completed" });
     }
     expect(getRecentActivity(db, 3)).toHaveLength(3);

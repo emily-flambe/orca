@@ -679,19 +679,37 @@ export interface ActivityEntry {
 }
 
 export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
+  const latestIds = db
+    .select({
+      linearIssueId: invocations.linearIssueId,
+      maxId: sql<number>`MAX(${invocations.id})`.as("max_id"),
+    })
+    .from(invocations)
+    .groupBy(invocations.linearIssueId)
+    .as("latest");
+
   return db
     .select({
       id: invocations.id,
       linearIssueId: invocations.linearIssueId,
       startedAt: invocations.startedAt,
       endedAt: invocations.endedAt,
-      status: invocations.status,
+      status: sql<string>`CASE
+        WHEN ${tasks.orcaStatus} = 'failed' THEN 'failed'
+        WHEN ${invocations.status} = 'running' THEN 'running'
+        WHEN ${invocations.status} = 'completed' THEN 'completed'
+        WHEN ${invocations.status} = 'failed' AND ${tasks.orcaStatus} != 'failed' THEN 'retrying'
+        WHEN ${invocations.status} = 'timed_out' AND ${tasks.orcaStatus} != 'failed' THEN 'retrying'
+        ELSE ${invocations.status}
+      END`,
       phase: invocations.phase,
       costUsd: invocations.costUsd,
       inputTokens: invocations.inputTokens,
       outputTokens: invocations.outputTokens,
     })
     .from(invocations)
+    .innerJoin(latestIds, eq(invocations.id, latestIds.maxId))
+    .leftJoin(tasks, eq(invocations.linearIssueId, tasks.linearIssueId))
     .orderBy(desc(invocations.id))
     .limit(limit)
     .all();

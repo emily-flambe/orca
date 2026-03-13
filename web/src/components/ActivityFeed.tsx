@@ -22,6 +22,8 @@ function statusColor(s: string): string {
       return "text-red-400";
     case "timed_out":
       return "text-orange-400";
+    case "retrying":
+      return "text-yellow-400";
     default:
       return "text-gray-400";
   }
@@ -37,6 +39,8 @@ function statusDot(s: string): string {
       return "bg-red-400";
     case "timed_out":
       return "bg-orange-400";
+    case "retrying":
+      return "bg-yellow-400";
     default:
       return "bg-gray-500";
   }
