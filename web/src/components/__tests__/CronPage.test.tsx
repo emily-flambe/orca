@@ -77,8 +77,18 @@ describe("CronPage", () => {
 
   it("renders schedule names, type badges, and schedule expressions", async () => {
     mockFetchCronSchedules.mockResolvedValue([
-      makeSchedule({ id: 1, name: "Nightly sync", schedule: "0 2 * * *", type: "claude" }),
-      makeSchedule({ id: 2, name: "Weekly report", schedule: "0 9 * * 1", type: "shell" }),
+      makeSchedule({
+        id: 1,
+        name: "Nightly sync",
+        schedule: "0 2 * * *",
+        type: "claude",
+      }),
+      makeSchedule({
+        id: 2,
+        name: "Weekly report",
+        schedule: "0 9 * * 1",
+        type: "shell",
+      }),
     ]);
     render(<CronPage />);
 
@@ -223,7 +233,9 @@ describe("CronPage", () => {
   });
 
   it("cancels delete when No is clicked", async () => {
-    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ name: "Keep me" })]);
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ name: "Keep me" }),
+    ]);
     render(<CronPage />);
 
     await waitFor(() => {
@@ -238,7 +250,9 @@ describe("CronPage", () => {
   });
 
   it("removes schedule from list when Yes is clicked on delete confirmation", async () => {
-    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 5, name: "Delete me" })]);
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 5, name: "Delete me" }),
+    ]);
     mockDeleteCronSchedule.mockResolvedValue({ ok: true });
 
     render(<CronPage />);
@@ -263,7 +277,11 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" }),
     ]);
-    const updated = makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" });
+    const updated = makeSchedule({
+      id: 3,
+      name: "Edit me",
+      schedule: "0 6 * * *",
+    });
     mockUpdateCronSchedule.mockResolvedValue(updated);
 
     render(<CronPage />);
