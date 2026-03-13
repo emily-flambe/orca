@@ -14,7 +14,7 @@ import {
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
-  clearImplementSessionIds,
+  clearSessionIds,
 } from "../db/queries.js";
 import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
@@ -136,6 +136,7 @@ program
         status: "failed",
         endedAt: new Date().toISOString(),
         outputSummary: "orphaned by crash/restart",
+        sessionId: null,
       });
     }
     if (orphanedInvocations.length > 0) {
@@ -150,7 +151,7 @@ program
       orphanedInvocations.map((inv) => inv.linearIssueId),
     );
     for (const taskId of orphanedTaskIds) {
-      clearImplementSessionIds(db, taskId);
+      clearSessionIds(db, taskId);
       updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
     }
     if (orphanedTaskIds.size > 0) {
@@ -173,7 +174,7 @@ program
       ) {
         updateTaskStatus(db, t.linearIssueId, "ready");
         updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
-        clearImplementSessionIds(db, t.linearIssueId);
+        clearSessionIds(db, t.linearIssueId);
         recovered++;
       }
     }
@@ -401,7 +402,7 @@ program
         // Clear implement-phase session IDs so the next startup doesn't try
         // to resume a dead Claude session. Also reset the stale counter so
         // pre-shutdown stale detections don't carry over into the next run.
-        clearImplementSessionIds(db, inv.linearIssueId);
+        clearSessionIds(db, inv.linearIssueId);
         updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
       }
 

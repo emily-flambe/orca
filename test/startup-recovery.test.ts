@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Startup recovery tests — clearImplementSessionIds, staleSessionRetryCount
+// Startup recovery tests — clearSessionIds, staleSessionRetryCount
 // reset, and edge cases in orphan recovery logic.
 //
 // These tests simulate the startup recovery logic in src/cli/index.ts to
@@ -19,7 +19,7 @@ import {
   getAllTasks,
   getRunningInvocations,
   getInvocationsByTask,
-  clearImplementSessionIds,
+  clearSessionIds,
   getLastCompletedImplementInvocation,
   getLastMaxTurnsInvocation,
 } from "../src/db/queries.js";
@@ -75,7 +75,7 @@ function runStartupRecovery(db: OrcaDb): { orphanCount: number; recoveredCount: 
     orphanedInvocations.map((inv) => inv.linearIssueId),
   );
   for (const taskId of orphanedTaskIds) {
-    clearImplementSessionIds(db, taskId);
+    clearSessionIds(db, taskId);
     updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
   }
 
@@ -92,7 +92,7 @@ function runStartupRecovery(db: OrcaDb): { orphanCount: number; recoveredCount: 
     ) {
       updateTaskStatus(db, t.linearIssueId, "ready");
       updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
-      clearImplementSessionIds(db, t.linearIssueId);
+      clearSessionIds(db, t.linearIssueId);
       recovered++;
     }
   }
@@ -110,16 +110,16 @@ function runShutdownHandler(db: OrcaDb): void {
       outputSummary: "interrupted by shutdown",
     });
     updateTaskStatus(db, inv.linearIssueId, "ready");
-    clearImplementSessionIds(db, inv.linearIssueId);
+    clearSessionIds(db, inv.linearIssueId);
     updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Tests for clearImplementSessionIds behavior
+// Tests for clearSessionIds behavior
 // ---------------------------------------------------------------------------
 
-describe("clearImplementSessionIds", () => {
+describe("clearSessionIds", () => {
   let db: OrcaDb;
 
   beforeEach(() => {
@@ -143,14 +143,14 @@ describe("clearImplementSessionIds", () => {
       sessionId: "session-xyz",
     });
 
-    clearImplementSessionIds(db, "TASK-1");
+    clearSessionIds(db, "TASK-1");
 
     const invocations = getInvocationsByTask(db, "TASK-1");
     expect(invocations.find((i) => i.id === inv1)?.sessionId).toBeNull();
     expect(invocations.find((i) => i.id === inv2)?.sessionId).toBeNull();
   });
 
-  test("does NOT clear sessionId on review-phase invocations", () => {
+  test("clears sessionId on review-phase invocations (clearSessionIds targets all phases)", () => {
     seedTask(db, "TASK-REVIEW");
     insertInvocation(db, {
       linearIssueId: "TASK-REVIEW",
@@ -160,21 +160,21 @@ describe("clearImplementSessionIds", () => {
       sessionId: "review-session-abc",
     });
 
-    clearImplementSessionIds(db, "TASK-REVIEW");
+    clearSessionIds(db, "TASK-REVIEW");
 
     const invocations = getInvocationsByTask(db, "TASK-REVIEW");
-    // Review-phase session IDs are unchanged (clearImplementSessionIds only targets implement phase)
-    expect(invocations[0]?.sessionId).toBe("review-session-abc");
+    // clearSessionIds clears ALL phases (implement + review)
+    expect(invocations[0]?.sessionId).toBeNull();
   });
 
   test("is a no-op for a task with no invocations", () => {
     seedTask(db, "TASK-EMPTY");
     // Should not throw
-    expect(() => clearImplementSessionIds(db, "TASK-EMPTY")).not.toThrow();
+    expect(() => clearSessionIds(db, "TASK-EMPTY")).not.toThrow();
   });
 
   test("is a no-op for a nonexistent task ID", () => {
-    expect(() => clearImplementSessionIds(db, "NONEXISTENT")).not.toThrow();
+    expect(() => clearSessionIds(db, "NONEXISTENT")).not.toThrow();
   });
 
   test("after clearing, getLastCompletedImplementInvocation returns undefined", () => {
@@ -190,7 +190,7 @@ describe("clearImplementSessionIds", () => {
     // Before clear: should find the invocation
     expect(getLastCompletedImplementInvocation(db, "TASK-GCII")).toBeDefined();
 
-    clearImplementSessionIds(db, "TASK-GCII");
+    clearSessionIds(db, "TASK-GCII");
 
     // After clear: getLastCompletedImplementInvocation filters by isNotNull(sessionId),
     // so it should return undefined
@@ -212,7 +212,7 @@ describe("clearImplementSessionIds", () => {
     // Before clear: should find it
     expect(getLastMaxTurnsInvocation(db, "TASK-GMTI")).toBeDefined();
 
-    clearImplementSessionIds(db, "TASK-GMTI");
+    clearSessionIds(db, "TASK-GMTI");
 
     // After clear: sessionId is null, getLastMaxTurnsInvocation filters by isNotNull(sessionId),
     // so it should return undefined — preventing stale resume
@@ -307,7 +307,7 @@ describe("startup recovery — orphaned invocations", () => {
 // Bug 1: Graceful shutdown does NOT clear session IDs
 // After a graceful SIGTERM shutdown, the next startup won't find any running
 // invocations (they were already marked failed by the shutdown handler),
-// so orphanedTaskIds will be empty and clearImplementSessionIds is never called.
+// so orphanedTaskIds will be empty and clearSessionIds is never called.
 // ---------------------------------------------------------------------------
 
 describe("BUG: graceful shutdown leaves stale session IDs", () => {
@@ -379,10 +379,10 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
 
 // ---------------------------------------------------------------------------
 // Bug 2: Tasks stuck in "dispatched" state (no running invocation) don't get
-// clearImplementSessionIds called — only staleSessionRetryCount is reset.
+// clearSessionIds called — only staleSessionRetryCount is reset.
 // ---------------------------------------------------------------------------
 
-describe("BUG: dispatched tasks without running invocations skip clearImplementSessionIds", () => {
+describe("BUG: dispatched tasks without running invocations skip clearSessionIds", () => {
   let db: OrcaDb;
 
   beforeEach(() => {
@@ -410,7 +410,7 @@ describe("BUG: dispatched tasks without running invocations skip clearImplementS
     expect(orphanCount).toBe(0); // No running invocations
     expect(recoveredCount).toBe(1); // Task was dispatched → reset to ready
 
-    // The dispatched-task recovery now calls clearImplementSessionIds
+    // The dispatched-task recovery now calls clearSessionIds
     // in addition to resetting staleSessionRetryCount.
     const invocations = getInvocationsByTask(db, "TASK-DISPATCH-CRASH");
     const prevInv = invocations.find((i) => i.id === prevInvId);
@@ -502,7 +502,7 @@ describe("startup recovery — correct behavior", () => {
     }
   });
 
-  test("tasks not in orphaned set are unaffected by clearImplementSessionIds", () => {
+  test("tasks not in orphaned set are unaffected by clearSessionIds", () => {
     seedTask(db, "TASK-CLEAN", "ready");
     const cleanInvId = insertInvocation(db, {
       linearIssueId: "TASK-CLEAN",
