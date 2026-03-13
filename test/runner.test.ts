@@ -1,10 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir, platform } from "node:os";
 import {
@@ -114,7 +109,7 @@ describe("NDJSON stream parsing", () => {
         '  subtype:"success",',
         "  total_cost_usd:0.123,",
         "  num_turns:7,",
-        "  result:\"completed\",",
+        '  result:"completed",',
         "  usage:{",
         "    input_tokens:100,",
         "    cache_creation_input_tokens:50,",
@@ -222,7 +217,9 @@ describe("NDJSON stream parsing", () => {
 
     const result = await handle.done;
     expect(result.subtype).toBe("success");
-    expect(result.outputSummary.startsWith("REVIEW_RESULT:APPROVED")).toBe(true);
+    expect(result.outputSummary.startsWith("REVIEW_RESULT:APPROVED")).toBe(
+      true,
+    );
   }, 15_000);
 
   test("REVIEW_RESULT marker NOT prepended if already in first 500 chars", async () => {
@@ -249,9 +246,13 @@ describe("NDJSON stream parsing", () => {
 
     const result = await handle.done;
     // Should appear exactly once, not prepended a second time
-    const occurrences = (result.outputSummary.match(/REVIEW_RESULT:CHANGES_REQUESTED/g) ?? []).length;
+    const occurrences = (
+      result.outputSummary.match(/REVIEW_RESULT:CHANGES_REQUESTED/g) ?? []
+    ).length;
     expect(occurrences).toBe(1);
-    expect(result.outputSummary.startsWith("REVIEW_RESULT:CHANGES_REQUESTED")).toBe(true);
+    expect(
+      result.outputSummary.startsWith("REVIEW_RESULT:CHANGES_REQUESTED"),
+    ).toBe(true);
   }, 15_000);
 
   test("PR URL extracted and prepended if not in first 500 chars", async () => {
@@ -302,7 +303,8 @@ describe("NDJSON stream parsing", () => {
     });
 
     const result = await handle.done;
-    const occurrences = (result.outputSummary.match(/\/pull\/99/g) ?? []).length;
+    const occurrences = (result.outputSummary.match(/\/pull\/99/g) ?? [])
+      .length;
     expect(occurrences).toBe(1);
     expect(result.outputSummary.startsWith(prUrl)).toBe(true);
   }, 15_000);
@@ -361,7 +363,9 @@ describe("NDJSON stream parsing", () => {
 
     const result = await handle.done;
     expect(result.subtype).toBe("success");
-    expect(result.outputSummary).toBe("process exited cleanly with no result message");
+    expect(result.outputSummary).toBe(
+      "process exited cleanly with no result message",
+    );
     expect(result.exitCode).toBe(0);
   }, 15_000);
 });
@@ -559,7 +563,9 @@ describe("buildArgs via mock scripts", () => {
   }, 15_000);
 
   test("disallowedTools adds --disallowedTools tool1 tool2", async () => {
-    const argv = await getArgv({ disallowedTools: ["EnterPlanMode", "AskUserQuestion"] });
+    const argv = await getArgv({
+      disallowedTools: ["EnterPlanMode", "AskUserQuestion"],
+    });
     const idx = argv.indexOf("--disallowedTools");
     expect(idx).toBeGreaterThan(-1);
     expect(argv[idx + 1]).toBe("EnterPlanMode");
@@ -660,10 +666,14 @@ describe("invocationLogs Map management", () => {
     const lines: string[] = [];
     // Emit 110 valid-but-unrecognized JSON lines (type "assistant" is ignored by parser)
     for (let i = 0; i < 110; i++) {
-      lines.push(`process.stdout.write(JSON.stringify({type:"assistant",index:${i}}) + "\\n");`);
+      lines.push(
+        `process.stdout.write(JSON.stringify({type:"assistant",index:${i}}) + "\\n");`,
+      );
     }
     // End with a result
-    lines.push('process.stdout.write(JSON.stringify({type:"result",subtype:"success",result:"done"}) + "\\n");');
+    lines.push(
+      'process.stdout.write(JSON.stringify({type:"result",subtype:"success",result:"done"}) + "\\n");',
+    );
     writeFileSync(scriptPath, lines.join("\n"));
 
     const id = nextInvocationId();
@@ -772,10 +782,11 @@ describe("spawnShellCommand", () => {
     const id = nextInvocationId();
     // Quote the node path to handle spaces in the executable path (e.g. C:\Program Files\...)
     const nodePath = `"${process.execPath}"`;
-    const handle = spawnShellCommand(
-      `${nodePath} "${scriptPath}"`,
-      { cwd: tmpDir, timeoutMs: 10_000, invocationId: id },
-    );
+    const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+      cwd: tmpDir,
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
 
     const result = await handle.done;
     expect(result.exitCode).toBe(0);
@@ -789,10 +800,11 @@ describe("spawnShellCommand", () => {
 
     const id = nextInvocationId();
     const nodePath = `"${process.execPath}"`;
-    const handle = spawnShellCommand(
-      `${nodePath} "${scriptPath}"`,
-      { cwd: tmpDir, timeoutMs: 10_000, invocationId: id },
-    );
+    const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+      cwd: tmpDir,
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
 
     const result = await handle.done;
     expect(result.output).toContain("stderr content");
@@ -804,10 +816,11 @@ describe("spawnShellCommand", () => {
 
     const id = nextInvocationId();
     const nodePath = `"${process.execPath}"`;
-    const handle = spawnShellCommand(
-      `${nodePath} "${scriptPath}"`,
-      { cwd: tmpDir, timeoutMs: 10_000, invocationId: id },
-    );
+    const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+      cwd: tmpDir,
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
 
     const result = await handle.done;
     expect(result.timedOut).toBe(false);
@@ -825,10 +838,11 @@ describe("spawnShellCommand", () => {
 
       const id = nextInvocationId();
       const nodePath = `"${process.execPath}"`;
-      const handle = spawnShellCommand(
-        `${nodePath} "${scriptPath}"`,
-        { cwd: tmpDir, timeoutMs: 30_000, invocationId: id },
-      );
+      const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+        cwd: tmpDir,
+        timeoutMs: 30_000,
+        invocationId: id,
+      });
 
       // Give it time to start
       await new Promise((r) => setTimeout(r, 200));
@@ -838,7 +852,11 @@ describe("spawnShellCommand", () => {
 
       // After kill, process should not have exited with 0 cleanly
       // (exitCode may be null on signal kill or non-zero)
-      expect(result.exitCode === null || result.exitCode !== 0 || result.timedOut === false).toBe(true);
+      expect(
+        result.exitCode === null ||
+          result.exitCode !== 0 ||
+          result.timedOut === false,
+      ).toBe(true);
     },
     15_000,
   );
@@ -851,10 +869,11 @@ describe("spawnShellCommand", () => {
 
       const id = nextInvocationId();
       const nodePath = `"${process.execPath}"`;
-      const handle = spawnShellCommand(
-        `${nodePath} "${scriptPath}"`,
-        { cwd: tmpDir, timeoutMs: 500, invocationId: id },
-      );
+      const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+        cwd: tmpDir,
+        timeoutMs: 500,
+        invocationId: id,
+      });
 
       const result = await handle.done;
       expect(result.timedOut).toBe(true);
@@ -868,10 +887,11 @@ describe("spawnShellCommand", () => {
 
     const id = nextInvocationId();
     const nodePath = `"${process.execPath}"`;
-    const handle = spawnShellCommand(
-      `${nodePath} "${scriptPath}"`,
-      { cwd: tmpDir, timeoutMs: 10_000, invocationId: id },
-    );
+    const handle = spawnShellCommand(`${nodePath} "${scriptPath}"`, {
+      cwd: tmpDir,
+      timeoutMs: 10_000,
+      invocationId: id,
+    });
 
     // Should be in the map while running
     expect(activeShellHandles.has(id)).toBe(true);
