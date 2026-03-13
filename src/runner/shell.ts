@@ -16,6 +16,28 @@ export interface ShellHandle {
 export const activeShellHandles = new Map<number, ShellHandle>();
 
 /**
+ * Kill a child process and its entire process group.
+ * On POSIX, sends the signal to -pid (the process group) so grandchildren
+ * spawned by the shell intermediary are also killed.
+ * On Windows, falls back to child.kill() since process groups work differently.
+ */
+function killProcessGroup(child: ChildProcess, signal: "SIGTERM" | "SIGKILL") {
+  if (process.platform !== "win32" && child.pid != null) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      /* process may already be dead — fall through */
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Spawn a shell command, capture combined stdout+stderr, enforce timeout.
  * Returns a handle with a `done` promise and a `kill()` method.
  */
@@ -24,11 +46,14 @@ export function spawnShellCommand(
   opts: { cwd?: string; timeoutMs: number; invocationId: number },
 ): ShellHandle {
   const { cwd, timeoutMs, invocationId } = opts;
-  // Use shell:true so the command string is interpreted as a shell command
+  // Use shell:true so the command string is interpreted as a shell command.
+  // detached:true on POSIX puts the child in its own process group so we can
+  // kill the entire group (shell + grandchildren) with process.kill(-pid, sig).
   const child: ChildProcess = spawn(command, [], {
     cwd,
     shell: true,
     env: process.env,
+    detached: process.platform !== "win32",
   });
 
   const chunks: Buffer[] = [];
@@ -38,14 +63,10 @@ export function spawnShellCommand(
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
+    killProcessGroup(child, "SIGTERM");
     // Force-kill after 5 more seconds
     setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
+      killProcessGroup(child, "SIGKILL");
     }, 5000);
   }, timeoutMs);
 
@@ -61,11 +82,7 @@ export function spawnShellCommand(
   const handle: ShellHandle = {
     kill() {
       clearTimeout(timeoutId);
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* ignore */
-      }
+      killProcessGroup(child, "SIGTERM");
     },
     done,
   };
