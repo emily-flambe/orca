@@ -77,12 +77,13 @@ describe("Dashboard", () => {
     });
   });
 
-  it("shows success rate after data loads", async () => {
+  it("shows active sessions and activity feed after data loads", async () => {
     mockFetchMetrics.mockResolvedValue(makeMetrics());
     render(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText("83%")).toBeInTheDocument();
+      expect(screen.getByTestId("active-sessions-grid")).toBeInTheDocument();
+      expect(screen.getByTestId("activity-feed")).toBeInTheDocument();
     });
   });
 });
