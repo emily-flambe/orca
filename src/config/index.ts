@@ -193,8 +193,9 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 
 ## Before pushing
 1. Run \`git fetch origin && git rebase origin/main\` again to pick up any changes.
-2. Run the project's test suite if one exists (check package.json scripts).
-3. Run the project's type checker if applicable (\`npx tsc --noEmit\` for TypeScript).
+2. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing — do not push with lint failures.
+3. Run \`npx tsc --noEmit\` if this is a TypeScript project. Fix ALL type errors before pushing — do not push with type errors.
+4. Run the project's test suite if one exists (check package.json scripts).
 
 ## Finishing up
 1. Stage and commit all changes with a descriptive commit message.
@@ -252,8 +253,10 @@ Steps:
 1. Read review comments: gh pr view --comments
 2. Read the review feedback: gh pr reviews
 3. Fix all identified issues
-4. Commit and push your changes to this branch
-5. Do NOT create a new PR — the existing PR will be updated automatically`;
+4. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing — do not push with lint failures.
+5. Run \`npx tsc --noEmit\` if this is a TypeScript project. Fix ALL type errors before pushing — do not push with type errors.
+6. Commit and push your changes to this branch
+7. Do NOT create a new PR — the existing PR will be updated automatically`;
 
   return {
     defaultCwd,
