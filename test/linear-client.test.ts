@@ -6,7 +6,10 @@ import { LinearClient } from "../src/linear/client.js";
 // ---------------------------------------------------------------------------
 
 /** Build a minimal successful GraphQL response. */
-function okResponse(data: unknown, headers: Record<string, string> = {}): Response {
+function okResponse(
+  data: unknown,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify({ data }), {
     status: 200,
     headers: { "content-type": "application/json", ...headers },
@@ -106,7 +109,9 @@ describe("LinearClient", () => {
 
     // Run timers concurrently with the promise to avoid unhandled rejection window
     await Promise.all([
-      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(/HTTP 500.*4 attempt/i),
+      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(
+        /HTTP 500.*4 attempt/i,
+      ),
       vi.runAllTimersAsync(),
     ]);
 
@@ -122,7 +127,9 @@ describe("LinearClient", () => {
     const client = new LinearClient("lin_api_test");
 
     await Promise.all([
-      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(/HTTP 429.*4 attempt/i),
+      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(
+        /HTTP 429.*4 attempt/i,
+      ),
       vi.runAllTimersAsync(),
     ]);
 
@@ -137,7 +144,9 @@ describe("LinearClient", () => {
     const client = new LinearClient("lin_api_test");
 
     await Promise.all([
-      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(/network error/i),
+      expect(client.fetchProjectIssues(["proj-1"])).rejects.toThrow(
+        /network error/i,
+      ),
       vi.runAllTimersAsync(),
     ]);
 
@@ -187,9 +196,11 @@ describe("LinearClient", () => {
         nodes: [],
       },
     };
-    const fetchSpy = vi.fn().mockResolvedValue(
-      okResponse(issueData, { "X-RateLimit-Requests-Remaining": "42" }),
-    );
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse(issueData, { "X-RateLimit-Requests-Remaining": "42" }),
+      );
     globalThis.fetch = fetchSpy;
 
     const warnSpy = vi.spyOn(console, "warn");

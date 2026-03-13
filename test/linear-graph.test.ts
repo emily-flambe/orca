@@ -59,7 +59,9 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([
       makeIssue("blocker", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),
@@ -77,7 +79,9 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([
       makeIssue("blocker", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),
@@ -95,11 +99,15 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([
       makeIssue("b1", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("b2", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),
@@ -119,11 +127,15 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([
       makeIssue("b1", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("b2", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),
@@ -142,7 +154,9 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([
       makeIssue("task-b", {
-        relations: [{ type: "relates", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "relates", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),
@@ -188,7 +202,11 @@ describe("DependencyGraph", () => {
     const graph = new DependencyGraph();
     graph.rebuild([makeIssue("task-a", { priority: 2 })]);
 
-    expect(graph.computeEffectivePriority("task-a", (id) => (id === "task-a" ? 2 : 0))).toBe(2);
+    expect(
+      graph.computeEffectivePriority("task-a", (id) =>
+        id === "task-a" ? 2 : 0,
+      ),
+    ).toBe(2);
   });
 
   // 10. computeEffectivePriority — task blocking a high-priority task inherits its priority
@@ -198,7 +216,9 @@ describe("DependencyGraph", () => {
     graph.rebuild([
       makeIssue("blocker", {
         priority: 3,
-        relations: [{ type: "blocks", issueId: "downstream", issueIdentifier: "DOWN" }],
+        relations: [
+          { type: "blocks", issueId: "downstream", issueIdentifier: "DOWN" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("downstream", { priority: 1 }),
@@ -221,7 +241,9 @@ describe("DependencyGraph", () => {
     graph.rebuild([
       makeIssue("blocker", {
         priority: 2,
-        relations: [{ type: "blocks", issueId: "downstream", issueIdentifier: "DOWN" }],
+        relations: [
+          { type: "blocks", issueId: "downstream", issueIdentifier: "DOWN" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("downstream", { priority: 0 }),
@@ -256,9 +278,7 @@ describe("DependencyGraph", () => {
     ]);
 
     // Should not throw or hang
-    expect(() =>
-      graph.computeEffectivePriority("a", () => 2),
-    ).not.toThrow();
+    expect(() => graph.computeEffectivePriority("a", () => 2)).not.toThrow();
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("cycle detected"),
@@ -272,7 +292,9 @@ describe("DependencyGraph", () => {
     // First build: blocker blocks task-a
     graph.rebuild([
       makeIssue("blocker", {
-        relations: [{ type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" }],
+        relations: [
+          { type: "blocks", issueId: "task-a", issueIdentifier: "TASK-A" },
+        ],
         inverseRelations: [],
       }),
       makeIssue("task-a"),

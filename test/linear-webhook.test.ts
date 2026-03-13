@@ -106,7 +106,10 @@ describe("createWebhookRoute (Linear)", () => {
       db: {} as OrcaDb,
       client: {} as LinearClient,
       graph: {} as DependencyGraph,
-      config: testConfig({ linearWebhookSecret: TEST_SECRET, linearProjectIds: ["proj-1"] }),
+      config: testConfig({
+        linearWebhookSecret: TEST_SECRET,
+        linearProjectIds: ["proj-1"],
+      }),
       stateMap: new Map(),
       labelIdCache: undefined,
     };
@@ -187,7 +190,9 @@ describe("createWebhookRoute (Linear)", () => {
 
   // 7. processWebhookEvent throws — still returns 200
   it("processWebhookEvent throwing still returns 200", async () => {
-    vi.mocked(processWebhookEvent).mockRejectedValue(new Error("sync exploded"));
+    vi.mocked(processWebhookEvent).mockRejectedValue(
+      new Error("sync exploded"),
+    );
 
     const body = makeIssueBody({ projectId: "proj-1" });
     const res = await app.request(makeRequest(body));
