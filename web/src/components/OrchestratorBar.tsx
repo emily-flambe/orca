@@ -103,7 +103,7 @@ export default function OrchestratorBar({
       <div className="min-h-12 bg-gray-900 border-b border-gray-800 flex flex-wrap items-center px-4 gap-x-4 md:gap-x-6 gap-y-2 py-2 text-sm shrink-0">
         {/* Token budget gauge */}
         <div className="flex items-center gap-2">
-          <span className="text-gray-400 hidden sm:inline">Tokens</span>
+          <span className="text-gray-400 hidden sm:inline">Tokens<span className="text-gray-600 text-xs">/{status.budgetWindowHours}h</span></span>
           <div className="w-20 md:w-24 h-2 bg-gray-700 rounded-full overflow-hidden">
             <div
               className={`h-full ${barColor} rounded-full transition-all`}

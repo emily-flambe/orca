@@ -2668,11 +2668,19 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 2. Check budget
-  const cost = sumCostInWindow(db, budgetWindowStart(config.budgetWindowHours));
+  // 2. Check budget (cost and tokens)
+  const windowStart = budgetWindowStart(config.budgetWindowHours);
+  const cost = sumCostInWindow(db, windowStart);
   if (cost >= config.budgetMaxCostUsd) {
     log(
       `budget exhausted: $${cost.toFixed(4)} used of $${config.budgetMaxCostUsd} limit`,
+    );
+    return;
+  }
+  const tokens = sumTokensInWindow(db, windowStart);
+  if (tokens >= config.budgetMaxTokens) {
+    log(
+      `token budget exhausted: ${tokens.toLocaleString()} used of ${config.budgetMaxTokens.toLocaleString()} limit`,
     );
     return;
   }
