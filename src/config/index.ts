@@ -47,6 +47,7 @@ export interface OrcaConfig {
   cloudflaredPath: string;
   externalTunnel: boolean;
   cronRetentionDays: number;
+  stateMapOverrides: Record<string, string> | undefined;
 }
 
 function exitWithError(message: string): never {
@@ -337,6 +338,43 @@ Steps:
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
     cronRetentionDays: readIntOrDefault("ORCA_CRON_RETENTION_DAYS", 7),
+    stateMapOverrides: (() => {
+      const raw = readEnv("ORCA_STATE_MAP");
+      if (raw === undefined) return undefined;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        exitWithError(
+          'ORCA_STATE_MAP must be valid JSON (e.g. {"Done":"done","In Progress":"running"})',
+        );
+      }
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
+        exitWithError("ORCA_STATE_MAP must be a JSON object");
+      }
+      const VALID_STATUSES = new Set([
+        "backlog",
+        "ready",
+        "running",
+        "in_review",
+        "done",
+        "skip",
+      ]);
+      for (const [key, value] of Object.entries(
+        parsed as Record<string, unknown>,
+      )) {
+        if (typeof value !== "string" || !VALID_STATUSES.has(value)) {
+          exitWithError(
+            `ORCA_STATE_MAP: invalid status "${String(value)}" for key "${key}". Valid values: backlog, ready, running, in_review, done, skip`,
+          );
+        }
+      }
+      return parsed as Record<string, string>;
+    })(),
   };
 }
 

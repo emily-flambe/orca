@@ -76,9 +76,11 @@ beforeEach(() => {
   mockStatSync.mockReturnValue({ isDirectory: () => true });
 
   // Mock process.exit to throw so tests don't actually exit
-  vi.spyOn(process, "exit").mockImplementation((code?: number | string | null) => {
-    throw new Error(`process.exit(${code})`);
-  });
+  vi.spyOn(process, "exit").mockImplementation(
+    (code?: number | string | null) => {
+      throw new Error(`process.exit(${code})`);
+    },
+  );
 
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -476,6 +478,98 @@ describe("boolean parsing", () => {
 
   test("ORCA_EXTERNAL_TUNNEL=yes → exit(1)", async () => {
     process.env.ORCA_EXTERNAL_TUNNEL = "yes";
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ORCA_STATE_MAP
+// ---------------------------------------------------------------------------
+
+describe("ORCA_STATE_MAP", () => {
+  test("not set → stateMapOverrides is undefined", async () => {
+    delete process.env.ORCA_STATE_MAP;
+    const cfg = await loadConfig();
+    expect(cfg.stateMapOverrides).toBeUndefined();
+  });
+
+  test("valid JSON with valid values → parsed correctly", async () => {
+    process.env.ORCA_STATE_MAP =
+      '{"Done Pending Deployment":"done","QA Review":"in_review","In Progress":"running"}';
+    const cfg = await loadConfig();
+    expect(cfg.stateMapOverrides).toEqual({
+      "Done Pending Deployment": "done",
+      "QA Review": "in_review",
+      "In Progress": "running",
+    });
+  });
+
+  test("all valid status values accepted", async () => {
+    process.env.ORCA_STATE_MAP =
+      '{"a":"backlog","b":"ready","c":"running","d":"in_review","e":"done","f":"skip"}';
+    const cfg = await loadConfig();
+    expect(cfg.stateMapOverrides).toEqual({
+      a: "backlog",
+      b: "ready",
+      c: "running",
+      d: "in_review",
+      e: "done",
+      f: "skip",
+    });
+  });
+
+  test("empty object → parsed as empty record", async () => {
+    process.env.ORCA_STATE_MAP = "{}";
+    const cfg = await loadConfig();
+    expect(cfg.stateMapOverrides).toEqual({});
+  });
+
+  test("invalid JSON → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = "not-json";
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("invalid JSON (truncated) → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '{"key":"done"';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("JSON array instead of object → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '["done"]';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("JSON string instead of object → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '"done"';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("unrecognized status value → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '{"My State":"invalid_status"}';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("typo in status value → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '{"My State":"In_Review"}';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("non-string value in map → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP = '{"My State":42}';
+    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  test("one invalid value among valid ones → exit(1)", async () => {
+    process.env.ORCA_STATE_MAP =
+      '{"Good State":"done","Bad State":"completed"}';
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
     expect(process.exit).toHaveBeenCalledWith(1);
   });
