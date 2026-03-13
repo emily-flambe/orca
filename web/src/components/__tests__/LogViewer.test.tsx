@@ -1,4 +1,10 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  act,
+} from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import LogViewer from "../LogViewer";
 import { fetchInvocationLogs } from "../../hooks/useApi";
@@ -251,7 +257,9 @@ describe("LogViewer", () => {
     ).not.toBeInTheDocument();
 
     // Click button to expand
-    fireEvent.click(screen.getByText("read_file").closest("button")!);
+    await act(async () => {
+      fireEvent.click(screen.getByText("read_file").closest("button")!);
+    });
     expect(screen.getByText(/\/tmp\/foo.txt/)).toBeInTheDocument();
   });
 
@@ -271,7 +279,9 @@ describe("LogViewer", () => {
     });
 
     // Collapse it
-    fireEvent.click(screen.getByText(/Thinking/));
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Thinking/));
+    });
     expect(
       screen.queryByText("I should check the file."),
     ).not.toBeInTheDocument();
@@ -302,7 +312,9 @@ describe("LogViewer", () => {
     expect(screen.queryByText("File content here")).not.toBeInTheDocument();
 
     // Click to expand
-    fireEvent.click(screen.getByText(/↩ result/).closest("button")!);
+    await act(async () => {
+      fireEvent.click(screen.getByText(/↩ result/).closest("button")!);
+    });
     expect(screen.getByText("File content here")).toBeInTheDocument();
   });
 
@@ -313,10 +325,12 @@ describe("LogViewer", () => {
       <LogViewer invocationId={1} isRunning={true} onCostUpdate={onCostUpdate} />,
     );
 
-    mockES.dispatch(
-      "log",
-      JSON.stringify({ type: "result", total_cost_usd: 0.42 }),
-    );
+    await act(async () => {
+      mockES.dispatch(
+        "log",
+        JSON.stringify({ type: "result", total_cost_usd: 0.42 }),
+      );
+    });
 
     await waitFor(() => {
       expect(onCostUpdate).toHaveBeenCalledWith(0.42);
@@ -330,10 +344,12 @@ describe("LogViewer", () => {
       <LogViewer invocationId={1} isRunning={true} onCostUpdate={onCostUpdate} />,
     );
 
-    mockES.dispatch(
-      "log",
-      JSON.stringify({ type: "result", cost_usd: 0.15 }),
-    );
+    await act(async () => {
+      mockES.dispatch(
+        "log",
+        JSON.stringify({ type: "result", cost_usd: 0.15 }),
+      );
+    });
 
     await waitFor(() => {
       expect(onCostUpdate).toHaveBeenCalledWith(0.15);
@@ -371,10 +387,12 @@ describe("LogViewer", () => {
     );
 
     // Dispatch a log event
-    mockES.dispatch(
-      "log",
-      JSON.stringify({ type: "stderr", text: "streaming line" }),
-    );
+    await act(async () => {
+      mockES.dispatch(
+        "log",
+        JSON.stringify({ type: "stderr", text: "streaming line" }),
+      );
+    });
 
     await waitFor(() => {
       expect(screen.getByText("streaming line")).toBeInTheDocument();
@@ -388,13 +406,127 @@ describe("LogViewer", () => {
     render(<LogViewer invocationId={42} isRunning={true} />);
 
     // Dispatch done without any log lines first
-    mockES.dispatch("done", "");
+    await act(async () => {
+      mockES.dispatch("done", "");
+    });
 
     await waitFor(() => {
       expect(mockFetchInvocationLogs).toHaveBeenCalledWith(42);
       expect(screen.getByText("from disk")).toBeInTheDocument();
     });
   });
+
+  // 19. SSE error event falls back to fetchInvocationLogs
+  it("SSE error event falls back to fetchInvocationLogs", async () => {
+    mockFetchInvocationLogs.mockResolvedValue({
+      lines: [{ type: "stderr", text: "error fallback line" }],
+    });
+    render(<LogViewer invocationId={42} isRunning={true} />);
+
+    await act(async () => {
+      mockES.dispatch("error", "");
+    });
+
+    await waitFor(() => {
+      expect(mockFetchInvocationLogs).toHaveBeenCalledWith(42);
+      expect(screen.getByText("error fallback line")).toBeInTheDocument();
+    });
+  });
+
+  // 20. Auto-scroll: jump button appears when scrolled up, hidden at bottom
+  it("jump button appears when scrolled far from bottom, hidden when at bottom", async () => {
+    makeLines([{ type: "stderr", text: "line" }]);
+    const { container } = render(<LogViewer invocationId={1} />);
+    await waitFor(() => screen.getByText("line"));
+
+    const scrollable = container.querySelector(".overflow-y-auto")!;
+
+    // Initially jump button is not shown (pinned at bottom by default)
+    expect(
+      screen.queryByText("↓ Jump to bottom"),
+    ).not.toBeInTheDocument();
+
+    // Simulate user scrolling up — make distanceFromBottom >= 50
+    Object.defineProperty(scrollable, "scrollHeight", {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(scrollable, "clientHeight", {
+      value: 400,
+      configurable: true,
+    });
+    Object.defineProperty(scrollable, "scrollTop", {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+
+    await act(async () => {
+      fireEvent.scroll(scrollable);
+    });
+
+    expect(screen.getByText("↓ Jump to bottom")).toBeInTheDocument();
+
+    // Simulate scrolling to bottom — distanceFromBottom < 50
+    Object.defineProperty(scrollable, "scrollTop", {
+      value: 600,
+      configurable: true,
+      writable: true,
+    });
+
+    await act(async () => {
+      fireEvent.scroll(scrollable);
+    });
+
+    expect(
+      screen.queryByText("↓ Jump to bottom"),
+    ).not.toBeInTheDocument();
+  });
+
+  // 21. Auto-scroll: clicking jump button hides it and scrolls to bottom
+  it("clicking jump button hides it and scrolls container to bottom", async () => {
+    makeLines([{ type: "stderr", text: "line" }]);
+    const { container } = render(<LogViewer invocationId={1} />);
+    await waitFor(() => screen.getByText("line"));
+
+    const scrollable = container.querySelector(".overflow-y-auto")!;
+
+    // Scroll up to show the jump button
+    Object.defineProperty(scrollable, "scrollHeight", {
+      value: 1000,
+      configurable: true,
+    });
+    Object.defineProperty(scrollable, "clientHeight", {
+      value: 400,
+      configurable: true,
+    });
+    Object.defineProperty(scrollable, "scrollTop", {
+      value: 0,
+      configurable: true,
+      writable: true,
+    });
+
+    await act(async () => {
+      fireEvent.scroll(scrollable);
+    });
+
+    expect(screen.getByText("↓ Jump to bottom")).toBeInTheDocument();
+
+    // Click the jump button
+    await act(async () => {
+      fireEvent.click(screen.getByText("↓ Jump to bottom"));
+    });
+
+    // Button should be gone
+    expect(
+      screen.queryByText("↓ Jump to bottom"),
+    ).not.toBeInTheDocument();
+
+    // scrollTop should have been set to scrollHeight (1000)
+    expect(scrollable.scrollTop).toBe(1000);
+  });
+
+  // Note: LogViewer has no search/filter UI — that acceptance criterion does not apply.
 
   // Additional: user messages without tool_result are skipped
   it("does not render user messages that have no tool_result blocks", async () => {
