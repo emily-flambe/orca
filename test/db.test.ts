@@ -976,9 +976,36 @@ describe("getRecentActivity", () => {
     expect(activity[0]!.id).toBe(lastId);
   });
 
-  test("respects limit parameter", () => {
+  test("deduplicates: returns one row per ticket even with multiple invocations", () => {
     const t = seedTask(db);
+    seedInvocation(db, t, { status: "completed" });
+    seedInvocation(db, t, { status: "failed" });
+    seedInvocation(db, t, { status: "running" });
+
+    const activity = getRecentActivity(db);
+    expect(activity).toHaveLength(1);
+    expect(activity[0]!.linearIssueId).toBe(t);
+  });
+
+  test("shows retrying when latest invocation failed but task is not permanently failed", () => {
+    const t = seedTask(db, { orcaStatus: "ready" });
+    seedInvocation(db, t, { status: "failed" });
+
+    const [entry] = getRecentActivity(db);
+    expect(entry!.status).toBe("retrying");
+  });
+
+  test("shows failed when task is permanently failed", () => {
+    const t = seedTask(db, { orcaStatus: "failed" });
+    seedInvocation(db, t, { status: "failed" });
+
+    const [entry] = getRecentActivity(db);
+    expect(entry!.status).toBe("failed");
+  });
+
+  test("respects limit parameter", () => {
     for (let i = 0; i < 5; i++) {
+      const t = seedTask(db);
       seedInvocation(db, t, { status: "completed" });
     }
     expect(getRecentActivity(db, 3)).toHaveLength(3);
