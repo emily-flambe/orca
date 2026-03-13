@@ -20,7 +20,7 @@ import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
-import { fullSync, writeBackStatus } from "../linear/sync.js";
+import { fullSync, writeBackStatusWithRetry } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
 import { createGithubWebhookRoute } from "../github/webhook.js";
 import { initDeployState, isDraining } from "../deploy.js";
@@ -216,17 +216,16 @@ program
       if (!linearIssue || !activeLinearStates.has(linearIssue.state.name)) {
         continue;
       }
-      // Write back Canceled and post a comment (fire-and-forget with error logging)
-      writeBackStatus(client, task.linearIssueId, "failed_permanent", stateMap)
-        .then(() =>
-          client.createComment(
-            task.linearIssueId,
-            "**Orca status correction:** This task was marked as failed internally (retries exhausted) but the Linear status was not updated due to a crash or restart. Setting to Canceled now.",
-          ),
+      // Write back Canceled with retry; comment is non-critical, fire-and-forget
+      writeBackStatusWithRetry(client, task.linearIssueId, "failed_permanent", stateMap);
+      client
+        .createComment(
+          task.linearIssueId,
+          "**Orca status correction:** This task was marked as failed internally (retries exhausted) but the Linear status was not updated due to a crash or restart. Setting to Canceled now.",
         )
         .catch((err) => {
           console.log(
-            `[orca] reconcile write-back failed for ${task.linearIssueId}: ${err}`,
+            `[orca] reconcile comment failed for ${task.linearIssueId}: ${err}`,
           );
         });
       reconciled++;

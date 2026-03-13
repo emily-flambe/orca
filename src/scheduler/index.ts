@@ -262,9 +262,7 @@ async function dispatch(
 
   // Write-back on dispatch: implement/fix → "In Progress", review → skip (already "In Review")
   if (phase === "implement" && !terminalWriteBackTasks.has(taskId)) {
-    writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
-      log(`write-back failed on dispatch for task ${taskId}: ${err}`);
-    });
+    writeBackStatusWithRetry(client, taskId, "dispatched", stateMap);
   }
 
   // 2. Detect resume scenario (max-turns retry on implement phase)

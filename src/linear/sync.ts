@@ -286,22 +286,11 @@ export async function evaluateParentStatuses(
 
     if (allDone && parent.orcaStatus !== "done") {
       updateTaskStatus(db, parent.linearIssueId, "done");
-      writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch(
-        (err) => {
-          log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
-        },
-      );
+      writeBackStatusWithRetry(client, parent.linearIssueId, "done", stateMap);
       log(`parent ${parent.linearIssueId} → done (all children done)`);
     } else if (anyActive && parent.orcaStatus === "ready") {
       updateTaskStatus(db, parent.linearIssueId, "running");
-      writeBackStatus(
-        client,
-        parent.linearIssueId,
-        "dispatched",
-        stateMap,
-      ).catch((err) => {
-        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
-      });
+      writeBackStatusWithRetry(client, parent.linearIssueId, "dispatched", stateMap);
       log(`parent ${parent.linearIssueId} → running (child activity detected)`);
     }
   }
