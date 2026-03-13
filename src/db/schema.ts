@@ -1,32 +1,19 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
-
-export const CRON_TYPES = ["claude", "shell"] as const;
-export type CronType = (typeof CRON_TYPES)[number];
-
-export const TASK_TYPES = ["linear", "cron_claude", "cron_shell"] as const;
-export type TaskType = (typeof TASK_TYPES)[number];
-
-export const TASK_STATUSES = [
-  "backlog",
-  "ready",
-  "dispatched",
-  "running",
-  "done",
-  "failed",
-  "in_review",
-  "changes_requested",
-  "deploying",
-  "awaiting_ci",
-] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-export const INVOCATION_STATUSES = [
-  "running",
-  "completed",
-  "failed",
-  "timed_out",
-] as const;
-export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
+export {
+  CRON_TYPES,
+  type CronType,
+  TASK_TYPES,
+  type TaskType,
+  TASK_STATUSES,
+  type TaskStatus,
+  INVOCATION_STATUSES,
+  type InvocationStatus,
+} from "../shared/types.js";
+import {
+  CRON_TYPES,
+  TASK_STATUSES,
+  INVOCATION_STATUSES,
+} from "../shared/types.js";
 
 export const tasks = sqliteTable("tasks", {
   linearIssueId: text("linear_issue_id").primaryKey(),
