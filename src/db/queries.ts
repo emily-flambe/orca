@@ -679,22 +679,33 @@ export interface ActivityEntry {
 }
 
 export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
-  return db
-    .select({
-      id: invocations.id,
-      linearIssueId: invocations.linearIssueId,
-      startedAt: invocations.startedAt,
-      endedAt: invocations.endedAt,
-      status: invocations.status,
-      phase: invocations.phase,
-      costUsd: invocations.costUsd,
-      inputTokens: invocations.inputTokens,
-      outputTokens: invocations.outputTokens,
-    })
-    .from(invocations)
-    .orderBy(desc(invocations.id))
-    .limit(limit)
-    .all();
+  return db.all<ActivityEntry>(sql`
+    SELECT
+      i.id,
+      i.linear_issue_id   AS linearIssueId,
+      i.started_at        AS startedAt,
+      i.ended_at          AS endedAt,
+      CASE
+        WHEN t.orca_status = 'failed'              THEN 'failed'
+        WHEN i.status = 'running'                  THEN 'running'
+        WHEN i.status = 'completed'                THEN 'completed'
+        WHEN i.status = 'failed'                   THEN 'retrying'
+        ELSE i.status
+      END                 AS status,
+      i.phase,
+      i.cost_usd          AS costUsd,
+      i.input_tokens      AS inputTokens,
+      i.output_tokens     AS outputTokens
+    FROM invocations i
+    INNER JOIN (
+      SELECT linear_issue_id, MAX(id) AS max_id
+      FROM invocations
+      GROUP BY linear_issue_id
+    ) latest ON i.id = latest.max_id
+    LEFT JOIN tasks t ON t.linear_issue_id = i.linear_issue_id
+    ORDER BY i.id DESC
+    LIMIT ${limit}
+  `);
 }
 
 /**
