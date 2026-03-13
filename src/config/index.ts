@@ -270,7 +270,7 @@ Steps:
     ),
     budgetMaxTokens: readPositiveNumberOrDefault(
       "ORCA_BUDGET_MAX_TOKENS",
-      50_000_000,
+      1_000_000_000,
     ),
     schedulerIntervalSec: readIntOrDefault("ORCA_SCHEDULER_INTERVAL_SEC", 10),
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),

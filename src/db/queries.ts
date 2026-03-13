@@ -499,6 +499,46 @@ export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
   return result?.total ? Number(result.total) : 0;
 }
 
+/**
+ * Sum input_tokens and output_tokens separately from budget_events where recorded_at >= windowStart.
+ * Returns { input: 0, output: 0 } if no events match.
+ */
+export function sumTokensSplitInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): { input: number; output: number } {
+  const result = db
+    .select({
+      input: sql<number>`coalesce(sum(${budgetEvents.inputTokens}), 0)`,
+      output: sql<number>`coalesce(sum(${budgetEvents.outputTokens}), 0)`,
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return {
+    input: result?.input ? Number(result.input) : 0,
+    output: result?.output ? Number(result.output) : 0,
+  };
+}
+
+/**
+ * Get the earliest recorded_at timestamp from budget_events where recorded_at >= windowStart.
+ * Returns null if no events match.
+ */
+export function getEarliestEventInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): string | null {
+  const result = db
+    .select({
+      earliest: sql<string>`min(${budgetEvents.recordedAt})`,
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return result?.earliest ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Metrics queries
 // ---------------------------------------------------------------------------

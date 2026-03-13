@@ -203,6 +203,10 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                             (inv.inputTokens ?? 0) + (inv.outputTokens ?? 0),
                           )}{" "}
                           tokens
+                          <span className="text-gray-500 ml-1">
+                            ({formatTokens(inv.inputTokens ?? 0)}↑{" "}
+                            {formatTokens(inv.outputTokens ?? 0)}↓)
+                          </span>
                         </span>
                       )}
                       {inv.numTurns != null && (
@@ -262,6 +266,7 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                     <th className="pb-2 pr-4">Status</th>
                     <th className="pb-2 pr-4">Tokens</th>
                     <th className="pb-2 pr-4">Turns</th>
+                    <th className="pb-2 pr-4">Rate</th>
                     <th className="pb-2 pr-4">Summary</th>
                     <th className="pb-2"></th>
                   </tr>
@@ -287,15 +292,39 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                           <StatusBadge status={inv.status} />
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
-                          {inv.inputTokens != null || inv.outputTokens != null
-                            ? formatTokens(
+                          {inv.inputTokens != null ||
+                          inv.outputTokens != null ? (
+                            <span
+                              title={`in: ${formatTokens(inv.inputTokens ?? 0)} / out: ${formatTokens(inv.outputTokens ?? 0)}`}
+                            >
+                              {formatTokens(
                                 (inv.inputTokens ?? 0) +
                                   (inv.outputTokens ?? 0),
-                              )
-                            : "\u2014"}
+                              )}
+                              <span className="text-gray-500 text-xs ml-1">
+                                ({formatTokens(inv.inputTokens ?? 0)}↑{" "}
+                                {formatTokens(inv.outputTokens ?? 0)}↓)
+                              </span>
+                            </span>
+                          ) : (
+                            "\u2014"
+                          )}
                         </td>
                         <td className="py-2 pr-4 text-gray-300 tabular-nums">
                           {inv.numTurns ?? "\u2014"}
+                        </td>
+                        <td className="py-2 pr-4 text-gray-400 tabular-nums text-xs">
+                          {(() => {
+                            if (inv.costUsd == null || !inv.endedAt)
+                              return "\u2014";
+                            const ms =
+                              new Date(inv.endedAt).getTime() -
+                              new Date(inv.startedAt).getTime();
+                            const hours = ms / 3_600_000;
+                            if (hours < 0.001) return "\u2014";
+                            const rate = inv.costUsd / hours;
+                            return `$${rate.toFixed(2)}/hr`;
+                          })()}
                         </td>
                         <td className="py-2 pr-4 text-gray-400 truncate max-w-xs">
                           {inv.outputSummary ?? "\u2014"}
@@ -325,7 +354,7 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
                       </tr>
                       {selectedInvocationId === inv.id && (
                         <tr>
-                          <td colSpan={7} className="py-2">
+                          <td colSpan={8} className="py-2">
                             <LogViewer
                               invocationId={inv.id}
                               isRunning={inv.status === "running"}

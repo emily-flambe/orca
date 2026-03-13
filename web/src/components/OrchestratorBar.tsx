@@ -138,6 +138,35 @@ export default function OrchestratorBar({
               </button>
             )}
           </span>
+          {(status.burnRatePerHour != null ||
+            status.tokensPerMinute != null) && (
+            <span className="text-gray-500 text-xs hidden sm:inline tabular-nums">
+              {status.burnRatePerHour != null && (
+                <span className="text-gray-400">
+                  ${status.burnRatePerHour.toFixed(2)}/hr
+                </span>
+              )}
+              {status.burnRatePerHour != null &&
+                status.tokensPerMinute != null && (
+                  <span className="text-gray-600"> · </span>
+                )}
+              {status.tokensPerMinute != null && (
+                <span className="text-gray-400">
+                  {formatTokens(status.tokensPerMinute)} tpm
+                </span>
+              )}
+            </span>
+          )}
+          {(status.inputTokensInWindow > 0 ||
+            status.outputTokensInWindow > 0) && (
+            <span
+              className="text-gray-600 text-xs hidden lg:inline tabular-nums"
+              title="Input / Output tokens in window"
+            >
+              (in: {formatTokens(status.inputTokensInWindow)} / out:{" "}
+              {formatTokens(status.outputTokensInWindow)})
+            </span>
+          )}
         </div>
 
         {/* Active sessions */}
