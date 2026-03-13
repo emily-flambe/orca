@@ -412,6 +412,21 @@ program
 
     process.on("SIGTERM", shutdown);
     process.on("SIGINT", shutdown);
+
+    process.on("unhandledRejection", (reason: unknown) => {
+      const err = reason instanceof Error ? reason : new Error(String(reason));
+      console.error(
+        `[orca] unhandledRejection: ${err.message}\n${err.stack ?? ""}`,
+      );
+      // Log and continue — do not crash the daemon
+    });
+
+    process.on("uncaughtException", (err: Error, origin: string) => {
+      console.error(
+        `[orca] uncaughtException (${origin}): ${err.message}\n${err.stack ?? ""}`,
+      );
+      shutdown();
+    });
   });
 
 // ---------------------------------------------------------------------------
