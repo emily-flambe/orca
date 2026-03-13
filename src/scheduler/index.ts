@@ -82,7 +82,6 @@ import {
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import {
-  writeBackStatus,
   writeBackStatusWithRetry,
   evaluateParentStatuses,
 } from "../linear/sync.js";
