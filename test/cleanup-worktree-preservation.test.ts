@@ -31,6 +31,10 @@ vi.mock("../src/github/index.js", () => ({
   closeOrphanedPrs: vi.fn().mockReturnValue(0),
 }));
 
+vi.mock("../src/deploy.js", () => ({
+  isDraining: vi.fn().mockReturnValue(false),
+}));
+
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
@@ -645,5 +649,171 @@ describe("Cleanup - Windows path normalization for preserved in_review paths", (
     expect(removeWorktreeMock).not.toHaveBeenCalledWith(
       expect.stringContaining("fake-repo-t-case"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drain mode: cleanupStaleResources is skipped during deploy drain
+// ---------------------------------------------------------------------------
+
+describe("Cleanup - drain mode skips cleanup to protect active worktrees", () => {
+  let db: OrcaDb;
+  let gitMock: ReturnType<typeof vi.fn>;
+  let removeWorktreeMock: ReturnType<typeof vi.fn>;
+  let rmSyncMock: ReturnType<typeof vi.fn>;
+  let readdirSyncMock: ReturnType<typeof vi.fn>;
+  let statSyncMock: ReturnType<typeof vi.fn>;
+  let listOpenPrBranchesMock: ReturnType<typeof vi.fn>;
+  let isDrainingMock: ReturnType<typeof vi.fn>;
+  let cleanupStaleResources: typeof import("../src/cleanup/index.js").cleanupStaleResources;
+
+  beforeEach(async () => {
+    db = freshDb();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const gitMod = await import("../src/git.js");
+    gitMock = gitMod.git as unknown as ReturnType<typeof vi.fn>;
+    gitMock.mockReset();
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list")
+        return "worktree /tmp/fake-repo\nHEAD abc123\nbranch refs/heads/main\n";
+      if (args[0] === "for-each-ref") return "";
+      return "";
+    });
+
+    const wtMod = await import("../src/worktree/index.js");
+    removeWorktreeMock = wtMod.removeWorktree as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    removeWorktreeMock.mockReset();
+
+    const ghMod = await import("../src/github/index.js");
+    listOpenPrBranchesMock = ghMod.listOpenPrBranches as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    listOpenPrBranchesMock.mockReset();
+    listOpenPrBranchesMock.mockReturnValue(new Set());
+
+    const fsMod = await import("node:fs");
+    rmSyncMock = (fsMod as any).rmSync as unknown as ReturnType<typeof vi.fn>;
+    rmSyncMock.mockReset();
+    readdirSyncMock = fsMod.readdirSync as unknown as ReturnType<typeof vi.fn>;
+    readdirSyncMock.mockReset();
+    statSyncMock = fsMod.statSync as unknown as ReturnType<typeof vi.fn>;
+    statSyncMock.mockReset();
+
+    const deployMod = await import("../src/deploy.js");
+    isDrainingMock = deployMod.isDraining as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    isDrainingMock.mockReset();
+    isDrainingMock.mockReturnValue(false); // default: not draining
+
+    const cleanupMod = await import("../src/cleanup/index.js");
+    cleanupStaleResources = cleanupMod.cleanupStaleResources;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("during drain, cleanupStaleResources exits early without touching any worktrees", () => {
+    // Seed a task in in_review with a worktree
+    const taskId = seedTask(db, {
+      linearIssueId: "T-DRAIN-REVIEW",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "in_review",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "completed",
+    });
+    updateInvocation(db, invId, {
+      worktreePath: "/tmp/fake-repo-T-DRAIN-REVIEW",
+      phase: "implement",
+    });
+
+    // Simulate drain mode active
+    isDrainingMock.mockReturnValue(true);
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // Nothing should be removed — cleanup returned early
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    // git should not have been called at all (early return before any git ops)
+    expect(gitMock).not.toHaveBeenCalled();
+  });
+
+  test("after drain ends, in_review task worktree is preserved (not deleted)", () => {
+    // Seed a task in in_review with a registered worktree
+    const taskId = seedTask(db, {
+      linearIssueId: "T-POST-DRAIN",
+      repoPath: "/tmp/fake-repo",
+      orcaStatus: "in_review",
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: now(),
+      status: "completed",
+    });
+    updateInvocation(db, invId, {
+      worktreePath: "/tmp/fake-repo-T-POST-DRAIN",
+      phase: "implement",
+    });
+
+    // Make git worktree list return the in_review task's worktree as registered
+    gitMock.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      if (args[0] === "worktree" && args[1] === "list")
+        return (
+          "worktree /tmp/fake-repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
+          "worktree /tmp/fake-repo-T-POST-DRAIN\nHEAD def456\nbranch refs/heads/orca/T-POST-DRAIN-inv-1\n"
+        );
+      if (args[0] === "for-each-ref") return "";
+      return "";
+    });
+
+    // Drain has ended — isDraining() returns false
+    isDrainingMock.mockReturnValue(false);
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // The in_review task's worktree must NOT be removed
+    expect(removeWorktreeMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("fake-repo-T-POST-DRAIN"),
+    );
+  });
+
+  test("drain mode: tasks in changes_requested and awaiting_ci are also protected", () => {
+    for (const status of [
+      "changes_requested",
+      "awaiting_ci",
+    ] as const) {
+      const taskId = seedTask(db, {
+        linearIssueId: `T-DRAIN-${status}`,
+        repoPath: "/tmp/fake-repo",
+        orcaStatus: status,
+      });
+      const invId = insertInvocation(db, {
+        linearIssueId: taskId,
+        startedAt: now(),
+        status: "completed",
+      });
+      updateInvocation(db, invId, {
+        worktreePath: `/tmp/fake-repo-T-DRAIN-${status}`,
+        phase: "fix",
+      });
+    }
+
+    isDrainingMock.mockReturnValue(true);
+
+    cleanupStaleResources({ db, config: testConfig() });
+
+    // Early return during drain — no removals of any kind
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).not.toHaveBeenCalled();
   });
 });

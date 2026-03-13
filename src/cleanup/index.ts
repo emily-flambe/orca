@@ -3,6 +3,7 @@ import { join, dirname, basename } from "node:path";
 import { git, isTransientGitError } from "../git.js";
 import { removeWorktree } from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
+import { isDraining } from "../deploy.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
 import {
@@ -103,6 +104,13 @@ function listWorktreePaths(cwd: string): string[] {
  * - Never deletes branches younger than `cleanupBranchMaxAgeMin`
  */
 export function cleanupStaleResources(deps: CleanupDeps): void {
+  // Skip cleanup entirely during deploy drain — worktrees for active tasks
+  // must be preserved so the new instance can resume them.
+  if (isDraining()) {
+    log("Skipping cleanup: deploy drain in progress");
+    return;
+  }
+
   const { db, config } = deps;
 
   // Collect unique repo paths from all tasks
