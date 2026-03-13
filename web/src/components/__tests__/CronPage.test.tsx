@@ -222,6 +222,50 @@ describe("CronPage", () => {
       expect(scheduleInput).toBeInTheDocument();
     });
 
+    it("saving edit calls updateCronSchedule with correct data and updates the list", async () => {
+      const schedule = makeSchedule({
+        id: 5,
+        name: "Weekly cleanup",
+        schedule: "0 0 * * 0",
+        prompt: "Clean up old files",
+      });
+      const updated = { ...schedule, name: "Weekly deep clean", schedule: "0 1 * * 0" };
+      mockFetchCronSchedules.mockResolvedValue([schedule]);
+      mockUpdateCronSchedule.mockResolvedValue(updated as CronSchedule);
+
+      render(<CronPage />);
+      await waitFor(() => {
+        expect(screen.getByText("Weekly cleanup")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+      fireEvent.change(screen.getByDisplayValue("Weekly cleanup"), {
+        target: { value: "Weekly deep clean" },
+      });
+      fireEvent.change(screen.getByDisplayValue("0 0 * * 0"), {
+        target: { value: "0 1 * * 0" },
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        expect(mockUpdateCronSchedule).toHaveBeenCalledWith(
+          5,
+          expect.objectContaining({
+            name: "Weekly deep clean",
+            schedule: "0 1 * * 0",
+          }),
+        );
+      });
+
+      // Updated name should appear; edit form should be gone
+      await waitFor(() => {
+        expect(screen.getByText("Weekly deep clean")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    });
+
     it("Cancel hides the edit form", async () => {
       mockFetchCronSchedules.mockResolvedValue([
         makeSchedule({ id: 5, name: "Weekly cleanup" }),
@@ -292,6 +336,40 @@ describe("CronPage", () => {
         screen.getByText("Name, schedule, and prompt are required."),
       ).toBeInTheDocument();
       expect(mockCreateCronSchedule).not.toHaveBeenCalled();
+    });
+
+    it("displays error message when createCronSchedule rejects", async () => {
+      mockFetchCronSchedules.mockResolvedValue([]);
+      mockCreateCronSchedule.mockRejectedValue(
+        new Error("Invalid cron expression"),
+      );
+
+      render(<CronPage />);
+      await waitFor(() => {
+        expect(
+          screen.getByText("No cron schedules configured."),
+        ).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "New schedule" }));
+
+      fireEvent.change(screen.getByPlaceholderText("e.g. Nightly sync"), {
+        target: { value: "Bad job" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("0 2 * * *"), {
+        target: { value: "invalid" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("Describe the task..."), {
+        target: { value: "Do something" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Invalid cron expression/),
+        ).toBeInTheDocument();
+      });
+      expect(mockCreateCronSchedule).toHaveBeenCalled();
     });
 
     it("successful create calls createCronSchedule with correct data, adds to list, hides form", async () => {
