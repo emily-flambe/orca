@@ -232,9 +232,9 @@ describe("default values", () => {
     expect(cfg.budgetMaxCostUsd).toBe(100);
   });
 
-  test("budgetMaxTokens defaults to 50_000_000", async () => {
+  test("budgetMaxTokens defaults to 1_000_000_000", async () => {
     const cfg = await loadConfig();
-    expect(cfg.budgetMaxTokens).toBe(50_000_000);
+    expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
   });
 
   test("schedulerIntervalSec defaults to 10", async () => {

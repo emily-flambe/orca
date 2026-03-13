@@ -438,17 +438,12 @@ export function getRunningInvocations(db: OrcaDb): Invocation[] {
     .all();
 }
 
-/** Clear session IDs from all implement-phase invocations for a task.
+/** Clear session IDs from all invocations for a task across all phases.
  * Called at startup to ensure dead pre-restart sessions aren't re-used. */
-export function clearImplementSessionIds(db: OrcaDb, taskId: string): void {
+export function clearSessionIds(db: OrcaDb, taskId: string): void {
   db.update(invocations)
     .set({ sessionId: null })
-    .where(
-      and(
-        eq(invocations.linearIssueId, taskId),
-        eq(invocations.phase, "implement"),
-      ),
-    )
+    .where(eq(invocations.linearIssueId, taskId))
     .run();
 }
 
@@ -497,6 +492,46 @@ export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
     .where(gte(budgetEvents.recordedAt, windowStart))
     .get();
   return result?.total ? Number(result.total) : 0;
+}
+
+/**
+ * Sum input_tokens and output_tokens separately from budget_events where recorded_at >= windowStart.
+ * Returns { input: 0, output: 0 } if no events match.
+ */
+export function sumTokensSplitInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): { input: number; output: number } {
+  const result = db
+    .select({
+      input: sql<number>`coalesce(sum(${budgetEvents.inputTokens}), 0)`,
+      output: sql<number>`coalesce(sum(${budgetEvents.outputTokens}), 0)`,
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return {
+    input: result?.input ? Number(result.input) : 0,
+    output: result?.output ? Number(result.output) : 0,
+  };
+}
+
+/**
+ * Get the earliest recorded_at timestamp from budget_events where recorded_at >= windowStart.
+ * Returns null if no events match.
+ */
+export function getEarliestEventInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): string | null {
+  const result = db
+    .select({
+      earliest: sql<string>`min(${budgetEvents.recordedAt})`,
+    })
+    .from(budgetEvents)
+    .where(gte(budgetEvents.recordedAt, windowStart))
+    .get();
+  return result?.earliest ?? null;
 }
 
 // ---------------------------------------------------------------------------

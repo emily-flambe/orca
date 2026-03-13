@@ -20,6 +20,8 @@ import {
   countActiveSessions,
   sumCostInWindow,
   sumTokensInWindow,
+  sumTokensSplitInWindow,
+  getEarliestEventInWindow,
   sumTokensInWindowRange,
   budgetWindowStart,
   updateInvocation,
@@ -536,6 +538,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const windowStart = budgetWindowStart(config.budgetWindowHours);
     const costInWindow = sumCostInWindow(db, windowStart);
     const tokensInWindow = sumTokensInWindow(db, windowStart);
+    const tokensSplit = sumTokensSplitInWindow(db, windowStart);
+    const earliestEvent = getEarliestEventInWindow(db, windowStart);
+
+    // Compute burn rate ($/hr) and tokens per minute
+    let burnRatePerHour: number | null = null;
+    let tokensPerMinute: number | null = null;
+    if (earliestEvent && costInWindow > 0) {
+      const earliestMs = new Date(earliestEvent).getTime();
+      const nowMs = Date.now();
+      const elapsedHours = (nowMs - earliestMs) / (1000 * 60 * 60);
+      if (elapsedHours > 0) {
+        burnRatePerHour = costInWindow / elapsedHours;
+        const elapsedMinutes = elapsedHours * 60;
+        tokensPerMinute = tokensInWindow / elapsedMinutes;
+      }
+    }
 
     const draining = isDraining();
     return c.json({
@@ -553,6 +571,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       fixModel: config.fixModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
+      burnRatePerHour,
+      tokensPerMinute,
+      inputTokensInWindow: tokensSplit.input,
+      outputTokensInWindow: tokensSplit.output,
     });
   });
 
