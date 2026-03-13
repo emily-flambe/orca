@@ -7,6 +7,30 @@ import { isTransientGitError, git } from "../git.js";
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+/** Retry an async operation up to maxAttempts times with a constant delay. Throws on exhaustion. */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts = 3,
+  delayMs = 1000,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -542,9 +566,8 @@ export async function getPrCheckStatus(
   prNumber: number,
   cwd: string,
 ): Promise<PrCheckStatus> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
+  try {
+    return await withRetry(async () => {
       const output = await ghAsync(
         ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
         { cwd },
@@ -566,17 +589,13 @@ export async function getPrCheckStatus(
       if (hasFail) return "failure";
 
       return "success";
-    } catch (err) {
-      lastErr = err;
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
+    });
+  } catch (err) {
+    console.warn(
+      `[orca/github] getPrCheckStatus failed after 3 attempts for PR #${prNumber}: ${err}`,
+    );
+    return "check_error";
   }
-  console.warn(
-    `[orca/github] getPrCheckStatus failed after 3 attempts for PR #${prNumber}: ${lastErr}`,
-  );
-  return "check_error";
 }
 
 /**
@@ -775,9 +794,8 @@ export async function getWorkflowRunStatus(
   commitSha: string,
   cwd: string,
 ): Promise<WorkflowRunStatus> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
+  try {
+    return await withRetry(async () => {
       const output = await ghAsync(
         [
           "run",
@@ -819,15 +837,11 @@ export async function getWorkflowRunStatus(
 
       // All completed with success/skipped/neutral
       return "success";
-    } catch (err) {
-      lastErr = err;
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
+    });
+  } catch (err) {
+    console.warn(
+      `[orca/github] getWorkflowRunStatus failed after 3 attempts for commit ${commitSha}: ${err}`,
+    );
+    return "run_error";
   }
-  console.warn(
-    `[orca/github] getWorkflowRunStatus failed after 3 attempts for commit ${commitSha}: ${lastErr}`,
-  );
-  return "run_error";
 }
