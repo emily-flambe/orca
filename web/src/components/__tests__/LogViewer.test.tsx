@@ -97,9 +97,7 @@ describe("LogViewer states", () => {
 
   it("shows no-log-file fallback with outputSummary when lines are empty", async () => {
     mockFetchInvocationLogs.mockResolvedValue({ lines: [] });
-    render(
-      <LogViewer invocationId={1} outputSummary="Session summary text" />,
-    );
+    render(<LogViewer invocationId={1} outputSummary="Session summary text" />);
     await waitFor(() => {
       expect(
         screen.getByText("No log file (agent never started)"),
@@ -309,9 +307,7 @@ describe("LogViewer log line rendering", () => {
 
   it("renders process_exit with signal SIGTERM", async () => {
     mockFetchInvocationLogs.mockResolvedValue(
-      ndjsonResponse([
-        { type: "process_exit", code: null, signal: "SIGTERM" },
-      ]),
+      ndjsonResponse([{ type: "process_exit", code: null, signal: "SIGTERM" }]),
     );
     render(<LogViewer invocationId={1} />);
     await waitFor(() => {
@@ -372,10 +368,7 @@ describe("LogViewer isRunning", () => {
 
     const es = MockEventSource.instances[0];
     // Emit a log line so loading=false is triggered
-    es.emit(
-      "log",
-      JSON.stringify({ type: "stdout", text: "running output" }),
-    );
+    es.emit("log", JSON.stringify({ type: "stdout", text: "running output" }));
 
     await waitFor(() => {
       expect(screen.getByText("Session running...")).toBeInTheDocument();
@@ -402,7 +395,11 @@ describe("LogViewer onCostUpdate", () => {
   it("calls onCostUpdate with total_cost_usd from SSE log event", async () => {
     const onCostUpdate = vi.fn();
     render(
-      <LogViewer invocationId={1} isRunning={true} onCostUpdate={onCostUpdate} />,
+      <LogViewer
+        invocationId={1}
+        isRunning={true}
+        onCostUpdate={onCostUpdate}
+      />,
     );
 
     const es = MockEventSource.instances[0];
@@ -423,7 +420,11 @@ describe("LogViewer onCostUpdate", () => {
   it("calls onCostUpdate with cost_usd when no total_cost_usd", async () => {
     const onCostUpdate = vi.fn();
     render(
-      <LogViewer invocationId={1} isRunning={true} onCostUpdate={onCostUpdate} />,
+      <LogViewer
+        invocationId={1}
+        isRunning={true}
+        onCostUpdate={onCostUpdate}
+      />,
     );
 
     const es = MockEventSource.instances[0];
@@ -788,7 +789,11 @@ describe("LogViewer onCostUpdate not called when no cost", () => {
   it("does not call onCostUpdate when result line has no cost fields", async () => {
     const onCostUpdate = vi.fn();
     render(
-      <LogViewer invocationId={1} isRunning={true} onCostUpdate={onCostUpdate} />,
+      <LogViewer
+        invocationId={1}
+        isRunning={true}
+        onCostUpdate={onCostUpdate}
+      />,
     );
 
     const es = MockEventSource.instances[0];
@@ -820,7 +825,9 @@ describe("LogViewer SSE cleanup on unmount", () => {
 
     // Unmount
     // We need to use the unmount return from render
-    const { unmount } = render(<LogViewer invocationId={42} isRunning={true} />);
+    const { unmount } = render(
+      <LogViewer invocationId={42} isRunning={true} />,
+    );
     const es2 = MockEventSource.instances[MockEventSource.instances.length - 1];
     expect(es2.closed).toBe(false);
 
@@ -879,7 +886,10 @@ describe("LogViewer renders nothing — loading guard", () => {
   it("renders nothing for user text message AND loading has ended", async () => {
     mockFetchInvocationLogs.mockResolvedValue(
       ndjsonResponse([
-        { type: "user", message: { content: [{ type: "text", text: "user text" }] } },
+        {
+          type: "user",
+          message: { content: [{ type: "text", text: "user text" }] },
+        },
         { type: "stdout", text: "sentinel" },
       ]),
     );
