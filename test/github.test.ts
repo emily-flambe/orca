@@ -40,6 +40,9 @@ import {
   rebasePrBranch,
   listOpenPrBranches,
   getWorkflowRunStatus,
+  pushAndCreatePr,
+  closeSupersededPrs,
+  closePrsForCanceledTask,
 } from "../src/github/index.js";
 
 const execSyncMock = execFileSync as unknown as ReturnType<typeof vi.fn>;
@@ -975,5 +978,379 @@ describe("rebasePrBranch", () => {
       hasConflicts: false,
       error: expect.stringContaining("push failed"),
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pushAndCreatePr
+// ---------------------------------------------------------------------------
+
+describe("pushAndCreatePr", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    gitMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns PrInfo on successful push and PR creation", () => {
+    const prUrl = "https://github.com/owner/repo/pull/42";
+    const prData = {
+      url: prUrl,
+      number: 42,
+      state: "OPEN",
+      headRefName: "orca/EMI-5-inv-1",
+    };
+    gitMock.mockReturnValue(""); // git push succeeds
+    // First execSyncMock call = gh pr create (returns URL)
+    // Second execSyncMock call = gh pr view (findPrByUrl)
+    execSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(JSON.stringify(prData));
+
+    const result = pushAndCreatePr("orca/EMI-5-inv-1", "EMI-5", "/tmp/repo");
+
+    expect(result).toEqual({
+      exists: true,
+      url: prUrl,
+      number: 42,
+      merged: false,
+      headBranch: "orca/EMI-5-inv-1",
+    });
+  });
+
+  test("returns exists: false when gh pr create returns non-URL output", () => {
+    gitMock.mockReturnValue("");
+    execSyncMock.mockReturnValue("some unexpected output");
+
+    const result = pushAndCreatePr("orca/EMI-5-inv-1", "EMI-5", "/tmp/repo");
+
+    expect(result).toEqual({ exists: false });
+  });
+
+  test("returns exists: false when git push fails", () => {
+    gitMock.mockImplementation(() => {
+      throw new Error("failed to push: authentication error");
+    });
+
+    const result = pushAndCreatePr("orca/EMI-5-inv-1", "EMI-5", "/tmp/repo");
+
+    expect(result).toEqual({ exists: false });
+  });
+
+  test("returns exists: false when gh pr create throws", () => {
+    gitMock.mockReturnValue("");
+    execSyncMock.mockImplementation(() => {
+      throw new Error("gh: pull request already exists");
+    });
+
+    const result = pushAndCreatePr("orca/EMI-5-inv-1", "EMI-5", "/tmp/repo");
+
+    expect(result).toEqual({ exists: false });
+  });
+
+  test("calls git push with correct args", () => {
+    const prUrl = "https://github.com/owner/repo/pull/50";
+    const prData = {
+      url: prUrl,
+      number: 50,
+      state: "OPEN",
+      headRefName: "orca/EMI-6-inv-1",
+    };
+    gitMock.mockReturnValue("");
+    execSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(JSON.stringify(prData));
+
+    pushAndCreatePr("orca/EMI-6-inv-1", "EMI-6", "/tmp/repo");
+
+    expect(gitMock).toHaveBeenCalledWith(
+      ["push", "-u", "origin", "orca/EMI-6-inv-1"],
+      { cwd: "/tmp/repo" },
+    );
+  });
+
+  test("calls gh pr create with correct args including taskId in title and body", () => {
+    const prUrl = "https://github.com/owner/repo/pull/51";
+    const prData = {
+      url: prUrl,
+      number: 51,
+      state: "OPEN",
+      headRefName: "orca/EMI-7-inv-1",
+    };
+    gitMock.mockReturnValue("");
+    execSyncMock
+      .mockReturnValueOnce(prUrl)
+      .mockReturnValueOnce(JSON.stringify(prData));
+
+    pushAndCreatePr("orca/EMI-7-inv-1", "EMI-7", "/tmp/repo");
+
+    const [cmd, args, opts] = execSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toEqual([
+      "pr",
+      "create",
+      "--head",
+      "orca/EMI-7-inv-1",
+      "--title",
+      "[EMI-7] Auto-recovered: implement phase completed without PR",
+      "--body",
+      expect.stringContaining("EMI-7"),
+    ]);
+    expect(opts.cwd).toBe("/tmp/repo");
+  });
+
+  test("warns on failure", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    gitMock.mockImplementation(() => {
+      throw new Error("push failed");
+    });
+
+    pushAndCreatePr("orca/EMI-5-inv-1", "EMI-5", "/tmp/repo");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("pushAndCreatePr failed"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeSupersededPrs
+// ---------------------------------------------------------------------------
+
+describe("closeSupersededPrs", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("closes PRs matching prefix, skipping the new branch", () => {
+    const prs = [
+      { headRefName: "orca/EMI-10-inv-1", number: 100 }, // old — should be closed
+      { headRefName: "orca/EMI-10-inv-2", number: 101 }, // new — skip
+      { headRefName: "orca/EMI-99-inv-1", number: 102 }, // different task — skip
+    ];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs)) // gh pr list
+      .mockReturnValueOnce("") // gh pr close #100
+      .mockReturnValueOnce(""); // (just in case)
+
+    const count = closeSupersededPrs(
+      "EMI-10",
+      101,
+      2,
+      "orca/EMI-10-inv-2",
+      "/tmp/repo",
+    );
+
+    expect(count).toBe(1);
+  });
+
+  test("returns 0 when no PRs match prefix", () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify([{ headRefName: "orca/EMI-99-inv-1", number: 200 }]),
+    );
+
+    const count = closeSupersededPrs(
+      "EMI-10",
+      101,
+      2,
+      "orca/EMI-10-inv-2",
+      "/tmp/repo",
+    );
+
+    expect(count).toBe(0);
+  });
+
+  test("returns 0 on gh pr list failure", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error("gh: network error");
+    });
+
+    const count = closeSupersededPrs(
+      "EMI-10",
+      101,
+      2,
+      "orca/EMI-10-inv-2",
+      "/tmp/repo",
+    );
+
+    expect(count).toBe(0);
+  });
+
+  test("uses custom comment when provided", () => {
+    const prs = [{ headRefName: "orca/EMI-10-inv-1", number: 100 }];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closeSupersededPrs(
+      "EMI-10",
+      101,
+      2,
+      "orca/EMI-10-inv-2",
+      "/tmp/repo",
+      "Custom close message.",
+    );
+
+    const [, args] = execSyncMock.mock.calls[1];
+    expect(args).toContain("Custom close message.");
+  });
+
+  test("uses default comment referencing new PR number when no custom comment", () => {
+    const prs = [{ headRefName: "orca/EMI-10-inv-1", number: 100 }];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closeSupersededPrs("EMI-10", 101, 2, "orca/EMI-10-inv-2", "/tmp/repo");
+
+    const [, args] = execSyncMock.mock.calls[1];
+    const commentArg = args[args.indexOf("--comment") + 1] as string;
+    expect(commentArg).toContain("#101");
+  });
+
+  test("calls gh pr close with --delete-branch", () => {
+    const prs = [{ headRefName: "orca/EMI-10-inv-1", number: 100 }];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closeSupersededPrs("EMI-10", 101, 2, "orca/EMI-10-inv-2", "/tmp/repo");
+
+    const [cmd, args, opts] = execSyncMock.mock.calls[1];
+    expect(cmd).toBe("gh");
+    expect(args[0]).toBe("pr");
+    expect(args[1]).toBe("close");
+    expect(args[2]).toBe("100");
+    expect(args).toContain("--delete-branch");
+    expect(opts.cwd).toBe("/tmp/repo");
+  });
+
+  test("continues closing remaining PRs when one close fails", () => {
+    const prs = [
+      { headRefName: "orca/EMI-10-inv-1", number: 100 },
+      { headRefName: "orca/EMI-10-inv-3", number: 103 },
+    ];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs)) // gh pr list
+      .mockImplementationOnce(() => {
+        throw new Error("gh: PR 100 not found");
+      }) // close #100 fails
+      .mockReturnValueOnce(""); // close #103 succeeds
+
+    const count = closeSupersededPrs(
+      "EMI-10",
+      104,
+      4,
+      "orca/EMI-10-inv-4",
+      "/tmp/repo",
+    );
+
+    expect(count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closePrsForCanceledTask
+// ---------------------------------------------------------------------------
+
+describe("closePrsForCanceledTask", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("closes all PRs matching task prefix and returns count", () => {
+    const prs = [
+      { headRefName: "orca/EMI-20-inv-1", number: 200 },
+      { headRefName: "orca/EMI-20-inv-2", number: 201 },
+      { headRefName: "orca/EMI-99-inv-1", number: 300 }, // different task
+    ];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("") // close #200
+      .mockReturnValueOnce(""); // close #201
+
+    const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    expect(count).toBe(2);
+  });
+
+  test("returns 0 when no PRs match", () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify([{ headRefName: "orca/EMI-99-inv-1", number: 300 }]),
+    );
+
+    const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    expect(count).toBe(0);
+  });
+
+  test("returns 0 on gh pr list failure", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error("gh: authentication failed");
+    });
+
+    const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    expect(count).toBe(0);
+  });
+
+  test("calls gh pr close with --delete-branch and canceled comment", () => {
+    const prs = [{ headRefName: "orca/EMI-20-inv-1", number: 200 }];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockReturnValueOnce("");
+
+    closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    const [cmd, args, opts] = execSyncMock.mock.calls[1];
+    expect(cmd).toBe("gh");
+    expect(args[0]).toBe("pr");
+    expect(args[1]).toBe("close");
+    expect(args[2]).toBe("200");
+    expect(args).toContain("--delete-branch");
+    const commentArg = args[args.indexOf("--comment") + 1] as string;
+    expect(commentArg).toContain("EMI-20");
+    expect(opts.cwd).toBe("/tmp/repo");
+  });
+
+  test("continues closing remaining PRs when one close fails", () => {
+    const prs = [
+      { headRefName: "orca/EMI-20-inv-1", number: 200 },
+      { headRefName: "orca/EMI-20-inv-2", number: 201 },
+    ];
+    execSyncMock
+      .mockReturnValueOnce(JSON.stringify(prs))
+      .mockImplementationOnce(() => {
+        throw new Error("gh: PR not found");
+      }) // close #200 fails
+      .mockReturnValueOnce(""); // close #201 succeeds
+
+    const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    expect(count).toBe(1);
+  });
+
+  test("returns 0 when list is empty", () => {
+    execSyncMock.mockReturnValueOnce(JSON.stringify([]));
+
+    const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
+
+    expect(count).toBe(0);
   });
 });
