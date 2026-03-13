@@ -2320,7 +2320,6 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   }
 }
 
-
 /**
  * Merge a PR programmatically and transition the task to done/deploying.
  */
