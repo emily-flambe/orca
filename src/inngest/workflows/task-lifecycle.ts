@@ -24,6 +24,7 @@ import {
   updateInvocation,
   insertBudgetEvent,
   sumCostInWindow,
+  sumTokensInWindow,
   budgetWindowStart,
   incrementRetryCount,
   incrementReviewCycleCount,
@@ -319,6 +320,13 @@ export const taskLifecycle = inngest.createFunction(
           return {
             ok: false,
             reason: `budget exhausted: $${spentUsd.toFixed(2)} >= $${config.budgetMaxCostUsd} in ${config.budgetWindowHours}h window`,
+          };
+        }
+        const usedTokens = sumTokensInWindow(db, windowStart);
+        if (usedTokens >= config.budgetMaxTokens) {
+          return {
+            ok: false,
+            reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
         return { ok: true };
