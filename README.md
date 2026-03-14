@@ -83,6 +83,18 @@ Copy `.env.example` to `.env` and fill in the required values.
 | `ORCA_LOG_MAX_SIZE_MB` | `10` | Max log file size before rotation (MB) |
 | `ORCA_TUNNEL_TOKEN` | `""` | Dashboard-managed tunnel token (skips local config) |
 | `ORCA_LINEAR_READY_STATE_TYPE` | `unstarted` | Linear state type that signals readiness |
+| `ORCA_TASK_FILTER_LABEL` | *(none)* | Only dispatch issues with this Linear label. Useful for multi-instance setups (e.g. `orca-prod`). Fails open if the label doesn't exist. |
+| `ORCA_STATE_MAP` | *(none)* | JSON object mapping Linear state names to Orca internal states. Keys are Linear state names; values are one of: `backlog`, `ready`, `running`, `in_review`, `done`, `skip`. Example: `{"Shipped":"done","Won't Fix":"skip"}` |
+
+## macOS Setup
+
+Orca runs on macOS without modification. Platform-specific notes:
+
+- **No long path config needed** — skip the `git config core.longpaths` step (Windows-only)
+- **Claude CLI**: if installed via `npm install -g @anthropic-ai/claude-code`, the binary is on your PATH as `claude`. If the default doesn't resolve, set `ORCA_CLAUDE_PATH` to the absolute path (find it with `which claude`)
+- **cloudflared**: install via Homebrew — `brew install cloudflared`. The binary lands at `/opt/homebrew/bin/cloudflared` on Apple Silicon or `/usr/local/bin/cloudflared` on Intel. Set `ORCA_CLOUDFLARED_PATH` if it's not on your PATH
+- **Repo paths**: use Unix-style paths in `.env` and Linear project descriptions (e.g. `ORCA_DEFAULT_CWD=/Users/you/repos/my-project`, `repo: /Users/you/repos/my-project`)
+- **Windows-specific workarounds** in the scheduler (EPERM retries, `.cmd` shim resolution, DLL_INIT cooldown, `taskkill`) do not apply and are bypassed automatically
 
 ## Usage
 
