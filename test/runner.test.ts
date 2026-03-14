@@ -1,4 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+
+// Mock the Inngest client so tests don't make real HTTP calls.
+vi.mock("../src/inngest/client.js", () => ({
+  inngest: { send: vi.fn().mockResolvedValue(undefined) },
+}));
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

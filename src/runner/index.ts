@@ -15,6 +15,9 @@ import {
 import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { EventEmitter } from "node:events";
+import { inngest } from "../inngest/client.js";
+import type { OrcaEvents } from "../inngest/events.js";
+import type { InvocationStatus } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // In-memory per-invocation log state for SSE streaming
@@ -94,6 +97,10 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
+  /** Linear issue ID for the task associated with this session (used for Inngest event routing). */
+  linearIssueId?: string;
+  /** Scheduler phase for this session: "implement" | "review" | "fix". */
+  phase?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +253,71 @@ function killProcessTree(pid: number, proc: ChildProcess): void {
 }
 
 // ---------------------------------------------------------------------------
+// Inngest event emission
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a SessionResult subtype to an InvocationStatus for Inngest event payloads.
+ */
+function subtypeToStatus(subtype: string): InvocationStatus {
+  if (subtype === "success") return "completed";
+  if (subtype === "error_max_turns") return "timed_out";
+  return "failed";
+}
+
+/**
+ * Emit a `session/completed` or `session/failed` Inngest event for the given
+ * session result. Fire-and-forget — callers should `.catch()` the returned
+ * promise and treat errors as non-fatal.
+ */
+async function emitSessionEvent(
+  result: SessionResult,
+  sessionId: string | null,
+  options: SpawnSessionOptions,
+  startedAt: number,
+): Promise<void> {
+  const linearIssueId = options.linearIssueId ?? "unknown";
+  const phase = options.phase ?? "unknown";
+  const durationMs = Date.now() - startedAt;
+  const status = subtypeToStatus(result.subtype);
+  const isSuccess = result.subtype === "success";
+
+  if (isSuccess) {
+    const data: OrcaEvents["session/completed"]["data"] = {
+      invocationId: options.invocationId,
+      linearIssueId,
+      phase,
+      exitCode: result.exitCode,
+      summary: result.outputSummary,
+      costUsd: result.costUsd,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      numTurns: result.numTurns,
+      durationMs,
+      sessionId,
+      status,
+    };
+    await inngest.send({ name: "session/completed", data });
+  } else {
+    const data: OrcaEvents["session/failed"]["data"] = {
+      invocationId: options.invocationId,
+      linearIssueId,
+      phase,
+      exitCode: result.exitCode,
+      errorSubtype: result.subtype,
+      summary: result.outputSummary,
+      costUsd: result.costUsd,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      durationMs,
+      sessionId,
+      status,
+    };
+    await inngest.send({ name: "session/failed", data });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -391,6 +463,8 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     ),
   );
 
+  const startedAt = Date.now();
+
   const proc = spawn(spawnCmd, args, {
     cwd: options.worktreePath,
     stdio: ["pipe", "pipe", "pipe"],
@@ -507,6 +581,15 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         };
         handle.result = finalResult;
       }
+
+      // Emit Inngest session event (fire-and-forget; errors are non-fatal).
+      emitSessionEvent(finalResult, handle.sessionId, options, startedAt).catch(
+        (err) => {
+          process.stderr.write(
+            `[orca/runner] warning: failed to emit Inngest event for invocation ${options.invocationId}: ${err}\n`,
+          );
+        },
+      );
 
       // Wait for the log stream to flush before resolving so callers
       // can rely on the log file existing on disk after `await handle.done`.
@@ -752,6 +835,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         outputSummary: `spawn error: ${err.message}`,
       };
       handle.result = result;
+      // Emit Inngest event for the spawn error (fire-and-forget).
+      emitSessionEvent(result, handle.sessionId, options, startedAt).catch(
+        (emitErr) => {
+          process.stderr.write(
+            `[orca/runner] warning: failed to emit Inngest event for invocation ${options.invocationId}: ${emitErr}\n`,
+          );
+        },
+      );
       logStream.end(() => {
         if (!logState.done) {
           logState.done = true;

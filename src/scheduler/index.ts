@@ -681,6 +681,8 @@ async function dispatch(
     resumeSessionId,
     repoPath: task.repoPath,
     model,
+    linearIssueId: task.linearIssueId,
+    phase,
   });
 
   // 9. Update task to running
