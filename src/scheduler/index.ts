@@ -93,6 +93,7 @@ import {
 import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
+import { sendPermanentFailureAlert } from "./alerts.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -626,16 +627,7 @@ async function dispatch(
                 );
               },
             );
-            client
-              .createComment(
-                taskId,
-                `Task permanently failed: ${permanentSummary}`,
-              )
-              .catch((commentErr) => {
-                log(
-                  `comment failed on permanent worktree failure for task ${taskId}: ${commentErr}`,
-                );
-              });
+            sendPermanentFailureAlert(deps, taskId, permanentSummary);
           }
           return;
         }
@@ -1670,14 +1662,11 @@ function onSessionFailure(
       updateTaskStatus(db, taskId, "failed");
       const failedTask = getTask(db, taskId);
       emitTaskUpdated(failedTask!);
-      client
-        .createComment(
-          taskId,
-          `Task permanently failed: stale session detected ${staleRetries} times in a row. The Claude session cannot be resumed — manual intervention required.`,
-        )
-        .catch((err) => {
-          log(`comment failed on stale session cap for task ${taskId}: ${err}`);
-        });
+      sendPermanentFailureAlert(
+        deps,
+        taskId,
+        `stale session detected ${staleRetries} times in a row — manual intervention required`,
+      );
       try {
         removeWorktree(worktreePath);
       } catch (err) {
@@ -1730,14 +1719,11 @@ function onSessionFailure(
         log(`write-back failed on content filter for task ${taskId}: ${err}`);
       },
     );
-    client
-      .createComment(
-        taskId,
-        `Task permanently failed: output blocked by Claude's content filtering policy. Retries skipped — the same prompt would produce the same result.`,
-      )
-      .catch((err) => {
-        log(`comment failed on content filter for task ${taskId}: ${err}`);
-      });
+    sendPermanentFailureAlert(
+      deps,
+      taskId,
+      "output blocked by Claude content filtering policy — retries skipped",
+    );
     return;
   }
 
@@ -1926,15 +1912,7 @@ function handleRetry(
       },
     );
 
-    // Post permanent failure comment (fire-and-forget)
-    client
-      .createComment(
-        taskId,
-        `Task failed permanently after ${config.maxRetries} retries: ${briefSummary}`,
-      )
-      .catch((err) => {
-        log(`comment failed on permanent failure for task ${taskId}: ${err}`);
-      });
+    sendPermanentFailureAlert(deps, taskId, briefSummary);
   }
 }
 
@@ -2202,15 +2180,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        // Post deploy timeout comment (fire-and-forget)
-        client
-          .createComment(
-            taskId,
-            `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
-          )
-          .catch((err) => {
-            log(`comment failed on deploy timeout for task ${taskId}: ${err}`);
-          });
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `deploy timed out after ${config.deployTimeoutMin}min`,
+        );
 
         log(
           `task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`,
@@ -2283,15 +2257,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         },
       );
 
-      // Post deploy failure comment (fire-and-forget)
-      client
-        .createComment(
-          taskId,
-          `Deploy CI failed for commit ${task.mergeCommitSha} — task failed permanently`,
-        )
-        .catch((err) => {
-          log(`comment failed on deploy failure for task ${taskId}: ${err}`);
-        });
+      sendPermanentFailureAlert(
+        deps,
+        taskId,
+        `deploy CI failed for commit ${task.mergeCommitSha}`,
+      );
 
       log(
         `task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`,
@@ -2344,14 +2314,11 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        client
-          .createComment(
-            taskId,
-            `CI timed out after ${config.deployTimeoutMin}min — task failed`,
-          )
-          .catch((err) => {
-            log(`comment failed on CI timeout for task ${taskId}: ${err}`);
-          });
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `CI timed out after ${config.deployTimeoutMin}min`,
+        );
 
         log(`task ${taskId} CI timed out after ${config.deployTimeoutMin}min`);
         continue;
@@ -2488,16 +2455,11 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        client
-          .createComment(
-            taskId,
-            `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on CI failure (cycles exhausted) for task ${taskId}: ${err}`,
-            );
-          });
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `CI failed and review cycles exhausted (${config.maxReviewCycles})`,
+        );
 
         log(`task ${taskId} CI failed, cycles exhausted → failed`);
       }
@@ -2573,16 +2535,11 @@ async function mergeAndFinalize(
           },
         );
 
-        client
-          .createComment(
-            taskId,
-            `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-            );
-          });
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `PR #${task.prNumber} has merge conflicts and review cycle limit reached`,
+        );
 
         log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
       }
@@ -2685,16 +2642,11 @@ async function mergeAndFinalize(
                 );
               });
 
-              client
-                .createComment(
-                  taskId,
-                  `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
-                )
-                .catch((err) => {
-                  log(
-                    `comment failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                  );
-                });
+              sendPermanentFailureAlert(
+                deps,
+                taskId,
+                `merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached`,
+              );
 
               log(
                 `task ${taskId} rebase conflicts — review cycles exhausted → failed`,

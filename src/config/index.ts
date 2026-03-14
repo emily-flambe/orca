@@ -43,6 +43,8 @@ export interface OrcaConfig {
   tunnelHostname: string;
   // GitHub webhook (optional — enables auto-deploy on push to main)
   githubWebhookSecret: string | undefined;
+  // Alert webhook (optional — Slack/Discord compatible, fires on permanent failure)
+  alertWebhookUrl: string | undefined;
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
@@ -338,6 +340,7 @@ Steps:
     taskFilterLabel: readEnv("ORCA_TASK_FILTER_LABEL"),
     tunnelHostname,
     githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
+    alertWebhookUrl: readEnv("ORCA_ALERT_WEBHOOK_URL"),
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
