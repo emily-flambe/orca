@@ -494,13 +494,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (updatedTask) {
       if (newStatus === "ready") {
         emitTaskReady(inngest, updatedTask);
-      } else if (sessionKilled && inngest) {
+      } else if (newStatus === "done" && inngest) {
         inngest
           .send({
             name: "task/cancelled",
             data: {
               linearIssueId: taskId,
-              reason: `Status changed to ${newStatus} via API`,
+              reason: sessionKilled
+                ? `Status changed to done via API (session killed)`
+                : `Status changed to done via API`,
               retryCount: updatedTask.retryCount,
               previousStatus: oldStatus as TaskStatus,
             },
@@ -869,10 +871,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         projectId: targetProjectId,
       });
 
-      // Trigger sync so the new ticket appears immediately
-      syncTasks().catch((err) =>
-        console.warn("[orca/api] syncTasks failed after task creation:", err),
-      );
+      // Trigger sync so the new ticket appears immediately, then emit task/ready
+      syncTasks()
+        .then(() => {
+          const newTask = getTask(db, issue.identifier);
+          if (newTask && newTask.orcaStatus === "ready") {
+            emitTaskReady(inngest, newTask);
+          }
+        })
+        .catch((err) =>
+          console.warn("[orca/api] syncTasks failed after task creation:", err),
+        );
 
       console.log(
         `[orca/api] audit: task created identifier=${issue.identifier} title="${body.title.trim()}"`,
