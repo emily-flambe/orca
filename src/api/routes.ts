@@ -1290,7 +1290,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // Inngest
   // -----------------------------------------------------------------------
-  const inngestHandler = serve({ client: inngest, functions: inngestFunctions });
+  const inngestHandler = serve({
+    client: inngest,
+    functions: inngestFunctions,
+  });
   app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
 
   return app;
