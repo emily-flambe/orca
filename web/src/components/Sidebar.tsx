@@ -153,19 +153,11 @@ export default function Sidebar({
     a.localeCompare(b),
   );
 
-  // Build queued tasks list
-  const QUEUED_STATUSES = new Set(["ready", "in_review", "changes_requested"]);
-  const QUEUED_PHASE_ORDER: Record<string, number> = {
-    in_review: 0,
-    changes_requested: 1,
-    ready: 2,
-  };
+  // Build queued tasks list — only "ready" tasks waiting to be dispatched,
+  // sorted to match the scheduler's dispatch order (priority asc, then createdAt asc).
   const queuedTasks = tasks
-    .filter((t) => QUEUED_STATUSES.has(t.orcaStatus))
+    .filter((t) => t.orcaStatus === "ready")
     .sort((a, b) => {
-      const phaseA = QUEUED_PHASE_ORDER[a.orcaStatus] ?? 99;
-      const phaseB = QUEUED_PHASE_ORDER[b.orcaStatus] ?? 99;
-      if (phaseA !== phaseB) return phaseA - phaseB;
       if (a.priority !== b.priority) return a.priority - b.priority;
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -261,37 +253,36 @@ export default function Sidebar({
           </button>
 
           {/* Queued section */}
-          {queuedTasks.length > 0 && (
-            <>
-              <div className="my-1 border-t border-gray-800" />
-              <div className="px-3 py-1.5 text-xs text-gray-500 uppercase tracking-wider font-medium">
-                Queued
+          <div className="my-1 border-t border-gray-800" />
+          <div className="px-3 py-1.5 text-xs text-gray-500 uppercase tracking-wider font-medium flex items-center gap-1">
+            <span>Queue</span>
+            {queuedTasks.length > 0 && (
+              <span className="ml-auto tabular-nums text-gray-600">
+                {queuedTasks.length}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {queuedTasks.length === 0 ? (
+              <div className="px-3 py-1 text-xs text-gray-600 italic">
+                No tasks queued
               </div>
-              <div className="flex flex-col gap-0.5">
-                {queuedTasks.slice(0, 5).map((task) => (
-                  <div
-                    key={task.linearIssueId}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800/40 transition-colors cursor-default"
-                  >
-                    <span className="text-gray-500 font-mono tabular-nums shrink-0">
-                      {task.linearIssueId}
-                    </span>
-                    <span className="truncate text-gray-400">
-                      {task.agentPrompt}
-                    </span>
-                  </div>
-                ))}
-                {queuedTasks.length > 5 && (
-                  <button
-                    className="px-3 py-1 text-xs text-gray-500 hover:text-gray-400 text-left transition-colors"
-                    onClick={() => onNavigate("tasks")}
-                  >
-                    view all
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+            ) : (
+              queuedTasks.map((task) => (
+                <div
+                  key={task.linearIssueId}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded text-xs text-gray-400 hover:text-gray-300 hover:bg-gray-800/40 transition-colors cursor-default"
+                >
+                  <span className="text-gray-500 font-mono tabular-nums shrink-0">
+                    {task.linearIssueId}
+                  </span>
+                  <span className="truncate text-gray-400">
+                    {task.agentPrompt}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
 
           <div className="my-1 border-t border-gray-800" />
 
