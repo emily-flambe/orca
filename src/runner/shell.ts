@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 
 export interface ShellResult {
@@ -35,18 +35,34 @@ export function spawnShellCommand(
   child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
   child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
 
+  /** Kill the child process tree (Windows-aware). */
+  function killTree(): void {
+    if (!child.pid) return;
+    try {
+      if (process.platform === "win32") {
+        execSync(`taskkill /T /F /PID ${child.pid}`, { stdio: "ignore" });
+      } else {
+        child.kill("SIGTERM");
+      }
+    } catch {
+      /* ignore — process may already be dead */
+    }
+  }
+
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
-    // Force-kill after 5 more seconds
-    setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }, 5000);
+    killTree();
+    // Force-kill after 5 more seconds (non-Windows fallback)
+    if (process.platform !== "win32") {
+      setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* ignore */
+        }
+      }, 5000);
+    }
   }, timeoutMs);
 
   const done = new Promise<ShellResult>((resolve) => {
@@ -61,11 +77,7 @@ export function spawnShellCommand(
   const handle: ShellHandle = {
     kill() {
       clearTimeout(timeoutId);
-      try {
-        child.kill("SIGTERM");
-      } catch {
-        /* ignore */
-      }
+      killTree();
     },
     done,
   };
