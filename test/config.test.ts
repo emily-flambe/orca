@@ -239,11 +239,6 @@ describe("default values", () => {
     expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
   });
 
-  test("schedulerIntervalSec defaults to 10", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.schedulerIntervalSec).toBe(10);
-  });
-
   test("claudePath defaults to 'claude'", async () => {
     const cfg = await loadConfig();
     expect(cfg.claudePath).toBe("claude");

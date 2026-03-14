@@ -1,0 +1,19 @@
+{
+  "iteration": 2,
+  "startedAt": "2026-03-10T15:45:00Z",
+  "lastCheck": "2026-03-11T01:26:36Z",
+  "completedAt": "2026-03-11T01:26:36Z",
+  "tickets": {
+    "EMI-214": { "status": "done", "retries": 0, "reviews": 2, "pr": 252, "stableFor": 2 },
+    "EMI-222": { "status": "done", "retries": 0, "reviews": 0, "pr": 250, "stableFor": 2 },
+    "EMI-223": { "status": "done", "retries": 0, "reviews": 1, "pr": 243, "stableFor": 2 },
+    "EMI-224": { "status": "done", "retries": 0, "reviews": 0, "pr": 248, "stableFor": 2 },
+    "EMI-230": { "status": "done", "retries": 1, "reviews": 0, "pr": 253, "stableFor": 1, "note": "PR merged but task stuck as failed — manually set to done" },
+    "EMI-231": { "status": "done", "retries": 0, "reviews": 0, "pr": 242, "stableFor": 2 },
+    "EMI-232": { "status": "done", "retries": 0, "reviews": 0, "pr": 251, "stableFor": 2 }
+  },
+  "interventions": [
+    { "iteration": 1, "ticket": "EMI-230", "action": "Reset to ready — stale session 'No conversation found' after review approved but CI failed on PR 246 (closed)" },
+    { "iteration": 2, "ticket": "EMI-230", "action": "Set to done — PR 253 was merged (94e78c4) but task stuck as failed due to stale session retries exhausting after CI gate" }
+  ]
+}

@@ -1,5 +1,5 @@
 import { getInvocationsByTask, getTask } from "../db/queries.js";
-import type { SchedulerDeps } from "./index.js";
+import type { SchedulerDeps } from "./types.js";
 import { createLogger } from "../logger.js";
 
 const logger = createLogger("alerts");

@@ -19,7 +19,7 @@ import {
   updateInvocation,
   getRunningInvocations,
 } from "../db/queries.js";
-import { activeHandles } from "../scheduler/index.js";
+import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
 import { closePrsForCanceledTask } from "../github/index.js";
 import { emitTaskUpdated, emitTasksRefreshed } from "../events.js";

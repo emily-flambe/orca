@@ -26,6 +26,8 @@ import { tmpdir } from "node:os";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const mockInngest = { send: vi.fn().mockResolvedValue(undefined) } as any;
+
 function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   return {
     defaultCwd: "/tmp",
@@ -34,7 +36,6 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -90,6 +91,7 @@ describe("GET /api/tasks", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -182,6 +184,7 @@ describe("GET /api/tasks/:id", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -231,6 +234,7 @@ describe("GET /api/status", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -303,6 +307,7 @@ describe("GET /api/events (SSE)", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -404,6 +409,7 @@ describe("POST /api/tasks/:id/status", () => {
       client: mockClient,
       stateMap,
       projectMeta: [],
+      inngest: mockInngest,
     });
 
     // Spy on task:updated event emissions
@@ -996,6 +1002,7 @@ describe("GET /api/projects", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta,
+      inngest: mockInngest,
     });
 
     const res = await app.request("/api/projects");
@@ -1015,6 +1022,7 @@ describe("GET /api/projects", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
 
     const res = await app.request("/api/projects");
@@ -1056,6 +1064,7 @@ describe("POST /api/tasks", () => {
       client: mockClient,
       stateMap,
       projectMeta,
+      inngest: mockInngest,
     });
   });
 
@@ -1147,6 +1156,7 @@ describe("POST /api/tasks", () => {
       projectMeta: [
         { id: "proj-empty", name: "Empty", description: "", teamIds: [] },
       ],
+      inngest: mockInngest,
     });
     const res = await appNoTeam.request("/api/tasks", {
       method: "POST",
@@ -1193,6 +1203,7 @@ describe("POST /api/invocations/:id/abort", () => {
       client: { updateIssueState: vi.fn().mockResolvedValue(true) } as any,
       stateMap: new Map([["Todo", { id: "state-todo", type: "unstarted" }]]),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -1322,6 +1333,7 @@ describe("POST /api/tasks/:id/retry", () => {
       } as any,
       stateMap: new Map([["Todo", { id: "state-todo", type: "unstarted" }]]),
       projectMeta: [],
+      inngest: mockInngest,
     });
   });
 
@@ -1414,6 +1426,7 @@ describe("GET /api/invocations/:id/logs — cron_shell", () => {
       client: {} as any,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
     tmpLogDir = join(tmpdir(), `orca-test-logs-${Date.now()}`);
     mkdirSync(tmpLogDir, { recursive: true });

@@ -52,11 +52,11 @@ import {
   type InvocationCompletedPayload,
   type StatusPayload,
 } from "../events.js";
-import { activeHandles } from "../scheduler/index.js";
+import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
-import { getSchedulerHandle } from "../scheduler/state.js";
+
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
 import { createLogger } from "../logger.js";
@@ -74,15 +74,14 @@ export interface ApiDeps {
   client: LinearClient;
   stateMap: WorkflowStateMap;
   projectMeta: ProjectMetadata[];
-  inngest?: InngestClient;
+  inngest: InngestClient;
 }
 
 // ---------------------------------------------------------------------------
-// Inngest helpers (fire-and-forget, no-op when inngest is not configured)
+// Inngest helpers (fire-and-forget)
 // ---------------------------------------------------------------------------
 
-function emitTaskReady(inngest: InngestClient | undefined, task: Task): void {
-  if (!inngest) return;
+function emitTaskReady(inngest: InngestClient, task: Task): void {
   inngest
     .send({
       name: "task/ready",
@@ -495,7 +494,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (updatedTask) {
       if (newStatus === "ready") {
         emitTaskReady(inngest, updatedTask);
-      } else if (sessionKilled && inngest) {
+      } else if (sessionKilled) {
         inngest
           .send({
             name: "task/cancelled",
@@ -1329,22 +1328,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/deploy/unpause
   // -----------------------------------------------------------------------
-  app.post("/api/deploy/unpause", (c) => {
-    const scheduler = getSchedulerHandle();
-    if (!scheduler) {
-      return c.json({ error: "scheduler not initialized" }, 500);
-    }
-    if (scheduler.running) {
-      return c.json({
-        ok: true,
-        schedulerStarted: false,
-        message: "already running",
-      });
-    }
-    scheduler.start();
-    logger.info("audit: scheduler unpaused");
-    return c.json({ ok: true, schedulerStarted: true });
-  });
+  // Legacy unpause — Inngest mode has no scheduler to unpause
+  app.post("/api/deploy/unpause", (c) => c.json({ status: "ok" }));
 
   return app;
 }

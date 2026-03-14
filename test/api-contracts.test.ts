@@ -46,7 +46,6 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -97,6 +96,8 @@ const projectMeta = [
   { id: "test-project", name: "Test Project", teamIds: ["team-1"] },
 ];
 
+const mockInngest = { send: vi.fn().mockResolvedValue(undefined) } as any;
+
 function makeApp(db: OrcaDb, configOverrides?: Partial<OrcaConfig>): Hono {
   return createApiRoutes({
     db,
@@ -105,6 +106,7 @@ function makeApp(db: OrcaDb, configOverrides?: Partial<OrcaConfig>): Hono {
     client: mockClient,
     stateMap: new Map(),
     projectMeta,
+    inngest: mockInngest,
   });
 }
 
@@ -485,6 +487,7 @@ describe("POST /api/sync — contract", () => {
       client: mockClient,
       stateMap: new Map(),
       projectMeta,
+      inngest: mockInngest,
     });
     const res = await app.request("/api/sync", { method: "POST" });
     expect(res.status).toBe(500);
@@ -664,6 +667,7 @@ describe("GET /api/projects — contract", () => {
       client: mockClient,
       stateMap: new Map(),
       projectMeta: [],
+      inngest: mockInngest,
     });
     const res = await app.request("/api/projects");
     expect(res.status).toBe(200);

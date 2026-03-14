@@ -10,7 +10,7 @@ export interface OrcaConfig {
   budgetWindowHours: number;
   budgetMaxCostUsd: number;
   budgetMaxTokens: number;
-  schedulerIntervalSec: number;
+
   claudePath: string;
   defaultMaxTurns: number;
   implementSystemPrompt: string;
@@ -50,7 +50,7 @@ export interface OrcaConfig {
   externalTunnel: boolean;
   cronRetentionDays: number;
   stateMapOverrides: Record<string, string> | undefined;
-  useInngest: boolean;
+
   logLevel: string;
 }
 
@@ -280,7 +280,7 @@ Steps:
       "ORCA_BUDGET_MAX_TOKENS",
       1_000_000_000,
     ),
-    schedulerIntervalSec: readIntOrDefault("ORCA_SCHEDULER_INTERVAL_SEC", 10),
+
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     implementSystemPrompt: readEnvOrDefault(
@@ -383,9 +383,7 @@ Steps:
       }
       return parsed as Record<string, string>;
     })(),
-    useInngest:
-      process.env.ORCA_USE_INNGEST === "true" ||
-      process.env.ORCA_USE_INNGEST === "1",
+
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();
       const valid = ["debug", "info", "warn", "error"];

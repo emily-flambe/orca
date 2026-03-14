@@ -1,4 +1,4 @@
-import type { SchedulerDeps } from "../scheduler/index.js";
+import type { SchedulerDeps } from "../scheduler/types.js";
 
 let _deps: SchedulerDeps | null = null;
 

@@ -16,8 +16,6 @@ import {
   updateTaskFields,
   clearSessionIds,
 } from "../db/queries.js";
-import { createScheduler } from "../scheduler/index.js";
-import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync, writeBackStatus, logStateMapping } from "../linear/sync.js";
@@ -97,11 +95,7 @@ program
 program
   .command("start")
   .description("Start the Orca scheduler")
-  .option(
-    "--scheduler-paused",
-    "Start with the scheduler paused (POST /api/deploy/unpause to start)",
-  )
-  .action(async (opts: { schedulerPaused?: boolean }) => {
+  .action(async () => {
     const config = loadConfig();
     initFileLogger({
       logPath: config.logPath,
@@ -267,22 +261,20 @@ program
       client,
       stateMap,
       projectMeta,
-      inngest: config.useInngest ? inngest : undefined,
+      inngest,
     });
 
     const app = new Hono();
     app.route("/", webhookApp);
     app.route("/", apiApp);
 
-    // Inngest serve endpoint (always mounted so Inngest server can discover functions)
-    if (config.useInngest) {
-      const inngestHandler = serveInngest({
-        client: inngest,
-        functions: inngestFunctions,
-      });
-      app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
-      logger.info("serve endpoint mounted at /api/inngest");
-    }
+    // Inngest serve endpoint
+    const inngestHandler = serveInngest({
+      client: inngest,
+      functions: inngestFunctions,
+    });
+    app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
+    logger.info("serve endpoint mounted at /api/inngest");
 
     // GitHub webhook route (optional — used for future integrations)
     if (config.githubWebhookSecret) {
@@ -348,34 +340,10 @@ program
     });
     poller.start();
 
-    // Initialize Inngest task lifecycle deps (must happen before scheduler/workflows fire)
-    if (config.useInngest) {
-      initTaskLifecycle({ db, config, client, stateMap });
-      setSchedulerDeps({ db, config, graph, client, stateMap });
-      logger.info("task lifecycle deps initialized");
-    }
-
-    // Start scheduler (legacy tick loop — disabled in Inngest mode)
-    let scheduler: ReturnType<typeof createScheduler> | null = null;
-    if (!config.useInngest) {
-      scheduler = createScheduler(
-        { db, config, graph, client, stateMap },
-        { paused: opts.schedulerPaused },
-      );
-      setSchedulerHandle(scheduler);
-
-      if (opts.schedulerPaused) {
-        logger.info(
-          `Orca scheduler created (PAUSED — POST /api/deploy/unpause to start)`,
-        );
-      } else {
-        logger.info(
-          `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
-        );
-      }
-    } else {
-      logger.info("Inngest mode — legacy scheduler disabled");
-    }
+    // Initialize Inngest task lifecycle deps (must happen before workflows fire)
+    initTaskLifecycle({ db, config, client, stateMap });
+    setSchedulerDeps({ db, config, graph, client, stateMap });
+    logger.info("task lifecycle deps initialized");
 
     // Graceful shutdown
     let shuttingDown = false;
@@ -386,11 +354,6 @@ program
 
       // Close HTTP server first to stop accepting new requests
       server.close();
-
-      // Stop scheduler (clears interval, kills active sessions)
-      if (scheduler) {
-        scheduler.stop();
-      }
 
       // Stop polling fallback
       poller.stop();

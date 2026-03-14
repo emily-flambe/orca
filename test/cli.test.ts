@@ -19,8 +19,6 @@ const mockFetchProjectMetadata = vi.fn(() => Promise.resolve([]));
 const mockFetchWorkflowStates = vi.fn(() => Promise.resolve(new Map()));
 const mockLinearCreateComment = vi.fn(() => Promise.resolve());
 const mockFullSync = vi.fn(() => Promise.resolve([]));
-const mockCreateScheduler = vi.fn(() => ({ stop: vi.fn() }));
-
 vi.mock("../src/db/queries.js", () => ({
   insertTask: mockInsertTask,
   getAllTasks: mockGetAllTasks,
@@ -50,7 +48,7 @@ vi.mock("../src/config/index.js", () => ({
     logMaxSizeMb: 10,
     port: 4000,
     concurrencyCap: 1,
-    schedulerIntervalSec: 10,
+
     externalTunnel: true, // skip cloudflared spawn in tests
     githubWebhookSecret: undefined,
     cloudflaredPath: "cloudflared",
@@ -61,10 +59,6 @@ vi.mock("../src/config/index.js", () => ({
 }));
 
 // Mock everything that `start` pulls in so module-level imports don't fail
-vi.mock("../src/scheduler/index.js", () => ({
-  createScheduler: mockCreateScheduler,
-}));
-vi.mock("../src/scheduler/state.js", () => ({ setSchedulerHandle: vi.fn() }));
 vi.mock("../src/linear/client.js", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   LinearClient: vi.fn(function (this: any) {
@@ -97,6 +91,13 @@ vi.mock("../src/api/routes.js", () => ({
   createApiRoutes: vi.fn(() => ({ fetch: vi.fn() })),
 }));
 vi.mock("../src/worktree/index.js", () => ({ removeWorktree: vi.fn() }));
+vi.mock("../src/inngest/client.js", () => ({ inngest: {} }));
+vi.mock("inngest/hono", () => ({ serve: vi.fn(() => vi.fn()) }));
+vi.mock("../src/inngest/functions.js", () => ({ functions: [] }));
+vi.mock("../src/inngest/workflows/task-lifecycle.js", () => ({
+  initTaskLifecycle: vi.fn(),
+}));
+vi.mock("../src/inngest/deps.js", () => ({ setSchedulerDeps: vi.fn() }));
 vi.mock("../src/logger.js", () => ({
   initFileLogger: vi.fn(),
   createLogger: () => ({
@@ -118,6 +119,7 @@ vi.mock("hono", () => ({
     this.route = vi.fn();
     this.use = vi.fn();
     this.get = vi.fn();
+    this.on = vi.fn();
     this.fetch = vi.fn();
   }),
 }));
@@ -376,7 +378,7 @@ describe("orca status", () => {
       logMaxSizeMb: 10,
       port: 4000,
       concurrencyCap: 1,
-      schedulerIntervalSec: 10,
+  
       externalTunnel: true,
       githubWebhookSecret: undefined,
       cloudflaredPath: "cloudflared",
@@ -433,50 +435,23 @@ describe("orca start", () => {
     mockGetAllTasks.mockReturnValue([]);
   });
 
-  test("start command initializes scheduler", async () => {
+  test("start command initializes Inngest task lifecycle", async () => {
     await runCli(["start"]);
 
+    const { initTaskLifecycle } = await import(
+      "../src/inngest/workflows/task-lifecycle.js"
+    );
     await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalled();
+      expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
     });
   });
 
-  test("--scheduler-paused passes paused:true to createScheduler", async () => {
-    await runCli(["start", "--scheduler-paused"]);
-
-    await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalledWith(expect.anything(), {
-        paused: true,
-      });
-    });
-  });
-
-  test("without --scheduler-paused, createScheduler receives paused:undefined", async () => {
+  test("start command initializes scheduler deps", async () => {
     await runCli(["start"]);
 
+    const { setSchedulerDeps } = await import("../src/inngest/deps.js");
     await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalledWith(expect.anything(), {
-        paused: undefined,
-      });
-    });
-  });
-
-  test("--scheduler-paused prints paused message", async () => {
-    await runCli(["start", "--scheduler-paused"]);
-
-    await vi.waitFor(() => {
-      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(output).toContain("PAUSED");
-    });
-  });
-
-  test("without --scheduler-paused prints started message with concurrency", async () => {
-    await runCli(["start"]);
-
-    await vi.waitFor(() => {
-      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-      expect(output).toContain("Orca scheduler started");
-      expect(output).toContain("concurrency: 1");
+      expect(vi.mocked(setSchedulerDeps)).toHaveBeenCalled();
     });
   });
 
@@ -491,8 +466,11 @@ describe("orca start", () => {
 
     await runCli(["start"]);
 
+    const { initTaskLifecycle } = await import(
+      "../src/inngest/workflows/task-lifecycle.js"
+    );
     await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalled();
+      expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
     });
 
     expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
