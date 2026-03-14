@@ -7,3 +7,5 @@ export const inngest = new Inngest({
   id: "orca",
   schemas,
 });
+
+export type InngestClient = typeof inngest;

@@ -74,6 +74,7 @@ import {
   pushAndCreatePr,
   getMergeCommitSha,
   getPrCheckStatus,
+  getPrCheckStatusSync,
   getWorkflowRunStatus,
   mergePr,
   getPrMergeState,
@@ -1788,6 +1789,69 @@ function handleRetry(
   }
 
   const briefSummary = summary ? summary.slice(0, 200) : "unknown error";
+
+  // PR recovery: before burning a retry, check if the task already has an
+  // open PR. If so, route to awaiting_ci or changes_requested instead of
+  // retrying from scratch (prevents wasting retries on transient failures
+  // when the implementation is already done — e.g. DLL_INIT worktree errors).
+  if (task.prBranchName && task.repoPath) {
+    const existingPr = findPrForBranch(task.prBranchName, task.repoPath, 1);
+    if (existingPr.exists && existingPr.number && !existingPr.merged) {
+      const ciStatus = getPrCheckStatusSync(existingPr.number, task.repoPath);
+      if (ciStatus === "success" || ciStatus === "no_checks") {
+        log(
+          `task ${taskId} has open PR #${existingPr.number} with passing CI — skipping retry, transitioning to awaiting_ci`,
+        );
+        if (!task.prNumber) {
+          updateTaskFields(db, taskId, { prNumber: existingPr.number });
+        }
+        updateTaskStatus(db, taskId, "awaiting_ci");
+        emitTaskUpdated(getTask(db, taskId)!);
+        client
+          .createComment(
+            taskId,
+            `PR #${existingPr.number} already exists with passing CI — skipping retry and proceeding to merge`,
+          )
+          .catch((err) => {
+            log(`comment failed on PR recovery for task ${taskId}: ${err}`);
+          });
+        return;
+      } else if (ciStatus === "failure") {
+        log(
+          `task ${taskId} has open PR #${existingPr.number} with failing CI — skipping retry, transitioning to changes_requested`,
+        );
+        if (!task.prNumber) {
+          updateTaskFields(db, taskId, { prNumber: existingPr.number });
+        }
+        incrementReviewCycleCount(db, taskId);
+        updateTaskStatus(db, taskId, "changes_requested");
+        emitTaskUpdated(getTask(db, taskId)!);
+        if (!terminalWriteBackTasks.has(taskId)) {
+          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
+            (err) => {
+              log(
+                `write-back failed on PR recovery for task ${taskId}: ${err}`,
+              );
+            },
+          );
+        }
+        client
+          .createComment(
+            taskId,
+            `PR #${existingPr.number} already exists but CI is failing — dispatching fix phase instead of full retry`,
+          )
+          .catch((err) => {
+            log(`comment failed on PR recovery for task ${taskId}: ${err}`);
+          });
+        return;
+      }
+      // ciStatus === "pending" → fall through to normal retry
+      // (don't block on in-progress CI; let the next retry attempt check again)
+      log(
+        `task ${taskId} has open PR #${existingPr.number} but CI is still pending — proceeding with normal retry`,
+      );
+    }
+  }
 
   if (task.retryCount < config.maxRetries) {
     // Review failures retry as in_review so the review is re-dispatched,
