@@ -1620,7 +1620,11 @@ function onSessionFailure(
       updateTaskStatus(db, taskId, "failed");
       const failedTask = getTask(db, taskId);
       emitTaskUpdated(failedTask!);
-      sendPermanentFailureAlert(deps, taskId, `stale session detected ${staleRetries} times in a row — manual intervention required`);
+      sendPermanentFailureAlert(
+        deps,
+        taskId,
+        `stale session detected ${staleRetries} times in a row — manual intervention required`,
+      );
       try {
         removeWorktree(worktreePath);
       } catch (err) {
@@ -1673,7 +1677,11 @@ function onSessionFailure(
         log(`write-back failed on content filter for task ${taskId}: ${err}`);
       },
     );
-    sendPermanentFailureAlert(deps, taskId, "output blocked by Claude content filtering policy — retries skipped");
+    sendPermanentFailureAlert(
+      deps,
+      taskId,
+      "output blocked by Claude content filtering policy — retries skipped",
+    );
     return;
   }
 
@@ -2130,7 +2138,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        sendPermanentFailureAlert(deps, taskId, `deploy timed out after ${config.deployTimeoutMin}min`);
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `deploy timed out after ${config.deployTimeoutMin}min`,
+        );
 
         log(
           `task ${taskId} deploy timed out after ${config.deployTimeoutMin}min`,
@@ -2203,7 +2215,11 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
         },
       );
 
-      sendPermanentFailureAlert(deps, taskId, `deploy CI failed for commit ${task.mergeCommitSha}`);
+      sendPermanentFailureAlert(
+        deps,
+        taskId,
+        `deploy CI failed for commit ${task.mergeCommitSha}`,
+      );
 
       log(
         `task ${taskId} deploy failed → failed (SHA: ${task.mergeCommitSha})`,
@@ -2253,7 +2269,11 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        sendPermanentFailureAlert(deps, taskId, `CI timed out after ${config.deployTimeoutMin}min`);
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `CI timed out after ${config.deployTimeoutMin}min`,
+        );
 
         log(`task ${taskId} CI timed out after ${config.deployTimeoutMin}min`);
         continue;
@@ -2321,7 +2341,11 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
           },
         );
 
-        sendPermanentFailureAlert(deps, taskId, `CI failed and review cycles exhausted (${config.maxReviewCycles})`);
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `CI failed and review cycles exhausted (${config.maxReviewCycles})`,
+        );
 
         log(`task ${taskId} CI failed, cycles exhausted → failed`);
       }
@@ -2397,7 +2421,11 @@ async function mergeAndFinalize(
           },
         );
 
-        sendPermanentFailureAlert(deps, taskId, `PR #${task.prNumber} has merge conflicts and review cycle limit reached`);
+        sendPermanentFailureAlert(
+          deps,
+          taskId,
+          `PR #${task.prNumber} has merge conflicts and review cycle limit reached`,
+        );
 
         log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
       }
@@ -2500,7 +2528,11 @@ async function mergeAndFinalize(
                 );
               });
 
-              sendPermanentFailureAlert(deps, taskId, `merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached`);
+              sendPermanentFailureAlert(
+                deps,
+                taskId,
+                `merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached`,
+              );
 
               log(
                 `task ${taskId} rebase conflicts — review cycles exhausted → failed`,
