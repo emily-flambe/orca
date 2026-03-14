@@ -34,6 +34,9 @@ export type OrcaEvents = {
       numTurns: number | null;
       durationMs: number;
       status: InvocationStatus;
+      exitCode: number | null;
+      summary: string;
+      sessionId: string | null;
     };
   };
   "session/failed": {
@@ -44,6 +47,9 @@ export type OrcaEvents = {
       reason: string;
       retryCount: number;
       status: InvocationStatus;
+      exitCode: number | null;
+      summary: string;
+      sessionId: string | null;
     };
   };
   "task/awaiting-ci": {

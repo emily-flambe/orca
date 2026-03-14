@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -8,6 +8,11 @@ import {
   resolveClaudeBinary,
 } from "../src/runner/index.js";
 import { spawnShellCommand, activeShellHandles } from "../src/runner/shell.js";
+import { inngest } from "../src/inngest/client.js";
+
+vi.mock("../src/inngest/client.js", () => ({
+  inngest: { send: vi.fn().mockResolvedValue(undefined) },
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -944,5 +949,420 @@ describe("shell.ts spawnShellCommand", () => {
     expect(result.output.toLowerCase()).toContain(
       tmpdir().toLowerCase().replace(/\\/g, "/").split("/")[1] ?? "tmp",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Inngest event emission
+// ---------------------------------------------------------------------------
+
+describe("Inngest event emission", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "orca-inngest-test-"));
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("inngest.send called with session/completed when inngestContext provided and session succeeds", async () => {
+    const script = join(tmpDir, "inngest-success.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"sess-abc"}) + "\\n");',
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0.05,num_turns:3,result:"done well"}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-42",
+        phase: "implement",
+        retryCount: 1,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/completed");
+    expect(call.data.invocationId).toBe(id);
+    expect(call.data.linearIssueId).toBe("LIN-42");
+    expect(call.data.phase).toBe("implement");
+    expect(call.data.status).toBe("completed");
+    expect(call.data.exitCode).toBe(0);
+    expect(call.data.summary).toBe("done well");
+    expect(call.data.sessionId).toBe("sess-abc");
+    expect(typeof call.data.durationMs).toBe("number");
+  });
+
+  test("inngest.send called with session/failed when inngestContext provided and session exits non-zero", async () => {
+    const script = join(tmpDir, "inngest-fail.js");
+    writeFileSync(
+      script,
+      makeScript([
+        "process.exit(1);",
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-99",
+        phase: "review",
+        retryCount: 2,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    expect(call.data.invocationId).toBe(id);
+    expect(call.data.linearIssueId).toBe("LIN-99");
+    expect(call.data.phase).toBe("review");
+    expect(call.data.retryCount).toBe(2);
+    expect(call.data.status).toBe("failed");
+    expect(call.data.exitCode).toBe(1);
+    expect(typeof call.data.summary).toBe("string");
+    expect(call.data.sessionId).toBeNull();
+  });
+
+  test("inngest.send is NOT called when inngestContext is not provided", async () => {
+    const script = join(tmpDir, "inngest-no-context.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:"ok"}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      // No inngestContext
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  // BUG PROBE: rate_limited fires session/failed — verify the event name and
+  // check that sessionId is included (it will be null since no system/init).
+  test("inngest.send called with session/failed when session is rate_limited", async () => {
+    const script = join(tmpDir, "inngest-rate-limited.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"rate_limit_event",overageStatus:"rejected",rateLimitType:"daily",resetsAt:"2026-03-20T00:00:00Z"}) + "\\n");',
+        "process.exit(1);",
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-200",
+        phase: "implement",
+        retryCount: 1,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    expect(call.data.status).toBe("failed");
+    expect(call.data.retryCount).toBe(1);
+    // rate_limited subtype has exitCode 1
+    expect(call.data.exitCode).toBe(1);
+    // sessionId should be null (no system/init received)
+    expect(call.data.sessionId).toBeNull();
+    // reason should contain "rate limited"
+    expect(typeof call.data.reason).toBe("string");
+    expect((call.data.reason as string).toLowerCase()).toContain("rate");
+  });
+
+  // BUG PROBE: retryCount defaults to 0 when undefined in inngestContext.
+  // Tests that the fallback ?? 0 works correctly for session/failed path.
+  test("retryCount defaults to 0 when not provided in inngestContext (session/failed path)", async () => {
+    const script = join(tmpDir, "inngest-retry-default.js");
+    writeFileSync(
+      script,
+      makeScript([
+        "process.exit(1);",
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-300",
+        phase: "review",
+        // retryCount intentionally omitted
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    expect(call.data.retryCount).toBe(0);
+  });
+
+  // BUG PROBE: session/completed event includes durationMs > 0.
+  // Verify durationMs is a positive number, not zero or negative.
+  test("session/completed durationMs is a positive number", async () => {
+    const script = join(tmpDir, "inngest-duration.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:"done"}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-400",
+        phase: "implement",
+        retryCount: 0,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/completed");
+    expect(typeof call.data.durationMs).toBe("number");
+    expect(call.data.durationMs as number).toBeGreaterThan(0);
+  });
+
+  // BUG PROBE: session/failed from the proc.on("error") spawn error path
+  // fires with correct fields. The proc.on("error") path has its OWN
+  // inngest.send call separate from tryResolve — verify it works.
+  // NOTE: We cannot easily trigger a real spawn error in tests (requires a
+  // non-existent executable). We verify the error path via process_error
+  // caused by a non-zero exit with no result message instead.
+  test("session/failed from process_error (non-zero exit, no result) includes correct fields", async () => {
+    const script = join(tmpDir, "inngest-process-error.js");
+    writeFileSync(
+      script,
+      makeScript([
+        // No result message, just exits with code 2
+        "process.exit(2);",
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-500",
+        phase: "gate2",
+        retryCount: 3,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    expect(call.data.exitCode).toBe(2);
+    expect(call.data.retryCount).toBe(3);
+    expect(call.data.sessionId).toBeNull();
+    // "reason" and "summary" should both be the outputSummary
+    expect(call.data.reason).toBe(call.data.summary);
+    // The summary should mention the exit code
+    expect((call.data.summary as string)).toContain("2");
+  });
+
+  // BUG PROBE: error_during_execution fires session/failed, not session/completed.
+  // Verify this is the actual behavior (testing the non-success subtype routing).
+  test("error_during_execution fires session/failed (not session/completed)", async () => {
+    const script = join(tmpDir, "inngest-exec-error.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"error_during_execution",errors:["tool X failed"]}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-600",
+        phase: "implement",
+        retryCount: 0,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    expect(call.data.status).toBe("failed");
+    // The summary/reason should reference the tool error
+    expect((call.data.summary as string)).toContain("tool X failed");
+  });
+
+  // BUG PROBE: session/failed does NOT include a durationMs field.
+  // The session/completed schema requires durationMs but session/failed does not.
+  // This tests that callers cannot rely on durationMs from session/failed events.
+  test("session/failed event does NOT include durationMs field", async () => {
+    const script = join(tmpDir, "inngest-failed-duration.js");
+    writeFileSync(
+      script,
+      makeScript([
+        "process.exit(1);",
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-700",
+        phase: "implement",
+        retryCount: 0,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/failed");
+    // This WILL PASS — session/failed genuinely lacks durationMs.
+    // Documenting that the asymmetry exists so it can be evaluated intentionally.
+    expect(call.data.durationMs).toBeUndefined();
+  });
+
+  // BUG PROBE: sessionId is correctly captured and included in session/completed
+  // when a system/init message was received before the result.
+  test("session/completed includes sessionId from system/init", async () => {
+    const script = join(tmpDir, "inngest-session-id.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"system",subtype:"init",session_id:"my-session-xyz"}) + "\\n");',
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:"ok"}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      inngestContext: {
+        linearIssueId: "LIN-800",
+        phase: "implement",
+        retryCount: 0,
+      },
+    });
+
+    await handle.done;
+
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).toHaveBeenCalledOnce();
+    const call = sendMock.mock.calls[0][0] as { name: string; data: Record<string, unknown> };
+    expect(call.name).toBe("session/completed");
+    expect(call.data.sessionId).toBe("my-session-xyz");
+  });
+
+  // BUG PROBE: Verify mocks do NOT contaminate across tests.
+  // The beforeEach calls vi.clearAllMocks(), but if that didn't work, a previous
+  // test's calls would bleed into this one.
+  test("mock state is clean at start (no calls from prior tests)", async () => {
+    // Do NOT run any spawnSession. The mock should be clean from vi.clearAllMocks().
+    const sendMock = vi.mocked(inngest.send);
+    expect(sendMock).not.toHaveBeenCalled();
   });
 });

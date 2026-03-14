@@ -4,6 +4,7 @@ import {
   execSync,
   type ChildProcess,
 } from "node:child_process";
+import { inngest } from "../inngest/client.js";
 import { createInterface } from "node:readline";
 import {
   createWriteStream,
@@ -94,6 +95,12 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
+  /** Optional Inngest context for firing session completion/failure events. */
+  inngestContext?: {
+    linearIssueId: string;
+    phase: string;
+    retryCount?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +363,7 @@ export function resolveClaudeBinary(requested: string): {
 }
 
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
+  const spawnedAt = Date.now();
   const requested = options.claudePath ?? "claude";
   const { command: spawnCmd, prefixArgs } = resolveClaudeBinary(requested);
   const args = [...prefixArgs, ...buildArgs(options)];
@@ -522,6 +530,59 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+
+        // Fire Inngest event (fire-and-forget) if inngestContext was provided.
+        if (options.inngestContext) {
+          const durationMs = Date.now() - spawnedAt;
+          const isSuccess = finalResult.subtype === "success";
+          if (isSuccess) {
+            inngest
+              .send({
+                name: "session/completed",
+                data: {
+                  invocationId: options.invocationId,
+                  linearIssueId: options.inngestContext.linearIssueId,
+                  phase: options.inngestContext.phase,
+                  costUsd: finalResult.costUsd,
+                  inputTokens: finalResult.inputTokens,
+                  outputTokens: finalResult.outputTokens,
+                  numTurns: finalResult.numTurns,
+                  durationMs,
+                  status: "completed",
+                  exitCode: finalResult.exitCode,
+                  summary: finalResult.outputSummary,
+                  sessionId: handle.sessionId,
+                },
+              })
+              .catch((err: unknown) =>
+                process.stderr.write(
+                  `[orca/runner] warning: failed to send session/completed Inngest event: ${err}\n`,
+                ),
+              );
+          } else {
+            inngest
+              .send({
+                name: "session/failed",
+                data: {
+                  invocationId: options.invocationId,
+                  linearIssueId: options.inngestContext.linearIssueId,
+                  phase: options.inngestContext.phase,
+                  reason: finalResult.outputSummary,
+                  retryCount: options.inngestContext.retryCount ?? 0,
+                  status: "failed",
+                  exitCode: finalResult.exitCode,
+                  summary: finalResult.outputSummary,
+                  sessionId: handle.sessionId,
+                },
+              })
+              .catch((err: unknown) =>
+                process.stderr.write(
+                  `[orca/runner] warning: failed to send session/failed Inngest event: ${err}\n`,
+                ),
+              );
+          }
+        }
+
         resolve(finalResult);
       });
     }
@@ -762,6 +823,31 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+
+        // Fire Inngest session/failed event (fire-and-forget) on spawn error.
+        if (options.inngestContext) {
+          inngest
+            .send({
+              name: "session/failed",
+              data: {
+                invocationId: options.invocationId,
+                linearIssueId: options.inngestContext.linearIssueId,
+                phase: options.inngestContext.phase,
+                reason: result.outputSummary,
+                retryCount: options.inngestContext.retryCount ?? 0,
+                status: "failed",
+                exitCode: result.exitCode,
+                summary: result.outputSummary,
+                sessionId: handle.sessionId,
+              },
+            })
+            .catch((sendErr: unknown) =>
+              process.stderr.write(
+                `[orca/runner] warning: failed to send session/failed Inngest event: ${sendErr}\n`,
+              ),
+            );
+        }
+
         resolve(result);
       });
     });
