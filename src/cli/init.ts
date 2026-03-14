@@ -12,6 +12,9 @@ import { parse as dotenvParse } from "dotenv";
 import { runPreflightChecks, type PreflightResult } from "./preflight.js";
 import { LinearClient } from "../linear/client.js";
 import { createDb } from "../db/index.js";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("init");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,7 +25,7 @@ function printCheck(r: PreflightResult): void {
   const prefix = r.status === "ok" ? "  " : "  ";
   const versionStr = r.version ? ` ${r.version}` : "";
   const msg = r.message ? ` — ${r.message}` : "";
-  console.log(`${prefix}${icon} ${r.name}${versionStr}${msg}`);
+  logger.info(`${prefix}${icon} ${r.name}${versionStr}${msg}`);
 }
 
 function run(cmd: string, args: string[], opts?: { timeout?: number }): string {
@@ -37,13 +40,13 @@ function run(cmd: string, args: string[], opts?: { timeout?: number }): string {
 // ---------------------------------------------------------------------------
 
 export async function runInit(): Promise<void> {
-  console.log("\n=== Orca Setup ===\n");
+  logger.info("\n=== Orca Setup ===\n");
 
   // -------------------------------------------------------------------------
   // Phase 1 — Preflight
   // -------------------------------------------------------------------------
 
-  console.log("Checking prerequisites...");
+  logger.info("Checking prerequisites...");
   const checks = runPreflightChecks();
   for (const c of checks) {
     printCheck(c);
@@ -51,12 +54,12 @@ export async function runInit(): Promise<void> {
 
   const missing = checks.filter((c) => c.status === "missing");
   if (missing.length > 0) {
-    console.log(
+    logger.info(
       "\nRequired tools are missing. Install them and re-run `orca init`.",
     );
     process.exit(1);
   }
-  console.log();
+  logger.info("");
 
   // -------------------------------------------------------------------------
   // Phase 2 — Load existing .env
@@ -66,14 +69,14 @@ export async function runInit(): Promise<void> {
   let existing: Record<string, string> = {};
   if (existsSync(envPath)) {
     existing = dotenvParse(readFileSync(envPath, "utf8"));
-    console.log("Found existing .env — using values as defaults.\n");
+    logger.info("Found existing .env — using values as defaults.\n");
   }
 
   // -------------------------------------------------------------------------
   // Phase 3 — Linear API key
   // -------------------------------------------------------------------------
 
-  console.log("--- Linear ---");
+  logger.info("--- Linear ---");
   let linearApiKey: string;
   if (existing.ORCA_LINEAR_API_KEY) {
     const useExisting = await confirm({
@@ -101,9 +104,9 @@ export async function runInit(): Promise<void> {
   try {
     const viewer = await client.fetchViewer();
     workspaceName = viewer.organizationName;
-    console.log(`  ✓ Connected (workspace: "${workspaceName}")\n`);
+    logger.info(`  ✓ Connected (workspace: "${workspaceName}")\n`);
   } catch (err) {
-    console.error(
+    logger.error(
       `  ✗ Failed to authenticate with Linear: ${err instanceof Error ? err.message : err}`,
     );
     process.exit(1);
@@ -115,7 +118,7 @@ export async function runInit(): Promise<void> {
 
   const allProjects = await client.fetchAllProjects();
   if (allProjects.length === 0) {
-    console.error("  ✗ No projects found in your Linear workspace.");
+    logger.error("  ✗ No projects found in your Linear workspace.");
     process.exit(1);
   }
 
@@ -140,11 +143,11 @@ export async function runInit(): Promise<void> {
   });
 
   if (selectedProjectIds.length === 0) {
-    console.error("  ✗ At least one project must be selected.");
+    logger.error("  ✗ At least one project must be selected.");
     process.exit(1);
   }
 
-  console.log(`  ✓ ${selectedProjectIds.length} project(s) selected\n`);
+  logger.info(`  ✓ ${selectedProjectIds.length} project(s) selected\n`);
 
   // -------------------------------------------------------------------------
   // Phase 5 — Repo paths
@@ -161,24 +164,24 @@ export async function runInit(): Promise<void> {
 
   let defaultCwd = existing.ORCA_DEFAULT_CWD || "";
   if (projectsWithoutRepo.length > 0) {
-    console.log(
+    logger.info(
       `Note: ${projectsWithoutRepo.length} project(s) missing \`repo:\` line in description:`,
     );
     for (const p of projectsWithoutRepo) {
-      console.log(`  - ${p.name}`);
+      logger.info(`  - ${p.name}`);
     }
     defaultCwd = await input({
       message: "Default repo path (ORCA_DEFAULT_CWD):",
       default: defaultCwd || process.cwd(),
     });
-    console.log();
+    logger.info("");
   }
 
   // -------------------------------------------------------------------------
   // Phase 6 — Cloudflare tunnel
   // -------------------------------------------------------------------------
 
-  console.log("--- Cloudflare Tunnel ---");
+  logger.info("--- Cloudflare Tunnel ---");
   const tunnelName = await input({
     message: "Tunnel name:",
     default: existing.CLOUDFLARE_TUNNEL_ID ? "orca" : "orca",
@@ -190,28 +193,28 @@ export async function runInit(): Promise<void> {
   });
 
   if (!tunnelHostname) {
-    console.error("  ✗ Hostname is required.");
+    logger.error("  ✗ Hostname is required.");
     process.exit(1);
   }
 
   // Authenticate with Cloudflare
   const certPath = join(homedir(), ".cloudflared", "cert.pem");
   if (!existsSync(certPath)) {
-    console.log("\n  Authenticating with Cloudflare... (browser will open)\n");
+    logger.info("\n  Authenticating with Cloudflare... (browser will open)\n");
     try {
       execFileSync("cloudflared", ["tunnel", "login"], {
         stdio: "inherit",
         timeout: 120_000,
       });
-      console.log("  ✓ Authenticated");
+      logger.info("  ✓ Authenticated");
     } catch (err) {
-      console.error(
+      logger.error(
         `  ✗ Cloudflare authentication failed: ${err instanceof Error ? err.message : err}`,
       );
       process.exit(1);
     }
   } else {
-    console.log("  ✓ Already authenticated with Cloudflare");
+    logger.info("  ✓ Already authenticated with Cloudflare");
   }
 
   // Check if tunnel already exists
@@ -227,7 +230,7 @@ export async function runInit(): Promise<void> {
     );
     if (existing_tunnel) {
       tunnelId = existing_tunnel.id;
-      console.log(
+      logger.info(
         `  ✓ Tunnel "${tunnelName}" already exists (UUID: ${tunnelId})`,
       );
     }
@@ -245,13 +248,13 @@ export async function runInit(): Promise<void> {
       );
       if (idMatch) {
         tunnelId = idMatch[1];
-        console.log(`  ✓ Tunnel "${tunnelName}" created (UUID: ${tunnelId})`);
+        logger.info(`  ✓ Tunnel "${tunnelName}" created (UUID: ${tunnelId})`);
       } else {
-        console.error(`  ✗ Could not parse tunnel UUID from: ${createOut}`);
+        logger.error(`  ✗ Could not parse tunnel UUID from: ${createOut}`);
         process.exit(1);
       }
     } catch (err) {
-      console.error(
+      logger.error(
         `  ✗ Failed to create tunnel: ${err instanceof Error ? err.message : err}`,
       );
       process.exit(1);
@@ -261,15 +264,15 @@ export async function runInit(): Promise<void> {
   // Create DNS route
   try {
     run("cloudflared", ["tunnel", "route", "dns", tunnelName, tunnelHostname]);
-    console.log(`  ✓ DNS route: ${tunnelHostname} → tunnel`);
+    logger.info(`  ✓ DNS route: ${tunnelHostname} → tunnel`);
   } catch (err) {
     // May fail if CNAME already exists — that's usually fine
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("already exists")) {
-      console.log(`  ✓ DNS route already exists for ${tunnelHostname}`);
+      logger.info(`  ✓ DNS route already exists for ${tunnelHostname}`);
     } else {
-      console.warn(`  ⚠ DNS route creation failed: ${msg}`);
-      console.warn("    You may need to manually add a CNAME record.");
+      logger.warn(`  ⚠ DNS route creation failed: ${msg}`);
+      logger.warn("    You may need to manually add a CNAME record.");
     }
   }
 
@@ -296,24 +299,24 @@ export async function runInit(): Promise<void> {
   }
   if (writeConfig) {
     writeFileSync(configPath, configContent, "utf8");
-    console.log(`  ✓ Config written to ${configPath}`);
+    logger.info(`  ✓ Config written to ${configPath}`);
   }
 
   // Validate ingress
   try {
     run("cloudflared", ["tunnel", "ingress", "validate"]);
-    console.log("  ✓ Ingress rules validated");
+    logger.info("  ✓ Ingress rules validated");
   } catch {
-    console.warn("  ⚠ Ingress validation failed — check config.yml");
+    logger.warn("  ⚠ Ingress validation failed — check config.yml");
   }
 
-  console.log();
+  logger.info("");
 
   // -------------------------------------------------------------------------
   // Phase 7 — Webhook auto-creation
   // -------------------------------------------------------------------------
 
-  console.log("--- Linear Webhook ---");
+  logger.info("--- Linear Webhook ---");
   let finalWebhookSecret = randomBytes(32).toString("hex");
   const webhookUrl = `https://${tunnelHostname}/api/webhooks/linear`;
 
@@ -327,17 +330,17 @@ export async function runInit(): Promise<void> {
       await client.createWebhook(teamId, webhookUrl, finalWebhookSecret);
       webhookCreated = true;
     } catch (err) {
-      console.warn(
+      logger.warn(
         `  ⚠ Failed to create webhook for team ${teamId}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
 
   if (webhookCreated) {
-    console.log(`  ✓ Webhook created at ${webhookUrl}`);
+    logger.info(`  ✓ Webhook created at ${webhookUrl}`);
   } else {
-    console.warn("  ⚠ Could not auto-create webhook.");
-    console.warn(
+    logger.warn("  ⚠ Could not auto-create webhook.");
+    logger.warn(
       `    Create manually at Linear Settings → API → Webhooks with URL: ${webhookUrl}`,
     );
     finalWebhookSecret = await input({
@@ -346,16 +349,16 @@ export async function runInit(): Promise<void> {
     });
   }
 
-  console.log();
+  logger.info("");
 
   // -------------------------------------------------------------------------
   // Phase 8 — Write .env
   // -------------------------------------------------------------------------
 
-  console.log("--- Database ---");
+  logger.info("--- Database ---");
   const dbPath = existing.ORCA_DB_PATH || "./orca.db";
   createDb(dbPath);
-  console.log(`  ✓ Initialized at ${dbPath}\n`);
+  logger.info(`  ✓ Initialized at ${dbPath}\n`);
 
   // Build .env content
   const envLines: string[] = [
@@ -416,23 +419,23 @@ export async function runInit(): Promise<void> {
 
   if (writeEnv) {
     writeFileSync(envPath, envContent, "utf8");
-    console.log(
+    logger.info(
       `Wrote .env (${generatedKeys.size} vars + ${extraVars.length} preserved)`,
     );
   } else {
-    console.log("Skipped .env write.");
+    logger.info("Skipped .env write.");
   }
 
   // -------------------------------------------------------------------------
   // Phase 10 — Summary
   // -------------------------------------------------------------------------
 
-  console.log("\n=== Setup Complete ===\n");
-  console.log("Configured:");
-  console.log(`  Linear workspace: ${workspaceName}`);
-  console.log(`  Projects: ${selectedProjectIds.length}`);
-  console.log(`  Tunnel: ${tunnelName} (${tunnelHostname})`);
-  console.log(`  Database: ${dbPath}`);
-  console.log();
-  console.log("Run `npm run dev -- start` to launch orca.");
+  logger.info("\n=== Setup Complete ===\n");
+  logger.info("Configured:");
+  logger.info(`  Linear workspace: ${workspaceName}`);
+  logger.info(`  Projects: ${selectedProjectIds.length}`);
+  logger.info(`  Tunnel: ${tunnelName} (${tunnelHostname})`);
+  logger.info(`  Database: ${dbPath}`);
+  logger.info("");
+  logger.info("Run `npm run dev -- start` to launch orca.");
 }

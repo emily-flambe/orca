@@ -2,6 +2,7 @@
 // Linear sync — full sync, webhook processing, conflict resolution, write-back
 // ---------------------------------------------------------------------------
 
+import { createLogger } from "../logger.js";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
@@ -139,8 +140,10 @@ export function isExpectedChange(taskId: string, stateName: string): boolean {
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("sync");
+
 function log(message: string): void {
-  console.log(`[orca/sync] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -847,8 +850,8 @@ export function logStateMapping(
     startedStates.length > 1 &&
     !startedStates.some((name) => /review/i.test(name))
   ) {
-    console.warn(
-      '[orca/sync] warning: multiple started states exist but none contain "review" — in_review write-back will use first started state; add ORCA_STATE_MAP to disambiguate',
+    logger.warn(
+      'warning: multiple started states exist but none contain "review" — in_review write-back will use first started state; add ORCA_STATE_MAP to disambiguate',
     );
   }
 }

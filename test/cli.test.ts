@@ -97,7 +97,15 @@ vi.mock("../src/api/routes.js", () => ({
   createApiRoutes: vi.fn(() => ({ fetch: vi.fn() })),
 }));
 vi.mock("../src/worktree/index.js", () => ({ removeWorktree: vi.fn() }));
-vi.mock("../src/logger.js", () => ({ initFileLogger: vi.fn() }));
+vi.mock("../src/logger.js", () => ({
+  initFileLogger: vi.fn(),
+  createLogger: () => ({
+    debug: (...a: unknown[]) => console.log(...a),
+    info: (...a: unknown[]) => console.log(...a),
+    warn: (...a: unknown[]) => console.warn(...a),
+    error: (...a: unknown[]) => console.error(...a),
+  }),
+}));
 vi.mock("@hono/node-server", () => ({
   serve: vi.fn(() => ({ close: vi.fn() })),
 }));
@@ -158,7 +166,15 @@ describe("orca add", () => {
 
   test("validates --priority must be 0-4 (rejects 99)", async () => {
     await expect(
-      runCli(["add", "--prompt", "test task", "--repo", "/tmp", "--priority", "99"]),
+      runCli([
+        "add",
+        "--prompt",
+        "test task",
+        "--repo",
+        "/tmp",
+        "--priority",
+        "99",
+      ]),
     ).rejects.toThrow("process.exit(1)");
 
     expect(mockExit).toHaveBeenCalledWith(1);
@@ -169,7 +185,15 @@ describe("orca add", () => {
 
   test("validates --priority must be 0-4 (rejects negative)", async () => {
     await expect(
-      runCli(["add", "--prompt", "test task", "--repo", "/tmp", "--priority", "-1"]),
+      runCli([
+        "add",
+        "--prompt",
+        "test task",
+        "--repo",
+        "/tmp",
+        "--priority",
+        "-1",
+      ]),
     ).rejects.toThrow("process.exit(1)");
 
     expect(mockExit).toHaveBeenCalledWith(1);
@@ -177,7 +201,15 @@ describe("orca add", () => {
 
   test("validates --priority must be 0-4 (rejects non-integer)", async () => {
     await expect(
-      runCli(["add", "--prompt", "test task", "--repo", "/tmp", "--priority", "2.5"]),
+      runCli([
+        "add",
+        "--prompt",
+        "test task",
+        "--repo",
+        "/tmp",
+        "--priority",
+        "2.5",
+      ]),
     ).rejects.toThrow("process.exit(1)");
 
     expect(mockExit).toHaveBeenCalledWith(1);
@@ -249,7 +281,15 @@ describe("orca add", () => {
   });
 
   test("accepts priority 0 (minimum boundary)", async () => {
-    await runCli(["add", "--prompt", "low priority", "--repo", "/tmp", "--priority", "0"]);
+    await runCli([
+      "add",
+      "--prompt",
+      "low priority",
+      "--repo",
+      "/tmp",
+      "--priority",
+      "0",
+    ]);
 
     expect(mockInsertTask).toHaveBeenCalledTimes(1);
     const [, task] = mockInsertTask.mock.calls[0];
@@ -257,7 +297,15 @@ describe("orca add", () => {
   });
 
   test("accepts priority 4 (maximum boundary)", async () => {
-    await runCli(["add", "--prompt", "high priority", "--repo", "/tmp", "--priority", "4"]);
+    await runCli([
+      "add",
+      "--prompt",
+      "high priority",
+      "--repo",
+      "/tmp",
+      "--priority",
+      "4",
+    ]);
 
     expect(mockInsertTask).toHaveBeenCalledTimes(1);
     const [, task] = mockInsertTask.mock.calls[0];
@@ -397,10 +445,9 @@ describe("orca start", () => {
     await runCli(["start", "--scheduler-paused"]);
 
     await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalledWith(
-        expect.anything(),
-        { paused: true },
-      );
+      expect(mockCreateScheduler).toHaveBeenCalledWith(expect.anything(), {
+        paused: true,
+      });
     });
   });
 
@@ -408,10 +455,9 @@ describe("orca start", () => {
     await runCli(["start"]);
 
     await vi.waitFor(() => {
-      expect(mockCreateScheduler).toHaveBeenCalledWith(
-        expect.anything(),
-        { paused: undefined },
-      );
+      expect(mockCreateScheduler).toHaveBeenCalledWith(expect.anything(), {
+        paused: undefined,
+      });
     });
   });
 
@@ -452,12 +498,18 @@ describe("orca start", () => {
     expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
       expect.anything(),
       "inv-1",
-      expect.objectContaining({ status: "failed", outputSummary: "orphaned by crash/restart" }),
+      expect.objectContaining({
+        status: "failed",
+        outputSummary: "orphaned by crash/restart",
+      }),
     );
     expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
       expect.anything(),
       "inv-2",
-      expect.objectContaining({ status: "failed", outputSummary: "orphaned by crash/restart" }),
+      expect.objectContaining({
+        status: "failed",
+        outputSummary: "orphaned by crash/restart",
+      }),
     );
   });
 });

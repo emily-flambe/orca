@@ -6,6 +6,55 @@ import {
   unlinkSync,
 } from "node:fs";
 
+// ---------------------------------------------------------------------------
+// Structured logger
+// ---------------------------------------------------------------------------
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+const LEVEL_ORDER: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+function getMinLevel(): LogLevel {
+  const raw = (process.env.LOG_LEVEL ?? "info").toLowerCase();
+  if (raw in LEVEL_ORDER) return raw as LogLevel;
+  return "info";
+}
+
+export function createLogger(module: string) {
+  const tag = `[orca/${module}]`;
+
+  function shouldLog(level: LogLevel): boolean {
+    return LEVEL_ORDER[level] >= LEVEL_ORDER[getMinLevel()];
+  }
+
+  function format(level: LogLevel, args: unknown[]): string {
+    const msg = args
+      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+      .join(" ");
+    return `[${level.toUpperCase()}] ${tag} ${msg}`;
+  }
+
+  return {
+    debug: (...args: unknown[]) => {
+      if (shouldLog("debug")) console.log(format("debug", args));
+    },
+    info: (...args: unknown[]) => {
+      if (shouldLog("info")) console.log(format("info", args));
+    },
+    warn: (...args: unknown[]) => {
+      if (shouldLog("warn")) console.warn(format("warn", args));
+    },
+    error: (...args: unknown[]) => {
+      if (shouldLog("error")) console.error(format("error", args));
+    },
+  };
+}
+
 export interface FileLoggerConfig {
   logPath: string;
   maxSizeBytes: number;

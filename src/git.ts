@@ -2,6 +2,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("git");
 
 /** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 unsigned). */
 const WIN_DLL_INIT_FAILED = 3221225794;
@@ -52,8 +55,8 @@ export function git(args: string[], options?: { cwd?: string }): string {
       // Retry DLL_INIT errors with backoff before falling through to error handling
       if (isDllExitCode(err) && attempt < DLL_RETRY_MAX) {
         const delayMs = DLL_RETRY_DELAYS_MS[attempt];
-        console.warn(
-          `[orca/git] DLL_INIT_FAILED on "git ${args.join(" ")}" — retry ${attempt + 1}/${DLL_RETRY_MAX} after ${delayMs / 1000}s`,
+        logger.warn(
+          `DLL_INIT_FAILED on "git ${args.join(" ")}" — retry ${attempt + 1}/${DLL_RETRY_MAX} after ${delayMs / 1000}s`,
         );
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
         continue;
@@ -176,11 +179,11 @@ export function cleanStaleLockFiles(repoPath: string, maxAgeMs = 60_000): void {
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age > maxAgeMs) {
       unlinkSync(lockPath);
-      console.warn(
-        `[orca/git] removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`,
+      logger.warn(
+        `removed stale lock file: ${lockPath} (age: ${Math.round(age / 1000)}s)`,
       );
     }
   } catch (err) {
-    console.warn(`[orca/git] failed to clean lock file ${lockPath}: ${err}`);
+    logger.warn(`failed to clean lock file ${lockPath}: ${err}`);
   }
 }

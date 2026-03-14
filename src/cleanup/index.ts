@@ -11,6 +11,7 @@ import {
   getLastMaxTurnsInvocation,
   getRunningInvocations,
 } from "../db/queries.js";
+import { createLogger } from "../logger.js";
 
 /** Track consecutive failed removal attempts per directory path. */
 const failedRemovalAttempts = new Map<string, number>();
@@ -29,8 +30,10 @@ export interface CleanupDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("cleanup");
+
 function log(message: string): void {
-  console.log(`[orca/cleanup] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,9 +182,7 @@ function cleanupRepo(
     const detail = isTransientGitError(err)
       ? " (transient, will retry next cycle)"
       : "";
-    console.warn(
-      `[orca/cleanup] worktree prune failed for ${repoPath}${detail}: ${err}`,
-    );
+    logger.warn(`worktree prune failed for ${repoPath}${detail}: ${err}`);
   }
 
   const repoDirname = basename(repoPath);

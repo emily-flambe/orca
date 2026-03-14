@@ -49,6 +49,7 @@ import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
 import { git } from "../../git.js";
 import { inngest } from "../client.js";
+import { createLogger } from "../../logger.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency cap — read from env at module load time so it's available when
@@ -71,8 +72,10 @@ const SESSION_TIMEOUT = "45m";
 // Log helpers
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("inngest/lifecycle");
+
 function log(message: string): void {
-  console.log(`[orca/inngest/lifecycle] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------

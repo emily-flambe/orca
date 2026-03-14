@@ -8,6 +8,9 @@
 
 import { inngest } from "../client.js";
 import type { SessionHandle, SessionResult } from "../../runner/index.js";
+import { createLogger } from "../../logger.js";
+
+const logger = createLogger("session-bridge");
 
 /**
  * Monitors a running Claude session and emits an Inngest event when it completes.
@@ -78,8 +81,8 @@ export function monitorSession(
       }
     })
     .catch((err) => {
-      console.error(
-        `[orca/session-bridge] error emitting Inngest event for invocation ${invocationId}:`,
+      logger.error(
+        `error emitting Inngest event for invocation ${invocationId}:`,
         err,
       );
     });

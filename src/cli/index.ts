@@ -32,7 +32,9 @@ import { functions as inngestFunctions } from "../inngest/functions.js";
 import { initTaskLifecycle } from "../inngest/workflows/task-lifecycle.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
-import { initFileLogger } from "../logger.js";
+import { initFileLogger, createLogger } from "../logger.js";
+
+const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
@@ -62,7 +64,7 @@ program
     (opts: { prompt: string; repo: string; priority: string; id?: string }) => {
       const priority = Number(opts.priority);
       if (!Number.isInteger(priority) || priority < 0 || priority > 4) {
-        console.error("orca: --priority must be an integer between 0 and 4");
+        logger.error("orca: --priority must be an integer between 0 and 4");
         process.exit(1);
       }
 
@@ -83,7 +85,7 @@ program
         updatedAt: now,
       });
 
-      console.log(`Task ${taskId} added (priority: ${priority})`);
+      logger.info(`Task ${taskId} added (priority: ${priority})`);
     },
   );
 
@@ -123,7 +125,7 @@ program
       const repoPath = parseRepoPath(pm.description);
       if (repoPath) {
         config.projectRepoMap.set(pm.id, repoPath);
-        console.log(`[orca] project ${pm.id} → repo: ${repoPath}`);
+        logger.info(`project ${pm.id} → repo: ${repoPath}`);
       }
     }
 
@@ -144,8 +146,8 @@ program
       });
     }
     if (orphanedInvocations.length > 0) {
-      console.log(
-        `[orca] marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
+      logger.info(
+        `marked ${orphanedInvocations.length} orphaned invocation(s) as failed`,
       );
     }
 
@@ -159,8 +161,8 @@ program
       updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
     }
     if (orphanedTaskIds.size > 0) {
-      console.log(
-        `[orca] cleared session IDs and reset stale counts for ${orphanedTaskIds.size} task(s) with orphaned invocations`,
+      logger.info(
+        `cleared session IDs and reset stale counts for ${orphanedTaskIds.size} task(s) with orphaned invocations`,
       );
     }
 
@@ -183,7 +185,7 @@ program
       }
     }
     if (recovered > 0) {
-      console.log(`[orca] recovered ${recovered} orphaned task(s) → ready`);
+      logger.info(`recovered ${recovered} orphaned task(s) → ready`);
     }
 
     // Label filter cache (shared between fullSync and webhook handler)
@@ -232,15 +234,15 @@ program
           ),
         )
         .catch((err) => {
-          console.log(
-            `[orca] reconcile write-back failed for ${task.linearIssueId}: ${err}`,
+          logger.warn(
+            `reconcile write-back failed for ${task.linearIssueId}: ${err}`,
           );
         });
       reconciled++;
     }
     if (reconciled > 0) {
-      console.log(
-        `[orca] reconciling ${reconciled} failed task(s) with stale Linear status`,
+      logger.info(
+        `reconciling ${reconciled} failed task(s) with stale Linear status`,
       );
     }
 
@@ -278,7 +280,7 @@ program
         functions: inngestFunctions,
       });
       app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
-      console.log("[orca/inngest] serve endpoint mounted at /api/inngest");
+      logger.info("serve endpoint mounted at /api/inngest");
     }
 
     // GitHub webhook route (optional — used for future integrations)
@@ -290,7 +292,7 @@ program
         },
       });
       app.route("/", githubWebhookApp);
-      console.log("[orca/github-webhook] webhook registered");
+      logger.info("github webhook registered");
     }
 
     // Static files + SPA fallback (after API routes so API takes priority)
@@ -298,7 +300,7 @@ program
     app.get("*", serveStatic({ root: "./web/dist", path: "index.html" }));
 
     const server = serve({ fetch: app.fetch, port: config.port });
-    console.log(`Hono server listening on port ${config.port}`);
+    logger.info(`Hono server listening on port ${config.port}`);
 
     // Write port-aware pidfile to avoid collisions during blue/green deploy
     const pidFile = join(process.cwd(), `orca-${config.port}.pid`);
@@ -324,7 +326,7 @@ program
     // Start cloudflared tunnel (skip in external tunnel mode)
     let tunnel: TunnelHandle | null = null;
     if (config.externalTunnel) {
-      console.log("[orca] external tunnel mode — skipping cloudflared spawn");
+      logger.info("external tunnel mode — skipping cloudflared spawn");
     } else {
       tunnel = startTunnel({
         cloudflaredPath: config.cloudflaredPath,
@@ -348,7 +350,7 @@ program
     // Initialize Inngest task lifecycle deps (must happen before scheduler/workflows fire)
     if (config.useInngest) {
       initTaskLifecycle({ db, config, client, stateMap });
-      console.log("[orca/inngest] task lifecycle deps initialized");
+      logger.info("task lifecycle deps initialized");
     }
 
     // Start scheduler (legacy tick loop — disabled in Inngest mode)
@@ -361,16 +363,16 @@ program
       setSchedulerHandle(scheduler);
 
       if (opts.schedulerPaused) {
-        console.log(
+        logger.info(
           `Orca scheduler created (PAUSED — POST /api/deploy/unpause to start)`,
         );
       } else {
-        console.log(
+        logger.info(
           `Orca scheduler started (concurrency: ${config.concurrencyCap}, interval: ${config.schedulerIntervalSec}s)`,
         );
       }
     } else {
-      console.log("[orca/inngest] Inngest mode — legacy scheduler disabled");
+      logger.info("Inngest mode — legacy scheduler disabled");
     }
 
     // Graceful shutdown
@@ -378,7 +380,7 @@ program
     const shutdown = () => {
       if (shuttingDown) return;
       shuttingDown = true;
-      console.log("Orca shutting down...");
+      logger.info("Orca shutting down...");
 
       // Close HTTP server first to stop accepting new requests
       server.close();
@@ -412,8 +414,8 @@ program
             outputSummary: "interrupted_by_deploy",
             worktreePreserved: 1,
           });
-          console.log(
-            `[orca/shutdown] preserving worktree for deploy-interrupted task ${inv.linearIssueId}: ${inv.worktreePath}`,
+          logger.info(
+            `preserving worktree for deploy-interrupted task ${inv.linearIssueId}: ${inv.worktreePath}`,
           );
         } else {
           updateInvocation(db, inv.id, {
@@ -448,15 +450,13 @@ program
 
     process.on("unhandledRejection", (reason: unknown) => {
       const err = reason instanceof Error ? reason : new Error(String(reason));
-      console.error(
-        `[orca] unhandledRejection: ${err.message}\n${err.stack ?? ""}`,
-      );
+      logger.error(`unhandledRejection: ${err.message}\n${err.stack ?? ""}`);
       // Log and continue — do not crash the daemon
     });
 
     process.on("uncaughtException", (err: Error, origin: string) => {
-      console.error(
-        `[orca] uncaughtException (${origin}): ${err.message}\n${err.stack ?? ""}`,
+      logger.error(
+        `uncaughtException (${origin}): ${err.message}\n${err.stack ?? ""}`,
       );
       shutdown();
     });
@@ -491,16 +491,16 @@ program
       budgetWindowStart(config.budgetWindowHours),
     );
 
-    console.log("=== Orca Status ===");
-    console.log();
-    console.log(
+    logger.info("=== Orca Status ===");
+    logger.info("");
+    logger.info(
       `Active sessions: ${activeCount}${activeTaskIds.length > 0 ? ` [${activeTaskIds.join(", ")}]` : ""}`,
     );
-    console.log(`Queued tasks:    ${readyCount}`);
-    console.log(
+    logger.info(`Queued tasks:    ${readyCount}`);
+    logger.info(
       `Budget:          $${costInWindow.toFixed(2)} / $${config.budgetMaxCostUsd.toFixed(2)} (${config.budgetWindowHours}h window)`,
     );
-    console.log(`Failed tasks:    ${failedCount}`);
+    logger.info(`Failed tasks:    ${failedCount}`);
   });
 
 // ---------------------------------------------------------------------------

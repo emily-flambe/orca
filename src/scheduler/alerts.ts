@@ -1,7 +1,9 @@
 import { getInvocationsByTask, getTask } from "../db/queries.js";
 import type { SchedulerDeps } from "./index.js";
+import { createLogger } from "../logger.js";
 
-const log = (...args: unknown[]) => console.log("[orca/alerts]", ...args);
+const logger = createLogger("alerts");
+const log = (...args: unknown[]) => logger.info(...args);
 
 export function sendPermanentFailureAlert(
   deps: SchedulerDeps,

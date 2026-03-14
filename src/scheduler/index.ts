@@ -94,6 +94,7 @@ import type { DependencyGraph } from "../linear/graph.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { writeBackStatus, evaluateParentStatuses } from "../linear/sync.js";
 import { sendPermanentFailureAlert } from "./alerts.js";
+import { createLogger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,8 +231,10 @@ function resetDllCooldown(): void {
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("scheduler");
+
 function log(message: string): void {
-  console.log(`[orca/scheduler] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------

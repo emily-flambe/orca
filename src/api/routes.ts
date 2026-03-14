@@ -59,6 +59,9 @@ import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("api");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,7 +96,7 @@ function emitTaskReady(inngest: InngestClient | undefined, task: Task): void {
       },
     })
     .catch((err: unknown) =>
-      console.warn("[orca/api] Inngest task/ready send failed:", err),
+      logger.warn("Inngest task/ready send failed:", err),
     );
 }
 
@@ -113,9 +116,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const start = Date.now();
     await next();
     const ms = Date.now() - start;
-    console.log(
-      `[orca/api] ${c.req.method} ${c.req.path} -> ${c.res.status} (${ms}ms)`,
-    );
+    logger.debug(`${c.req.method} ${c.req.path} -> ${c.res.status} (${ms}ms)`);
   });
 
   // -----------------------------------------------------------------------
@@ -353,10 +354,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back Linear state to "Todo"
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
+      logger.warn("Linear write-back failed:", err),
     );
 
-    console.log(`[orca/api] audit: abort invocation=${id} task=${taskId}`);
+    logger.info(`audit: abort invocation=${id} task=${taskId}`);
 
     return c.json({ ok: true });
   });
@@ -391,7 +392,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Audit: log invocation ID only — do NOT log prompt content
-    console.log(`[orca/api] audit: prompt updated invocation=${id}`);
+    logger.info(`audit: prompt updated invocation=${id}`);
 
     return c.json({ ok: true });
   });
@@ -486,7 +487,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Write back to Linear
     const linearTransition = newStatus === "ready" ? "retry" : newStatus;
     writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
+      logger.warn("Linear write-back failed:", err),
     );
 
     // Emit Inngest events
@@ -506,13 +507,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             },
           })
           .catch((err: unknown) =>
-            console.warn("[orca/api] Inngest task/cancelled send failed:", err),
+            logger.warn("Inngest task/cancelled send failed:", err),
           );
       }
     }
 
-    console.log(
-      `[orca/api] audit: status change task=${taskId} ${oldStatus} -> ${newStatus} sessionKilled=${sessionKilled}`,
+    logger.info(
+      `audit: status change task=${taskId} ${oldStatus} -> ${newStatus} sessionKilled=${sessionKilled}`,
     );
 
     return c.json({ ok: true });
@@ -544,13 +545,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Write back "Todo" to Linear
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
-      console.warn("[orca/api] Linear write-back failed:", err),
+      logger.warn("Linear write-back failed:", err),
     );
 
     // Post comment to Linear
     client
       .createComment(taskId, "Manually retried from Orca dashboard")
-      .catch((err) => console.warn("[orca/api] Linear comment failed:", err));
+      .catch((err) => logger.warn("Linear comment failed:", err));
 
     // Emit Inngest event
     const retriedTask = getTask(db, taskId);
@@ -558,7 +559,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       emitTaskReady(inngest, retriedTask);
     }
 
-    console.log(`[orca/api] audit: retry task=${taskId}`);
+    logger.info(`audit: retry task=${taskId}`);
 
     return c.json({ ok: true });
   });
@@ -698,9 +699,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     if (configChanges.length > 0) {
-      console.log(
-        `[orca/api] audit: config update ${configChanges.join(", ")}`,
-      );
+      logger.info(`audit: config update ${configChanges.join(", ")}`);
     }
 
     return c.json({
@@ -871,11 +870,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
       // Trigger sync so the new ticket appears immediately
       syncTasks().catch((err) =>
-        console.warn("[orca/api] syncTasks failed after task creation:", err),
+        logger.warn("syncTasks failed after task creation:", err),
       );
 
-      console.log(
-        `[orca/api] audit: task created identifier=${issue.identifier} title="${body.title.trim()}"`,
+      logger.info(
+        `audit: task created identifier=${issue.identifier} title="${body.title.trim()}"`,
       );
 
       return c.json({ identifier: issue.identifier, id: issue.id });
@@ -1323,7 +1322,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/deploy/drain", (c) => {
     setDraining();
-    console.log("[orca/api] audit: drain triggered");
+    logger.info("audit: drain triggered");
     return c.json({ ok: true, draining: true });
   });
 
@@ -1343,7 +1342,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       });
     }
     scheduler.start();
-    console.log("[orca/api] audit: scheduler unpaused");
+    logger.info("audit: scheduler unpaused");
     return c.json({ ok: true, schedulerStarted: true });
   });
 
