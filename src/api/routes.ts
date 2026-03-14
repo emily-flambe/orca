@@ -100,6 +100,23 @@ function emitTaskReady(inngest: InngestClient, task: Task): void {
 }
 
 // ---------------------------------------------------------------------------
+// Version — read once at startup, never re-read per request
+// ---------------------------------------------------------------------------
+
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(process.cwd(), "package.json"), "utf8"),
+    ) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const ORCA_VERSION = readPackageVersion();
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
@@ -116,6 +133,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     await next();
     const ms = Date.now() - start;
     logger.debug(`${c.req.method} ${c.req.path} -> ${c.res.status} (${ms}ms)`);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/version
+  // -----------------------------------------------------------------------
+  app.get("/api/version", (c) => {
+    return c.json({ version: ORCA_VERSION });
   });
 
   // -----------------------------------------------------------------------
