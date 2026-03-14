@@ -26,6 +26,7 @@ import { createGithubWebhookRoute } from "../github/webhook.js";
 import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
+import { inngest } from "../inngest/client.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { initFileLogger } from "../logger.js";
@@ -248,6 +249,7 @@ program
       config,
       stateMap,
       labelIdCache,
+      inngest,
     });
 
     // Create API routes
