@@ -564,6 +564,41 @@ export async function getPrCheckStatus(
 }
 
 /**
+ * Synchronous version of getPrCheckStatus — uses execFileSync.
+ * Returns "no_checks" on any error.
+ */
+export function getPrCheckStatusSync(
+  prNumber: number,
+  cwd: string,
+): PrCheckStatus {
+  try {
+    const output = gh(
+      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+      { cwd },
+    );
+    const checks = JSON.parse(output) as {
+      name: string;
+      state: string;
+      bucket: string;
+    }[];
+
+    if (checks.length === 0) return "no_checks";
+
+    const hasPending = checks.some(
+      (c) => c.bucket === "pending" || c.bucket === "queued",
+    );
+    if (hasPending) return "pending";
+
+    const hasFail = checks.some((c) => c.bucket === "fail");
+    if (hasFail) return "failure";
+
+    return "success";
+  } catch {
+    return "no_checks";
+  }
+}
+
+/**
  * Merge a PR by number using squash merge and delete the branch.
  * Returns structured success/failure.
  */
