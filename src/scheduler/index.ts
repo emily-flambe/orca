@@ -2786,30 +2786,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     checkCronSchedules(deps);
   }
 
-  // 1. Count active sessions
-  const active = countActiveSessions(db);
-  if (active >= config.concurrencyCap) {
-    return;
-  }
-
-  // 2. Check budget (cost and tokens)
-  const windowStart = budgetWindowStart(config.budgetWindowHours);
-  const cost = sumCostInWindow(db, windowStart);
-  if (cost >= config.budgetMaxCostUsd) {
-    log(
-      `budget exhausted: $${cost.toFixed(4)} used of $${config.budgetMaxCostUsd} limit`,
-    );
-    return;
-  }
-  const tokens = sumTokensInWindow(db, windowStart);
-  if (tokens >= config.budgetMaxTokens) {
-    log(
-      `token budget exhausted: ${tokens.toLocaleString()} used of ${config.budgetMaxTokens.toLocaleString()} limit`,
-    );
-    return;
-  }
-
-  // 3. Get tasks in dispatchable states.
+  // 1. Get tasks in dispatchable states.
   // During drain, only allow review/fix-cycle phases — no new implementations.
   const candidateStatuses: TaskStatus[] = draining
     ? ["in_review", "changes_requested"]
@@ -2819,7 +2796,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 4. Filter: skip empty prompts, blocked tasks, and tasks with running invocations
+  // 2. Filter: skip empty prompts, blocked tasks, and tasks with running invocations
   const getStatus = (id: string): string | undefined =>
     getTask(db, id)?.orcaStatus;
 
@@ -2863,7 +2840,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  // 5. Sort: prioritize review/fix phases over new implementations
+  // 3. Sort: prioritize review/fix phases over new implementations
   const PHASE_ORDER: Record<string, number> = {
     in_review: 0,
     changes_requested: 1,
@@ -2883,7 +2860,7 @@ async function tick(deps: SchedulerDeps): Promise<void> {
     return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
   });
 
-  // 6. Pick first and dispatch with appropriate phase
+  // 4. Pick first and dispatch with appropriate phase
   const task = dispatchable[0]!;
   let phase: DispatchPhase;
   if (task.orcaStatus === "in_review") {
