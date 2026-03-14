@@ -2,14 +2,7 @@
 // CI gate tests — pre-merge CI polling, PR merging, awaiting_ci lifecycle
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -283,7 +276,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "In Review");
+    resolveConflict(db, taskId, "In Review", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -296,7 +289,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Done");
+    resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -309,7 +302,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Todo");
+    resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -322,7 +315,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "Backlog");
+    resolveConflict(db, taskId, "Backlog", "backlog");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -335,7 +328,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
       orcaStatus: "awaiting_ci",
     });
 
-    resolveConflict(db, taskId, "In Progress");
+    resolveConflict(db, taskId, "In Progress", "started");
 
     // No explicit conflict rule for awaiting_ci + "In Progress" — falls through
     const task = getTask(db, taskId);
@@ -492,25 +485,18 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
       ["In Review", { id: "state-review", type: "started" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-aci-1",
-          identifier: "ACI-WH-1",
-          title: "Test task",
-          description: "test",
-          priority: 1,
-          state: { id: "state-review", name: "In Review", type: "started" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-aci-1",
+        identifier: "ACI-WH-1",
+        title: "Test task",
+        description: "test",
+        priority: 1,
+        state: { id: "state-review", name: "In Review", type: "started" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -535,25 +521,18 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
       ["Done", { id: "state-done", type: "completed" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-aci-2",
-          identifier: "ACI-WH-2",
-          title: "Test task 2",
-          description: "test",
-          priority: 1,
-          state: { id: "state-done", name: "Done", type: "completed" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-aci-2",
+        identifier: "ACI-WH-2",
+        title: "Test task 2",
+        description: "test",
+        priority: 1,
+        state: { id: "state-done", name: "Done", type: "completed" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -578,25 +557,18 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
       ["Todo", { id: "state-todo", type: "unstarted" }],
     ]);
 
-    await processWebhookEvent(
-      db,
-      mockClient,
-      mockGraph,
-      config,
-      stateMap,
-      {
-        action: "update",
-        type: "Issue",
-        data: {
-          id: "uuid-aci-3",
-          identifier: "ACI-WH-3",
-          title: "Test task 3",
-          description: "test",
-          priority: 1,
-          state: { id: "state-todo", name: "Todo", type: "unstarted" },
-        },
+    await processWebhookEvent(db, mockClient, mockGraph, config, stateMap, {
+      action: "update",
+      type: "Issue",
+      data: {
+        id: "uuid-aci-3",
+        identifier: "ACI-WH-3",
+        title: "Test task 3",
+        description: "test",
+        priority: 1,
+        state: { id: "state-todo", name: "Todo", type: "unstarted" },
       },
-    );
+    });
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -725,9 +697,7 @@ describe("Config - review prompt does not include merge instructions", () => {
     );
 
     // The old instruction had "gh pr merge" in the APPROVED branch
-    expect(configSource).not.toContain(
-      "merge the PR using `gh pr merge",
-    );
+    expect(configSource).not.toContain("merge the PR using `gh pr merge");
     // The new instruction should say not to merge
     expect(configSource).toContain("Do NOT merge the PR");
   });
