@@ -30,7 +30,6 @@ import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
 import { initTaskLifecycle } from "../inngest/workflows/task-lifecycle.js";
-import { setSchedulerDeps } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { initFileLogger, createLogger } from "../logger.js";
@@ -351,7 +350,6 @@ program
     // Initialize Inngest task lifecycle deps (must happen before scheduler/workflows fire)
     if (config.useInngest) {
       initTaskLifecycle({ db, config, client, stateMap });
-      setSchedulerDeps({ db, config, graph, client, stateMap });
       logger.info("task lifecycle deps initialized");
     }
 
