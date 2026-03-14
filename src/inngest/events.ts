@@ -1,5 +1,5 @@
 import { EventSchemas } from "inngest";
-import { type TaskStatus, type InvocationStatus } from "../shared/types.js";
+import { type TaskStatus } from "../shared/types.js";
 
 // Event payload types for Orca's Inngest events.
 // Event names follow the `noun/verb` convention used by Inngest.
