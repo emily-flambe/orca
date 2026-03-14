@@ -316,7 +316,9 @@ describe("CronPage", () => {
   });
 
   it("renders 'Last: Xh ago' for a run several hours ago", async () => {
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const threeHoursAgo = new Date(
+      Date.now() - 3 * 60 * 60 * 1000,
+    ).toISOString();
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: threeHoursAgo, lastRunStatus: "failed" }),
     ]);
@@ -328,7 +330,9 @@ describe("CronPage", () => {
   });
 
   it("renders 'Last: Xd ago' for a run several days ago", async () => {
-    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const twoDaysAgo = new Date(
+      Date.now() - 2 * 24 * 60 * 60 * 1000,
+    ).toISOString();
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: twoDaysAgo, lastRunStatus: null }),
     ]);
