@@ -24,6 +24,21 @@ function formatNextRun(nextRunAt: string | null): string {
   return d.toLocaleDateString();
 }
 
+function formatLastRun(lastRunAt: string | null): string {
+  if (!lastRunAt) return "—";
+  const d = new Date(lastRunAt);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  if (diffMs < 0) return "just now";
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}d ago`;
+}
+
 // ---------------------------------------------------------------------------
 // Form state
 // ---------------------------------------------------------------------------
@@ -395,6 +410,12 @@ export default function CronPage() {
                   >
                     {s.type}
                   </span>
+                  {s.lastRunStatus === "failed" && (
+                    <span
+                      className="inline-block h-2 w-2 rounded-full bg-red-500 shrink-0"
+                      title="Last run failed"
+                    />
+                  )}
                   <button
                     onClick={() => handleToggleEnabled(s)}
                     className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
@@ -445,6 +466,19 @@ export default function CronPage() {
                 </span>
                 <span>Next: {formatNextRun(s.nextRunAt)}</span>
                 <span>Runs: {s.runCount}</span>
+                {s.lastRunAt && (
+                  <span
+                    className={
+                      s.lastRunStatus === "success"
+                        ? "text-green-400"
+                        : s.lastRunStatus === "failed"
+                          ? "text-red-400"
+                          : "text-gray-500"
+                    }
+                  >
+                    Last: {formatLastRun(s.lastRunAt)}
+                  </span>
+                )}
                 {s.maxRuns != null && <span>Max: {s.maxRuns}</span>}
                 {s.repoPath && (
                   <span className="truncate max-w-[200px]" title={s.repoPath}>

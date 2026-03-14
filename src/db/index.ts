@@ -335,6 +335,15 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE budget_events ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 15 (cron last run status):
+  //   - Add lastRunStatus column to cron_schedules (records success/failed for last run)
+  //   Sentinel: lastRunStatus column doesn't exist on cron_schedules table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "cron_schedules", "last_run_status")) {
+    sqlite.exec("ALTER TABLE cron_schedules ADD COLUMN last_run_status TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
