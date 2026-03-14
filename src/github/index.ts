@@ -752,6 +752,149 @@ export type WorkflowRunStatus =
   | "no_runs";
 
 /**
+ * Get the set of check names that are currently failing on a PR.
+ *
+ * Uses `gh pr checks <prNumber> --json name,state,bucket` and returns the
+ * set of `name` values where `bucket === "fail"`. Returns empty set on error.
+ */
+export async function getPrFailedCheckNames(
+  prNumber: number,
+  cwd: string,
+): Promise<Set<string>> {
+  try {
+    const output = await ghAsync(
+      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+      { cwd },
+    );
+    const checks = JSON.parse(output) as {
+      name: string;
+      state: string;
+      bucket: string;
+    }[];
+    const failed = new Set<string>();
+    for (const check of checks) {
+      if (check.bucket === "fail") {
+        failed.add(check.name);
+      }
+    }
+    return failed;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Get the set of job names that have failed on recent main branch runs.
+ *
+ * Looks at the last `lookbackCount` completed workflow runs on main, collects
+ * job names where conclusion is "failure" or "timed_out" from failed runs.
+ * Returns empty set on any error.
+ */
+export async function getMainBranchFailedJobNames(
+  cwd: string,
+  lookbackCount = 3,
+  workflow = "ci.yml",
+): Promise<Set<string>> {
+  try {
+    const runsOutput = await ghAsync(
+      [
+        "run",
+        "list",
+        "--branch",
+        "main",
+        "--workflow",
+        workflow,
+        "--status",
+        "completed",
+        "--json",
+        "databaseId,conclusion",
+        "--limit",
+        String(lookbackCount),
+      ],
+      { cwd },
+    );
+    const runs = JSON.parse(runsOutput) as {
+      databaseId: number;
+      conclusion: string;
+    }[];
+
+    const failedRuns = runs.filter(
+      (r) => r.conclusion === "failure" || r.conclusion === "timed_out",
+    );
+
+    if (failedRuns.length === 0) return new Set();
+
+    const failedJobNames = new Set<string>();
+    for (const run of failedRuns) {
+      try {
+        const jobsOutput = await ghAsync(
+          ["run", "view", String(run.databaseId), "--json", "jobs"],
+          { cwd },
+        );
+        const data = JSON.parse(jobsOutput) as {
+          jobs: { name: string; conclusion: string }[];
+        };
+        for (const job of data.jobs) {
+          if (job.conclusion === "failure" || job.conclusion === "timed_out") {
+            failedJobNames.add(job.name);
+          }
+        }
+      } catch {
+        // Skip individual run errors — best effort
+      }
+    }
+    return failedJobNames;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Re-trigger CI for the most recent failed workflow run on a branch.
+ *
+ * Finds the most recent failed run on `branchName` and calls `gh run rerun --failed`.
+ * Returns true if a rerun was triggered, false otherwise.
+ */
+export async function retriggerPrCiBranch(
+  branchName: string,
+  cwd: string,
+): Promise<boolean> {
+  try {
+    const runsOutput = await ghAsync(
+      [
+        "run",
+        "list",
+        "--branch",
+        branchName,
+        "--status",
+        "completed",
+        "--json",
+        "databaseId,conclusion",
+        "--limit",
+        "5",
+      ],
+      { cwd },
+    );
+    const runs = JSON.parse(runsOutput) as {
+      databaseId: number;
+      conclusion: string;
+    }[];
+
+    const failedRun = runs.find(
+      (r) => r.conclusion === "failure" || r.conclusion === "timed_out",
+    );
+    if (!failedRun) return false;
+
+    await ghAsync(["run", "rerun", "--failed", String(failedRun.databaseId)], {
+      cwd,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check GitHub Actions workflow run status for a given commit SHA.
  */
 export async function getWorkflowRunStatus(

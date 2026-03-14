@@ -68,6 +68,9 @@ import {
   pushAndCreatePr,
   getMergeCommitSha,
   getPrCheckStatus,
+  getPrFailedCheckNames,
+  getMainBranchFailedJobNames,
+  retriggerPrCiBranch,
   getWorkflowRunStatus,
   mergePr,
   getPrMergeState,
@@ -2176,6 +2179,9 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 /** Last poll time per task ID, for throttling CI checks. */
 const ciPollTimes = new Map<string, number>();
 
+/** Tracks tasks for which we've already re-triggered CI due to flaky main failures. */
+const ciFlakeRetriggered = new Map<string, boolean>();
+
 async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   const { db, config, client, stateMap } = deps;
 
@@ -2201,6 +2207,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
         ciPollTimes.delete(taskId);
+        ciFlakeRetriggered.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2230,6 +2237,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       );
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciFlakeRetriggered.delete(taskId);
       continue;
     }
 
@@ -2240,9 +2248,79 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       // CI passed or no checks configured — merge the PR
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciFlakeRetriggered.delete(taskId);
     } else if (status === "failure") {
       ciPollTimes.delete(taskId);
 
+      // Check if this failure matches what's failing on main (flake detection)
+      const [prFailedChecks, mainFailedJobs] = await Promise.all([
+        getPrFailedCheckNames(task.prNumber, task.repoPath),
+        getMainBranchFailedJobNames(task.repoPath),
+      ]);
+
+      const flakeyChecks = [...prFailedChecks].filter((name) =>
+        mainFailedJobs.has(name),
+      );
+      const isFlaky =
+        flakeyChecks.length > 0 && flakeyChecks.length === prFailedChecks.size;
+      // Note: only treat as flaky if ALL failing checks are also failing on main
+
+      if (isFlaky) {
+        const alreadyRetriggered = ciFlakeRetriggered.get(taskId) ?? false;
+        if (!alreadyRetriggered) {
+          // First time seeing this: re-trigger CI and wait
+          log(
+            `task ${taskId} CI failure matches main branch flakes (${flakeyChecks.join(", ")}) — re-triggering CI`,
+          );
+          ciFlakeRetriggered.set(taskId, true);
+          const retriggered = task.prBranchName
+            ? await retriggerPrCiBranch(task.prBranchName, task.repoPath)
+            : false;
+          if (retriggered) {
+            client
+              .createComment(
+                taskId,
+                `CI failed on PR #${task.prNumber} but the same checks are also failing on \`main\` (${flakeyChecks.join(", ")}) — re-triggering CI (not burning a retry)`,
+              )
+              .catch((err) => {
+                log(
+                  `comment failed on flake re-trigger for task ${taskId}: ${err}`,
+                );
+              });
+          } else {
+            log(
+              `task ${taskId} flaky CI — could not re-trigger, proceeding to review`,
+            );
+            // Could not re-trigger; proceed to review as if passed
+            ciFlakeRetriggered.delete(taskId);
+            await mergeAndFinalize(deps, taskId);
+          }
+          // Keep in awaiting_ci — CI poll loop will pick up the new run
+          ciPollTimes.set(taskId, now); // reset poll timer so we re-poll soon
+          continue;
+        } else {
+          // Already re-triggered once and still failing on flaky checks
+          // Proceed to review anyway — don't burn a retry
+          log(
+            `task ${taskId} CI still failing after flake re-trigger (${flakeyChecks.join(", ")} also fail on main) — proceeding to review`,
+          );
+          ciFlakeRetriggered.delete(taskId);
+          client
+            .createComment(
+              taskId,
+              `CI re-triggered due to main branch flakes but still failing — proceeding to review anyway (not burning a retry)`,
+            )
+            .catch((err) => {
+              log(`comment failed on flake proceed for task ${taskId}: ${err}`);
+            });
+          await mergeAndFinalize(deps, taskId);
+          ciPollTimes.delete(taskId);
+          continue;
+        }
+      }
+      ciFlakeRetriggered.delete(taskId); // clean up if not flaky
+
+      // Normal CI failure path (not a main-branch flake)
       // Check review cycle cap
       if (task.reviewCycleCount < config.maxReviewCycles) {
         incrementReviewCycleCount(db, taskId);
