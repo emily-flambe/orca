@@ -78,7 +78,8 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, syncTasks, client, stateMap, projectMeta, inngest } = deps;
+  const { db, config, syncTasks, client, stateMap, projectMeta, inngest } =
+    deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -461,27 +462,35 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Emit Inngest events
     if (newStatus === "ready") {
       const refreshed = getTask(db, taskId)!;
-      inngest?.send({
-        name: "task/ready",
-        data: {
-          linearIssueId: taskId,
-          repoPath: refreshed.repoPath ?? "",
-          priority: refreshed.priority ?? 0,
-          projectName: refreshed.projectName ?? null,
-          taskType: refreshed.taskType ?? "linear",
-          createdAt: refreshed.createdAt ?? new Date().toISOString(),
-        },
-      }).catch((err: unknown) => console.warn("[orca/api] Inngest send failed:", err));
+      inngest
+        ?.send({
+          name: "task/ready",
+          data: {
+            linearIssueId: taskId,
+            repoPath: refreshed.repoPath ?? "",
+            priority: refreshed.priority ?? 0,
+            projectName: refreshed.projectName ?? null,
+            taskType: refreshed.taskType ?? "linear",
+            createdAt: refreshed.createdAt ?? new Date().toISOString(),
+          },
+        })
+        .catch((err: unknown) =>
+          console.warn("[orca/api] Inngest send failed:", err),
+        );
     } else if (newStatus === "done") {
-      inngest?.send({
-        name: "task/cancelled",
-        data: {
-          linearIssueId: taskId,
-          reason: "cancelled by user via API",
-          retryCount: task.retryCount ?? 0,
-          previousStatus: oldStatus,
-        },
-      }).catch((err: unknown) => console.warn("[orca/api] Inngest send failed:", err));
+      inngest
+        ?.send({
+          name: "task/cancelled",
+          data: {
+            linearIssueId: taskId,
+            reason: "cancelled by user via API",
+            retryCount: task.retryCount ?? 0,
+            previousStatus: oldStatus,
+          },
+        })
+        .catch((err: unknown) =>
+          console.warn("[orca/api] Inngest send failed:", err),
+        );
     }
 
     // Write back to Linear
@@ -522,17 +531,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     const updatedTask = getTask(db, taskId)!;
-    inngest?.send({
-      name: "task/ready",
-      data: {
-        linearIssueId: taskId,
-        repoPath: updatedTask.repoPath ?? "",
-        priority: updatedTask.priority ?? 0,
-        projectName: updatedTask.projectName ?? null,
-        taskType: updatedTask.taskType ?? "linear",
-        createdAt: updatedTask.createdAt ?? new Date().toISOString(),
-      },
-    }).catch((err: unknown) => console.warn("[orca/api] Inngest send failed:", err));
+    inngest
+      ?.send({
+        name: "task/ready",
+        data: {
+          linearIssueId: taskId,
+          repoPath: updatedTask.repoPath ?? "",
+          priority: updatedTask.priority ?? 0,
+          projectName: updatedTask.projectName ?? null,
+          taskType: updatedTask.taskType ?? "linear",
+          createdAt: updatedTask.createdAt ?? new Date().toISOString(),
+        },
+      })
+      .catch((err: unknown) =>
+        console.warn("[orca/api] Inngest send failed:", err),
+      );
 
     // Write back "Todo" to Linear
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
@@ -861,17 +874,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           // After sync, the task should be in the DB — emit task/ready
           const newTask = getTask(db, issue.id);
           if (newTask && newTask.orcaStatus === "ready") {
-            inngest?.send({
-              name: "task/ready",
-              data: {
-                linearIssueId: issue.id,
-                repoPath: newTask.repoPath ?? "",
-                priority: newTask.priority ?? priority ?? 0,
-                projectName: newTask.projectName ?? project?.name ?? null,
-                taskType: newTask.taskType ?? "linear",
-                createdAt: newTask.createdAt ?? new Date().toISOString(),
-              },
-            }).catch((err: unknown) => console.warn("[orca/api] Inngest send failed:", err));
+            inngest
+              ?.send({
+                name: "task/ready",
+                data: {
+                  linearIssueId: issue.id,
+                  repoPath: newTask.repoPath ?? "",
+                  priority: newTask.priority ?? priority ?? 0,
+                  projectName: newTask.projectName ?? project?.name ?? null,
+                  taskType: newTask.taskType ?? "linear",
+                  createdAt: newTask.createdAt ?? new Date().toISOString(),
+                },
+              })
+              .catch((err: unknown) =>
+                console.warn("[orca/api] Inngest send failed:", err),
+              );
           }
         })
         .catch((err) =>
@@ -1312,17 +1329,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       isParent: 0,
     });
     incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
-    inngest?.send({
-      name: "task/ready",
-      data: {
-        linearIssueId: taskId,
-        repoPath: schedule.repoPath ?? "",
-        priority: 0,
-        projectName: null,
-        taskType: schedule.type === "claude" ? "cron_claude" : "cron_shell",
-        createdAt: now,
-      },
-    }).catch((err: unknown) => console.warn("[orca/api] Inngest send failed:", err));
+    inngest
+      ?.send({
+        name: "task/ready",
+        data: {
+          linearIssueId: taskId,
+          repoPath: schedule.repoPath ?? "",
+          priority: 0,
+          projectName: null,
+          taskType: schedule.type === "claude" ? "cron_claude" : "cron_shell",
+          createdAt: now,
+        },
+      })
+      .catch((err: unknown) =>
+        console.warn("[orca/api] Inngest send failed:", err),
+      );
     return c.json({ ok: true, taskId });
   });
 
