@@ -116,7 +116,15 @@ export const ciMergeWorkflow = inngest.createFunction(
         const mergeOutcome = await step.run(
           `merge-and-finalize-${attempts}`,
           async (): Promise<
-            | { done: true; nextStatus: "deploying" | "done" }
+            | {
+                done: true;
+                nextStatus: "deploying" | "done";
+                deployInfo?: {
+                  mergeCommitSha: string | null;
+                  prNumber: number | null;
+                  deployStartedAt: string;
+                };
+              }
             | { done: false; action: "retry" | "changes_requested" | "failed" }
           > => {
             return await mergeAndFinalizeStep(linearIssueId, prBranchName);
@@ -124,6 +132,27 @@ export const ciMergeWorkflow = inngest.createFunction(
         );
 
         if (mergeOutcome.done) {
+          // Emit task/deploying event if transitioning to deploy monitoring
+          if (
+            mergeOutcome.nextStatus === "deploying" &&
+            mergeOutcome.deployInfo
+          ) {
+            await inngest.send({
+              name: "task/deploying",
+              data: {
+                linearIssueId,
+                mergeCommitSha:
+                  mergeOutcome.deployInfo.mergeCommitSha ?? "unknown",
+                repoPath: getSchedulerDeps().db
+                  ? (getTask(getSchedulerDeps().db, linearIssueId)?.repoPath ??
+                    "")
+                  : "",
+                prNumber: mergeOutcome.deployInfo.prNumber ?? 0,
+                deployStartedAt: mergeOutcome.deployInfo.deployStartedAt,
+              },
+            });
+          }
+
           merged = true;
           return {
             status: "merged",
@@ -236,7 +265,15 @@ async function mergeAndFinalizeStep(
   taskId: string,
   prBranchName: string,
 ): Promise<
-  | { done: true; nextStatus: "deploying" | "done" }
+  | {
+      done: true;
+      nextStatus: "deploying" | "done";
+      deployInfo?: {
+        mergeCommitSha: string | null;
+        prNumber: number | null;
+        deployStartedAt: string;
+      };
+    }
   | { done: false; action: "retry" | "changes_requested" | "failed" }
 > {
   const { db, config, client, stateMap } = getSchedulerDeps();
@@ -510,7 +547,15 @@ async function mergeAndFinalizeStep(
     log(
       `task ${taskId} merged → deploying (PR #${task.prNumber ?? "?"}, SHA: ${mergeCommitSha ?? "unknown"})`,
     );
-    return { done: true, nextStatus: "deploying" };
+    return {
+      done: true,
+      nextStatus: "deploying",
+      deployInfo: {
+        mergeCommitSha,
+        prNumber: task.prNumber ?? null,
+        deployStartedAt: now,
+      },
+    };
   } else {
     // deploy_strategy = "none" — go straight to done
     updateTaskStatus(db, taskId, "done");

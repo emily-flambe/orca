@@ -984,10 +984,9 @@ export const taskLifecycle = inngest.createFunction(
       // -----------------------------------------------------------------------
 
       if (reviewResult.outcome === "approved") {
-        await step.run(`transition-awaiting-ci-${cycle}`, () => {
-          updateTaskCiInfo(db, taskId, {
-            ciStartedAt: new Date().toISOString(),
-          });
+        const ciInfo = await step.run(`transition-awaiting-ci-${cycle}`, () => {
+          const ciStartedAt = new Date().toISOString();
+          updateTaskCiInfo(db, taskId, { ciStartedAt });
           updateTaskStatus(db, taskId, "awaiting_ci");
           emitTaskUpdated(getTask(db, taskId)!);
           writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
@@ -1003,7 +1002,25 @@ export const taskLifecycle = inngest.createFunction(
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
+          return {
+            prNumber: (task?.prNumber ?? 0) as number,
+            prBranchName: (task?.prBranchName ?? "") as string,
+            ciStartedAt: ciStartedAt as string,
+          };
         });
+
+        // Emit event to trigger CI gate workflow
+        await inngest.send({
+          name: "task/awaiting-ci",
+          data: {
+            linearIssueId: taskId,
+            prNumber: ciInfo.prNumber,
+            prBranchName: ciInfo.prBranchName,
+            repoPath: getTask(db, taskId)?.repoPath ?? config.defaultCwd ?? "",
+            ciStartedAt: ciInfo.ciStartedAt,
+          },
+        });
+
         return { outcome: "awaiting_ci" };
       }
 
