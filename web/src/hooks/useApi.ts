@@ -20,6 +20,10 @@ export function fetchTasks(): Promise<Task[]> {
   return fetchJson<Task[]>("/tasks");
 }
 
+export function fetchVersion(): Promise<{ version: string }> {
+  return fetchJson<{ version: string }>("/version");
+}
+
 export function fetchTaskDetail(id: string): Promise<TaskWithInvocations> {
   return fetchJson<TaskWithInvocations>(`/tasks/${encodeURIComponent(id)}`);
 }

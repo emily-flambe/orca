@@ -5,6 +5,7 @@ import {
   fetchStatus,
   triggerSync,
   updateConfig,
+  fetchVersion,
 } from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
 import Sidebar from "./components/Sidebar";
@@ -258,6 +259,7 @@ function TasksPage({
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
   const [expandedInvocationId, setExpandedInvocationId] = useState<
@@ -269,6 +271,9 @@ export default function App() {
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
     fetchStatus().then(setStatus).catch(console.error);
+    fetchVersion()
+      .then((v) => setVersion(v.version))
+      .catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -444,6 +449,13 @@ export default function App() {
         )}
 
         {activePage === "cron" && <CronPage />}
+
+        {/* Version footer */}
+        {version && (
+          <div className="shrink-0 flex justify-end px-4 py-1">
+            <span className="text-xs text-gray-600">Orca v{version}</span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -119,6 +119,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/version
+  // -----------------------------------------------------------------------
+  app.get("/api/version", (c) => {
+    const pkgPath = join(process.cwd(), "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+      version: string;
+    };
+    return c.json({ version: pkg.version });
+  });
+
+  // -----------------------------------------------------------------------
   // GET /api/tasks
   // -----------------------------------------------------------------------
   app.get("/api/tasks", (c) => {
