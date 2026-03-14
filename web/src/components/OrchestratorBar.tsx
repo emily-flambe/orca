@@ -245,6 +245,11 @@ export default function OrchestratorBar({
             + New ticket
           </button>
           <button
+            className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded"
+          >
+            Settings
+          </button>
+          <button
             onClick={handleSync}
             disabled={syncing}
             className="px-3 py-1.5 rounded bg-teal-600 text-teal-100 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
