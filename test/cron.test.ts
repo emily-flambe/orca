@@ -15,6 +15,7 @@ import {
   getCronSchedule,
   getTasksByCronSchedule,
   insertTask,
+  updateCronLastRunStatus,
 } from "../src/db/queries.js";
 import type { OrcaDb } from "../src/db/index.js";
 import type { OrcaConfig } from "../src/config/index.js";
@@ -1099,5 +1100,78 @@ describe("GET /api/cron", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toHaveLength(2);
+  });
+
+  it("includes lastRunStatus field in each schedule", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ name: "status-test" }));
+    updateCronLastRunStatus(db, id, "success");
+    const res = await app.request("/api/cron");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const schedule = body.find((s: { id: number }) => s.id === id);
+    expect(schedule).toBeDefined();
+    expect(schedule.lastRunStatus).toBe("success");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateCronLastRunStatus — direct DB function tests
+// ---------------------------------------------------------------------------
+
+describe("updateCronLastRunStatus", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+  });
+
+  it("sets lastRunStatus to 'success' on a cron schedule", () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    updateCronLastRunStatus(db, id, "success");
+    const schedule = getCronSchedule(db, id);
+    expect(schedule?.lastRunStatus).toBe("success");
+  });
+
+  it("sets lastRunStatus to 'failed' on a cron schedule", () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    updateCronLastRunStatus(db, id, "failed");
+    const schedule = getCronSchedule(db, id);
+    expect(schedule?.lastRunStatus).toBe("failed");
+  });
+
+  it("overwrites a previous status value", () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    updateCronLastRunStatus(db, id, "success");
+    updateCronLastRunStatus(db, id, "failed");
+    const schedule = getCronSchedule(db, id);
+    expect(schedule?.lastRunStatus).toBe("failed");
+  });
+
+  it("new schedule has null lastRunStatus before any update", () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const schedule = getCronSchedule(db, id);
+    expect(schedule?.lastRunStatus).toBeNull();
+  });
+
+  it("updates updatedAt timestamp when status is set", () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const before = getCronSchedule(db, id)!.updatedAt;
+    // Advance time slightly
+    const origDateNow = Date.now;
+    Date.now = () => origDateNow() + 1000;
+    updateCronLastRunStatus(db, id, "success");
+    Date.now = origDateNow;
+    const after = getCronSchedule(db, id)!.updatedAt;
+    expect(new Date(after).getTime()).toBeGreaterThanOrEqual(
+      new Date(before).getTime(),
+    );
+  });
+
+  it("does not affect other schedules", () => {
+    const id1 = insertCronSchedule(db, makeSchedule({ name: "sched-a" }));
+    const id2 = insertCronSchedule(db, makeSchedule({ name: "sched-b" }));
+    updateCronLastRunStatus(db, id1, "failed");
+    const schedule2 = getCronSchedule(db, id2);
+    expect(schedule2?.lastRunStatus).toBeNull();
   });
 });

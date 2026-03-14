@@ -36,6 +36,7 @@ function makeSchedule(overrides: Partial<CronSchedule> = {}): CronSchedule {
     runCount: 0,
     enabled: 1,
     lastRunAt: null,
+    lastRunStatus: null,
     nextRunAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -271,6 +272,161 @@ describe("CronPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Delete me")).not.toBeInTheDocument();
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // formatLastRun — via rendered output
+  // ---------------------------------------------------------------------------
+
+  it("does not render Last: line when lastRunAt is null", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/^Last:/)).not.toBeInTheDocument();
+  });
+
+  it("renders 'Last: just now' when lastRunAt is within the last minute", async () => {
+    const recentTime = new Date(Date.now() - 30 * 1000).toISOString(); // 30s ago
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: recentTime, lastRunStatus: "success" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Last: just now")).toBeInTheDocument();
+    });
+  });
+
+  it("renders 'Last: Xm ago' for a run several minutes ago", async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: fiveMinAgo, lastRunStatus: "success" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Last: 5m ago")).toBeInTheDocument();
+    });
+  });
+
+  it("renders 'Last: Xh ago' for a run several hours ago", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: threeHoursAgo, lastRunStatus: "failed" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Last: 3h ago")).toBeInTheDocument();
+    });
+  });
+
+  it("renders 'Last: Xd ago' for a run several days ago", async () => {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: twoDaysAgo, lastRunStatus: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Last: 2d ago")).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // lastRunStatus — color coding
+  // ---------------------------------------------------------------------------
+
+  it("applies green text class for lastRunStatus='success'", async () => {
+    const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: recentTime, lastRunStatus: "success" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      const el = screen.getByText("Last: 5m ago");
+      expect(el.className).toContain("text-green-400");
+    });
+  });
+
+  it("applies red text class for lastRunStatus='failed'", async () => {
+    const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: recentTime, lastRunStatus: "failed" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      const el = screen.getByText("Last: 5m ago");
+      expect(el.className).toContain("text-red-400");
+    });
+  });
+
+  it("applies gray text class for lastRunStatus=null", async () => {
+    const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunAt: recentTime, lastRunStatus: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      const el = screen.getByText("Last: 5m ago");
+      expect(el.className).toContain("text-gray-500");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // lastRunStatus — failure badge
+  // ---------------------------------------------------------------------------
+
+  it("renders a red dot badge when lastRunStatus is 'failed'", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: "failed",
+      }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Last run failed")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render the failure badge when lastRunStatus is 'success'", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({
+        lastRunAt: new Date().toISOString(),
+        lastRunStatus: "success",
+      }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
+  });
+
+  it("does not render the failure badge when lastRunStatus is null", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ lastRunStatus: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
   });
 
   it("opens CronForm pre-filled with schedule data when Edit is clicked", async () => {
