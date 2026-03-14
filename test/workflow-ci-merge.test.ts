@@ -1,0 +1,443 @@
+// ---------------------------------------------------------------------------
+// Integration tests for ci-merge Inngest workflow
+//
+// Strategy: mock inngest client to capture the handler, then mock getSchedulerDeps
+// and GitHub calls to test the workflow's polling logic.
+// ---------------------------------------------------------------------------
+
+import { describe, test, expect, beforeEach, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+// Must be `var` (not `let`) so it's hoisted and accessible when vi.mock runs
+// eslint-disable-next-line no-var
+var capturedCiMergeHandler: (ctx: {
+  event: unknown;
+  step: unknown;
+}) => Promise<unknown>;
+// eslint-disable-next-line no-var
+var capturedCiMergeConfig: { cancelOn?: unknown[]; id?: string };
+
+vi.mock("../src/inngest/client.js", () => ({
+  inngest: {
+    createFunction: vi.fn(
+      (
+        config: { cancelOn?: unknown[]; id?: string },
+        _trigger: unknown,
+        handler: (ctx: { event: unknown; step: unknown }) => Promise<unknown>,
+      ) => {
+        capturedCiMergeHandler = handler;
+        capturedCiMergeConfig = config;
+        return { id: config.id ?? "ci-gate-merge" };
+      },
+    ),
+    send: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+const mockDb = {} as never;
+
+const mockConfig = {
+  maxReviewCycles: 3,
+  deployTimeoutMin: 30,
+  deployStrategy: "none" as const,
+};
+
+const mockLinearClient = {
+  createComment: vi.fn().mockResolvedValue({}),
+  createAttachment: vi.fn().mockResolvedValue({}),
+};
+
+const mockStateMap = {};
+
+const mockSchedulerDeps = {
+  db: mockDb,
+  config: mockConfig,
+  client: mockLinearClient,
+  stateMap: mockStateMap,
+};
+
+vi.mock("../src/inngest/deps.js", () => ({
+  getSchedulerDeps: vi.fn(() => mockSchedulerDeps),
+  setSchedulerDeps: vi.fn(),
+}));
+
+vi.mock("../src/db/queries.js", () => ({
+  getTask: vi.fn(),
+  updateTaskStatus: vi.fn(),
+  updateTaskDeployInfo: vi.fn(),
+  updateTaskFixReason: vi.fn(),
+  incrementMergeAttemptCount: vi.fn(),
+  resetMergeAttemptCount: vi.fn(),
+  incrementReviewCycleCount: vi.fn(),
+  // include all others from task-lifecycle to avoid import errors
+  claimTaskForDispatch: vi.fn(),
+  insertInvocation: vi.fn(),
+  updateInvocation: vi.fn(),
+  insertBudgetEvent: vi.fn(),
+  sumCostInWindow: vi.fn().mockReturnValue(0),
+  budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
+  incrementRetryCount: vi.fn(),
+  updateTaskPrBranch: vi.fn(),
+  updateTaskCiInfo: vi.fn(),
+  getLastMaxTurnsInvocation: vi.fn().mockReturnValue(null),
+  getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
+  getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
+  getInvocation: vi.fn(),
+}));
+
+vi.mock("../src/events.js", () => ({
+  emitTaskUpdated: vi.fn(),
+  emitInvocationStarted: vi.fn(),
+  emitInvocationCompleted: vi.fn(),
+}));
+
+vi.mock("../src/linear/sync.js", () => ({
+  writeBackStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../src/github/index.js", () => ({
+  getPrCheckStatus: vi.fn(),
+  getPrMergeState: vi.fn(),
+  mergePr: vi.fn(),
+  updatePrBranch: vi.fn(),
+  rebasePrBranch: vi.fn(),
+  findPrForBranch: vi.fn(),
+  getMergeCommitSha: vi.fn(),
+  closeSupersededPrs: vi.fn(),
+}));
+
+vi.mock("../src/git.js", () => ({
+  git: vi.fn().mockReturnValue(""),
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn().mockReturnValue(""),
+}));
+
+// ---------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------
+
+import {
+  getTask,
+  updateTaskStatus,
+  incrementReviewCycleCount,
+} from "../src/db/queries.js";
+import { writeBackStatus } from "../src/linear/sync.js";
+import {
+  getPrCheckStatus,
+  getPrMergeState,
+  mergePr,
+  getMergeCommitSha,
+  updatePrBranch,
+} from "../src/github/index.js";
+
+// Import the workflow module to trigger createFunction capture
+import "../src/inngest/workflows/ci-merge.js";
+
+const mockGetTask = vi.mocked(getTask);
+const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+const mockIncrementReviewCycleCount = vi.mocked(incrementReviewCycleCount);
+const mockWriteBackStatus = vi.mocked(writeBackStatus);
+const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
+const mockGetPrMergeState = vi.mocked(getPrMergeState);
+const mockMergePr = vi.mocked(mergePr);
+const mockGetMergeCommitSha = vi.mocked(getMergeCommitSha);
+const mockUpdatePrBranch = vi.mocked(updatePrBranch);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeAwaitingCiEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    name: "task/awaiting-ci" as const,
+    data: {
+      linearIssueId: "TEST-1",
+      prNumber: 42,
+      prBranchName: "orca/TEST-1-inv-1",
+      repoPath: "/repo",
+      ciStartedAt: new Date().toISOString(),
+      ...overrides,
+    },
+  };
+}
+
+function makeTask(overrides: Record<string, unknown> = {}) {
+  return {
+    linearIssueId: "TEST-1",
+    orcaStatus: "awaiting_ci",
+    repoPath: "/repo",
+    prNumber: 42,
+    prBranchName: "orca/TEST-1-inv-1",
+    reviewCycleCount: 0,
+    mergeAttemptCount: 0,
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a step mock for ci-merge. The workflow calls step.run repeatedly
+ * in a while loop. We support controlling each call via an ordered queue.
+ *
+ * step.run always executes the provided fn directly (like the real Inngest).
+ */
+function createCiMergeStep() {
+  return {
+    run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
+    sleep: vi.fn(async () => {}),
+    waitForEvent: vi.fn(async () => null),
+    sendEvent: vi.fn(async () => {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mockLinearClient.createComment.mockResolvedValue({});
+  mockLinearClient.createAttachment.mockResolvedValue({});
+  mockWriteBackStatus.mockResolvedValue(undefined);
+  // Restore mutated mockSchedulerDeps.config to default
+  (mockSchedulerDeps as Record<string, unknown>).config = mockConfig;
+});
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("ci-merge workflow", () => {
+  test("task not found → returns aborted", async () => {
+    mockGetTask.mockReturnValue(null);
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "aborted", reason: "task_not_found" });
+  });
+
+  test("task status changed from awaiting_ci → returns aborted", async () => {
+    mockGetTask.mockReturnValue(makeTask({ orcaStatus: "done" }));
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "aborted", reason: "status_changed" });
+  });
+
+  test("CI pending → polls again (sleeps between polls)", async () => {
+    // First call: CI pending; second call: task not found (to exit loop cleanly)
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // loop iteration 1
+      .mockReturnValueOnce(makeTask()) // inside check-ci step
+      .mockReturnValueOnce(null); // loop iteration 2 → abort
+
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // Sleep should have been called once (after pending)
+    expect(step.sleep).toHaveBeenCalledWith("ci-poll-wait-1", "30s");
+  });
+
+  test("CI success → merges → done (deploy strategy: none)", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // mergeAndFinalizeStep - task lookup
+      .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
+
+    mockGetPrCheckStatus.mockResolvedValue("success");
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+    });
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("abc123");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "merged", nextStatus: "done" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
+  });
+
+  test("CI success → merges → deploying (deploy strategy: github_actions)", async () => {
+    // Override config to use github_actions deploy strategy
+    (mockSchedulerDeps as Record<string, unknown>).config = {
+      ...mockConfig,
+      deployStrategy: "github_actions",
+    };
+
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // mergeAndFinalizeStep - task lookup
+      .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
+
+    mockGetPrCheckStatus.mockResolvedValue("success");
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+    });
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("sha-deploy");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "merged", nextStatus: "deploying" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "deploying");
+
+    // Restore config
+    (mockSchedulerDeps as Record<string, unknown>).config = mockConfig;
+  });
+
+  test("CI no_checks (no checks configured) → treats as success → merges", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // mergeAndFinalize task lookup
+      .mockReturnValue(makeTask()); // subsequent calls
+
+    mockGetPrCheckStatus.mockResolvedValue("no_checks");
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+    });
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("abc456");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "merged" });
+    expect(mockMergePr).toHaveBeenCalledWith(42, "/repo");
+  });
+
+  test("CI failure → changes_requested (if cycles remain)", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // inside check-ci step
+      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+
+    mockGetPrCheckStatus.mockResolvedValue("failure");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "ci_failure" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "changes_requested",
+    );
+    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(mockDb, "TEST-1");
+  });
+
+  test("CI failure → failed permanently (if cycles exhausted)", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check (outside step)
+      .mockReturnValueOnce(makeTask({ reviewCycleCount: 3 })); // inside ci-failure step
+
+    mockGetPrCheckStatus.mockResolvedValue("failure");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "ci_failure" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
+  });
+
+  test("merge attempt behind → updates PR branch then merges successfully", async () => {
+    // BEHIND → updatePrBranch → falls through to merge attempt → succeeds
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // loop 1 - outer check (outside step)
+      .mockReturnValueOnce(makeTask()) // mergeAndFinalize - task lookup
+      .mockReturnValue(makeTask()); // any subsequent calls (for emitTaskUpdated etc)
+
+    mockGetPrCheckStatus.mockResolvedValue("success");
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "BEHIND",
+    });
+    mockUpdatePrBranch.mockResolvedValue(true);
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("abc789");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // The branch update should have been attempted before the merge
+    expect(mockUpdatePrBranch).toHaveBeenCalledWith(42, "/repo");
+    expect(mockMergePr).toHaveBeenCalledWith(42, "/repo");
+    expect(result).toMatchObject({ status: "merged" });
+  });
+
+  test("merge attempt conflicting → changes_requested when cycles remain", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })) // mergeAndFinalize outer getTask
+      .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
+
+    mockGetPrCheckStatus.mockResolvedValue("success");
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "CONFLICTING",
+      mergeStateStatus: "CONFLICTING",
+    });
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "changes_requested" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "changes_requested",
+    );
+  });
+
+  test("ci-merge workflow is configured to cancel on task/cancelled event", () => {
+    // capturedCiMergeConfig was saved when the module was loaded
+    expect(capturedCiMergeConfig?.cancelOn).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "task/cancelled" }),
+      ]),
+    );
+  });
+});
