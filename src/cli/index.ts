@@ -20,7 +20,7 @@ import { createScheduler } from "../scheduler/index.js";
 import { setSchedulerHandle } from "../scheduler/state.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
-import { fullSync, writeBackStatus } from "../linear/sync.js";
+import { fullSync, writeBackStatus, logStateMapping } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
 import { createGithubWebhookRoute } from "../github/webhook.js";
 import { initDeployState, isDraining } from "../deploy.js";
@@ -198,6 +198,9 @@ program
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
     const stateMap = await client.fetchWorkflowStates(teamIds);
+
+    // Log resolved state mapping + warn on ambiguity
+    logStateMapping(stateMap, config.stateMapOverrides);
 
     // Reconcile failed tasks whose Linear status is still active.
     // On crash/restart, fire-and-forget write-backs may have been lost.

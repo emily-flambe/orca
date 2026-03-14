@@ -74,7 +74,7 @@ describe("findStateByType", () => {
       ["Todo", { id: "s2", type: "unstarted" }],
     ]);
     const result = findStateByType(stateMap, "unstarted");
-    expect(result).toEqual({ id: "s2", type: "unstarted" });
+    expect(result).toEqual({ id: "s2", type: "unstarted", name: "Todo" });
   });
 
   it("returns the FIRST entry when multiple entries share the same type", () => {
@@ -85,7 +85,7 @@ describe("findStateByType", () => {
       ["Todo (sprint)", { id: "s2", type: "unstarted" }],
     ]);
     const result = findStateByType(stateMap, "unstarted");
-    expect(result).toEqual({ id: "s1", type: "unstarted" });
+    expect(result).toEqual({ id: "s1", type: "unstarted", name: "Todo" });
     // Must NOT return the second one
     expect(result?.id).not.toBe("s2");
   });
@@ -97,7 +97,7 @@ describe("findStateByType", () => {
     // Linear API returns lowercase types ("backlog", "unstarted", etc.)
     // The call site passes lowercase; this test documents the behavior.
     expect(findStateByType(stateMap, "backlog")).toBeUndefined();
-    expect(findStateByType(stateMap, "Backlog")).toEqual({ id: "s1", type: "Backlog" });
+    expect(findStateByType(stateMap, "Backlog")).toEqual({ id: "s1", type: "Backlog", name: "Backlog" });
   });
 
   it("returns undefined when stateMap has entries but type is an empty string", () => {
@@ -105,6 +105,72 @@ describe("findStateByType", () => {
       ["Backlog", { id: "s1", type: "backlog" }],
     ]);
     expect(findStateByType(stateMap, "")).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // New tests for 3-step preference order
+  // ---------------------------------------------------------------------------
+
+  it("stateMapOverrides reverse lookup takes priority over type matching", () => {
+    const stateMap = makeStateMap([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["Custom In Progress", { id: "s2", type: "started" }],
+    ]);
+    const overrides: Record<string, string> = {
+      "Custom In Progress": "dispatched",
+    };
+    const result = findStateByType(stateMap, "started", false, overrides, "dispatched");
+    expect(result).toEqual({ id: "s2", type: "started", name: "Custom In Progress" });
+  });
+
+  it("overrides reverse lookup only applies when orcaStatus matches", () => {
+    const stateMap = makeStateMap([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["Custom In Progress", { id: "s2", type: "started" }],
+    ]);
+    const overrides: Record<string, string> = {
+      "Custom In Progress": "dispatched",
+    };
+    // orcaStatus is "in_review", not "dispatched" — override should NOT apply
+    const result = findStateByType(stateMap, "started", true, overrides, "in_review");
+    // Should fall through to matchReview logic — no review-named state, falls back to first
+    expect(result?.id).toBe("s1");
+  });
+
+  it("completed type prefers exact 'Done' match over 'Done Pending Deployment'", () => {
+    const stateMap = makeStateMap([
+      ["Done Pending Deployment", { id: "s1", type: "completed" }],
+      ["Done", { id: "s2", type: "completed" }],
+    ]);
+    const result = findStateByType(stateMap, "completed");
+    expect(result).toEqual({ id: "s2", type: "completed", name: "Done" });
+  });
+
+  it("matchReview=true prefers 'In Review' over 'In Progress' (both started)", () => {
+    const stateMap = makeStateMap([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["In Review", { id: "s2", type: "started" }],
+    ]);
+    const result = findStateByType(stateMap, "started", true);
+    expect(result).toEqual({ id: "s2", type: "started", name: "In Review" });
+  });
+
+  it("matchReview=false prefers 'In Progress' over 'In Review' (both started)", () => {
+    const stateMap = makeStateMap([
+      ["In Review", { id: "s1", type: "started" }],
+      ["In Progress", { id: "s2", type: "started" }],
+    ]);
+    const result = findStateByType(stateMap, "started", false);
+    expect(result).toEqual({ id: "s2", type: "started", name: "In Progress" });
+  });
+
+  it("when no review-matching name exists, matchReview=true falls back to first started", () => {
+    const stateMap = makeStateMap([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["Working", { id: "s2", type: "started" }],
+    ]);
+    const result = findStateByType(stateMap, "started", true);
+    expect(result).toEqual({ id: "s1", type: "started", name: "In Progress" });
   });
 });
 

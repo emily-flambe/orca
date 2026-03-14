@@ -1075,3 +1075,213 @@ describe("EMI-93 - writeBackStatus backlog transition", () => {
     expect(body.variables.stateId).toBe("state-todo-id");
   });
 });
+
+// ===========================================================================
+// EMI-236 - writeBackStatus type-based lookup
+// ===========================================================================
+
+describe("EMI-236 - writeBackStatus type-based lookup", () => {
+  let originalFetch: typeof globalThis.fetch;
+  let mockFetch: Mock;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    mockFetch = vi.fn();
+    globalThis.fetch = mockFetch;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  async function getWriteBack() {
+    const { LinearClient } = await import("../src/linear/client.js");
+    const { writeBackStatus, logStateMapping } = await import("../src/linear/sync.js");
+    const client = new LinearClient("test-key");
+    return { client, writeBackStatus, logStateMapping };
+  }
+
+  function mockSuccess() {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { issueUpdate: { success: true } } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  }
+
+  test("dispatched → finds first non-review started state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["In Review", { id: "s-review", type: "started" }],
+      ["In Progress", { id: "s-progress", type: "started" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-1", "dispatched", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-progress");
+  });
+
+  test("in_review → finds review-containing started state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["In Progress", { id: "s-progress", type: "started" }],
+      ["In Review", { id: "s-review", type: "started" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-2", "in_review", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-review");
+  });
+
+  test("done → prefers exact 'Done' over 'Done Pending Deployment'", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["Done Pending Deployment", { id: "s-done-pending", type: "completed" }],
+      ["Done", { id: "s-done", type: "completed" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-3", "done", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-done");
+  });
+
+  test("done with multiple completed but no 'Done' → uses first completed", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["Finished", { id: "s-first", type: "completed" }],
+      ["Complete", { id: "s-second", type: "completed" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-4", "done", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-first");
+  });
+
+  test("changes_requested → finds first non-review started state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["In Review", { id: "s-review", type: "started" }],
+      ["In Progress", { id: "s-progress", type: "started" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-5", "changes_requested", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-progress");
+  });
+
+  test("failed_permanent → finds canceled state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["In Progress", { id: "s-progress", type: "started" }],
+      ["Canceled", { id: "s-canceled", type: "canceled" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-6", "failed_permanent", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-canceled");
+  });
+
+  test("retry → finds unstarted state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["Backlog", { id: "s-backlog", type: "backlog" }],
+      ["Todo", { id: "s-todo", type: "unstarted" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-7", "retry", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-todo");
+  });
+
+  test("backlog → finds backlog state", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+    mockSuccess();
+
+    const stateMap = new Map([
+      ["Backlog", { id: "s-backlog", type: "backlog" }],
+      ["Todo", { id: "s-todo", type: "unstarted" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-8", "backlog", stateMap);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.variables.stateId).toBe("s-backlog");
+  });
+
+  test("logStateMapping warns when multiple started states and none contain 'review'", async () => {
+    const { logStateMapping } = await getWriteBack();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const stateMap = new Map([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["Working", { id: "s2", type: "started" }],
+      ["Done", { id: "s3", type: "completed" }],
+    ]);
+
+    logStateMapping(stateMap);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("multiple started states exist but none contain"),
+    );
+  });
+
+  test("logStateMapping does NOT warn when one started state contains 'review'", async () => {
+    const { logStateMapping } = await getWriteBack();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const stateMap = new Map([
+      ["In Progress", { id: "s1", type: "started" }],
+      ["In Review", { id: "s2", type: "started" }],
+      ["Done", { id: "s3", type: "completed" }],
+    ]);
+
+    logStateMapping(stateMap);
+
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test("deploying and awaiting_ci are no-ops (no fetch)", async () => {
+    const { client, writeBackStatus } = await getWriteBack();
+
+    const stateMap = new Map([
+      ["In Review", { id: "s-review", type: "started" }],
+    ]);
+
+    await writeBackStatus(client, "TASK-D", "deploying", stateMap);
+    await writeBackStatus(client, "TASK-CI", "awaiting_ci", stateMap);
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
