@@ -201,6 +201,7 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     return byAge.filter(
       (t) =>
         t.linearIssueId.toLowerCase().includes(q) ||
+        (t.linearIssueTitle ?? "").toLowerCase().includes(q) ||
         (t.agentPrompt ?? "").toLowerCase().includes(q),
     );
   })();
@@ -529,12 +530,18 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   )}
                 </div>
               </div>
-              {/* Title row — full on mobile, clamped on desktop */}
+                      {/* Title row — issue title (primary) with prompt fallback */}
               <span className="text-sm text-gray-200 leading-snug line-clamp-4 md:line-clamp-2 pl-[18px]">
-                {task.agentPrompt
-                  ? task.agentPrompt.slice(0, 300)
-                  : "No prompt"}
+                {task.linearIssueTitle ||
+                  (task.agentPrompt
+                    ? task.agentPrompt.slice(0, 300)
+                    : "No prompt")}
               </span>
+              {task.linearIssueTitle && task.agentPrompt && (
+                <span className="text-xs text-gray-500 leading-snug line-clamp-2 pl-[18px]">
+                  {task.agentPrompt.slice(0, 200)}
+                </span>
+              )}
             </div>
           );
         })}

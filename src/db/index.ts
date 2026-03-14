@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
   project_name TEXT,
+  linear_issue_title TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -343,6 +344,15 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "cron_schedules", "last_run_status")) {
     sqlite.exec("ALTER TABLE cron_schedules ADD COLUMN last_run_status TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 16 (Linear issue title):
+  //   - Add linear_issue_title column to tasks (stores the issue title from Linear)
+  //   Sentinel: linear_issue_title column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "linear_issue_title")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN linear_issue_title TEXT");
   }
 }
 

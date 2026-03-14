@@ -704,6 +704,7 @@ export function getSuccessRate12h(db: OrcaDb): number | null {
 export interface ActivityEntry {
   id: number;
   linearIssueId: string;
+  linearIssueTitle: string | null;
   startedAt: string;
   endedAt: string | null;
   status: string;
@@ -732,7 +733,8 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
       i.phase,
       i.cost_usd          AS costUsd,
       i.input_tokens      AS inputTokens,
-      i.output_tokens     AS outputTokens
+      i.output_tokens     AS outputTokens,
+      t.linear_issue_title AS linearIssueTitle
     FROM invocations i
     INNER JOIN (
       SELECT linear_issue_id, MAX(id) AS max_id

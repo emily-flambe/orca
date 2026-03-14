@@ -74,6 +74,11 @@ export default function ActivityFeed({ entries, onNavigate }: Props) {
           <span className="font-mono text-sm text-gray-200 shrink-0">
             {entry.linearIssueId}
           </span>
+          {entry.linearIssueTitle && (
+            <span className="text-xs text-gray-400 truncate min-w-0">
+              {entry.linearIssueTitle}
+            </span>
+          )}
           {entry.phase && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
               {entry.phase}

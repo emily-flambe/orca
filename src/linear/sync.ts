@@ -236,6 +236,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
     insertTask(db, {
       linearIssueId: issue.identifier,
       agentPrompt,
+      linearIssueTitle: issue.title,
       repoPath,
       orcaStatus: insertStatus,
       priority: issue.priority,
@@ -272,6 +273,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
 
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
+      ...(issue.title ? { linearIssueTitle: issue.title } : {}),
       repoPath,
       priority: issue.priority,
       orcaStatus: effectiveStatus,

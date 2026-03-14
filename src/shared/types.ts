@@ -43,6 +43,7 @@ export interface Task {
   deployStartedAt: string | null;
   ciStartedAt: string | null;
   doneAt: string | null;
+  linearIssueTitle: string | null;
   projectName: string | null;
   invocationCount: number;
   createdAt: string;

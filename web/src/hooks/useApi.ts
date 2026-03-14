@@ -122,6 +122,7 @@ export interface DailyStatEntry {
 export interface ActivityEntry {
   id: number;
   linearIssueId: string;
+  linearIssueTitle: string | null;
   startedAt: string;
   endedAt: string | null;
   status: string;

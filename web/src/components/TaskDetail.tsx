@@ -88,6 +88,11 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-mono font-semibold">
           {detail.linearIssueId}
+          {detail.linearIssueTitle && (
+            <span className="ml-2 font-sans font-normal text-gray-300 text-base">
+              {detail.linearIssueTitle}
+            </span>
+          )}
         </h2>
         <div className="relative" ref={statusMenuRef}>
           <button
