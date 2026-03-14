@@ -722,6 +722,7 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
       i.ended_at          AS endedAt,
       CASE
         WHEN t.orca_status = 'failed'              THEN 'failed'
+        WHEN t.orca_status = 'done'                THEN 'completed'
         WHEN i.status = 'running'                  THEN 'running'
         WHEN i.status = 'completed'                THEN 'completed'
         WHEN i.status = 'failed' AND t.orca_status IN ('ready', 'in_review', 'changes_requested')
