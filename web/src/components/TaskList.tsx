@@ -446,6 +446,13 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
             })}
           </div>
         </div>
+
+        {/* Export */}
+        <div className="flex justify-end">
+          <button className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm">
+            Export
+          </button>
+        </div>
       </div>
 
       {/* Task rows */}
