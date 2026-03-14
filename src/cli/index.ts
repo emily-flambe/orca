@@ -27,6 +27,7 @@ import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { createApiRoutes } from "../api/routes.js";
+import { inngest } from "../inngest/client.js";
 import { removeWorktree } from "../worktree/index.js";
 import { initFileLogger } from "../logger.js";
 import { serve } from "@hono/node-server";
@@ -259,6 +260,7 @@ program
       client,
       stateMap,
       projectMeta,
+      inngest,
     });
 
     const app = new Hono();
