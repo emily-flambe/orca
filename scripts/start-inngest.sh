@@ -31,6 +31,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Check if port 8288 is already in use.
+if command -v lsof &>/dev/null; then
+  if lsof -ti tcp:8288 &>/dev/null; then
+    echo "[inngest] ERROR: Port 8288 is already in use." >&2
+    echo "[inngest] Stop the existing process or use a different port with --port." >&2
+    exit 1
+  fi
+elif command -v netstat &>/dev/null; then
+  if netstat -ano 2>/dev/null | grep -q ":8288 "; then
+    echo "[inngest] ERROR: Port 8288 is already in use." >&2
+    echo "[inngest] Stop the existing process or use a different port with --port." >&2
+    exit 1
+  fi
+fi
+
 echo "[inngest] Starting self-hosted Inngest server..."
 echo "[inngest] UI/API:    http://localhost:8288"
 echo "[inngest] Connect:   http://localhost:8289"

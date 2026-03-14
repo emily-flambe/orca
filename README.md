@@ -101,10 +101,13 @@ Orca runs on macOS without modification. Platform-specific notes:
 ### Development
 
 ```bash
-# Backend (scheduler + API server)
+# 1. Start the Inngest server (separate terminal — required for event processing)
+npm run inngest:start
+
+# 2. Backend (scheduler + API server)
 npm run dev -- start
 
-# Frontend dev server with HMR (separate terminal)
+# 3. Frontend dev server with HMR (separate terminal)
 cd web && npm run dev
 ```
 
@@ -128,6 +131,44 @@ node dist/cli/index.js start
 4. Set `ORCA_LINEAR_PROJECT_IDS` to the UUIDs of projects you want to sync
 
 Orca syncs issues on startup and keeps them updated via webhooks. If the tunnel goes down, it falls back to polling every 30 seconds.
+
+## Inngest Server
+
+Orca uses [Inngest](https://www.inngest.com/) for durable event processing. In local development you run a self-hosted Inngest server; the production cloud dashboard is not required.
+
+### Starting
+
+```bash
+npm run inngest:start
+```
+
+This loads `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` from `.env` (defaulting to `local` for local dev) and starts the server at `http://localhost:8288`. State is persisted to `.inngest/` (SQLite).
+
+### Windows
+
+The startup script requires **Git Bash** or **WSL2**. It will not run in `cmd.exe` or PowerShell. This is consistent with orca's other shell scripts (`scripts/deploy.sh`).
+
+```bash
+# Git Bash or WSL2:
+bash scripts/start-inngest.sh
+```
+
+### Stopping
+
+Send `Ctrl+C` to the terminal running the Inngest server. No cleanup is needed — `.inngest/` persists state across restarts.
+
+### Port conflict
+
+If port 8288 is already in use, the script will print a clear error and exit. Find and stop the existing process, then retry:
+
+```bash
+# Windows (Git Bash):
+netstat -ano | grep :8288
+taskkill /PID <pid> /F
+
+# macOS/Linux:
+lsof -ti tcp:8288 | xargs kill
+```
 
 ## Testing
 
