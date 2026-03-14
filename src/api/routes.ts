@@ -2,6 +2,9 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { serve as inngestServe } from "inngest/hono";
+import { inngest } from "../inngest/client.js";
+import { functions } from "../inngest/functions.js";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type {
@@ -1285,5 +1288,20 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return c.json({ ok: true, schedulerStarted: true });
   });
 
+  return app;
+}
+
+// ---------------------------------------------------------------------------
+// Inngest route
+// ---------------------------------------------------------------------------
+
+export function createInngestRoute(): Hono {
+  const handler = inngestServe({
+    client: inngest,
+    functions,
+  });
+
+  const app = new Hono();
+  app.all("/api/inngest", async (c) => handler(c));
   return app;
 }

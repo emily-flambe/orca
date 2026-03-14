@@ -26,7 +26,8 @@ import { createGithubWebhookRoute } from "../github/webhook.js";
 import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
-import { createApiRoutes } from "../api/routes.js";
+import { createApiRoutes, createInngestRoute } from "../api/routes.js";
+import { setSchedulerDeps } from "../inngest/deps.js";
 import { removeWorktree } from "../worktree/index.js";
 import { initFileLogger } from "../logger.js";
 import { serve } from "@hono/node-server";
@@ -261,9 +262,13 @@ program
       projectMeta,
     });
 
+    setSchedulerDeps({ db, config, graph, client, stateMap });
+    const inngestApp = createInngestRoute();
+
     const app = new Hono();
     app.route("/", webhookApp);
     app.route("/", apiApp);
+    app.route("/", inngestApp);
 
     // GitHub webhook route (optional — used for future integrations)
     if (config.githubWebhookSecret) {
