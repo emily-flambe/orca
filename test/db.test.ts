@@ -987,8 +987,16 @@ describe("getRecentActivity", () => {
     expect(activity[0]!.linearIssueId).toBe(t);
   });
 
-  test("shows retrying when latest invocation failed but task is not permanently failed", () => {
+  test("shows queued when latest invocation failed and task is re-queued (ready)", () => {
     const t = seedTask(db, { orcaStatus: "ready" });
+    seedInvocation(db, t, { status: "failed" });
+
+    const [entry] = getRecentActivity(db);
+    expect(entry!.status).toBe("queued");
+  });
+
+  test("shows retrying when latest invocation failed and task is dispatched", () => {
+    const t = seedTask(db, { orcaStatus: "dispatched" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);

@@ -724,6 +724,8 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
         WHEN t.orca_status = 'failed'              THEN 'failed'
         WHEN i.status = 'running'                  THEN 'running'
         WHEN i.status = 'completed'                THEN 'completed'
+        WHEN i.status = 'failed' AND t.orca_status IN ('ready', 'in_review', 'changes_requested')
+                                                   THEN 'queued'
         WHEN i.status = 'failed'                   THEN 'retrying'
         ELSE i.status
       END                 AS status,
