@@ -472,6 +472,11 @@ export default function LogViewer({
 
             return (
               <div key={idx} className="space-y-1">
+                {line.timestamp && (
+                  <div className="text-xs text-gray-600 font-mono select-none">
+                    <Timestamp iso={line.timestamp} />
+                  </div>
+                )}
                 {blocks.map((block, bi) => {
                   if (block.type === "text" && block.text) {
                     return <TextBlock key={bi} text={block.text} />;
@@ -497,13 +502,19 @@ export default function LogViewer({
           // User messages — render tool_result blocks in cyan-dimmer
           if (type === "user" && line.message?.content) {
             const blocks = line.message.content;
-            const resultBlocks = blocks.filter((b) => b.type === "tool_result");
+            const resultBlocks = blocks.filter(
+              (b) => b.type === "tool_result" && b.content != null,
+            );
             if (resultBlocks.length === 0) return null;
 
             return (
               <div key={idx} className="space-y-1">
+                {line.timestamp && (
+                  <div className="text-xs text-gray-600 font-mono select-none">
+                    <Timestamp iso={line.timestamp} />
+                  </div>
+                )}
                 {resultBlocks.map((block, bi) => {
-                  if (block.content == null) return null;
                   return (
                     <ToolResultBlock
                       key={bi}
