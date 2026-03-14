@@ -1,20 +1,61 @@
-# Scheduler Internals
+# Inngest Workflow Architecture
 
-The scheduler is the core of orca (`src/scheduler/index.ts`, ~1800 lines). Understanding it is critical for any backend change.
+Orca's orchestration is handled by Inngest durable workflows (`src/inngest/`). The legacy 10s tick-loop scheduler has been removed. Only types and alert utilities remain in `src/scheduler/`.
 
-## Tick Loop (every 10s)
+## Event-Driven Dispatch
 
-Each tick runs these steps in order:
-1. **Timeout check** — kill sessions past `ORCA_SESSION_TIMEOUT_MIN` (45min default)
-2. **Deploy monitoring** — poll GitHub Actions for `deploying` tasks
-3. **CI gate** — poll PR checks for `awaiting_ci` tasks, merge on success
-4. **Cleanup** — stale branches, worktrees, orphaned PRs (throttled to every N minutes)
-5. **Query dispatchable tasks** — status in (`ready`, `in_review`, `changes_requested`)
-6. **Filter** — skip parents, blocked tasks, empty prompts, rate-limited, already running
-7. **Sort** — review/fix before implement, then priority, then created_at
-8. **Dispatch top task**
+Tasks are dispatched via Inngest events, not polling:
 
-Note: Concurrency and budget enforcement moved to Inngest — the Inngest `concurrency` config enforces `ORCA_CONCURRENCY_CAP`, and the workflow's budget step (first step in task lifecycle) enforces cost and token limits. Budget exceeded → workflow fails and task returns to `ready`.
+- `task/ready` → triggers **task-lifecycle** workflow (implement → Gate 2 → review → fix loop)
+- `task/awaiting-ci` → triggers **ci-gate-merge** workflow (poll PR checks, merge on success)
+- `task/deploying` → triggers **deploy-monitor** workflow (poll GitHub Actions)
+- `session/completed` / `session/failed` → picked up by `step.waitForEvent()` in task-lifecycle
+
+Events are defined in `src/inngest/events.ts`. All four workflows are registered in `src/inngest/functions.ts`.
+
+## Workflow Chain
+
+```
+task/ready → task-lifecycle
+  ├── step: budget check
+  ├── step: spawn session (implement)
+  ├── waitForEvent: session/completed or session/failed
+  ├── step: Gate 2 (verify PR)
+  ├── step: spawn session (review)
+  ├── waitForEvent: session/completed or session/failed
+  ├── step: parse review result
+  ├── (if changes_requested) loop back to fix → review
+  └── emit task/awaiting-ci → ci-gate-merge
+        ├── step: poll mergeStateStatus
+        ├── step: merge PR
+        └── (if deploy) emit task/deploying → deploy-monitor
+```
+
+## Cleanup Cron
+
+`cleanupCronWorkflow` runs every 5 minutes via Inngest cron. Handles stale `orca/*` branches, orphaned worktrees, and abandoned PRs.
+
+## Dependency Injection
+
+Business logic needs access to DB, runner, Linear client, etc. These are injected at startup:
+
+1. `setSchedulerDeps(deps)` in `src/inngest/deps.ts` stores a `SchedulerDeps` object
+2. Workflow steps call `getSchedulerDeps()` to access shared dependencies
+3. Types defined in `src/scheduler/types.ts`
+
+## Session Bridge Pattern
+
+Claude sessions run 10-45 minutes. Inngest steps must not block that long.
+
+1. `step.run("start-session")` spawns the Claude process, returns immediately
+2. `monitorSession()` (fire-and-forget in `src/inngest/activities/session-bridge.ts`) watches the process
+3. When the session ends, `monitorSession` calls `inngest.send()` with `session/completed` or `session/failed`
+4. The workflow picks up the result via `step.waitForEvent()` with a timeout
+
+## Concurrency & Budget
+
+- **Concurrency**: Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`
+- **Budget**: First step in task-lifecycle checks rolling cost against `ORCA_BUDGET_MAX_COST_USD`
 
 ## Gate 2 (Post-Implementation Verification)
 
@@ -24,8 +65,6 @@ After an implement phase completes successfully, Gate 2 determines what happened
 2. If not found, extract PR URL from agent's output summary and validate repo matches
 3. If still not found, check if worktree has no changes vs origin/main (work already on main)
 4. Based on result: transition to `in_review` (PR found), `done` (no changes needed), or `failed` (retry)
-
-**Known issue:** If the agent creates a PR on a different branch name or in a different repo than expected, Gate 2 can misclassify the result. See EMI-220, EMI-221, EMI-222.
 
 ## Agent Spawning
 

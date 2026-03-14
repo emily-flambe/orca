@@ -30,6 +30,14 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_REVIEW_MODEL` | haiku | Model for review phase |
 | `ORCA_FIX_MODEL` | sonnet | Model for fix phase |
 
+## Inngest
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INNGEST_EVENT_KEY` | — | Event key for Inngest server authentication |
+| `INNGEST_SIGNING_KEY` | — | Signing key for request verification |
+| `INNGEST_BASE_URL` | `http://localhost:8288` | URL of the self-hosted Inngest server |
+
 ## Deploy
 
 | Variable | Default | Description |

@@ -1,6 +1,6 @@
 # Inngest Migration Plan
 
-**Status:** In Progress
+**Status:** Complete
 **Created:** 2026-03-13
 **Linear Milestone:** Inngest Migration (Orca project)
 
@@ -115,7 +115,8 @@ Check this file + Linear milestone "Inngest Migration" for current status. Each 
 - [x] Phase 3: Build Inngest Workflows (EMI-295 merged, EMI-296-298 merged via #322)
 - [x] Phase 4: Integration & Wiring (EMI-299 #326, EMI-300+301 #329 merged)
 - [x] Phase 5: Cutover (EMI-303 #333 merged — ORCA_USE_INNGEST toggle)
-- [ ] Phase 5b: Integration tests (EMI-302) + production verification
+- [x] Phase 5b: Integration tests (EMI-302) + production verification
 
-### Orca-managed worktrees
-Orca is actively working on migration tickets in parallel. Check `git worktree list` for active work.
+### Post-migration cleanup
+
+The legacy scheduler (`src/scheduler/index.ts`, ~2,948 lines) has been deleted. Only `types.ts` and `alerts.ts` remain in `src/scheduler/` for shared type definitions and alert utilities. The `ORCA_USE_INNGEST` toggle has been removed — Inngest is the sole orchestrator.

@@ -29,8 +29,10 @@ cd web && npm run build  # Build frontend (vite)
 | Directory | Role |
 |-----------|------|
 | `src/cli/` | Entry point. Commander CLI: `start`, `add`, `status` |
-| `src/scheduler/` | Core loop (10s tick). Dispatch, retry, timeout, CI gate, deploy monitoring (~1800 lines) |
+| `src/scheduler/` | Types + alert utilities (legacy scheduler removed — see `src/inngest/`) |
+| `src/inngest/` | Inngest durable workflows: task lifecycle, CI merge, deploy monitor, cleanup cron |
 | `src/runner/` | Spawns/kills Claude Code CLI. NDJSON stream parsing, rate limit detection |
+| `src/session-handles.ts` | In-memory session handle registry for active Claude processes |
 | `src/db/` | Schema (`tasks`, `invocations`, `budget_events`), queries, inline sentinel migrations |
 | `src/api/` | Hono routes: tasks CRUD, invocation logs, SSE, metrics, deploy drain/unpause |
 | `src/linear/` | GraphQL client, HMAC webhook, full sync, state write-back, conflict resolution, polling fallback |
@@ -52,6 +54,13 @@ backlog → ready → dispatched → running [implement]
     → changes_requested → dispatched → running [fix] → back to in_review
   → failed (retries up to ORCA_MAX_RETRIES, then permanent failure)
 ```
+
+Orchestrated by Inngest durable workflows (replaced the legacy 10s tick-loop scheduler):
+
+- **task-lifecycle**: `task/ready` event triggers implement → Gate 2 → review → fix loop
+- **ci-gate-merge**: `task/awaiting-ci` event triggers CI polling + merge
+- **deploy-monitor**: `task/deploying` event triggers deploy status polling
+- **cleanup cron**: runs every 5 min (stale branches, worktrees, orphaned PRs)
 
 **Gate 2** (post-implement): verifies PR via `gh pr list --head <branch>`, URL extraction fallback, then worktree diff. No PR = failure + retry.
 
