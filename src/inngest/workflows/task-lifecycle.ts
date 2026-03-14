@@ -120,8 +120,7 @@ function bridgeSessionCompletion(
 ): void {
   handle.done
     .then((result) => {
-      const invStatus =
-        result.subtype === "success" ? "completed" : "failed";
+      const invStatus = result.subtype === "success" ? "completed" : "failed";
 
       inngest
         .send({
@@ -583,8 +582,7 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         const isSuccess =
-          implementEvent.data.exitCode === 0 &&
-          !implementEvent.data.isMaxTurns;
+          implementEvent.data.exitCode === 0 && !implementEvent.data.isMaxTurns;
         const invRecord = getInvocation(db, invocationId);
         const isMaxTurns = implementEvent.data.isMaxTurns;
 
@@ -920,8 +918,7 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           const isSuccess =
-            reviewEvent.data.exitCode === 0 &&
-            !reviewEvent.data.isMaxTurns;
+            reviewEvent.data.exitCode === 0 && !reviewEvent.data.isMaxTurns;
           emitInvocationCompleted({
             taskId,
             invocationId,
