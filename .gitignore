@@ -20,3 +20,5 @@ deploy-state.json
 .deploy.lock
 *.pid
 tmp/
+incidents/
+bugs/

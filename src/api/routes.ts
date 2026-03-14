@@ -954,8 +954,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
-    const { name, type, schedule, prompt, repoPath, timeoutMin, maxRuns } =
-      body as Record<string, unknown>;
+    const {
+      name,
+      type,
+      schedule,
+      prompt,
+      repoPath,
+      model,
+      maxTurns,
+      timeoutMin,
+      maxRuns,
+    } = body as Record<string, unknown>;
 
     if (!name || typeof name !== "string" || name.trim() === "") {
       return c.json({ error: "name is required" }, 400);
@@ -978,6 +987,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       (!repoPath || typeof repoPath !== "string" || repoPath.trim() === "")
     ) {
       return c.json({ error: "repoPath is required for claude type" }, 400);
+    }
+    if (model !== undefined && model !== null) {
+      if (typeof model !== "string" || model.length === 0) {
+        return c.json({ error: "model must be a non-empty string" }, 400);
+      }
+      const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
+      if (!MODEL_SHORTCUTS.has(model) && !model.startsWith("claude-")) {
+        return c.json(
+          {
+            error:
+              "model must be one of opus/sonnet/haiku or a full model ID (claude-...)",
+          },
+          400,
+        );
+      }
+    }
+    if (
+      maxTurns !== undefined &&
+      maxTurns !== null &&
+      (typeof maxTurns !== "number" ||
+        !Number.isInteger(maxTurns) ||
+        maxTurns <= 0)
+    ) {
+      return c.json({ error: "maxTurns must be a positive integer" }, 400);
     }
     if (
       timeoutMin !== undefined &&
@@ -1009,6 +1042,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       schedule: schedule as string,
       prompt: (prompt as string).trim(),
       repoPath: typeof repoPath === "string" ? repoPath : null,
+      model: typeof model === "string" ? model : null,
+      maxTurns: typeof maxTurns === "number" ? maxTurns : null,
       timeoutMin: typeof timeoutMin === "number" ? timeoutMin : 30,
       maxRuns: typeof maxRuns === "number" ? maxRuns : null,
       enabled: 1,
@@ -1046,6 +1081,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       schedule,
       prompt,
       repoPath,
+      model,
+      maxTurns,
       timeoutMin,
       maxRuns,
       enabled,
@@ -1075,6 +1112,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         return c.json({ error: `invalid schedule: ${scheduleError}` }, 400);
       }
     }
+    if (model !== undefined && model !== null) {
+      if (typeof model !== "string" || model.length === 0) {
+        return c.json({ error: "model must be a non-empty string" }, 400);
+      }
+      const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
+      if (!MODEL_SHORTCUTS.has(model) && !model.startsWith("claude-")) {
+        return c.json(
+          {
+            error:
+              "model must be one of opus/sonnet/haiku or a full model ID (claude-...)",
+          },
+          400,
+        );
+      }
+    }
+    if (
+      maxTurns !== undefined &&
+      maxTurns !== null &&
+      (typeof maxTurns !== "number" ||
+        !Number.isInteger(maxTurns) ||
+        maxTurns <= 0)
+    ) {
+      return c.json({ error: "maxTurns must be a positive integer" }, 400);
+    }
     if (
       timeoutMin !== undefined &&
       timeoutMin !== null &&
@@ -1102,6 +1163,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (type !== undefined) updates.type = type;
     if (prompt !== undefined) updates.prompt = (prompt as string).trim();
     if (repoPath !== undefined) updates.repoPath = repoPath as string | null;
+    if (model !== undefined) updates.model = model as string | null;
+    if (maxTurns !== undefined) updates.maxTurns = maxTurns as number | null;
     if (timeoutMin !== undefined)
       updates.timeoutMin = timeoutMin as number | null;
     if (maxRuns !== undefined) updates.maxRuns = maxRuns as number | null;
