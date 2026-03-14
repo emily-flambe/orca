@@ -1974,6 +1974,8 @@ function checkCronSchedules(deps: SchedulerDeps): void {
         createdAt: nowIso,
         updatedAt: nowIso,
       });
+      const inserted = getTask(db, taskId);
+      if (inserted) emitTaskUpdated(inserted);
     } catch (err: unknown) {
       // Duplicate key: this run was already created. Still advance the
       // schedule so it doesn't re-fire on the next tick.
