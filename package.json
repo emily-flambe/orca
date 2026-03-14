@@ -17,7 +17,8 @@
     "format:check": "prettier --check src web/src",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "inngest:start": "npx inngest-cli@latest start --sqlite-dir .inngest --port 8288"
   },
   "keywords": [
     "ai",
