@@ -152,11 +152,11 @@ disown
 log "new instance PID=$NEW_PID"
 
 # ---------------------------------------------------------------------------
-# Health check new instance (retry up to 30 times, 2s apart = 60s max)
+# Health check new instance (retry up to 60 times, 2s apart = 120s max)
 # ---------------------------------------------------------------------------
 log "health checking new instance on port $STANDBY_PORT..."
 HEALTH_OK=false
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   if curl -sf "http://localhost:$STANDBY_PORT/api/status" > /dev/null 2>&1; then
     HEALTH_OK=true
     log "health check passed on attempt $i"
@@ -166,7 +166,7 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$HEALTH_OK" != "true" ]]; then
-  log "ERROR: health check failed after 60s — rolling back"
+  log "ERROR: health check failed after 120s — rolling back"
   kill_pid "$NEW_PID"
   exit 1
 fi
