@@ -36,7 +36,6 @@ import {
   getLastCompletedImplementInvocation,
 } from "../../db/queries.js";
 import { spawnSession } from "../../runner/index.js";
-import type { SessionResult } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
 import {
   emitTaskUpdated,
