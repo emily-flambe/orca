@@ -77,6 +77,8 @@ import {
   getWorkflowRunStatus,
   getFailingCheckNames,
   isCiFlakeOnMain,
+  getFailingWorkflowRunIds,
+  rerunFailedWorkflowJobs,
   mergePr,
   getPrMergeState,
   updatePrBranch,
@@ -164,6 +166,12 @@ const CI_FLAKE_CAP = 5;
  * Prevents comment spam when the same task is re-polled many times.
  */
 const ciFlakeCommentedTasks = new Set<string>();
+
+/**
+ * Tasks that have had a CI re-run triggered this awaiting_ci cycle.
+ * Prevents re-run loops: only one auto-rerun attempt per awaiting_ci cycle.
+ */
+const ciRerunAttempted = new Set<string>();
 
 /**
  * In-memory cooldown map for rate-limited tasks.
@@ -2309,6 +2317,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         ciPollTimes.delete(taskId);
         ciFlakeCounts.delete(taskId);
         ciFlakeCommentedTasks.delete(taskId);
+        ciRerunAttempted.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2340,6 +2349,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       ciPollTimes.delete(taskId);
       ciFlakeCounts.delete(taskId);
       ciFlakeCommentedTasks.delete(taskId);
+      ciRerunAttempted.delete(taskId);
       continue;
     }
 
@@ -2352,6 +2362,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       ciPollTimes.delete(taskId);
       ciFlakeCounts.delete(taskId);
       ciFlakeCommentedTasks.delete(taskId);
+      ciRerunAttempted.delete(taskId);
     } else if (status === "failure") {
       // Flake detection: check if the same failures exist on main
       const failingNames = await getFailingCheckNames(
@@ -2392,6 +2403,28 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         ciFlakeCommentedTasks.delete(taskId);
       }
 
+      // Auto-retry: attempt one CI re-run before burning a task retry
+      if (!ciRerunAttempted.has(taskId)) {
+        const failingRunIds = await getFailingWorkflowRunIds(
+          task.prNumber,
+          task.repoPath,
+        );
+        if (failingRunIds.length > 0) {
+          let rerunTriggered = false;
+          for (const runId of failingRunIds) {
+            const ok = await rerunFailedWorkflowJobs(runId, task.repoPath);
+            if (ok) rerunTriggered = true;
+          }
+          if (rerunTriggered) {
+            ciRerunAttempted.add(taskId);
+            log(
+              `[orca/scheduler] task ${taskId}: CI failed — triggered re-run of ${failingRunIds.length} workflow(s), will re-poll`,
+            );
+            continue; // stay in awaiting_ci, poll again next tick
+          }
+        }
+      }
+
       ciPollTimes.delete(taskId);
 
       // Check review cycle cap
@@ -2399,6 +2432,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         incrementReviewCycleCount(db, taskId);
         updateTaskStatus(db, taskId, "changes_requested");
         emitTaskUpdated(getTask(db, taskId)!);
+        ciRerunAttempted.delete(taskId);
 
         if (!terminalWriteBackTasks.has(taskId)) {
           writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
@@ -2425,6 +2459,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         // Cycles exhausted — mark as failed
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
+        ciRerunAttempted.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
