@@ -139,12 +139,12 @@ log "killing any orphaned Orca instances..."
 kill_orphans "$OLD_PID"
 
 # ---------------------------------------------------------------------------
-# Start new instance on standby port with scheduler paused
+# Start new instance on standby port
 # ---------------------------------------------------------------------------
-log "starting new instance on port $STANDBY_PORT (scheduler paused)..."
+log "starting new instance on port $STANDBY_PORT..."
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
 ORCA_PORT=$STANDBY_PORT ORCA_EXTERNAL_TUNNEL=true \
-  npx tsx src/cli/index.ts start --scheduler-paused \
+  npx tsx src/cli/index.ts start \
   >> "$PROJECT_DIR/orca.log" 2>&1 &
 NEW_PID=$!
 echo "$NEW_PID" > "$PROJECT_DIR/orca-${STANDBY_PORT}.pid"
@@ -243,11 +243,9 @@ if [[ -n "$OLD_PID" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Unpause new instance scheduler
+# Post-deploy signal (Inngest mode — no scheduler to unpause)
 # ---------------------------------------------------------------------------
-log "unpausing scheduler on new instance..."
-UNPAUSE=$(curl -sf -X POST "http://localhost:$STANDBY_PORT/api/deploy/unpause" 2>/dev/null || echo '{"error":"failed"}')
-log "unpause result: $UNPAUSE"
+log "post-deploy health verified"
 
 # ---------------------------------------------------------------------------
 # Write deploy state (swap ports for next deploy)
