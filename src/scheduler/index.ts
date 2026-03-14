@@ -75,6 +75,8 @@ import {
   getPrCheckStatus,
   getPrCheckStatusSync,
   getWorkflowRunStatus,
+  getFailingCheckNames,
+  isCiFlakeOnMain,
   mergePr,
   getPrMergeState,
   updatePrBranch,
@@ -148,6 +150,20 @@ const worktreeBurnedRetries = new Map<string, number>();
  */
 const noMarkerRetryCounts = new Map<string, number>();
 const NO_MARKER_RETRY_LIMIT = 3;
+
+/**
+ * Per-task count of consecutive CI flake detections in awaiting_ci.
+ * After CI_FLAKE_CAP consecutive flakes, fall through to normal failure
+ * handling to prevent infinite awaiting_ci loops when main stays broken.
+ */
+const ciFlakeCounts = new Map<string, number>();
+const CI_FLAKE_CAP = 5;
+
+/**
+ * Tasks that have already received a CI flake Linear comment.
+ * Prevents comment spam when the same task is re-polled many times.
+ */
+const ciFlakeCommentedTasks = new Set<string>();
 
 /**
  * In-memory cooldown map for rate-limited tasks.
@@ -2291,6 +2307,8 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
         ciPollTimes.delete(taskId);
+        ciFlakeCounts.delete(taskId);
+        ciFlakeCommentedTasks.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2320,6 +2338,8 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       );
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciFlakeCounts.delete(taskId);
+      ciFlakeCommentedTasks.delete(taskId);
       continue;
     }
 
@@ -2330,7 +2350,48 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       // CI passed or no checks configured — merge the PR
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciFlakeCounts.delete(taskId);
+      ciFlakeCommentedTasks.delete(taskId);
     } else if (status === "failure") {
+      // Flake detection: check if the same failures exist on main
+      const failingNames = await getFailingCheckNames(
+        task.prNumber,
+        task.repoPath,
+      );
+      const isFlake = await isCiFlakeOnMain(failingNames, task.repoPath);
+      if (isFlake) {
+        const flakeCount = (ciFlakeCounts.get(taskId) ?? 0) + 1;
+        ciFlakeCounts.set(taskId, flakeCount);
+
+        if (flakeCount <= CI_FLAKE_CAP) {
+          log(
+            `[orca/ci-gate] task ${taskId} CI failure is also present on main ` +
+              `(checks: ${failingNames.join(", ")}, flake ${flakeCount}/${CI_FLAKE_CAP}) — treating as flake, re-queuing`,
+          );
+          if (!ciFlakeCommentedTasks.has(taskId)) {
+            ciFlakeCommentedTasks.add(taskId);
+            client
+              .createComment(
+                taskId,
+                `CI check(s) failing on PR #${task.prNumber} also fail on \`main\` — likely a flake. Will retry CI without burning a review cycle.`,
+              )
+              .catch((err) => {
+                log(
+                  `[orca/ci-gate] comment failed on flake detection for task ${taskId}: ${err}`,
+                );
+              });
+          }
+          continue; // Stay in awaiting_ci, poll again next interval
+        }
+
+        // Flake cap exceeded — fall through to normal failure handling
+        log(
+          `[orca/ci-gate] task ${taskId} flake cap reached (${CI_FLAKE_CAP}) — treating as real failure`,
+        );
+        ciFlakeCounts.delete(taskId);
+        ciFlakeCommentedTasks.delete(taskId);
+      }
+
       ciPollTimes.delete(taskId);
 
       // Check review cycle cap
