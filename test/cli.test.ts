@@ -77,6 +77,7 @@ vi.mock("../src/linear/graph.js", () => ({ DependencyGraph: vi.fn() }));
 vi.mock("../src/linear/sync.js", () => ({
   fullSync: mockFullSync,
   writeBackStatus: vi.fn(),
+  logStateMapping: vi.fn(),
 }));
 vi.mock("../src/linear/webhook.js", () => ({
   createWebhookRoute: vi.fn(() => ({ fetch: vi.fn() })),
