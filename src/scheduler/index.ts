@@ -80,6 +80,9 @@ import {
   updatePrBranch,
   rebasePrBranch,
   closeSupersededPrs,
+  getFailingChecksForPr,
+  getFailingChecksOnMain,
+  retriggerPrChecks,
 } from "../github/index.js";
 import {
   cleanupStaleResources,
@@ -2266,6 +2269,9 @@ async function checkDeployments(deps: SchedulerDeps): Promise<void> {
 /** Last poll time per task ID, for throttling CI checks. */
 const ciPollTimes = new Map<string, number>();
 
+/** Number of times CI has been re-triggered due to a detected main flake, per task ID. */
+const ciFlakeRetriggerCounts = new Map<string, number>();
+
 async function checkPrCi(deps: SchedulerDeps): Promise<void> {
   const { db, config, client, stateMap } = deps;
 
@@ -2291,6 +2297,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
         ciPollTimes.delete(taskId);
+        ciFlakeRetriggerCounts.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
@@ -2330,8 +2337,45 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
       // CI passed or no checks configured — merge the PR
       await mergeAndFinalize(deps, taskId);
       ciPollTimes.delete(taskId);
+      ciFlakeRetriggerCounts.delete(taskId);
     } else if (status === "failure") {
       ciPollTimes.delete(taskId);
+
+      // Flake detection: check if failures are pre-existing on main
+      const prFailures = await getFailingChecksForPr(
+        task.prNumber,
+        task.repoPath,
+      );
+      const mainFailures = await getFailingChecksOnMain(task.repoPath);
+
+      const isFlake =
+        prFailures.length > 0 &&
+        mainFailures.length > 0 &&
+        prFailures.every((check) => mainFailures.includes(check));
+
+      if (isFlake) {
+        const retriggerCount = ciFlakeRetriggerCounts.get(taskId) ?? 0;
+        if (retriggerCount < 1) {
+          // First flake detection — re-trigger CI and keep task in awaiting_ci
+          log(
+            `task ${taskId} CI failure attributed to pre-existing main flake: [${prFailures.join(", ")}] — re-triggering CI`,
+          );
+          ciFlakeRetriggerCounts.set(taskId, retriggerCount + 1);
+          await retriggerPrChecks(task.prNumber, task.repoPath);
+          // Reset ciStartedAt to now so the timeout clock restarts
+          updateTaskCiInfo(db, taskId, {
+            ciStartedAt: new Date().toISOString(),
+          });
+          // Keep task in awaiting_ci — do not fall through to changes_requested
+          continue;
+        } else {
+          // Already re-triggered once for a flake — give up and proceed to review
+          log(
+            `task ${taskId} CI flake re-trigger limit reached — proceeding to changes_requested`,
+          );
+          ciFlakeRetriggerCounts.delete(taskId);
+        }
+      }
 
       // Check review cycle cap
       if (task.reviewCycleCount < config.maxReviewCycles) {
@@ -2364,6 +2408,7 @@ async function checkPrCi(deps: SchedulerDeps): Promise<void> {
         // Cycles exhausted — mark as failed
         updateTaskStatus(db, taskId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
+        ciFlakeRetriggerCounts.delete(taskId);
 
         terminalWriteBackTasks.add(taskId);
         writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
