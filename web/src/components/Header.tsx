@@ -45,6 +45,12 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
       <span className="hidden md:block text-sm font-semibold text-gray-200">
         {PAGE_TITLES[activePage]}
       </span>
+
+      <div className="ml-auto">
+        <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
+          Settings
+        </button>
+      </div>
     </div>
   );
 }
