@@ -348,7 +348,7 @@ export default function Sidebar({
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="w-full px-2 py-1.5 rounded text-xs bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full px-2 py-1.5 rounded text-xs bg-teal-600 text-teal-100 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {syncing ? "Syncing..." : "Sync"}
           </button>

@@ -247,7 +247,7 @@ export default function OrchestratorBar({
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="px-3 py-1.5 rounded bg-purple-600 text-purple-100 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-3 py-1.5 rounded bg-teal-600 text-teal-100 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {syncing ? "Syncing..." : "Sync"}
           </button>
