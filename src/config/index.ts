@@ -48,6 +48,7 @@ export interface OrcaConfig {
   externalTunnel: boolean;
   cronRetentionDays: number;
   stateMapOverrides: Record<string, string> | undefined;
+  useInngest: boolean;
 }
 
 function exitWithError(message: string): never {
@@ -378,6 +379,9 @@ Steps:
       }
       return parsed as Record<string, string>;
     })(),
+    useInngest:
+      process.env.ORCA_USE_INNGEST === "true" ||
+      process.env.ORCA_USE_INNGEST === "1",
   };
 }
 

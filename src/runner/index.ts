@@ -532,24 +532,35 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     const rl = createInterface({ input: proc.stdout! });
 
     rl.on("line", (line: string) => {
-      // Tee every raw line to the log file.
-      logStream.write(line + "\n");
-
-      // Buffer and emit for SSE streaming.
-      logState.buffer.push(line);
-      if (logState.buffer.length > 100) logState.buffer.shift();
-      logState.emitter.emit("line", line);
-
-      // Parse JSON defensively.
+      // Parse JSON defensively first so we can inject a timestamp.
       let msg: Record<string, unknown>;
+      let logLine: string;
       try {
         msg = JSON.parse(line) as Record<string, unknown>;
+        // Inject wall-clock timestamp so the log viewer can display it.
+        if (!msg.timestamp) {
+          msg.timestamp = new Date().toISOString();
+        }
+        logLine = JSON.stringify(msg);
       } catch {
         process.stderr.write(
           `[orca/runner] warning: non-JSON line from claude (invocation ${options.invocationId}): ${line.slice(0, 200)}\n`,
         );
+        // Write the raw line and continue; nothing else to extract.
+        logStream.write(line + "\n");
+        logState.buffer.push(line);
+        if (logState.buffer.length > 100) logState.buffer.shift();
+        logState.emitter.emit("line", line);
         return;
       }
+
+      // Tee the timestamped line to the log file.
+      logStream.write(logLine + "\n");
+
+      // Buffer and emit for SSE streaming.
+      logState.buffer.push(logLine);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", logLine);
 
       const type = msg.type as string | undefined;
 

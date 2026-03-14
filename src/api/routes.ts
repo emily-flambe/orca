@@ -57,6 +57,8 @@ import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
 import { getSchedulerHandle } from "../scheduler/state.js";
+import type { InngestClient } from "../inngest/client.js";
+import type { TaskStatus } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +71,30 @@ export interface ApiDeps {
   client: LinearClient;
   stateMap: WorkflowStateMap;
   projectMeta: ProjectMetadata[];
+  inngest?: InngestClient;
+}
+
+// ---------------------------------------------------------------------------
+// Inngest helpers (fire-and-forget, no-op when inngest is not configured)
+// ---------------------------------------------------------------------------
+
+function emitTaskReady(inngest: InngestClient | undefined, task: Task): void {
+  if (!inngest) return;
+  inngest
+    .send({
+      name: "task/ready",
+      data: {
+        linearIssueId: task.linearIssueId,
+        repoPath: task.repoPath,
+        priority: task.priority,
+        projectName: task.projectName ?? null,
+        taskType: task.taskType ?? "standard",
+        createdAt: task.createdAt,
+      },
+    })
+    .catch((err: unknown) =>
+      console.warn("[orca/api] Inngest task/ready send failed:", err),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +102,8 @@ export interface ApiDeps {
 // ---------------------------------------------------------------------------
 
 export function createApiRoutes(deps: ApiDeps): Hono {
-  const { db, config, syncTasks, client, stateMap, projectMeta } = deps;
+  const { db, config, syncTasks, client, stateMap, projectMeta, inngest } =
+    deps;
   const app = new Hono();
 
   // -----------------------------------------------------------------------
@@ -462,6 +489,28 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       console.warn("[orca/api] Linear write-back failed:", err),
     );
 
+    // Emit Inngest events
+    const updatedTask = getTask(db, taskId);
+    if (updatedTask) {
+      if (newStatus === "ready") {
+        emitTaskReady(inngest, updatedTask);
+      } else if (sessionKilled && inngest) {
+        inngest
+          .send({
+            name: "task/cancelled",
+            data: {
+              linearIssueId: taskId,
+              reason: `Status changed to ${newStatus} via API`,
+              retryCount: updatedTask.retryCount,
+              previousStatus: oldStatus as TaskStatus,
+            },
+          })
+          .catch((err: unknown) =>
+            console.warn("[orca/api] Inngest task/cancelled send failed:", err),
+          );
+      }
+    }
+
     console.log(
       `[orca/api] audit: status change task=${taskId} ${oldStatus} -> ${newStatus} sessionKilled=${sessionKilled}`,
     );
@@ -502,6 +551,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     client
       .createComment(taskId, "Manually retried from Orca dashboard")
       .catch((err) => console.warn("[orca/api] Linear comment failed:", err));
+
+    // Emit Inngest event
+    const retriedTask = getTask(db, taskId);
+    if (retriedTask) {
+      emitTaskReady(inngest, retriedTask);
+    }
 
     console.log(`[orca/api] audit: retry task=${taskId}`);
 
@@ -1253,6 +1308,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       isParent: 0,
     });
     incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
+
+    // Emit Inngest event for the new cron task
+    const cronTask = getTask(db, taskId);
+    if (cronTask) {
+      emitTaskReady(inngest, cronTask);
+    }
+
     return c.json({ ok: true, taskId });
   });
 

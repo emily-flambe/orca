@@ -7,6 +7,7 @@ import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
 import type { TaskStatus } from "../db/schema.js";
+import type { InngestClient } from "../inngest/client.js";
 import {
   getTask,
   getChildTasks,
@@ -416,6 +417,7 @@ export async function processWebhookEvent(
   stateMap: WorkflowStateMap,
   event: WebhookEvent,
   labelIdCache?: Map<string, string>,
+  inngest?: InngestClient,
 ): Promise<void> {
   // Label filtering: if configured and cache is populated, check labelIds
   if (config.taskFilterLabel && labelIdCache && labelIdCache.size > 0) {
@@ -473,6 +475,10 @@ export async function processWebhookEvent(
 
   // Only upsert if we have state info
   if (event.data.state) {
+    // Capture previous state BEFORE resolveConflict modifies the DB
+    const previousTask = getTask(db, event.data.identifier);
+    const previousStatus = previousTask?.orcaStatus ?? null;
+
     // Resolve conflicts BEFORE upsert overwrites the Orca status
     resolveConflict(
       db,
@@ -488,6 +494,70 @@ export async function processWebhookEvent(
     const updatedTask = getTask(db, event.data.identifier);
     if (updatedTask) {
       emitTaskUpdated(updatedTask);
+    }
+
+    // Emit Inngest events for state transitions
+    if (inngest) {
+      const finalTask = getTask(db, event.data.identifier);
+
+      // Emit task/ready when task transitions to ready
+      if (
+        finalTask &&
+        finalTask.orcaStatus === "ready" &&
+        previousStatus !== "ready"
+      ) {
+        inngest
+          .send({
+            name: "task/ready",
+            data: {
+              linearIssueId: finalTask.linearIssueId,
+              repoPath: finalTask.repoPath,
+              priority: finalTask.priority,
+              projectName: finalTask.projectName ?? null,
+              taskType: finalTask.taskType,
+              createdAt: finalTask.createdAt,
+            },
+          })
+          .catch((err: unknown) => {
+            log(
+              `failed to emit task/ready for ${event.data.identifier}: ${err}`,
+            );
+          });
+      }
+
+      // Emit task/cancelled when Linear sends a cancelled state for an active task.
+      // Skip terminal states (failed, done, backlog) — no active workflow to cancel.
+      const CANCELLABLE_STATUSES = new Set<TaskStatus>([
+        "ready",
+        "dispatched",
+        "running",
+        "in_review",
+        "changes_requested",
+        "awaiting_ci",
+        "deploying",
+      ]);
+      if (
+        event.data.state.type === "canceled" &&
+        previousTask &&
+        previousStatus &&
+        CANCELLABLE_STATUSES.has(previousStatus)
+      ) {
+        inngest
+          .send({
+            name: "task/cancelled",
+            data: {
+              linearIssueId: event.data.identifier,
+              reason: "cancelled in Linear",
+              retryCount: previousTask.retryCount,
+              previousStatus,
+            },
+          })
+          .catch((err: unknown) => {
+            log(
+              `failed to emit task/cancelled for ${event.data.identifier}: ${err}`,
+            );
+          });
+      }
     }
 
     // If this is a child task, evaluate its parent's status

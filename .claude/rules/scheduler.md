@@ -9,12 +9,12 @@ Each tick runs these steps in order:
 2. **Deploy monitoring** — poll GitHub Actions for `deploying` tasks
 3. **CI gate** — poll PR checks for `awaiting_ci` tasks, merge on success
 4. **Cleanup** — stale branches, worktrees, orphaned PRs (throttled to every N minutes)
-5. **Concurrency check** — skip dispatch if at `ORCA_CONCURRENCY_CAP`
-6. **Budget check** — skip if rolling cost exceeds `ORCA_BUDGET_MAX_COST_USD` in window
-7. **Query dispatchable tasks** — status in (`ready`, `in_review`, `changes_requested`)
-8. **Filter** — skip parents, blocked tasks, empty prompts, rate-limited, already running
-9. **Sort** — review/fix before implement, then priority, then created_at
-10. **Dispatch top task**
+5. **Query dispatchable tasks** — status in (`ready`, `in_review`, `changes_requested`)
+6. **Filter** — skip parents, blocked tasks, empty prompts, rate-limited, already running
+7. **Sort** — review/fix before implement, then priority, then created_at
+8. **Dispatch top task**
+
+Note: Concurrency and budget enforcement moved to Inngest — the Inngest `concurrency` config enforces `ORCA_CONCURRENCY_CAP`, and the workflow's budget step (first step in task lifecycle) enforces cost and token limits. Budget exceeded → workflow fails and task returns to `ready`.
 
 ## Gate 2 (Post-Implementation Verification)
 

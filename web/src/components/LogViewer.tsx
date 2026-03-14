@@ -220,6 +220,7 @@ function ResultFooter({ line }: { line: LogLine }) {
       : null;
   return (
     <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500 font-mono flex gap-4">
+      {line.timestamp && <Timestamp iso={line.timestamp} />}
       <span>Result: {line.subtype ?? "unknown"}</span>
       {totalTokens != null && <span>Tokens: {formatTokens(totalTokens)}</span>}
       {line.num_turns != null && <span>Turns: {line.num_turns}</span>}
@@ -472,6 +473,11 @@ export default function LogViewer({
 
             return (
               <div key={idx} className="space-y-1">
+                {line.timestamp && (
+                  <div className="text-xs text-gray-600 font-mono select-none">
+                    <Timestamp iso={line.timestamp} />
+                  </div>
+                )}
                 {blocks.map((block, bi) => {
                   if (block.type === "text" && block.text) {
                     return <TextBlock key={bi} text={block.text} />;
@@ -497,13 +503,19 @@ export default function LogViewer({
           // User messages — render tool_result blocks in cyan-dimmer
           if (type === "user" && line.message?.content) {
             const blocks = line.message.content;
-            const resultBlocks = blocks.filter((b) => b.type === "tool_result");
+            const resultBlocks = blocks.filter(
+              (b) => b.type === "tool_result" && b.content != null,
+            );
             if (resultBlocks.length === 0) return null;
 
             return (
               <div key={idx} className="space-y-1">
+                {line.timestamp && (
+                  <div className="text-xs text-gray-600 font-mono select-none">
+                    <Timestamp iso={line.timestamp} />
+                  </div>
+                )}
                 {resultBlocks.map((block, bi) => {
-                  if (block.content == null) return null;
                   return (
                     <ToolResultBlock
                       key={bi}

@@ -28,7 +28,12 @@ function sign(body: string, secret = TEST_SECRET): string {
   return createHmac("sha256", secret).update(body).digest("hex");
 }
 
-function makeConfig(overrides: Partial<{ linearWebhookSecret: string; linearProjectIds: string[] }> = {}): OrcaConfig {
+function makeConfig(
+  overrides: Partial<{
+    linearWebhookSecret: string;
+    linearProjectIds: string[];
+  }> = {},
+): OrcaConfig {
   return {
     linearWebhookSecret: TEST_SECRET,
     linearProjectIds: [TEST_PROJECT_ID],
@@ -36,7 +41,12 @@ function makeConfig(overrides: Partial<{ linearWebhookSecret: string; linearProj
   } as unknown as OrcaConfig;
 }
 
-function makeDeps(configOverrides?: Partial<{ linearWebhookSecret: string; linearProjectIds: string[] }>): WebhookDeps {
+function makeDeps(
+  configOverrides?: Partial<{
+    linearWebhookSecret: string;
+    linearProjectIds: string[];
+  }>,
+): WebhookDeps {
   return {
     db: {} as OrcaDb,
     client: {} as LinearClient,
@@ -216,7 +226,9 @@ describe("createWebhookRoute", () => {
 
   // 9. processWebhookEvent throws → still returns 200 (Linear retry prevention)
   it("when processWebhookEvent throws, still returns 200", async () => {
-    vi.mocked(processWebhookEvent).mockRejectedValue(new Error("sync exploded"));
+    vi.mocked(processWebhookEvent).mockRejectedValue(
+      new Error("sync exploded"),
+    );
 
     const body = makeIssueEvent();
     const res = await app.request(makeRequest(body));
@@ -231,7 +243,9 @@ describe("createWebhookRoute", () => {
   it("rejects a sha256= prefixed signature that would match GitHub style", async () => {
     const body = makeIssueEvent();
     const prefixedSig = `sha256=${sign(body)}`;
-    const res = await app.request(makeRequest(body, { signature: prefixedSig }));
+    const res = await app.request(
+      makeRequest(body, { signature: prefixedSig }),
+    );
 
     // The prefixed signature won't match the raw hex computed value
     expect(res.status).toBe(401);
@@ -251,6 +265,7 @@ describe("createWebhookRoute", () => {
       deps.stateMap,
       expect.objectContaining({ type: "Issue" }),
       undefined, // labelIdCache not set
+      undefined, // inngest not set in test deps
     );
   });
 
@@ -271,6 +286,7 @@ describe("createWebhookRoute", () => {
       expect.anything(),
       expect.anything(),
       labelIdCache,
+      undefined, // inngest not set
     );
   });
 });

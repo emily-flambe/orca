@@ -394,10 +394,10 @@ describe("Concurrency cap enforcement", () => {
     vi.mocked(existsSync).mockReturnValue(false);
   });
 
-  test("does not dispatch when active sessions >= concurrencyCap", async () => {
+  test("dispatches even when active sessions >= concurrencyCap (enforcement delegated to Inngest)", async () => {
     const config = testConfig({ concurrencyCap: 1 });
 
-    // Insert a running invocation to consume the cap
+    // Insert a running invocation for a different task
     const runningTaskId = seedTask(db, {
       linearIssueId: "CAP-RUNNING-1",
       orcaStatus: "running",
@@ -410,22 +410,21 @@ describe("Concurrency cap enforcement", () => {
       model: "sonnet",
     });
 
-    // Seed a ready task that should NOT be dispatched
+    // Seed a ready task — scheduler no longer gates on concurrency cap
     seedTask(db, { linearIssueId: "CAP-READY-1", orcaStatus: "ready" });
 
     const deps = makeDeps(db, config);
     const handle = startScheduler(deps);
 
-    // Wait a short time and confirm spawnSession was not called
     await new Promise<void>((resolve) => setTimeout(resolve, 150));
     handle.stop();
 
-    expect(spawnSession).not.toHaveBeenCalled();
+    expect(spawnSession).toHaveBeenCalledTimes(1);
   });
 });
 
 // ===========================================================================
-// 3. Budget exhaustion gating
+// 3. Budget exhaustion gating (now enforced by Inngest, not the scheduler)
 // ===========================================================================
 
 describe("Budget exhaustion gating", () => {
@@ -438,7 +437,7 @@ describe("Budget exhaustion gating", () => {
     vi.mocked(existsSync).mockReturnValue(false);
   });
 
-  test("does not dispatch when budget is exhausted", async () => {
+  test("dispatches even when budget is exhausted (enforcement delegated to Inngest)", async () => {
     const config = testConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 });
 
     // Insert a budget event that exceeds the cap
@@ -459,7 +458,7 @@ describe("Budget exhaustion gating", () => {
       recordedAt: new Date().toISOString(),
     });
 
-    // Seed a ready task that should NOT be dispatched
+    // Seed a ready task — scheduler no longer gates on budget
     seedTask(db, { linearIssueId: "BUDGET-READY-1", orcaStatus: "ready" });
 
     const deps = makeDeps(db, config);
@@ -468,7 +467,7 @@ describe("Budget exhaustion gating", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 150));
     handle.stop();
 
-    expect(spawnSession).not.toHaveBeenCalled();
+    expect(spawnSession).toHaveBeenCalledTimes(1);
   });
 });
 
