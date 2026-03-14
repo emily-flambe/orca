@@ -595,6 +595,85 @@ describe("POST /api/cron — validation", () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it("persists model and maxTurns when provided", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "claude",
+      schedule: "* * * * *",
+      repoPath: "/tmp/repo",
+      model: "sonnet",
+      maxTurns: 5,
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.model).toBe("sonnet");
+    expect(body.maxTurns).toBe(5);
+  });
+
+  it("accepts full claude- model ID", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      model: "claude-sonnet-4-6",
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("rejects invalid model value", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      model: "gpt-4",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/model/i);
+  });
+
+  it("rejects maxTurns=0", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxTurns: 0,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/maxTurns/i);
+  });
+
+  it("rejects negative maxTurns", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+      maxTurns: -1,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("stores null model and maxTurns when omitted", async () => {
+    const res = await post({
+      name: "test",
+      prompt: "do",
+      type: "shell",
+      schedule: "* * * * *",
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.model).toBeNull();
+    expect(body.maxTurns).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -733,6 +812,43 @@ describe("PUT /api/cron/:id — update behavior", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.enabled).toBe(0);
+  });
+
+  it("persists model and maxTurns when updated", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { model: "haiku", maxTurns: 10 });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBe("haiku");
+    expect(body.maxTurns).toBe(10);
+  });
+
+  it("clears model and maxTurns when set to null", async () => {
+    const id = insertCronSchedule(
+      db,
+      makeSchedule({ model: "sonnet", maxTurns: 5 }),
+    );
+    const res = await put(id, { model: null, maxTurns: null });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.model).toBeNull();
+    expect(body.maxTurns).toBeNull();
+  });
+
+  it("rejects invalid model in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { model: "not-a-valid-model" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/model/i);
+  });
+
+  it("rejects maxTurns=0 in update", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await put(id, { maxTurns: 0 });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/maxTurns/i);
   });
 });
 
