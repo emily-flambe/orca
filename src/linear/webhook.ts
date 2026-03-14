@@ -8,6 +8,7 @@ import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
+import type { InngestClient } from "../inngest/client.js";
 import { processWebhookEvent, type WebhookEvent } from "./sync.js";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,7 @@ export interface WebhookDeps {
   config: OrcaConfig;
   stateMap: WorkflowStateMap;
   labelIdCache?: Map<string, string>;
+  inngest?: InngestClient;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +109,7 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
         deps.stateMap,
         event,
         deps.labelIdCache,
+        deps.inngest,
       );
     } catch (err) {
       log(`error processing webhook event: ${err}`);
