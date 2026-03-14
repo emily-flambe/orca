@@ -779,6 +779,110 @@ export function rebasePrBranch(
   return { success: true };
 }
 
+/**
+ * Get the names of CI checks that are failing on a PR.
+ *
+ * Uses `gh pr checks <prNumber> --json name,state,bucket` and returns
+ * the names of checks where bucket === "fail".
+ * Returns an empty array on error.
+ */
+export async function getFailingChecksForPr(
+  prNumber: number,
+  cwd: string,
+): Promise<string[]> {
+  try {
+    const output = await ghAsync(
+      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+      { cwd },
+    );
+    const checks = JSON.parse(output) as {
+      name: string;
+      state: string;
+      bucket: string;
+    }[];
+    return checks.filter((c) => c.bucket === "fail").map((c) => c.name);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[orca/github] getFailingChecksForPr(#${prNumber}) failed: ${msg}`,
+    );
+    return [];
+  }
+}
+
+/**
+ * Get the names of CI checks/jobs that are failing on the most recent
+ * failed workflow run on `main`.
+ *
+ * Uses `gh run list --branch main --status failure --json databaseId,name --limit 5`
+ * to find recent failed runs, then inspects the most recent one for failing jobs.
+ * Returns an empty array if no recent main failures or on error.
+ */
+export async function getFailingChecksOnMain(cwd: string): Promise<string[]> {
+  try {
+    const runsOutput = await ghAsync(
+      [
+        "run",
+        "list",
+        "--branch",
+        "main",
+        "--status",
+        "failure",
+        "--json",
+        "databaseId,name",
+        "--limit",
+        "5",
+      ],
+      { cwd },
+    );
+    const runs = JSON.parse(runsOutput) as {
+      databaseId: number;
+      name: string;
+    }[];
+
+    if (runs.length === 0) return [];
+
+    // Inspect only the most recent (first) failed run
+    const mostRecent = runs[0]!;
+    const jobsOutput = await ghAsync(
+      ["run", "view", String(mostRecent.databaseId), "--json", "jobs"],
+      { cwd },
+    );
+    const data = JSON.parse(jobsOutput) as {
+      jobs: { name: string; conclusion: string }[];
+    };
+    return data.jobs
+      .filter((j) => j.conclusion === "failure")
+      .map((j) => j.name);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[orca/github] getFailingChecksOnMain failed: ${msg}`);
+    return [];
+  }
+}
+
+/**
+ * Re-trigger failed CI checks on a PR by running `gh pr checks <prNumber> --rerun-failed`.
+ * Returns true on success, false on error.
+ */
+export async function retriggerPrChecks(
+  prNumber: number,
+  cwd: string,
+): Promise<boolean> {
+  try {
+    await ghAsync(["pr", "checks", String(prNumber), "--rerun-failed"], {
+      cwd,
+    });
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[orca/github] retriggerPrChecks(#${prNumber}) failed: ${msg}`,
+    );
+    return false;
+  }
+}
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"
