@@ -7,3 +7,7 @@ export const inngest = new Inngest({
   id: "orca",
   schemas,
 });
+
+// Inngest functions registry — populate as workflows are built
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const inngestFunctions: any[] = [];

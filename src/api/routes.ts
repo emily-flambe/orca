@@ -1,6 +1,8 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Hono } from "hono";
+import { serve } from "inngest/hono";
+import { inngest, inngestFunctions } from "../inngest/client.js";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
@@ -1284,6 +1286,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     console.log("[orca/api] audit: scheduler unpaused");
     return c.json({ ok: true, schedulerStarted: true });
   });
+
+  // -----------------------------------------------------------------------
+  // Inngest
+  // -----------------------------------------------------------------------
+  const inngestHandler = serve({ client: inngest, functions: inngestFunctions });
+  app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
 
   return app;
 }
