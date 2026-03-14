@@ -3,13 +3,16 @@
 // ---------------------------------------------------------------------------
 
 import type { LinearIssue } from "./client.js";
+import { createLogger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("linear");
+
 function warn(message: string): void {
-  console.warn(`[orca/linear] warning: ${message}`);
+  logger.warn(`warning: ${message}`);
 }
 
 // ---------------------------------------------------------------------------

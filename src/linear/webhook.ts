@@ -4,6 +4,7 @@
 
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createLogger } from "../logger.js";
 import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, WorkflowStateMap } from "./client.js";
@@ -29,8 +30,10 @@ export interface WebhookDeps {
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("webhook");
+
 function log(message: string): void {
-  console.log(`[orca/webhook] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------

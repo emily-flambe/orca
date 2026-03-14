@@ -3,6 +3,9 @@ import { promisify } from "node:util";
 import { dirname, basename } from "node:path";
 import { rmSync, existsSync } from "node:fs";
 import { isTransientGitError, git } from "../git.js";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("github");
 
 const execFileAsync = promisify(execFile);
 
@@ -92,9 +95,7 @@ export function pushAndCreatePr(
     return { exists: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[orca/github] pushAndCreatePr failed for ${branchName}: ${msg}`,
-    );
+    logger.warn(`pushAndCreatePr failed for ${branchName}: ${msg}`);
     return { exists: false };
   }
 }
@@ -146,8 +147,8 @@ export function findPrForBranch(
         };
       }
       // Empty result — may be GitHub API lag. Retry with backoff.
-      console.warn(
-        `[orca/github] findPrForBranch: no PR found for ${branchName} ` +
+      logger.warn(
+        `findPrForBranch: no PR found for ${branchName} ` +
           `(attempt ${attempt}/${maxAttempts}), retrying...`,
       );
       if (attempt < maxAttempts) {
@@ -156,8 +157,8 @@ export function findPrForBranch(
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[orca/github] findPrForBranch failed for ${branchName} ` +
+      logger.warn(
+        `findPrForBranch failed for ${branchName} ` +
           `(attempt ${attempt}/${maxAttempts}): ${msg}`,
       );
       if (attempt < maxAttempts) {
@@ -168,8 +169,8 @@ export function findPrForBranch(
   if (lastError) {
     const msg =
       lastError instanceof Error ? lastError.message : String(lastError);
-    console.error(
-      `[orca/github] findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
+    logger.error(
+      `findPrForBranch exhausted ${maxAttempts} attempts for ${branchName}: ${msg}`,
     );
   }
   return { exists: false };
@@ -196,8 +197,8 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       headRefName?: string;
     };
     if (typeof data.number !== "number" || typeof data.url !== "string") {
-      console.warn(
-        `[orca/github] findPrByUrl: missing url or number in response for ${prUrl}`,
+      logger.warn(
+        `findPrByUrl: missing url or number in response for ${prUrl}`,
       );
       return { exists: false };
     }
@@ -210,7 +211,7 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[orca/github] findPrByUrl failed for ${prUrl}: ${msg}`);
+    logger.warn(`findPrByUrl failed for ${prUrl}: ${msg}`);
     return { exists: false };
   }
 }
@@ -240,7 +241,7 @@ export function listOpenPrBranches(cwd: string): Set<string> {
     return new Set(prs.map((pr) => pr.headRefName));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[orca/github] listOpenPrBranches failed: ${msg}`);
+    logger.warn(`listOpenPrBranches failed: ${msg}`);
     return new Set();
   }
 }
@@ -317,7 +318,7 @@ export function closePr(prNumber: number, cwd: string): boolean {
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[orca/github] closePr(#${prNumber}) failed: ${msg}`);
+    logger.warn(`closePr(#${prNumber}) failed: ${msg}`);
     return false;
   }
 }
@@ -355,9 +356,7 @@ export function closeSupersededPrs(
     prs = JSON.parse(output) as { headRefName: string; number: number }[];
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[orca/github] closeSupersededPrs: failed to list PRs for ${taskId}: ${msg}`,
-    );
+    logger.warn(`closeSupersededPrs: failed to list PRs for ${taskId}: ${msg}`);
     return 0;
   }
 
@@ -379,14 +378,14 @@ export function closeSupersededPrs(
         ],
         { cwd },
       );
-      console.log(
-        `[orca/github] closed superseded PR #${pr.number} (branch: ${pr.headRefName}) for task ${taskId}`,
+      logger.info(
+        `closed superseded PR #${pr.number} (branch: ${pr.headRefName}) for task ${taskId}`,
       );
       closed++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[orca/github] closeSupersededPrs: failed to close PR #${pr.number}: ${msg}`,
+      logger.warn(
+        `closeSupersededPrs: failed to close PR #${pr.number}: ${msg}`,
       );
     }
   }
@@ -419,8 +418,8 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
     prs = JSON.parse(output) as { headRefName: string; number: number }[];
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[orca/github] closePrsForCanceledTask: failed to list PRs for ${taskId}: ${msg}`,
+    logger.warn(
+      `closePrsForCanceledTask: failed to list PRs for ${taskId}: ${msg}`,
     );
     return 0;
   }
@@ -441,14 +440,14 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
         ],
         { cwd },
       );
-      console.log(
-        `[orca/github] closed PR #${pr.number} (branch: ${pr.headRefName}) — Linear issue ${taskId} canceled`,
+      logger.info(
+        `closed PR #${pr.number} (branch: ${pr.headRefName}) — Linear issue ${taskId} canceled`,
       );
       closed++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[orca/github] closePrsForCanceledTask: failed to close PR #${pr.number}: ${msg}`,
+      logger.warn(
+        `closePrsForCanceledTask: failed to close PR #${pr.number}: ${msg}`,
       );
     }
   }
@@ -495,9 +494,7 @@ export function closeOrphanedPrs(
     const detail = isTransientGitError(err)
       ? " (transient, will retry next cycle)"
       : "";
-    console.warn(
-      `[orca/github] closeOrphanedPrs: failed to list PRs${detail}: ${msg}`,
-    );
+    logger.warn(`closeOrphanedPrs: failed to list PRs${detail}: ${msg}`);
     return 0;
   }
 
@@ -512,8 +509,8 @@ export function closeOrphanedPrs(
       continue;
 
     if (closePr(pr.number, cwd)) {
-      console.log(
-        `[orca/github] closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
+      logger.info(
+        `closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
       );
       closed++;
     }

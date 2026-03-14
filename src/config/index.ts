@@ -51,6 +51,7 @@ export interface OrcaConfig {
   cronRetentionDays: number;
   stateMapOverrides: Record<string, string> | undefined;
   useInngest: boolean;
+  logLevel: string;
 }
 
 function exitWithError(message: string): never {
@@ -385,6 +386,16 @@ Steps:
     useInngest:
       process.env.ORCA_USE_INNGEST === "true" ||
       process.env.ORCA_USE_INNGEST === "1",
+    logLevel: (() => {
+      const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();
+      const valid = ["debug", "info", "warn", "error"];
+      if (!valid.includes(val)) {
+        exitWithError(
+          `LOG_LEVEL must be one of: debug, info, warn, error (got "${val}")`,
+        );
+      }
+      return val;
+    })(),
   };
 }
 

@@ -9,6 +9,9 @@ import {
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
 import { git, cleanStaleLockFiles } from "../git.js";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("worktree");
 
 /**
  * Thrown when a worktree directory cannot be removed because a process
@@ -218,7 +221,7 @@ export function createWorktree(
     git(["worktree", "prune"], { cwd: repoPath });
   } catch (pruneErr) {
     // Log but don't throw — worktree add may still succeed
-    console.warn(`[orca/worktree] prune failed (non-fatal): ${pruneErr}`);
+    logger.warn(`prune failed (non-fatal): ${pruneErr}`);
   }
 
   // Clean stale lock files before fetch (best-effort)
@@ -238,8 +241,8 @@ export function createWorktree(
         git(["fetch", "origin"], { cwd: worktreePath });
         git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
       } catch {
-        console.warn(
-          `[orca/worktree] reset to origin/${baseRef} failed, falling back to origin/main`,
+        logger.warn(
+          `reset to origin/${baseRef} failed, falling back to origin/main`,
         );
         git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
       }
@@ -285,8 +288,8 @@ export function createWorktree(
       );
     } else {
       // Remote ref gone (branch deleted or name mismatch) — fall back to origin/main
-      console.warn(
-        `[orca/worktree] remote ref origin/${baseRef} not found, falling back to origin/main`,
+      logger.warn(
+        `remote ref origin/${baseRef} not found, falling back to origin/main`,
       );
       git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
         cwd: repoPath,
@@ -341,8 +344,8 @@ export function createWorktree(
   // Detect and resolve merge conflicts (e.g. from a prior failed rebase)
   const conflictedFiles = hasConflictMarkers(worktreePath);
   if (conflictedFiles.length > 0) {
-    console.warn(
-      `[orca/worktree] merge conflicts detected in ${worktreePath} (${conflictedFiles.join(", ")}) — resetting to origin/main`,
+    logger.warn(
+      `merge conflicts detected in ${worktreePath} (${conflictedFiles.join(", ")}) — resetting to origin/main`,
     );
     git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
   }
@@ -482,8 +485,8 @@ export function removeWorktree(worktreePath: string): void {
     // Level 2: derive repo root from worktree path pattern
     repoRoot = deriveRepoRoot(worktreePath);
     if (repoRoot) {
-      console.warn(
-        `[orca/worktree] rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
+      logger.warn(
+        `rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
       );
     }
   }
@@ -494,17 +497,15 @@ export function removeWorktree(worktreePath: string): void {
       git(["worktree", "remove", "--force", worktreePath], { cwd: repoRoot });
       return;
     } catch (removeErr) {
-      console.warn(
-        `[orca/worktree] git worktree remove failed for ${worktreePath}: ${removeErr}`,
+      logger.warn(
+        `git worktree remove failed for ${worktreePath}: ${removeErr}`,
       );
       // Fall through to level 3
     }
   }
 
   // Level 3: brute-force removal + prune
-  console.warn(
-    `[orca/worktree] falling back to rmSync + prune for ${worktreePath}`,
-  );
+  logger.warn(`falling back to rmSync + prune for ${worktreePath}`);
   if (existsSync(worktreePath)) {
     try {
       rmSyncWithRetry(worktreePath);
@@ -513,8 +514,8 @@ export function removeWorktree(worktreePath: string): void {
       const trashPath = `${worktreePath}.trash-${Date.now()}`;
       try {
         renameSync(worktreePath, trashPath);
-        console.warn(
-          `[orca/worktree] renamed stuck directory to ${trashPath} — manual cleanup needed`,
+        logger.warn(
+          `renamed stuck directory to ${trashPath} — manual cleanup needed`,
         );
       } catch {
         throw rmErr;
@@ -525,7 +526,7 @@ export function removeWorktree(worktreePath: string): void {
     try {
       git(["worktree", "prune"], { cwd: repoRoot });
     } catch (pruneErr) {
-      console.warn(`[orca/worktree] prune after rmSync failed: ${pruneErr}`);
+      logger.warn(`prune after rmSync failed: ${pruneErr}`);
     }
 
     // Bug 3: After prune, force-delete any ghost branch reference.

@@ -1,5 +1,6 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
+import { createLogger } from "../../logger.js";
 import {
   getTask,
   updateTaskStatus,
@@ -21,8 +22,10 @@ import {
 } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
 
+const logger = createLogger("ci-merge");
+
 function log(message: string): void {
-  console.log(`[orca/ci-merge] ${message}`);
+  logger.info(message);
 }
 
 export const ciMergeWorkflow = inngest.createFunction(

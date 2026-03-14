@@ -7,6 +7,7 @@ import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
 import { fullSync } from "./sync.js";
+import { createLogger } from "../logger.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,8 +40,10 @@ export interface PollerHandle {
 // Logging
 // ---------------------------------------------------------------------------
 
+const logger = createLogger("poller");
+
 function log(message: string): void {
-  console.log(`[orca/poller] ${message}`);
+  logger.info(message);
 }
 
 // ---------------------------------------------------------------------------

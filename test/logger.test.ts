@@ -14,14 +14,7 @@
 //   9. initFileLogger does NOT patch stdout before it is called
 //  10. Config: logPath/logMaxSizeMb present in OrcaConfig interface
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
@@ -175,7 +168,9 @@ describe("timestamp prefix behavior", () => {
     const content = readFileSync(logPath, "utf8");
 
     // Count ISO timestamp prefixes (they look like 20XX-...)
-    const timestampMatches = content.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g);
+    const timestampMatches = content.match(
+      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g,
+    );
     const timestampCount = timestampMatches?.length ?? 0;
 
     // Each non-empty line gets its own timestamp: 3 lines → 3 timestamps
@@ -196,7 +191,9 @@ describe("timestamp prefix behavior", () => {
     process.stdout.write("second write\n");
 
     const content = readFileSync(logPath, "utf8");
-    const timestampMatches = content.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g);
+    const timestampMatches = content.match(
+      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g,
+    );
     const timestampCount = timestampMatches?.length ?? 0;
 
     // Two separate writes → two timestamps
@@ -457,11 +454,11 @@ describe("OrcaConfig interface includes log fields", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11. cli/index.ts: initFileLogger is called before first console.log output
+// 11. cli/index.ts: initFileLogger is called before first logger output
 // ---------------------------------------------------------------------------
 
 describe("initFileLogger call order in CLI", () => {
-  test("initFileLogger called before first console.log in start command", async () => {
+  test("initFileLogger called before first logger.info in start command", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(
       new URL("../src/cli/index.ts", import.meta.url),
@@ -469,13 +466,14 @@ describe("initFileLogger call order in CLI", () => {
     );
 
     const initPos = source.indexOf("initFileLogger(");
-    const firstConsoleLog = source.indexOf("console.log(", source.indexOf(".action(async"));
+    const actionPos = source.indexOf(".action(async");
+    const firstLogCall = source.indexOf("logger.", actionPos);
 
     expect(initPos).toBeGreaterThan(-1);
-    expect(firstConsoleLog).toBeGreaterThan(-1);
+    expect(firstLogCall).toBeGreaterThan(-1);
 
-    // initFileLogger must appear BEFORE the first console.log inside the start action
-    expect(initPos).toBeLessThan(firstConsoleLog);
+    // initFileLogger must appear BEFORE the first logger call inside the start action
+    expect(initPos).toBeLessThan(firstLogCall);
   });
 });
 

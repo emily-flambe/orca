@@ -1,12 +1,15 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
+import { createLogger } from "../../logger.js";
 import { getTask, updateTaskStatus } from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
 
+const logger = createLogger("deploy-monitor");
+
 function log(message: string): void {
-  console.log(`[orca/deploy-monitor] ${message}`);
+  logger.info(message);
 }
 
 export const deployMonitorWorkflow = inngest.createFunction(

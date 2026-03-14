@@ -6,9 +6,12 @@
 
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("github-webhook");
 
 function log(msg: string): void {
-  console.log(`[orca/github-webhook] ${msg}`);
+  logger.info(msg);
 }
 
 function verifySignature(

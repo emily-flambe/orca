@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("tunnel");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,11 +20,11 @@ export interface TunnelHandle {
 // ---------------------------------------------------------------------------
 
 function log(message: string): void {
-  console.log(`[orca/tunnel] ${message}`);
+  logger.info(message);
 }
 
 function logError(message: string): void {
-  console.error(`[orca/tunnel] ${message}`);
+  logger.error(message);
 }
 
 // ---------------------------------------------------------------------------
