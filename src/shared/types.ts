@@ -66,6 +66,7 @@ export interface CronSchedule {
   enabled: number; // 1 or 0 (SQLite boolean)
   lastRunAt: string | null;
   nextRunAt: string | null;
+  lastRunStatus: "success" | "failed" | null;
   createdAt: string;
   updatedAt: string;
 }

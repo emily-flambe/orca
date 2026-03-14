@@ -867,6 +867,18 @@ export function getDueCronSchedules(db: OrcaDb, now: string): CronSchedule[] {
     .all();
 }
 
+/** Update the lastRunStatus field on a cron schedule row. */
+export function updateCronLastRunStatus(
+  db: OrcaDb,
+  id: number,
+  status: "success" | "failed",
+): void {
+  db.update(cronSchedules)
+    .set({ lastRunStatus: status, updatedAt: new Date().toISOString() })
+    .where(eq(cronSchedules.id, id))
+    .run();
+}
+
 /**
  * Increment run_count by 1 and update last_run_at and next_run_at.
  */

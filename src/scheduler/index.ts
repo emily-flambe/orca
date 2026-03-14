@@ -37,6 +37,7 @@ import {
   incrementCronRunCount,
   deleteOldCronTasks,
   updateCronSchedule,
+  updateCronLastRunStatus,
 } from "../db/queries.js";
 import type { TaskStatus } from "../db/schema.js";
 import {
@@ -436,6 +437,13 @@ async function dispatch(
           outputSummary: result.output,
         });
         updateTaskStatus(db, taskId, success ? "done" : "failed");
+        if (task.cronScheduleId != null) {
+          updateCronLastRunStatus(
+            db,
+            task.cronScheduleId,
+            success ? "success" : "failed",
+          );
+        }
         const updatedTask = getTask(db, taskId);
         if (updatedTask) emitTaskUpdated(updatedTask);
         emitInvocationCompleted({
@@ -472,6 +480,9 @@ async function dispatch(
           outputSummary: `completion error: ${err}`,
         });
         updateTaskStatus(db, taskId, "failed");
+        if (task.cronScheduleId != null) {
+          updateCronLastRunStatus(db, task.cronScheduleId, "failed");
+        }
         const updatedTask = getTask(db, taskId);
         if (updatedTask) emitTaskUpdated(updatedTask);
       });
@@ -834,6 +845,13 @@ async function onSessionComplete(
       });
     }
     updateTaskStatus(db, taskId, success ? "done" : "failed");
+    if (cronCheckTask.cronScheduleId != null) {
+      updateCronLastRunStatus(
+        db,
+        cronCheckTask.cronScheduleId,
+        success ? "success" : "failed",
+      );
+    }
     // Clean up worktree if one was created
     if (worktreePath) {
       try {
