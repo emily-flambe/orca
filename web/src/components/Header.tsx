@@ -47,7 +47,7 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
       </span>
 
       <div className="ml-auto">
-        <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm">
+        <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
           Settings
         </button>
       </div>
