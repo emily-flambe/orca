@@ -27,23 +27,35 @@ export type OrcaEvents = {
     data: {
       invocationId: number;
       linearIssueId: string;
-      phase: string;
+      phase: "implement" | "review";
+      exitCode: number;
+      summary: string | null;
       costUsd: number | null;
       inputTokens: number | null;
       outputTokens: number | null;
       numTurns: number | null;
-      durationMs: number;
-      status: InvocationStatus;
+      sessionId: string | null;
+      branchName: string | null;
+      worktreePath: string | null;
+      isMaxTurns: boolean;
     };
   };
   "session/failed": {
     data: {
       invocationId: number;
       linearIssueId: string;
-      phase: string;
-      reason: string;
-      retryCount: number;
-      status: InvocationStatus;
+      phase: "implement" | "review";
+      exitCode: number;
+      errorMessage: string;
+      isRateLimited: boolean;
+      isContentFiltered: boolean;
+      isDllInit: boolean;
+      isMaxTurns: boolean;
+      sessionId: string | null;
+      worktreePath: string | null;
+      costUsd: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
     };
   };
   "task/awaiting-ci": {
@@ -51,6 +63,7 @@ export type OrcaEvents = {
       linearIssueId: string;
       prNumber: number;
       prBranchName: string;
+      repoPath: string;
       ciStartedAt: string;
     };
   };
@@ -58,6 +71,7 @@ export type OrcaEvents = {
     data: {
       linearIssueId: string;
       mergeCommitSha: string;
+      repoPath: string;
       prNumber: number;
       deployStartedAt: string;
     };
