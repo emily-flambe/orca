@@ -105,29 +105,29 @@ function log(message: string): void {
 // 4.2 State mapping
 // ---------------------------------------------------------------------------
 
-function mapLinearStateToOrcaStatus(
+export function mapLinearStateToOrcaStatus(
   stateName: string,
-  config?: OrcaConfig,
+  stateType: string,
+  overrides?: Record<string, string>,
 ): TaskStatus | null {
-  // Check overrides first
-  if (config?.stateMapOverrides?.[stateName]) {
-    const override = config.stateMapOverrides[stateName];
+  // Check overrides first (keyed by name)
+  if (overrides?.[stateName]) {
+    const override = overrides[stateName];
     if (override === "skip") return null;
     return override as TaskStatus;
   }
-  switch (stateName) {
-    case "Backlog":
+  switch (stateType) {
+    case "backlog":
       return "backlog";
-    case "Todo":
+    case "unstarted":
       return "ready";
-    case "In Progress":
-      return "running";
-    case "In Review":
-      return "in_review";
-    case "Done":
+    case "started":
+      return /review/i.test(stateName) ? "in_review" : "running";
+    case "completed":
       return "done";
+    case "canceled":
     default:
-      return null; // Canceled and unknown → skip
+      return null;
   }
 }
 
@@ -145,7 +145,7 @@ export function buildPrompt(issue: LinearIssue): string {
 
 function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
   // Canceled → transition existing tasks to failed; skip creating new ones.
-  if (issue.state.name === "Canceled") {
+  if (issue.state.type === "canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
       updateTaskStatus(db, issue.identifier, "failed");
@@ -155,7 +155,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
     return;
   }
 
-  const orcaStatus = mapLinearStateToOrcaStatus(issue.state.name, config);
+  const orcaStatus = mapLinearStateToOrcaStatus(issue.state.name, issue.state.type, config?.stateMapOverrides);
 
   // Skip backlog and unknown states
   if (orcaStatus === null) return;
@@ -428,7 +428,7 @@ export async function processWebhookEvent(
   // Only upsert if we have state info
   if (event.data.state) {
     // Resolve conflicts BEFORE upsert overwrites the Orca status
-    resolveConflict(db, event.data.identifier, event.data.state.name, config);
+    resolveConflict(db, event.data.identifier, event.data.state.name, event.data.state.type, config);
 
     upsertTask(db, issueFromEvent, config);
 
@@ -481,14 +481,15 @@ export function resolveConflict(
   db: OrcaDb,
   taskId: string,
   linearStateName: string,
+  linearStateType: string,
   config?: OrcaConfig,
 ): void {
   const task = getTask(db, taskId);
   if (!task) return;
 
   // Canceled must be checked before the null guard because
-  // mapLinearStateToOrcaStatus returns null for Canceled.
-  if (linearStateName === "Canceled") {
+  // mapLinearStateToOrcaStatus returns null for canceled type.
+  if (linearStateType === "canceled") {
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
@@ -500,7 +501,8 @@ export function resolveConflict(
 
   const expectedOrcaStatus = mapLinearStateToOrcaStatus(
     linearStateName,
-    config,
+    linearStateType,
+    config?.stateMapOverrides,
   );
   if (expectedOrcaStatus === null) return;
 
@@ -508,7 +510,7 @@ export function resolveConflict(
   if (task.orcaStatus === expectedOrcaStatus) return;
 
   // Any state → Linear Backlog: reset to backlog.
-  if (linearStateName === "Backlog") {
+  if (linearStateType === "backlog") {
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
@@ -525,9 +527,9 @@ export function resolveConflict(
     return;
   }
 
-  // Any state → Linear Todo: reset to ready with fresh retry/review counts.
+  // Any state → Linear unstarted (Todo): reset to ready with fresh retry/review counts.
   // This covers: running, done, in_review, changes_requested, deploying, failed.
-  if (linearStateName === "Todo") {
+  if (linearStateType === "unstarted") {
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
@@ -545,14 +547,14 @@ export function resolveConflict(
   }
 
   // Conflict case 2: Orca ready, Linear Done → set done
-  if (task.orcaStatus === "ready" && linearStateName === "Done") {
+  if (task.orcaStatus === "ready" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done");
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
 
   // Conflict case 5: in_review, Linear Done → mark done (human override)
-  if (task.orcaStatus === "in_review" && linearStateName === "Done") {
+  if (task.orcaStatus === "in_review" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done");
     log(
       `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`,
@@ -560,18 +562,18 @@ export function resolveConflict(
     return;
   }
 
-  // Conflict case 8: deploying, Linear "In Review" → no-op (expected state, don't overwrite)
-  if (task.orcaStatus === "deploying" && linearStateName === "In Review") {
+  // Conflict case 8: deploying, Linear started+review → no-op (expected state, don't overwrite)
+  if (task.orcaStatus === "deploying" && linearStateType === "started" && /review/i.test(linearStateName)) {
     return;
   }
 
-  // Conflict case 8b: awaiting_ci, Linear "In Review" → no-op (expected state, don't overwrite)
-  if (task.orcaStatus === "awaiting_ci" && linearStateName === "In Review") {
+  // Conflict case 8b: awaiting_ci, Linear started+review → no-op (expected state, don't overwrite)
+  if (task.orcaStatus === "awaiting_ci" && linearStateType === "started" && /review/i.test(linearStateName)) {
     return;
   }
 
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
-  if (task.orcaStatus === "deploying" && linearStateName === "Done") {
+  if (task.orcaStatus === "deploying" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done");
     log(
       `conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`,
@@ -580,7 +582,7 @@ export function resolveConflict(
   }
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
-  if (task.orcaStatus === "awaiting_ci" && linearStateName === "Done") {
+  if (task.orcaStatus === "awaiting_ci" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done");
     log(
       `conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`,
