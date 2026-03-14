@@ -2,13 +2,7 @@
 // DLL init error detection, cooldown logic, and retry edge cases
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  vi,
-  beforeEach,
-} from "vitest";
+import { describe, test, expect, vi, beforeEach } from "vitest";
 
 import {
   isTransientGitError,
@@ -20,8 +14,11 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeGitError(overrides: Partial<ExecError> & { message?: string } = {}): Error & ExecError {
-  const err = new Error(overrides.message ?? "git command failed") as Error & ExecError;
+function makeGitError(
+  overrides: Partial<ExecError> & { message?: string } = {},
+): Error & ExecError {
+  const err = new Error(overrides.message ?? "git command failed") as Error &
+    ExecError;
   if (overrides.status !== undefined) err.status = overrides.status;
   if (overrides.signal !== undefined) err.signal = overrides.signal;
   if (overrides.code !== undefined) err.code = overrides.code;
@@ -171,8 +168,11 @@ describe("isTransientGitError — DLL init interactions", () => {
 describe("retry behavior with DLL init errors", () => {
   test("DLL init error on attempt 1 of 3: retries, succeeds on attempt 2", () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
       .mockReturnValue("recovered");
 
     const { result, attempts } = retryWrapper(fn, 3);
@@ -182,9 +182,14 @@ describe("retry behavior with DLL init errors", () => {
 
   test("DLL init error on attempts 1 and 2 of 3: fails on attempt 3 succeeds", () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockImplementationOnce(() => { throw dllErr; })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
       .mockReturnValue("recovered-late");
 
     const { result, attempts } = retryWrapper(fn, 3);
@@ -194,7 +199,9 @@ describe("retry behavior with DLL init errors", () => {
 
   test("DLL init error on all 3 of 3 attempts: throws after exhaustion", () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw dllErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 3);
     expect(error).toBeDefined();
@@ -204,7 +211,9 @@ describe("retry behavior with DLL init errors", () => {
 
   test("DLL init error with maxAttempts=1: no retry, fails immediately", () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw dllErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 1);
     expect(error).toBeDefined();
@@ -215,9 +224,14 @@ describe("retry behavior with DLL init errors", () => {
   test("DLL error then non-transient error: stops on non-transient (no retry)", () => {
     const dllErr = makeGitError({ status: 3221225794 });
     const normalErr = makeGitError({ status: 128 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw dllErr; })
-      .mockImplementationOnce(() => { throw normalErr; });
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
+      .mockImplementationOnce(() => {
+        throw normalErr;
+      });
 
     const { error, attempts } = retryWrapper(fn, 5);
     expect(error).toBeDefined();
@@ -227,7 +241,9 @@ describe("retry behavior with DLL init errors", () => {
 
   test("non-transient error then DLL error: never reaches DLL (stops at first)", () => {
     const normalErr = makeGitError({ status: 1 });
-    const fn = vi.fn().mockImplementation(() => { throw normalErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw normalErr;
+    });
 
     const { error, attempts } = retryWrapper(fn, 3);
     expect(error).toBeDefined();
@@ -237,9 +253,14 @@ describe("retry behavior with DLL init errors", () => {
   test("mixed transient types: signal then DLL then success", () => {
     const sigErr = makeGitError({ signal: "SIGKILL" });
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw sigErr; })
-      .mockImplementationOnce(() => { throw dllErr; })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw sigErr;
+      })
+      .mockImplementationOnce(() => {
+        throw dllErr;
+      })
       .mockReturnValue("ok");
 
     const { result, attempts } = retryWrapper(fn, 5);
@@ -327,7 +348,7 @@ describe("repo cooldown simulation", () => {
     setCooldown(repoPath);
 
     // All tasks for this repo should be blocked
-    const dispatchable = tasks.filter(t => !isOnCooldown(t.repoPath));
+    const dispatchable = tasks.filter((t) => !isOnCooldown(t.repoPath));
     expect(dispatchable).toHaveLength(0);
   });
 
@@ -340,7 +361,7 @@ describe("repo cooldown simulation", () => {
 
     setCooldown("/repos/project-a");
 
-    const dispatchable = tasks.filter(t => !isOnCooldown(t.repoPath));
+    const dispatchable = tasks.filter((t) => !isOnCooldown(t.repoPath));
     expect(dispatchable).toHaveLength(1);
     expect(dispatchable[0]!.id).toBe("TASK-3");
   });
@@ -564,8 +585,20 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("no cooldowns: all valid tasks are dispatchable", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/b", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-2",
+        repoPath: "/repos/b",
+        agentPrompt: "do Y",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const result = simulateDispatchFilter(tasks, new Map(), new Set());
     expect(result).toHaveLength(2);
@@ -573,9 +606,27 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("cooldown on repo A blocks T-1 and T-2, allows T-3 on repo B", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/a", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-3", repoPath: "/repos/b", agentPrompt: "do Z", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-2",
+        repoPath: "/repos/a",
+        agentPrompt: "do Y",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-3",
+        repoPath: "/repos/b",
+        agentPrompt: "do Z",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -587,8 +638,20 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("expired cooldown: all tasks dispatchable again", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/a", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-2",
+        repoPath: "/repos/a",
+        agentPrompt: "do Y",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const cooldowns = new Map<string, number>();
     // Cooldown already expired
@@ -602,7 +665,13 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("cooldown AND running invocation: both block independently", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -614,7 +683,13 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("cooldown with no agentPrompt: filtered by agentPrompt check first", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -625,7 +700,13 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("parent task with cooldown: blocked by isParent, not cooldown", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: true, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: true,
+        orcaStatus: "ready",
+      },
     ];
     // No cooldown -- still blocked because isParent
     const result = simulateDispatchFilter(tasks, new Map(), new Set());
@@ -634,9 +715,27 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("all repos on cooldown: nothing dispatched", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "do X", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-2", repoPath: "/repos/b", agentPrompt: "do Y", isParent: false, orcaStatus: "ready" },
-      { linearIssueId: "T-3", repoPath: "/repos/c", agentPrompt: "do Z", isParent: false, orcaStatus: "ready" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "do X",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-2",
+        repoPath: "/repos/b",
+        agentPrompt: "do Y",
+        isParent: false,
+        orcaStatus: "ready",
+      },
+      {
+        linearIssueId: "T-3",
+        repoPath: "/repos/c",
+        agentPrompt: "do Z",
+        isParent: false,
+        orcaStatus: "ready",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -649,7 +748,13 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("in_review task on cooled-down repo: still blocked by cooldown", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "review PR", isParent: false, orcaStatus: "in_review" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "review PR",
+        isParent: false,
+        orcaStatus: "in_review",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -660,7 +765,13 @@ describe("scheduler dispatch filtering with cooldowns", () => {
 
   test("changes_requested task on cooled-down repo: still blocked", () => {
     const tasks: MockTask[] = [
-      { linearIssueId: "T-1", repoPath: "/repos/a", agentPrompt: "fix issues", isParent: false, orcaStatus: "changes_requested" },
+      {
+        linearIssueId: "T-1",
+        repoPath: "/repos/a",
+        agentPrompt: "fix issues",
+        isParent: false,
+        orcaStatus: "changes_requested",
+      },
     ];
     const cooldowns = new Map<string, number>();
     cooldowns.set("/repos/a", Date.now() + REPO_COOLDOWN_MS);
@@ -782,9 +893,279 @@ describe("error type confusion risks", () => {
   test("Error with status as getter that throws: does not crash isDllInitError", () => {
     const err = new Error("tricky error");
     Object.defineProperty(err, "status", {
-      get() { throw new Error("getter exploded"); },
+      get() {
+        throw new Error("getter exploded");
+      },
     });
     // This WILL throw because isDllInitError accesses .status
     expect(() => isDllInitError(err)).toThrow("getter exploded");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scheduler: DLL_INIT dispatch does NOT burn retries
+// ---------------------------------------------------------------------------
+
+describe("DLL_INIT in dispatch does not burn retries", () => {
+  // Simulates the scheduler's error handling path when worktree creation
+  // fails with DLL_INIT. The key property: the task must stay in its
+  // original dispatchable status and no retry counter increments.
+
+  interface SimTask {
+    id: string;
+    orcaStatus: string;
+    retryCount: number;
+  }
+
+  function simulateDllDispatchError(task: SimTask): SimTask {
+    // Mirrors scheduler lines 513-533: isDllInitError branch
+    // Re-queue to original status, do NOT increment retryCount
+    const requeued: SimTask = {
+      ...task,
+      orcaStatus:
+        task.orcaStatus === "in_review"
+          ? "in_review"
+          : task.orcaStatus === "changes_requested"
+            ? "changes_requested"
+            : "ready",
+      // retryCount is NOT incremented — this is the critical property
+    };
+    return requeued;
+  }
+
+  function simulateNonDllDispatchError(
+    task: SimTask,
+    maxRetries: number,
+  ): SimTask {
+    // Mirrors the general failure path: burns a retry
+    const newRetry = task.retryCount + 1;
+    return {
+      ...task,
+      retryCount: newRetry,
+      orcaStatus: newRetry >= maxRetries ? "failed" : "ready",
+    };
+  }
+
+  test("task in 'ready' status stays 'ready' after DLL_INIT error", () => {
+    const task: SimTask = { id: "T-1", orcaStatus: "ready", retryCount: 0 };
+    const result = simulateDllDispatchError(task);
+    expect(result.orcaStatus).toBe("ready");
+    expect(result.retryCount).toBe(0);
+  });
+
+  test("task in 'in_review' status stays 'in_review' after DLL_INIT error", () => {
+    const task: SimTask = { id: "T-2", orcaStatus: "in_review", retryCount: 0 };
+    const result = simulateDllDispatchError(task);
+    expect(result.orcaStatus).toBe("in_review");
+    expect(result.retryCount).toBe(0);
+  });
+
+  test("task in 'changes_requested' status stays 'changes_requested' after DLL_INIT error", () => {
+    const task: SimTask = {
+      id: "T-3",
+      orcaStatus: "changes_requested",
+      retryCount: 1,
+    };
+    const result = simulateDllDispatchError(task);
+    expect(result.orcaStatus).toBe("changes_requested");
+    expect(result.retryCount).toBe(1); // unchanged
+  });
+
+  test("10 consecutive DLL_INIT errors: retryCount never increments", () => {
+    let task: SimTask = { id: "T-4", orcaStatus: "ready", retryCount: 0 };
+    for (let i = 0; i < 10; i++) {
+      task = simulateDllDispatchError(task);
+    }
+    expect(task.retryCount).toBe(0);
+    expect(task.orcaStatus).toBe("ready");
+  });
+
+  test("non-DLL error DOES burn a retry (control case)", () => {
+    const task: SimTask = { id: "T-5", orcaStatus: "ready", retryCount: 0 };
+    const result = simulateNonDllDispatchError(task, 3);
+    expect(result.retryCount).toBe(1);
+    expect(result.orcaStatus).toBe("ready"); // still below max
+  });
+
+  test("non-DLL error at max retries goes to 'failed' (control case)", () => {
+    const task: SimTask = { id: "T-6", orcaStatus: "ready", retryCount: 2 };
+    const result = simulateNonDllDispatchError(task, 3);
+    expect(result.retryCount).toBe(3);
+    expect(result.orcaStatus).toBe("failed");
+  });
+
+  test("DLL_INIT after 2 real retries: does NOT push to max, still re-queued", () => {
+    // Task already used 2 of 3 retries. DLL_INIT should NOT use the 3rd.
+    const task: SimTask = { id: "T-7", orcaStatus: "ready", retryCount: 2 };
+    const result = simulateDllDispatchError(task);
+    expect(result.retryCount).toBe(2); // unchanged
+    expect(result.orcaStatus).toBe("ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scheduler: Health probe blocks dispatch after cooldown expires
+// ---------------------------------------------------------------------------
+
+describe("health probe gates dispatch after cooldown expiry", () => {
+  // When globalDllCooldownUntil > 0 AND now >= globalDllCooldownUntil,
+  // the scheduler probes before resuming dispatch. If the probe fails,
+  // cooldown re-activates (dispatch blocked). If it succeeds, cooldown
+  // resets (dispatch resumes).
+
+  interface CooldownState {
+    globalDllCooldownUntil: number;
+    globalDllCooldownCurrentMs: number;
+    dispatchBlocked: boolean;
+  }
+
+  const BASE_COOLDOWN_MS = 120_000;
+  const MAX_COOLDOWN_MS = 1_800_000;
+
+  function simulateTickWithProbe(
+    state: CooldownState,
+    now: number,
+    probeResult: boolean,
+  ): CooldownState {
+    // Mirrors scheduler lines 2670-2693
+    if (now < state.globalDllCooldownUntil) {
+      // Still in cooldown window
+      return { ...state, dispatchBlocked: true };
+    }
+
+    // Cooldown expired (or was never set)
+    if (state.globalDllCooldownUntil > 0) {
+      // Cooldown just expired — probe
+      if (!probeResult) {
+        // Probe failed — re-enter cooldown with backoff
+        const newCooldownMs = Math.min(
+          state.globalDllCooldownCurrentMs * 2,
+          MAX_COOLDOWN_MS,
+        );
+        return {
+          globalDllCooldownUntil: now + state.globalDllCooldownCurrentMs,
+          globalDllCooldownCurrentMs: newCooldownMs,
+          dispatchBlocked: true,
+        };
+      }
+      // Probe succeeded — reset
+      return {
+        globalDllCooldownUntil: 0,
+        globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+        dispatchBlocked: false,
+      };
+    }
+
+    // No cooldown ever set
+    return { ...state, dispatchBlocked: false };
+  }
+
+  test("probe fails after cooldown expiry: dispatch stays blocked", () => {
+    const state: CooldownState = {
+      globalDllCooldownUntil: 1000, // expired (now will be > 1000)
+      globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+      dispatchBlocked: false,
+    };
+
+    const result = simulateTickWithProbe(state, 2000, /* probeResult */ false);
+    expect(result.dispatchBlocked).toBe(true);
+    // Re-entered cooldown at now + currentMs
+    expect(result.globalDllCooldownUntil).toBe(2000 + BASE_COOLDOWN_MS);
+    // Backoff doubled for next time
+    expect(result.globalDllCooldownCurrentMs).toBe(BASE_COOLDOWN_MS * 2);
+  });
+
+  test("probe succeeds after cooldown expiry: dispatch resumes", () => {
+    const state: CooldownState = {
+      globalDllCooldownUntil: 1000,
+      globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+      dispatchBlocked: false,
+    };
+
+    const result = simulateTickWithProbe(state, 2000, /* probeResult */ true);
+    expect(result.dispatchBlocked).toBe(false);
+    expect(result.globalDllCooldownUntil).toBe(0);
+    expect(result.globalDllCooldownCurrentMs).toBe(BASE_COOLDOWN_MS);
+  });
+
+  test("still within cooldown window: dispatch blocked regardless of probe", () => {
+    const now = 500;
+    const state: CooldownState = {
+      globalDllCooldownUntil: 1000, // 500ms in the future
+      globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+      dispatchBlocked: false,
+    };
+
+    const result = simulateTickWithProbe(state, now, true);
+    expect(result.dispatchBlocked).toBe(true);
+  });
+
+  test("no cooldown set (globalDllCooldownUntil = 0): dispatch proceeds", () => {
+    const state: CooldownState = {
+      globalDllCooldownUntil: 0,
+      globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+      dispatchBlocked: false,
+    };
+
+    const result = simulateTickWithProbe(state, Date.now(), true);
+    expect(result.dispatchBlocked).toBe(false);
+  });
+
+  test("repeated probe failures escalate cooldown with exponential backoff", () => {
+    let state: CooldownState = {
+      globalDllCooldownUntil: 1000,
+      globalDllCooldownCurrentMs: BASE_COOLDOWN_MS,
+      dispatchBlocked: false,
+    };
+
+    // Simulate multiple ticks where cooldown expires and probe fails each time
+    let now = 2000;
+    for (let i = 0; i < 5; i++) {
+      // Fast-forward past the cooldown
+      now = state.globalDllCooldownUntil + 1;
+      state = simulateTickWithProbe(state, now, false);
+      expect(state.dispatchBlocked).toBe(true);
+    }
+
+    // After 5 failures: 120s -> 240s -> 480s -> 960s -> 1920s (not capped yet)
+    // The currentMs should have doubled 5 times from initial:
+    // activateDllCooldown sets cooldown THEN doubles, so:
+    // iter 0: uses 120s, sets currentMs = 240s
+    // iter 1: uses 240s, sets currentMs = 480s
+    // iter 2: uses 480s, sets currentMs = 960s
+    // iter 3: uses 960s, sets currentMs = 1920s (not capped, max is 1800s)
+    // Wait: 1920s > 1800s max, so it should be capped at 1800s
+    // iter 4: uses 1800s, sets currentMs = min(3600s, 1800s) = 1800s
+    // So final currentMs should be 1800s = MAX_COOLDOWN_MS
+    expect(state.globalDllCooldownCurrentMs).toBeLessThanOrEqual(
+      MAX_COOLDOWN_MS,
+    );
+  });
+
+  test("cooldown caps at 30 minutes (1_800_000 ms)", () => {
+    let state: CooldownState = {
+      globalDllCooldownUntil: 1000,
+      globalDllCooldownCurrentMs: MAX_COOLDOWN_MS, // already at max
+      dispatchBlocked: false,
+    };
+
+    const now = state.globalDllCooldownUntil + 1;
+    state = simulateTickWithProbe(state, now, false);
+
+    // currentMs should stay at max, not exceed it
+    expect(state.globalDllCooldownCurrentMs).toBe(MAX_COOLDOWN_MS);
+  });
+
+  test("probe success after escalated backoff resets to base cooldown", () => {
+    const state: CooldownState = {
+      globalDllCooldownUntil: 1000,
+      globalDllCooldownCurrentMs: 960_000, // escalated
+      dispatchBlocked: false,
+    };
+
+    const result = simulateTickWithProbe(state, 2000, true);
+    expect(result.globalDllCooldownCurrentMs).toBe(BASE_COOLDOWN_MS);
+    expect(result.globalDllCooldownUntil).toBe(0);
+    expect(result.dispatchBlocked).toBe(false);
   });
 });

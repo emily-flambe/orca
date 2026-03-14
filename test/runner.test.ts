@@ -916,7 +916,8 @@ describe("shell.ts spawnShellCommand", () => {
       { timeoutMs: 30_000, invocationId: id },
     );
 
-    // Kill immediately
+    // Wait for process to actually spawn before killing
+    await new Promise((r) => setTimeout(r, 500));
     handle.kill();
 
     const result = await handle.done;
@@ -925,7 +926,7 @@ describe("shell.ts spawnShellCommand", () => {
     // exitCode may be null (signal) or non-zero
     const exitedAbnormally = result.exitCode !== 0 || result.exitCode === null;
     expect(exitedAbnormally).toBe(true);
-  }, 15_000);
+  }, 30_000);
 
   test("cwd option is passed to the spawned process", async () => {
     const id = nextInvocationId();

@@ -61,7 +61,12 @@ import {
   removeWorktree,
   WorktreeLockedError,
 } from "../worktree/index.js";
-import { isTransientGitError, isDllInitError, git } from "../git.js";
+import {
+  isTransientGitError,
+  isDllInitError,
+  git,
+  probeDllHealth,
+} from "../git.js";
 import {
   findPrForBranch,
   findPrByUrl,
@@ -168,7 +173,7 @@ const terminalWriteBackTasks = new Set<string>();
  */
 let globalDllCooldownUntil = 0;
 const GLOBAL_DLL_COOLDOWN_BASE_MS = 120_000; // 2 minutes
-const GLOBAL_DLL_COOLDOWN_MAX_MS = 960_000; // 16 minutes
+const GLOBAL_DLL_COOLDOWN_MAX_MS = 1_800_000; // 30 minutes
 let globalDllCooldownCurrentMs = GLOBAL_DLL_COOLDOWN_BASE_MS;
 
 /**
@@ -507,6 +512,25 @@ async function dispatch(
 
       if (isDllInitError(err)) {
         activateDllCooldown("in worktree creation");
+        // DLL_INIT is infrastructure-level — never burn retries.
+        // Re-queue the task and return immediately.
+        log(`DLL_INIT for task ${taskId} — re-queuing without burning retry`);
+        updateTaskStatus(
+          db,
+          taskId,
+          task.orcaStatus === "in_review"
+            ? "in_review"
+            : task.orcaStatus === "changes_requested"
+              ? "changes_requested"
+              : "ready",
+        );
+        updateInvocation(db, invocationId, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          outputSummary: `DLL_INIT_FAILED (infrastructure — no retry burned): ${err}`,
+        });
+        emitTaskUpdated(getTask(db, taskId)!);
+        return;
       }
 
       if (isTransientGitError(err)) {
@@ -1950,6 +1974,8 @@ function checkCronSchedules(deps: SchedulerDeps): void {
         createdAt: nowIso,
         updatedAt: nowIso,
       });
+      const inserted = getTask(db, taskId);
+      if (inserted) emitTaskUpdated(inserted);
     } catch (err: unknown) {
       // Duplicate key: this run was already created. Still advance the
       // schedule so it doesn't re-fire on the next tick.
@@ -2653,6 +2679,19 @@ async function tick(deps: SchedulerDeps): Promise<void> {
         );
       }
       return;
+    }
+
+    // Cooldown just expired — probe before resuming dispatch
+    if (globalDllCooldownUntil > 0) {
+      if (!probeDllHealth()) {
+        log(
+          "DLL_INIT cooldown expired but probe failed — re-entering cooldown",
+        );
+        activateDllCooldown("in health probe");
+        return;
+      }
+      log("DLL_INIT cooldown expired — probe succeeded, resuming dispatch");
+      resetDllCooldown();
     }
 
     // Periodic cleanup of stale branches and orphaned worktrees
