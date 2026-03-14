@@ -36,8 +36,7 @@ import {
   getLastCompletedImplementInvocation,
 } from "../../db/queries.js";
 import { spawnSession } from "../../runner/index.js";
-import type { SessionResult } from "../../runner/index.js";
-import type { InvocationStatus } from "../../shared/types.js";
+import type { SessionHandle } from "../../runner/index.js";
 import {
   emitTaskUpdated,
   emitInvocationStarted,
@@ -114,15 +113,14 @@ function getDeps(): WorkflowDeps {
 function bridgeSessionCompletion(
   invocationId: number,
   linearIssueId: string,
-  phase: string,
-  startedAt: number,
-  donePromise: Promise<SessionResult>,
+  phase: "implement" | "review",
+  handle: SessionHandle,
+  branchName: string | null,
+  worktreePath: string | null,
 ): void {
-  donePromise
+  handle.done
     .then((result) => {
-      const durationMs = Date.now() - startedAt;
-      const invStatus: InvocationStatus =
-        result.subtype === "success" ? "completed" : "failed";
+      const invStatus = result.subtype === "success" ? "completed" : "failed";
 
       inngest
         .send({
@@ -131,12 +129,16 @@ function bridgeSessionCompletion(
             invocationId,
             linearIssueId,
             phase,
+            exitCode: result.exitCode ?? (invStatus === "completed" ? 0 : 1),
+            summary: result.outputSummary ?? null,
             costUsd: result.costUsd,
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             numTurns: result.numTurns,
-            durationMs,
-            status: invStatus,
+            sessionId: handle.sessionId ?? null,
+            branchName: branchName ?? null,
+            worktreePath: worktreePath ?? null,
+            isMaxTurns: result.subtype === "error_max_turns",
           },
         })
         .catch((err) => {
@@ -158,12 +160,16 @@ function bridgeSessionCompletion(
             invocationId,
             linearIssueId,
             phase,
+            exitCode: 1,
+            summary: null,
             costUsd: null,
             inputTokens: null,
             outputTokens: null,
             numTurns: null,
-            durationMs: 0,
-            status: "failed" as InvocationStatus,
+            sessionId: null,
+            branchName: null,
+            worktreePath: null,
+            isMaxTurns: false,
           },
         })
         .catch(() => {
@@ -494,8 +500,9 @@ export const taskLifecycle = inngest.createFunction(
           invocationId,
           taskId,
           "implement",
-          startedAt,
-          handle.done,
+          handle,
+          branchName,
+          worktreePath,
         );
 
         emitInvocationStarted({ taskId, invocationId });
@@ -574,10 +581,10 @@ export const taskLifecycle = inngest.createFunction(
           return { outcome: "timed_out" };
         }
 
-        const isSuccess = implementEvent.data.status === "completed";
+        const isSuccess =
+          implementEvent.data.exitCode === 0 && !implementEvent.data.isMaxTurns;
         const invRecord = getInvocation(db, invocationId);
-        const isMaxTurns =
-          !isSuccess && invRecord?.outputSummary === "max turns reached";
+        const isMaxTurns = implementEvent.data.isMaxTurns;
 
         recordBudgetEventFromEvent(db, invocationId, implementEvent.data);
 
@@ -592,7 +599,7 @@ export const taskLifecycle = inngest.createFunction(
 
         if (!isSuccess) {
           log(
-            `task ${taskId}: implement failed (${implementEvent.data.status}) — invocation ${invocationId}`,
+            `task ${taskId}: implement failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns" : ""}) — invocation ${invocationId}`,
           );
           if (!isMaxTurns) {
             try {
@@ -838,8 +845,9 @@ export const taskLifecycle = inngest.createFunction(
             invocationId,
             taskId,
             "review",
-            startedAt,
-            handle.done,
+            handle,
+            wtResult.branchName,
+            wtResult.worktreePath,
           );
 
           emitInvocationStarted({ taskId, invocationId });
@@ -909,7 +917,8 @@ export const taskLifecycle = inngest.createFunction(
             return { outcome: "timed_out" };
           }
 
-          const isSuccess = reviewEvent.data.status === "completed";
+          const isSuccess =
+            reviewEvent.data.exitCode === 0 && !reviewEvent.data.isMaxTurns;
           emitInvocationCompleted({
             taskId,
             invocationId,
@@ -1092,8 +1101,9 @@ export const taskLifecycle = inngest.createFunction(
             invocationId,
             taskId,
             "implement",
-            startedAt,
-            handle.done,
+            handle,
+            wtResult.branchName,
+            wtResult.worktreePath,
           );
 
           emitInvocationStarted({ taskId, invocationId });
@@ -1158,7 +1168,8 @@ export const taskLifecycle = inngest.createFunction(
             return { ok: false, timedOut: true };
           }
 
-          const isSuccess = fixEvent.data.status === "completed";
+          const isSuccess =
+            fixEvent.data.exitCode === 0 && !fixEvent.data.isMaxTurns;
           emitInvocationCompleted({
             taskId,
             invocationId,
