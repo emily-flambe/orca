@@ -153,6 +153,19 @@ export default function Sidebar({
     a.localeCompare(b),
   );
 
+  const ACTIVE_STATUSES = new Set([
+    "ready",
+    "dispatched",
+    "running",
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+    "deploying",
+  ]);
+  const activeTaskCount = tasks.filter((t) =>
+    ACTIVE_STATUSES.has(t.orcaStatus),
+  ).length;
+
   // Build queued tasks list — only "ready" tasks waiting to be dispatched,
   // sorted to match the scheduler's dispatch order (priority asc, then createdAt asc).
   const queuedTasks = tasks
@@ -229,9 +242,9 @@ export default function Sidebar({
             onClick={() => onNavigate("tasks")}
           >
             <span>Tasks</span>
-            {tasks.length > 0 && (
-              <span className="ml-auto text-xs text-gray-500 tabular-nums">
-                {tasks.length}
+            {activeTaskCount > 0 && (
+              <span className="ml-auto bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5 tabular-nums">
+                {activeTaskCount}
               </span>
             )}
           </button>
