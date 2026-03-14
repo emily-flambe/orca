@@ -44,6 +44,7 @@ vi.mock("../src/db/queries.js", () => ({
   updateInvocation: vi.fn(),
   insertBudgetEvent: vi.fn(),
   sumCostInWindow: vi.fn().mockReturnValue(0),
+  sumTokensInWindow: vi.fn().mockReturnValue(0),
   budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
   incrementReviewCycleCount: vi.fn(),
