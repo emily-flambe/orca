@@ -153,9 +153,17 @@ export default function Sidebar({
     a.localeCompare(b),
   );
 
-  // Count active tasks (non-terminal, non-backlog states)
+  const ACTIVE_STATUSES = new Set([
+    "ready",
+    "dispatched",
+    "running",
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+    "deploying",
+  ]);
   const activeTaskCount = tasks.filter((t) =>
-    (["ready", "dispatched", "running", "in_review", "changes_requested", "awaiting_ci"] as const).includes(t.orcaStatus as "ready" | "dispatched" | "running" | "in_review" | "changes_requested" | "awaiting_ci"),
+    ACTIVE_STATUSES.has(t.orcaStatus),
   ).length;
 
   // Build queued tasks list — only "ready" tasks waiting to be dispatched,
@@ -235,7 +243,7 @@ export default function Sidebar({
           >
             <span>Tasks</span>
             {activeTaskCount > 0 && (
-              <span className="ml-auto bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5">
+              <span className="ml-auto bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5 tabular-nums">
                 {activeTaskCount}
               </span>
             )}
