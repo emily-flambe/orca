@@ -25,7 +25,6 @@ document.documentElement.classList.add("dark");
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
-
 // ---------------------------------------------------------------------------
 // Settings page
 // ---------------------------------------------------------------------------
@@ -258,28 +257,25 @@ function TasksPage({
 }
 
 // ---------------------------------------------------------------------------
-// URL ↔ Page helpers
+// URL routing helpers
 // ---------------------------------------------------------------------------
 
-function pageFromPath(pathname: string): { page: Page; taskId: string | null } {
-  if (pathname.startsWith("/tasks/")) {
-    return { page: "tasks", taskId: pathname.slice("/tasks/".length) || null };
-  }
-  const map: Record<string, Page> = {
-    "/": "dashboard",
-    "/metrics": "metrics",
-    "/logs": "logs",
-    "/settings": "settings",
-    "/cron": "cron",
-    "/tasks": "tasks",
-  };
-  return { page: map[pathname] ?? "dashboard", taskId: null };
+function pageFromPathname(pathname: string): Page {
+  if (pathname.startsWith("/tasks")) return "tasks";
+  if (pathname.startsWith("/cron")) return "cron";
+  if (pathname.startsWith("/metrics")) return "metrics";
+  if (pathname.startsWith("/logs")) return "logs";
+  if (pathname.startsWith("/settings")) return "settings";
+  return "dashboard";
 }
 
-function pathFromPage(page: Page, taskId: string | null): string {
-  if (page === "tasks" && taskId) return `/tasks/${taskId}`;
-  if (page === "dashboard") return "/";
-  return `/${page}`;
+function taskIdFromPathname(pathname: string): string | null {
+  const match = /^\/tasks\/(.+)$/.exec(pathname);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+function pageToPath(page: Page): string {
+  return page === "dashboard" ? "/" : `/${page}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,10 +286,8 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [version, setVersion] = useState<string | null>(null);
-
-  const initialRoute = pageFromPath(window.location.pathname);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
-    initialRoute.taskId,
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() =>
+    taskIdFromPathname(window.location.pathname),
   );
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
@@ -301,27 +295,11 @@ export default function App() {
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
-  const [activePage, setActivePage] = useState<Page>(initialRoute.page);
-  const [mobileView, setMobileView] = useState<"list" | "detail">(
-    initialRoute.taskId ? "detail" : "list",
+  const [activePage, setActivePage] = useState<Page>(() =>
+    pageFromPathname(window.location.pathname),
   );
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // Sync URL → state on browser back/forward
-  useEffect(() => {
-    const onPopState = () => {
-      const { page, taskId } = pageFromPath(window.location.pathname);
-      setActivePage(page);
-      if (taskId) {
-        setSelectedTaskId(taskId);
-        setMobileView("detail");
-      } else if (page === "tasks") {
-        setMobileView("list");
-      }
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
     fetchStatus().then(setStatus).catch(console.error);
@@ -426,7 +404,7 @@ export default function App() {
   const handleSelectTask = useCallback((id: string) => {
     setSelectedTaskId(id);
     setMobileView("detail");
-    window.history.pushState(null, "", pathFromPage("tasks", id));
+    history.pushState(null, "", `/tasks/${encodeURIComponent(id)}`);
   }, []);
 
   const handleNavigateToInvocation = useCallback(
@@ -439,16 +417,31 @@ export default function App() {
       setActivePage("tasks");
       setMobileView("detail");
       setSidebarOpen(false);
-      window.history.pushState(null, "", pathFromPage("tasks", linearIssueId));
+      history.pushState(
+        null,
+        "",
+        `/tasks/${encodeURIComponent(linearIssueId)}`,
+      );
     },
     [tasks],
   );
 
+  useEffect(() => {
+    const handlePopState = () => {
+      const pathname = window.location.pathname;
+      setActivePage(pageFromPathname(pathname));
+      setSelectedTaskId(taskIdFromPathname(pathname));
+      setMobileView("list");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const handleNavigate = useCallback((page: Page) => {
-    window.history.pushState(null, "", pathFromPage(page, null));
     setActivePage(page);
     setSidebarOpen(false);
     if (page === "tasks") setMobileView("list");
+    history.pushState(null, "", pageToPath(page));
   }, []);
 
   return (
