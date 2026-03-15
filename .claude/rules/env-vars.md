@@ -21,6 +21,7 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_BUDGET_MAX_COST_USD` | 100 | Rolling budget cap |
 | `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
 | `ORCA_MAX_REVIEW_CYCLES` | 3 | Max review-fix loops |
+| `ORCA_STRANDED_TASK_THRESHOLD_MIN` | 15 | Minutes before a task in an intermediate state is considered stranded and reconciled |
 
 ## Models
 

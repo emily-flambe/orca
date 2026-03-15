@@ -117,4 +117,5 @@ export interface OrcaStatus {
   inputTokensInWindow: number;
   outputTokensInWindow: number;
   inngestReachable: boolean;
+  strandedTasks: number;
 }

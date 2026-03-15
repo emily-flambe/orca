@@ -27,6 +27,7 @@ export interface OrcaConfig {
   deployTimeoutMin: number;
   cleanupIntervalMin: number;
   cleanupBranchMaxAgeMin: number;
+  strandedTaskThresholdMin: number;
   invocationLogRetentionHours: number;
   resumeOnMaxTurns: boolean;
   resumeOnFix: boolean;
@@ -322,6 +323,10 @@ Steps:
     cleanupBranchMaxAgeMin: readIntOrDefault(
       "ORCA_CLEANUP_BRANCH_MAX_AGE_MIN",
       60,
+    ),
+    strandedTaskThresholdMin: readIntOrDefault(
+      "ORCA_STRANDED_TASK_THRESHOLD_MIN",
+      15,
     ),
     invocationLogRetentionHours: readIntOrDefault(
       "ORCA_INVOCATION_LOG_RETENTION_HOURS",

@@ -665,6 +665,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inngestReachable = false;
     }
 
+    // Count stranded tasks: active statuses with updatedAt older than threshold
+    const strandedThresholdMs = config.strandedTaskThresholdMin * 60 * 1000;
+    const strandedStatuses = new Set([
+      "dispatched",
+      "running",
+      "awaiting_ci",
+      "deploying",
+      "in_review",
+    ]);
+    const nowMs = Date.now();
+    const strandedTasks = allTasks.filter(
+      (t) =>
+        strandedStatuses.has(t.orcaStatus) &&
+        nowMs - new Date(t.updatedAt).getTime() > strandedThresholdMs,
+    ).length;
+
     const draining = isDraining();
     return c.json({
       activeSessions,
@@ -686,6 +702,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
       inngestReachable,
+      strandedTasks,
     });
   });
 
