@@ -915,7 +915,7 @@ export function getTasksByCronSchedule(db: OrcaDb, scheduleId: number): Task[] {
  */
 export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
   // Only delete terminal cron tasks (done or failed) — never active/running ones.
-  const terminalStatuses: TaskStatus[] = ["done", "failed"];
+  const terminalStatuses: TaskStatus[] = ["done", "failed", "canceled"];
   const oldTasks = db
     .select({ id: tasks.linearIssueId })
     .from(tasks)
