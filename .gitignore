@@ -2,9 +2,7 @@ node_modules/
 dist/
 web/dist/
 *.db
-*.db-journal
-*.db-shm
-*.db-wal
+*.db-*
 logs/
 *.log
 orca.log
