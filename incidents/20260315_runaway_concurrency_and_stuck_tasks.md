@@ -82,6 +82,14 @@ Three additional bugs discovered after the initial fix:
 
 3. **Phantom invocations**: `insertInvocation(status: "running")` was called BEFORE `assertSessionCapacity()`. When the check threw, the "running" invocation stayed in the DB permanently, inflating the count. Fix: moved capacity check before the insert.
 
+**Phase 4 — Retry-echo kill loop (commit f8598c6):**
+
+EMI-321 was killed 8+ times in 30 minutes by "interrupted by Linear state change" echo storms. Root cause: the retry path wrote "Todo" (unstarted) to Linear, then immediately re-dispatched which wrote "In Progress". Linear queued both webhooks, but the "Todo" webhook arrived after the 30s echo TTL expired. `resolveConflict` saw "unstarted" on a running task and killed the session. Cycle repeated endlessly.
+
+Fix:
+1. Increased echo TTL from 30s to 90s to survive Linear webhook delivery lag
+2. Removed the "retry" (Todo) write-back before immediate re-dispatch — the intermediate state serves no purpose and creates the race condition
+
 ## Lessons Learned
 
 ### What went well
