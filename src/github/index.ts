@@ -40,21 +40,6 @@ function gh(args: string[], options?: { cwd?: string }): string {
   }
 }
 
-/**
- * Synchronous sleep for retry backoff.
- */
-function sleepSyncMs(ms: number): void {
-  try {
-    const buf = new SharedArrayBuffer(4);
-    Atomics.wait(new Int32Array(buf), 0, 0, ms);
-  } catch {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      /* fallback spin */
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -108,11 +93,11 @@ export function pushAndCreatePr(
  * CLI failures (e.g. Windows DLL init errors).
  * Returns info about the PR if found, or `{ exists: false }` otherwise.
  */
-export function findPrForBranch(
+export async function findPrForBranch(
   branchName: string,
   cwd: string,
   maxAttempts = 3,
-): PrInfo {
+): Promise<PrInfo> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -152,7 +137,7 @@ export function findPrForBranch(
           `(attempt ${attempt}/${maxAttempts}), retrying...`,
       );
       if (attempt < maxAttempts) {
-        sleepSyncMs(attempt * 5000);
+        await sleep(attempt * 5000);
       }
     } catch (err) {
       lastError = err;
@@ -162,7 +147,7 @@ export function findPrForBranch(
           `(attempt ${attempt}/${maxAttempts}): ${msg}`,
       );
       if (attempt < maxAttempts) {
-        sleepSyncMs(attempt * 2000);
+        await sleep(attempt * 2000);
       }
     }
   }

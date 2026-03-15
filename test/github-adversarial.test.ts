@@ -539,44 +539,30 @@ describe("findPrForBranch — retry count verification (missing coverage)", () =
     vi.restoreAllMocks();
   });
 
-  test("calls gh exactly maxAttempts times when result is always empty", () => {
-    // With maxAttempts=2, should retry 2 times on empty result before giving up.
-    // If retry is removed, only 1 call would be made.
-    // IMPORTANT: sleepSyncMs uses Atomics.wait (synchronous spin-wait).
-    // Between retries on empty results, it sleeps attempt * 5000ms.
-    // With maxAttempts=1, no sleep happens (attempt >= maxAttempts skips sleep).
-    // We use maxAttempts=1 to avoid blocking, but the core assertion is that
-    // the function calls gh exactly once (which verifies it entered the loop).
+  test("calls gh exactly maxAttempts times when result is always empty", async () => {
     execSyncMock2.mockReturnValue(JSON.stringify([]));
 
-    findPrForBranch("orca/no-pr", "/tmp/repo", 1);
+    await findPrForBranch("orca/no-pr", "/tmp/repo", 1);
 
     // With maxAttempts=1: exactly 1 call, then returns { exists: false }.
     // If implementation broke the loop entry, it might call 0 times.
     expect(execSyncMock2).toHaveBeenCalledTimes(1);
   });
 
-  test("calls gh exactly maxAttempts times when gh always throws", () => {
-    // With maxAttempts=1: 1 attempt, error caught, returns { exists: false }.
-    // sleepSyncMs NOT called because attempt < maxAttempts is false.
-    // So this runs without blocking.
+  test("calls gh exactly maxAttempts times when gh always throws", async () => {
     execSyncMock2.mockImplementation(() => {
       throw new Error("network error");
     });
 
-    findPrForBranch("orca/fail", "/tmp/repo", 1);
+    await findPrForBranch("orca/fail", "/tmp/repo", 1);
 
     expect(execSyncMock2).toHaveBeenCalledTimes(1);
   });
 
-  test("returns PR on 2nd attempt when first attempt returns empty", () => {
+  test("returns PR on 2nd attempt when first attempt returns empty", async () => {
     // First call returns empty (GitHub API lag), second returns the PR.
     // If retry is removed entirely, this would call gh once, get empty, return false.
-    //
-    // IMPORTANT: With maxAttempts=2, sleepSyncMs(1 * 5000) = 5000ms blocks between calls.
-    // This test uses maxAttempts=2 so it MUST use a longer timeout.
-    // The sleep is: attempt=1, attempt < maxAttempts (1 < 2) = true, sleep(1 * 5000ms).
-    // Total expected time: ~5 seconds.
+    vi.useFakeTimers();
     const pr = {
       url: "https://github.com/owner/repo/pull/1",
       number: 1,
@@ -587,10 +573,13 @@ describe("findPrForBranch — retry count verification (missing coverage)", () =
       .mockReturnValueOnce(JSON.stringify([])) // first attempt: empty
       .mockReturnValueOnce(JSON.stringify([pr])); // second attempt: found
 
-    const result = findPrForBranch("orca/EMI-1-inv-1", "/tmp/repo", 2);
+    const promise = findPrForBranch("orca/EMI-1-inv-1", "/tmp/repo", 2);
+    await vi.runAllTimersAsync();
+    const result = await promise;
+    vi.useRealTimers();
 
     expect(result.exists).toBe(true);
     expect(result.number).toBe(1);
     expect(execSyncMock2).toHaveBeenCalledTimes(2);
-  }, 10_000); // 10s timeout to accommodate the 5s synchronous sleep
+  });
 });
