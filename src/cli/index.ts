@@ -404,13 +404,23 @@ program
         logger.warn(`Inngest registration failed: ${err}`),
       );
 
-    // Re-emit task/ready events for any tasks already in "ready" state.
+    // Re-emit task/ready events for any tasks that need dispatch.
     // Events can be lost if Orca crashes, Inngest is down, or tasks were
-    // recovered from running→ready above. Without this, ready tasks sit
-    // in the DB with no corresponding Inngest workflow to pick them up.
-    const readyTasks = getAllTasks(db).filter((t) => t.orcaStatus === "ready");
-    if (readyTasks.length > 0) {
-      for (const task of readyTasks) {
+    // recovered from running→ready above. Without this, dispatchable tasks
+    // sit in the DB with no corresponding Inngest workflow to pick them up.
+    //
+    // Covers: ready, changes_requested, in_review — the claim step accepts
+    // all three statuses, so they all need a workflow run to make progress.
+    const dispatchableStatuses = new Set([
+      "ready",
+      "changes_requested",
+      "in_review",
+    ]);
+    const dispatchableTasks = getAllTasks(db).filter((t) =>
+      dispatchableStatuses.has(t.orcaStatus),
+    );
+    if (dispatchableTasks.length > 0) {
+      for (const task of dispatchableTasks) {
         inngest
           .send({
             name: "task/ready",
@@ -430,7 +440,7 @@ program
           );
       }
       logger.info(
-        `startup: re-emitted task/ready for ${readyTasks.length} task(s)`,
+        `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,
       );
     }
 

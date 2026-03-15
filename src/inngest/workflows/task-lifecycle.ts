@@ -296,14 +296,18 @@ export const taskLifecycle = inngest.createFunction(
   {
     id: "task-lifecycle",
 
-    // Global concurrency cap across all running instances of this function.
-    concurrency: {
-      limit: CONCURRENCY_CAP,
-    },
-
-    // Deduplicate: only one workflow run per task at a time.  Duplicate
-    // task/ready events (from restarts, webhooks, API) are collapsed.
-    idempotency: "event.data.linearIssueId",
+    // Two-level concurrency control:
+    // 1. Global cap: max CONCURRENCY_CAP workflow runs total
+    // 2. Per-task cap: only one workflow run per task at a time (dedup)
+    //
+    // NOTE: Do NOT use `idempotency` here — it's sugar for rateLimit with a
+    // 24h window, which blocks ALL re-runs for the same task for 24 hours.
+    // Per-task concurrency of 1 achieves the dedup goal while still allowing
+    // a new run after the previous one completes.
+    concurrency: [
+      { limit: CONCURRENCY_CAP },
+      { limit: 1, key: "event.data.linearIssueId" },
+    ],
 
     // Cancel this workflow when a task/cancelled event arrives with the same
     // linearIssueId as the trigger event.
@@ -861,10 +865,29 @@ export const taskLifecycle = inngest.createFunction(
     if (
       gate2.outcome === "timed_out" ||
       gate2.outcome === "permanent_fail" ||
-      gate2.outcome === "done" ||
-      gate2.outcome === "retry"
+      gate2.outcome === "done"
     ) {
       return { outcome: gate2.outcome };
+    }
+
+    // Retry: task was reset to "ready" by incrementRetryCount — re-emit
+    // task/ready so a new workflow picks it up.
+    if (gate2.outcome === "retry") {
+      const retryTask = getTask(db, taskId);
+      if (retryTask) {
+        await inngest.send({
+          name: "task/ready",
+          data: {
+            linearIssueId: taskId,
+            repoPath: retryTask.repoPath,
+            priority: retryTask.priority,
+            projectName: retryTask.projectName ?? null,
+            taskType: retryTask.taskType ?? "standard",
+            createdAt: retryTask.createdAt,
+          },
+        });
+      }
+      return { outcome: "retry" };
     }
 
     // -------------------------------------------------------------------------
