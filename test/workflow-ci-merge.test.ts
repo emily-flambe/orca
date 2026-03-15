@@ -107,6 +107,8 @@ vi.mock("../src/github/index.js", () => ({
   findPrForBranch: vi.fn(),
   getMergeCommitSha: vi.fn(),
   closeSupersededPrs: vi.fn(),
+  getFailingCheckNames: vi.fn(),
+  isCiFlakeOnMain: vi.fn(),
 }));
 
 vi.mock("../src/git.js", () => ({
@@ -134,6 +136,8 @@ import {
   mergePr,
   getMergeCommitSha,
   updatePrBranch,
+  getFailingCheckNames,
+  isCiFlakeOnMain,
 } from "../src/github/index.js";
 
 // Import the workflow module to trigger createFunction capture
@@ -148,6 +152,8 @@ const mockGetPrMergeState = vi.mocked(getPrMergeState);
 const mockMergePr = vi.mocked(mergePr);
 const mockGetMergeCommitSha = vi.mocked(getMergeCommitSha);
 const mockUpdatePrBranch = vi.mocked(updatePrBranch);
+const mockGetFailingCheckNames = vi.mocked(getFailingCheckNames);
+const mockIsCiFlakeOnMain = vi.mocked(isCiFlakeOnMain);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -222,7 +228,10 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "aborted", reason: "task_not_found" });
+    expect(result).toMatchObject({
+      status: "aborted",
+      reason: "task_not_found",
+    });
   });
 
   test("task status changed from awaiting_ci → returns aborted", async () => {
@@ -234,7 +243,10 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "aborted", reason: "status_changed" });
+    expect(result).toMatchObject({
+      status: "aborted",
+      reason: "status_changed",
+    });
   });
 
   test("CI pending → polls again (sleeps between polls)", async () => {
@@ -307,7 +319,11 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "merged", nextStatus: "deploying" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "deploying");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "deploying",
+    );
 
     // Restore config
     (mockSchedulerDeps as Record<string, unknown>).config = mockConfig;
@@ -341,9 +357,12 @@ describe("ci-merge workflow", () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check
       .mockReturnValueOnce(makeTask()) // inside check-ci step
+      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
       .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
+    mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
+    mockIsCiFlakeOnMain.mockResolvedValue(false);
 
     const step = createCiMergeStep();
     const result = await capturedCiMergeHandler({
@@ -357,15 +376,21 @@ describe("ci-merge workflow", () => {
       "TEST-1",
       "changes_requested",
     );
-    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(mockDb, "TEST-1");
+    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+    );
   });
 
   test("CI failure → failed permanently (if cycles exhausted)", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check (outside step)
+      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
       .mockReturnValueOnce(makeTask({ reviewCycleCount: 3 })); // inside ci-failure step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
+    mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
+    mockIsCiFlakeOnMain.mockResolvedValue(false);
 
     const step = createCiMergeStep();
     const result = await capturedCiMergeHandler({
@@ -374,7 +399,11 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "ci_failure" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
   });
 
@@ -429,6 +458,94 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "changes_requested",
+    );
+  });
+
+  test("CI failure → flake detected (failure exists on main) → re-polls without burning retry", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 1 check
+      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step (iteration 1)
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 2 check
+      .mockReturnValueOnce(makeTask()) // inside check-ci step (iteration 2)
+      .mockReturnValueOnce(makeTask()) // inside merge-and-finalize step (iteration 2)
+      .mockReturnValue(makeTask()); // subsequent calls
+
+    mockGetPrCheckStatus
+      .mockResolvedValueOnce("failure") // iteration 1: failure
+      .mockResolvedValueOnce("success"); // iteration 2: success after flake wait
+
+    mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
+    mockIsCiFlakeOnMain.mockResolvedValue(true);
+
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+    });
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("abc123");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // Flake: review cycle count should NOT have been incremented
+    expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
+    // Flake sleep should have been called
+    expect(step.sleep).toHaveBeenCalledWith("ci-flake-wait-1", "30s");
+    // Eventually merges successfully
+    expect(result).toMatchObject({ status: "merged" });
+  });
+
+  test("CI failure → not a flake (failure unique to PR) → burns retry normally", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
+      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+
+    mockGetPrCheckStatus.mockResolvedValue("failure");
+    mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
+    mockIsCiFlakeOnMain.mockResolvedValue(false);
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "ci_failure" });
+    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+    );
+    // Flake sleep should NOT have been called
+    expect(step.sleep).not.toHaveBeenCalledWith(
+      expect.stringContaining("ci-flake-wait"),
+      expect.anything(),
+    );
+  });
+
+  test("CI failure → getFailingCheckNames returns empty → treated as real failure", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
+      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+
+    mockGetPrCheckStatus.mockResolvedValue("failure");
+    mockGetFailingCheckNames.mockResolvedValue([]);
+    mockIsCiFlakeOnMain.mockResolvedValue(false);
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "ci_failure" });
+    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
     );
   });
 
