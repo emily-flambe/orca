@@ -64,7 +64,11 @@ export const cronDispatchWorkflow = inngest.createFunction(
             isParent: 0,
           });
 
-          incrementCronRunCount(db, schedule.id, computeNextRunAt(schedule.schedule));
+          incrementCronRunCount(
+            db,
+            schedule.id,
+            computeNextRunAt(schedule.schedule),
+          );
           updateCronLastRunStatus(db, schedule.id, "success");
 
           const cronTask = getTask(db, taskId);
