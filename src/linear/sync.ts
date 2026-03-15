@@ -104,35 +104,45 @@ export interface WebhookEvent {
 
 export const expectedChanges = new Map<
   string,
-  { stateName: string; expiresAt: number }
+  Array<{ stateName: string; expiresAt: number }>
 >();
 
 export function registerExpectedChange(
   taskId: string,
   stateName: string,
 ): void {
-  expectedChanges.set(taskId, {
-    stateName,
-    expiresAt: Date.now() + 10_000,
-  });
+  const entries = expectedChanges.get(taskId) ?? [];
+  entries.push({ stateName, expiresAt: Date.now() + 30_000 });
+  expectedChanges.set(taskId, entries);
 }
 
 export function isExpectedChange(taskId: string, stateName: string): boolean {
-  const entry = expectedChanges.get(taskId);
-  if (!entry) return false;
+  const entries = expectedChanges.get(taskId);
+  if (!entries || entries.length === 0) return false;
 
-  // Expired — remove and treat as non-echo
-  if (Date.now() > entry.expiresAt) {
+  // Prune expired entries
+  const now = Date.now();
+  const valid = entries.filter((e) => now <= e.expiresAt);
+
+  if (valid.length === 0) {
     expectedChanges.delete(taskId);
     return false;
   }
 
-  // Matches — consume and return true
-  if (entry.stateName === stateName) {
-    expectedChanges.delete(taskId);
+  // Find and consume a matching entry
+  const matchIdx = valid.findIndex((e) => e.stateName === stateName);
+  if (matchIdx >= 0) {
+    valid.splice(matchIdx, 1);
+    if (valid.length === 0) {
+      expectedChanges.delete(taskId);
+    } else {
+      expectedChanges.set(taskId, valid);
+    }
     return true;
   }
 
+  // No match — update with pruned list
+  expectedChanges.set(taskId, valid);
   return false;
 }
 
@@ -815,8 +825,8 @@ export async function writeBackStatus(
     return;
   }
 
-  // Register expected change for loop prevention before the API call
-  // Use the actual state name returned from findStateByType
+  // Register BEFORE the API call so the echo window covers API latency + webhook delay.
+  // TTL is 30s to account for slow API calls + Linear webhook delivery lag.
   registerExpectedChange(taskId, stateEntry.name);
 
   try {
