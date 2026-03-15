@@ -439,10 +439,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (
       newStatus !== "backlog" &&
       newStatus !== "ready" &&
-      newStatus !== "done"
+      newStatus !== "done" &&
+      newStatus !== "failed"
     ) {
       return c.json(
-        { error: "status must be one of: backlog, ready, done" },
+        { error: "status must be one of: backlog, ready, done, failed" },
         400,
       );
     }
@@ -511,7 +512,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     emitTaskUpdated(getTask(db, taskId)!);
 
     // Write back to Linear
-    const linearTransition = newStatus === "ready" ? "retry" : newStatus;
+    const linearTransition =
+      newStatus === "ready"
+        ? "retry"
+        : newStatus === "failed"
+          ? "failed_permanent"
+          : newStatus;
     writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) =>
       logger.warn("Linear write-back failed:", err),
     );
