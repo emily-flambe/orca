@@ -45,17 +45,24 @@ export const cleanupCronWorkflow = inngest.createFunction(
         incrementCronRunCount(db, schedule.id, computeNextRunAt(schedule.schedule));
         const cronTask = getTask(db, taskId);
         if (cronTask) {
-          await inngest.send({
-            name: "task/ready",
-            data: {
-              linearIssueId: cronTask.linearIssueId,
-              repoPath: cronTask.repoPath,
-              priority: cronTask.priority,
-              projectName: cronTask.projectName ?? null,
-              taskType: cronTask.taskType ?? "cron_claude",
-              createdAt: cronTask.createdAt,
-            },
-          });
+          try {
+            await inngest.send({
+              name: "task/ready",
+              data: {
+                linearIssueId: cronTask.linearIssueId,
+                repoPath: cronTask.repoPath,
+                priority: cronTask.priority,
+                projectName: cronTask.projectName ?? null,
+                taskType: cronTask.taskType ?? "cron_claude",
+                createdAt: cronTask.createdAt,
+              },
+            });
+          } catch (err: unknown) {
+            console.warn(
+              `[orca/cleanup] Failed to dispatch cron task ${taskId}:`,
+              err,
+            );
+          }
         }
       }
     });
