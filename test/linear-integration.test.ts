@@ -1107,7 +1107,8 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
 
   async function getWriteBack() {
     const { LinearClient } = await import("../src/linear/client.js");
-    const { writeBackStatus, logStateMapping } = await import("../src/linear/sync.js");
+    const { writeBackStatus, logStateMapping } =
+      await import("../src/linear/sync.js");
     const client = new LinearClient("test-key");
     return { client, writeBackStatus, logStateMapping };
   }

@@ -87,7 +87,9 @@ describe("LinearClient", () => {
 
     it("throws 'GraphQL errors' when response contains errors array", async () => {
       vi.mocked(fetch).mockResolvedValue(
-        mockResponse({ errors: [{ message: "Not found" }, { message: "Forbidden" }] }),
+        mockResponse({
+          errors: [{ message: "Not found" }, { message: "Forbidden" }],
+        }),
       );
 
       const client = new LinearClient("key");

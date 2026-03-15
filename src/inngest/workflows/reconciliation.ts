@@ -8,6 +8,7 @@
  */
 
 import { inngest } from "../client.js";
+import { sendWithRetry } from "../activities/session-bridge.js";
 import { getSchedulerDeps } from "../deps.js";
 import { activeHandles } from "../../session-handles.js";
 import {
@@ -103,16 +104,13 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
             `[orca/reconciliation] Resetting task ${taskId} to ready (retry ${task.retryCount + 1}/${config.maxRetries}): ${reason}`,
           );
           updateTaskStatus(db, taskId, "ready");
-          await inngest.send({
-            name: "task/ready",
-            data: {
-              linearIssueId: task.linearIssueId,
-              repoPath: task.repoPath,
-              priority: task.priority,
-              projectName: task.projectName ?? null,
-              taskType: task.taskType ?? "standard",
-              createdAt: task.createdAt,
-            },
+          await sendWithRetry("task/ready", {
+            linearIssueId: task.linearIssueId,
+            repoPath: task.repoPath,
+            priority: task.priority,
+            projectName: task.projectName ?? null,
+            taskType: task.taskType ?? "standard",
+            createdAt: task.createdAt,
           });
           insertSystemEvent(db, {
             type: "error",

@@ -106,7 +106,10 @@ describe("startTunnel — connection state", () => {
     // as a substring — CONNECTED pattern wins. The /unregistered.*tunnel.*connection/i
     // pattern is shadowed by the CONNECTED check ordering.
     // Verify actual behavior: message matching both patterns keeps connected=true.
-    fakeProc.stderr.emit("data", Buffer.from("Unregistered tunnel connection\n"));
+    fakeProc.stderr.emit(
+      "data",
+      Buffer.from("Unregistered tunnel connection\n"),
+    );
     // CONNECTED fires first (registered.*tunnel.*connection matches) → stays true
     expect(handle.isTunnelConnected()).toBe(true);
   });

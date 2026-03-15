@@ -2,14 +2,7 @@
 // Per-project repo mapping tests
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import { getTask } from "../src/db/queries.js";
 import { parseRepoPath } from "../src/config/index.js";

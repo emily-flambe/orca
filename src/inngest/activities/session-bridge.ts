@@ -17,7 +17,7 @@ const logger = createLogger("session-bridge");
  * Sends an Inngest event with exponential backoff retry.
  * Retries up to `maxAttempts` times (delays: 1s, 2s, 4s, ...).
  */
-async function sendWithRetry<K extends keyof OrcaEvents>(
+export async function sendWithRetry<K extends keyof OrcaEvents>(
   name: K,
   data: OrcaEvents[K] extends { data: infer D } ? D : never,
   maxAttempts = 3,

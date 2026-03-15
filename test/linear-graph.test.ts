@@ -74,7 +74,9 @@ describe("DependencyGraph", () => {
       graph.rebuild([issueA, issueB]);
 
       // B is blocked by A
-      expect(graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo"))).toBe(false);
+      expect(
+        graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo")),
+      ).toBe(false);
     });
 
     it("ignores relations with type other than 'blocks'", () => {
@@ -99,19 +101,25 @@ describe("DependencyGraph", () => {
       // issueB has inverseRelation: A blocks B (A is the source blocking B)
       const issueA = makeIssue("A");
       const issueB = makeIssue("B", {
-        inverseRelations: [{ type: "blocks", issueId: "A", issueIdentifier: "A" }],
+        inverseRelations: [
+          { type: "blocks", issueId: "A", issueIdentifier: "A" },
+        ],
       });
 
       graph.rebuild([issueA, issueB]);
 
       // B is blocked by A
-      expect(graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo"))).toBe(false);
+      expect(
+        graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo")),
+      ).toBe(false);
     });
 
     it("ignores inverseRelations with type other than 'blocks'", () => {
       const issueA = makeIssue("A");
       const issueB = makeIssue("B", {
-        inverseRelations: [{ type: "related", issueId: "A", issueIdentifier: "A" }],
+        inverseRelations: [
+          { type: "related", issueId: "A", issueIdentifier: "A" },
+        ],
       });
 
       graph.rebuild([issueA, issueB]);
@@ -137,7 +145,9 @@ describe("DependencyGraph", () => {
       const issueB = makeIssue("B");
       graph.rebuild([issueA, issueB]);
 
-      expect(graph.isDispatchable("B", (id) => (id === "A" ? "done" : "todo"))).toBe(true);
+      expect(
+        graph.isDispatchable("B", (id) => (id === "A" ? "done" : "todo")),
+      ).toBe(true);
     });
 
     it("returns false when a blocker has status 'running'", () => {
@@ -147,7 +157,9 @@ describe("DependencyGraph", () => {
       const issueB = makeIssue("B");
       graph.rebuild([issueA, issueB]);
 
-      expect(graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo"))).toBe(false);
+      expect(
+        graph.isDispatchable("B", (id) => (id === "A" ? "running" : "todo")),
+      ).toBe(false);
     });
 
     it("returns false when a blocker has status 'ready'", () => {
@@ -157,19 +169,17 @@ describe("DependencyGraph", () => {
       const issueB = makeIssue("B");
       graph.rebuild([issueA, issueB]);
 
-      expect(graph.isDispatchable("B", (id) => (id === "A" ? "ready" : "done"))).toBe(false);
+      expect(
+        graph.isDispatchable("B", (id) => (id === "A" ? "ready" : "done")),
+      ).toBe(false);
     });
 
     it("returns true when all multiple blockers are done", () => {
       const issueA = makeIssue("A", {
-        relations: [
-          { type: "blocks", issueId: "C", issueIdentifier: "C" },
-        ],
+        relations: [{ type: "blocks", issueId: "C", issueIdentifier: "C" }],
       });
       const issueB = makeIssue("B", {
-        relations: [
-          { type: "blocks", issueId: "C", issueIdentifier: "C" },
-        ],
+        relations: [{ type: "blocks", issueId: "C", issueIdentifier: "C" }],
       });
       const issueC = makeIssue("C");
       graph.rebuild([issueA, issueB, issueC]);
@@ -183,14 +193,10 @@ describe("DependencyGraph", () => {
 
     it("returns false when one of multiple blockers is not done", () => {
       const issueA = makeIssue("A", {
-        relations: [
-          { type: "blocks", issueId: "C", issueIdentifier: "C" },
-        ],
+        relations: [{ type: "blocks", issueId: "C", issueIdentifier: "C" }],
       });
       const issueB = makeIssue("B", {
-        relations: [
-          { type: "blocks", issueId: "C", issueIdentifier: "C" },
-        ],
+        relations: [{ type: "blocks", issueId: "C", issueIdentifier: "C" }],
       });
       const issueC = makeIssue("C");
       graph.rebuild([issueA, issueB, issueC]);
@@ -350,9 +356,7 @@ describe("DependencyGraph", () => {
       graph.rebuild([issueA, issueB]);
 
       // Should not throw or loop infinitely
-      expect(() =>
-        graph.computeEffectivePriority("A", () => 2),
-      ).not.toThrow();
+      expect(() => graph.computeEffectivePriority("A", () => 2)).not.toThrow();
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("cycle detected"),

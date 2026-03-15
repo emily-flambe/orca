@@ -14,9 +14,8 @@ function signPayload(body: string, secret: string): string {
 
 describe("GitHub webhook — branch deletion and null SHA filtering", () => {
   test("deleting main branch does NOT trigger deploy (deleted=true)", async () => {
-    const { createGithubWebhookRoute } = await import(
-      "../src/github/webhook.js"
-    );
+    const { createGithubWebhookRoute } =
+      await import("../src/github/webhook.js");
 
     const SECRET = "test-secret";
     const onPushToMain = vi.fn();
@@ -47,9 +46,8 @@ describe("GitHub webhook — branch deletion and null SHA filtering", () => {
   });
 
   test("push with zero/null SHA does NOT trigger deploy", async () => {
-    const { createGithubWebhookRoute } = await import(
-      "../src/github/webhook.js"
-    );
+    const { createGithubWebhookRoute } =
+      await import("../src/github/webhook.js");
 
     const SECRET = "test-secret";
     const onPushToMain = vi.fn();
@@ -77,9 +75,8 @@ describe("GitHub webhook — branch deletion and null SHA filtering", () => {
   });
 
   test("normal push to main DOES trigger deploy", async () => {
-    const { createGithubWebhookRoute } = await import(
-      "../src/github/webhook.js"
-    );
+    const { createGithubWebhookRoute } =
+      await import("../src/github/webhook.js");
 
     // Capture setImmediate to synchronously check if callback was scheduled
     const scheduledCallbacks: Array<() => void> = [];

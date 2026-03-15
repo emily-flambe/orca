@@ -379,7 +379,7 @@ describe("orca status", () => {
       logMaxSizeMb: 10,
       port: 4000,
       concurrencyCap: 1,
-  
+
       externalTunnel: true,
       githubWebhookSecret: undefined,
       cloudflaredPath: "cloudflared",
@@ -439,9 +439,8 @@ describe("orca start", () => {
   test("start command initializes Inngest task lifecycle", async () => {
     await runCli(["start"]);
 
-    const { initTaskLifecycle } = await import(
-      "../src/inngest/workflows/task-lifecycle.js"
-    );
+    const { initTaskLifecycle } =
+      await import("../src/inngest/workflows/task-lifecycle.js");
     await vi.waitFor(() => {
       expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
     });
@@ -467,9 +466,8 @@ describe("orca start", () => {
 
     await runCli(["start"]);
 
-    const { initTaskLifecycle } = await import(
-      "../src/inngest/workflows/task-lifecycle.js"
-    );
+    const { initTaskLifecycle } =
+      await import("../src/inngest/workflows/task-lifecycle.js");
     await vi.waitFor(() => {
       expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
     });
