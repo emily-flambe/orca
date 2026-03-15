@@ -5,17 +5,7 @@ import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
 import ActiveSessionsGrid from "./ActiveSessionsGrid";
 import ActivityFeed from "./ActivityFeed";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function timeAgo(date: Date): string {
-  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (secs < 5) return "just now";
-  if (secs < 60) return `${secs}s ago`;
-  return `${Math.floor(secs / 60)}m ago`;
-}
+import { timeAgo } from "../utils/timeUtils.js";
 
 // ---------------------------------------------------------------------------
 // Main dashboard
