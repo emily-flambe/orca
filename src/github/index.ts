@@ -503,7 +503,12 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
+export type PrCheckStatus =
+  | "pending"
+  | "success"
+  | "failure"
+  | "no_checks"
+  | "error";
 
 /**
  * Check CI check status on a PR by number.
@@ -512,42 +517,49 @@ export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
  * - Any pending/queued → "pending"
  * - Any fail → "failure"
  * - All pass/skipping → "success"
- * - CLI error or no checks → "no_checks"
+ * - CLI error after 2 attempts → "error"
+ * - No checks → "no_checks"
  */
 export async function getPrCheckStatus(
   prNumber: number,
   cwd: string,
 ): Promise<PrCheckStatus> {
-  try {
-    const output = await ghAsync(
-      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
-      { cwd },
-    );
-    const checks = JSON.parse(output) as {
-      name: string;
-      state: string;
-      bucket: string;
-    }[];
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const output = await ghAsync(
+        ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+        { cwd },
+      );
+      const checks = JSON.parse(output) as {
+        name: string;
+        state: string;
+        bucket: string;
+      }[];
 
-    if (checks.length === 0) return "no_checks";
+      if (checks.length === 0) return "no_checks";
 
-    const hasPending = checks.some(
-      (c) => c.bucket === "pending" || c.bucket === "queued",
-    );
-    if (hasPending) return "pending";
+      const hasPending = checks.some(
+        (c) => c.bucket === "pending" || c.bucket === "queued",
+      );
+      if (hasPending) return "pending";
 
-    const hasFail = checks.some((c) => c.bucket === "fail");
-    if (hasFail) return "failure";
+      const hasFail = checks.some((c) => c.bucket === "fail");
+      if (hasFail) return "failure";
 
-    return "success";
-  } catch {
-    return "no_checks";
+      return "success";
+    } catch {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
   }
+  return "error";
 }
 
 /**
  * Synchronous version of getPrCheckStatus — uses execFileSync.
- * Returns "no_checks" on any error.
+ * Returns "error" on any CLI error (no retry).
  */
 export function getPrCheckStatusSync(
   prNumber: number,
@@ -576,7 +588,7 @@ export function getPrCheckStatusSync(
 
     return "success";
   } catch {
-    return "no_checks";
+    return "error";
   }
 }
 

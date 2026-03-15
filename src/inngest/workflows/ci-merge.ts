@@ -107,14 +107,22 @@ export const ciMergeWorkflow = inngest.createFunction(
       const ciStatus = await step.run(
         `check-ci-${attempts}`,
         async (): Promise<{
-          status: "pending" | "success" | "failure" | "no_checks";
+          status: "pending" | "success" | "failure" | "no_checks" | "error";
         }> => {
           const result = await getPrCheckStatus(prNumber, task.repoPath);
           return { status: result };
         },
       );
 
-      if (ciStatus.status === "success" || ciStatus.status === "no_checks") {
+      if (ciStatus.status === "error") {
+        // Transient gh CLI error — log and fall through to sleep/poll again
+        log(
+          `task ${linearIssueId} CI check returned error — will retry next poll`,
+        );
+      } else if (
+        ciStatus.status === "success" ||
+        ciStatus.status === "no_checks"
+      ) {
         // CI passed or no checks configured — attempt merge
         const mergeOutcome = await step.run(
           `merge-and-finalize-${attempts}`,
