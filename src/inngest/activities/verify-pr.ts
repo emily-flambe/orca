@@ -160,7 +160,7 @@ export async function verifyPr(
   }
 
   // --- Step 1: Search for PR by branch name ---
-  let prInfo: PrInfo = findPrForBranch(branchName, repoPath);
+  let prInfo: PrInfo = await findPrForBranch(branchName, repoPath);
   let resolvedRepoPath = repoPath;
 
   // --- Step 2: Fallback — extract PR URL from summary ---

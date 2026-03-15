@@ -408,7 +408,7 @@ async function mergeAndFinalizeStep(
       // Check if PR was already merged (race condition fallback)
       let alreadyMerged = false;
       if (prBranchName) {
-        const prInfo = findPrForBranch(prBranchName, task.repoPath);
+        const prInfo = await findPrForBranch(prBranchName, task.repoPath);
         alreadyMerged = prInfo.merged === true;
       }
 

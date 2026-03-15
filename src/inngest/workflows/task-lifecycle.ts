@@ -566,11 +566,11 @@ export const taskLifecycle = inngest.createFunction(
 
     const gate2 = await step.run(
       "process-implement-and-gate2",
-      (): {
+      async (): Promise<{
         outcome: Gate2Outcome;
         prBranch?: string;
         prNumber?: number | null;
-      } => {
+      }> => {
         const { invocationId, worktreePath, branchName } = implementCtx;
 
         if (!implementEvent) {
@@ -725,7 +725,7 @@ export const taskLifecycle = inngest.createFunction(
           return { outcome: "retry" };
         }
 
-        const prInfo = findPrForBranch(branchName, task.repoPath);
+        const prInfo = await findPrForBranch(branchName, task.repoPath);
 
         if (!prInfo.exists) {
           if (isAlreadyDone || noChanges) {
