@@ -503,7 +503,7 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
+export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks" | "error";
 
 /**
  * Check CI check status on a PR by number.
@@ -512,42 +512,57 @@ export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks";
  * - Any pending/queued → "pending"
  * - Any fail → "failure"
  * - All pass/skipping → "success"
- * - CLI error or no checks → "no_checks"
+ * - Empty checks array → "no_checks"
+ * - CLI error after retries → "error"
  */
 export async function getPrCheckStatus(
   prNumber: number,
   cwd: string,
 ): Promise<PrCheckStatus> {
-  try {
-    const output = await ghAsync(
-      ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
-      { cwd },
-    );
-    const checks = JSON.parse(output) as {
-      name: string;
-      state: string;
-      bucket: string;
-    }[];
+  const maxAttempts = 2;
+  let lastError: unknown;
 
-    if (checks.length === 0) return "no_checks";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await sleep(1000);
+    }
+    try {
+      const output = await ghAsync(
+        ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
+        { cwd },
+      );
+      const checks = JSON.parse(output) as {
+        name: string;
+        state: string;
+        bucket: string;
+      }[];
 
-    const hasPending = checks.some(
-      (c) => c.bucket === "pending" || c.bucket === "queued",
-    );
-    if (hasPending) return "pending";
+      if (checks.length === 0) return "no_checks";
 
-    const hasFail = checks.some((c) => c.bucket === "fail");
-    if (hasFail) return "failure";
+      const hasPending = checks.some(
+        (c) => c.bucket === "pending" || c.bucket === "queued",
+      );
+      if (hasPending) return "pending";
 
-    return "success";
-  } catch {
-    return "no_checks";
+      const hasFail = checks.some((c) => c.bucket === "fail");
+      if (hasFail) return "failure";
+
+      return "success";
+    } catch (err) {
+      lastError = err;
+    }
   }
+
+  console.warn(
+    `[orca/github] getPrCheckStatus failed after ${maxAttempts} attempts for PR #${prNumber}:`,
+    lastError,
+  );
+  return "error";
 }
 
 /**
  * Synchronous version of getPrCheckStatus — uses execFileSync.
- * Returns "no_checks" on any error.
+ * Returns "error" on CLI failures.
  */
 export function getPrCheckStatusSync(
   prNumber: number,
@@ -576,7 +591,7 @@ export function getPrCheckStatusSync(
 
     return "success";
   } catch {
-    return "no_checks";
+    return "error";
   }
 }
 

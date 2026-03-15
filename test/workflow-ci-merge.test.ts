@@ -557,4 +557,58 @@ describe("ci-merge workflow", () => {
       ]),
     );
   });
+
+  test("CI error → does NOT merge, sleeps and retries instead", async () => {
+    // This is the critical regression test for the premature-merge bug.
+    // When getPrCheckStatus returns "error" (CLI failure), the workflow must NOT
+    // treat it as merge-ready. It must sleep and poll again.
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // loop iteration 1 - outer check
+      .mockReturnValueOnce(makeTask()) // inside check-ci step (iteration 1)
+      .mockReturnValueOnce(null); // loop iteration 2 → abort (task not found)
+
+    mockGetPrCheckStatus.mockResolvedValue("error");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // Must NOT have attempted a merge
+    expect(mockMergePr).not.toHaveBeenCalled();
+    expect(mockGetPrMergeState).not.toHaveBeenCalled();
+
+    // Must have slept (treating error same as pending — retry)
+    expect(step.sleep).toHaveBeenCalledWith("ci-poll-wait-1", "30s");
+
+    // Workflow exits due to task not found on second iteration, not due to merge
+    expect(result).toMatchObject({ status: "aborted", reason: "task_not_found" });
+  });
+
+  test("CI error status never reaches the merge path (premature-merge guard)", async () => {
+    // Belt-and-suspenders: even if the workflow runs multiple iterations all returning
+    // "error", it must poll-exhaust without merging, not merge on the first error.
+    const getTaskCalls: ReturnType<typeof makeTask>[] = [];
+    // Provide enough task returns for 3 iterations then abort
+    for (let i = 0; i < 6; i++) {
+      getTaskCalls.push(makeTask());
+    }
+    getTaskCalls.push(null as unknown as ReturnType<typeof makeTask>);
+
+    mockGetTask.mockImplementation(() => getTaskCalls.shift() ?? null);
+
+    // Always return error — simulates persistent CLI failure
+    mockGetPrCheckStatus.mockResolvedValue("error");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // The merge must never have been attempted regardless of how many polls ran
+    expect(mockMergePr).not.toHaveBeenCalled();
+    expect(mockGetPrMergeState).not.toHaveBeenCalled();
+  });
 });

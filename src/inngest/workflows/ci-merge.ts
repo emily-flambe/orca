@@ -106,7 +106,7 @@ export const ciMergeWorkflow = inngest.createFunction(
       const ciStatus = await step.run(
         `check-ci-${attempts}`,
         async (): Promise<{
-          status: "pending" | "success" | "failure" | "no_checks";
+          status: "pending" | "success" | "failure" | "no_checks" | "error";
         }> => {
           const result = await getPrCheckStatus(prNumber, task.repoPath);
           return { status: result };
@@ -286,7 +286,10 @@ export const ciMergeWorkflow = inngest.createFunction(
         } // end else (not a flake)
       }
 
-      // "pending" — sleep and poll again
+      // "pending" or "error" — sleep and poll again
+      if (ciStatus.status === "error") {
+        log(`task ${linearIssueId} CI check returned error on attempt ${attempts} — will retry`);
+      }
       if (!merged) {
         await step.sleep(`ci-poll-wait-${attempts}`, "30s");
       }
