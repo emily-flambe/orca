@@ -2,7 +2,13 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { OrcaStatus, Task } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 
-export type Page = "dashboard" | "tasks" | "logs" | "settings" | "cron";
+export type Page =
+  | "dashboard"
+  | "metrics"
+  | "tasks"
+  | "logs"
+  | "settings"
+  | "cron";
 
 const MIN_WIDTH = 150;
 const MAX_WIDTH = 400;
@@ -223,6 +229,14 @@ export default function Sidebar({
                 </span>
               </span>
             )}
+          </button>
+
+          {/* Metrics */}
+          <button
+            className={navItemClass("metrics")}
+            onClick={() => onNavigate("metrics")}
+          >
+            <span>Metrics</span>
           </button>
 
           {/* New ticket button */}

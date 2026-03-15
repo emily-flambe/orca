@@ -2,6 +2,7 @@ import type { Page } from "./Sidebar";
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard: "Dashboard",
+  metrics: "Metrics",
   tasks: "Tasks",
   logs: "Logs",
   settings: "Settings",

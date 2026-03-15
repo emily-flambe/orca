@@ -18,6 +18,7 @@ import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
+import MetricsPage from "./components/MetricsPage";
 
 // Apply dark mode before first render to avoid flash
 document.documentElement.classList.add("dark");
@@ -437,6 +438,8 @@ export default function App() {
         {activePage === "dashboard" && (
           <Dashboard onNavigateToInvocation={handleNavigateToInvocation} />
         )}
+
+        {activePage === "metrics" && <MetricsPage />}
 
         {activePage === "logs" && (
           <div className="flex-1 overflow-hidden flex flex-col">
