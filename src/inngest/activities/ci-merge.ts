@@ -119,7 +119,7 @@ export async function attemptMerge(
   }
 
   // Merge failed — check if already merged (race condition)
-  const prInfo = findPrForBranch(prBranchName, repoPath);
+  const prInfo = await findPrForBranch(prBranchName, repoPath);
   if (prInfo.merged) {
     const sha = await getMergeCommitSha(prNumber, repoPath);
     return {
