@@ -36,21 +36,23 @@ describe("runPreflightChecks", () => {
   });
 
   test("all tools present returns all ok", () => {
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      const firstArg = args?.[0];
-      if (command === "git" && firstArg === "--version")
-        return "git version 2.44.0\n";
-      if (command === "claude" && firstArg === "--version")
-        return "claude v2.1.71\n";
-      if (command === "gh" && firstArg === "--version")
-        return "gh version 2.45.0\n";
-      if (command === "gh" && firstArg === "auth")
-        return "Logged in to github.com as emily-flambe\n";
-      if (command === "cloudflared" && firstArg === "--version")
-        return "cloudflared version 2024.1.0\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        const firstArg = args?.[0];
+        if (command === "git" && firstArg === "--version")
+          return "git version 2.44.0\n";
+        if (command === "claude" && firstArg === "--version")
+          return "claude v2.1.71\n";
+        if (command === "gh" && firstArg === "--version")
+          return "gh version 2.45.0\n";
+        if (command === "gh" && firstArg === "auth")
+          return "Logged in to github.com as emily-flambe\n";
+        if (command === "cloudflared" && firstArg === "--version")
+          return "cloudflared version 2024.1.0\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     expect(results).toHaveLength(5);
@@ -63,15 +65,18 @@ describe("runPreflightChecks", () => {
   });
 
   test("missing git returns missing with install hint", () => {
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      if (command === "git") throw new Error("not found");
-      if (command === "claude") return "claude v2.1.71\n";
-      if (command === "gh" && args?.[0] === "--version") return "gh version 2.45.0\n";
-      if (command === "gh") return "Logged in to github.com as test\n";
-      if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        if (command === "git") throw new Error("not found");
+        if (command === "claude") return "claude v2.1.71\n";
+        if (command === "gh" && args?.[0] === "--version")
+          return "gh version 2.45.0\n";
+        if (command === "gh") return "Logged in to github.com as test\n";
+        if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     const git = results.find((r) => r.name === "git")!;
@@ -81,15 +86,18 @@ describe("runPreflightChecks", () => {
 
   test("Windows: missing git suggests winget", () => {
     mockedPlatform.mockReturnValue("win32");
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      if (command === "git") throw new Error("not found");
-      if (command === "claude") return "claude v2.1.71\n";
-      if (command === "gh" && args?.[0] === "--version") return "gh version 2.45.0\n";
-      if (command === "gh") return "Logged in to github.com as test\n";
-      if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        if (command === "git") throw new Error("not found");
+        if (command === "claude") return "claude v2.1.71\n";
+        if (command === "gh" && args?.[0] === "--version")
+          return "gh version 2.45.0\n";
+        if (command === "gh") return "Logged in to github.com as test\n";
+        if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     const git = results.find((r) => r.name === "git")!;
@@ -99,17 +107,20 @@ describe("runPreflightChecks", () => {
 
   test("Windows: warns if core.longpaths not enabled", () => {
     mockedPlatform.mockReturnValue("win32");
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      if (command === "git" && args?.[0] === "--version")
-        return "git version 2.44.0\n";
-      if (command === "git" && args?.[0] === "config") return "false\n";
-      if (command === "claude") return "claude v2.1.71\n";
-      if (command === "gh" && args?.[0] === "--version") return "gh version 2.45.0\n";
-      if (command === "gh") return "Logged in to github.com as test\n";
-      if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        if (command === "git" && args?.[0] === "--version")
+          return "git version 2.44.0\n";
+        if (command === "git" && args?.[0] === "config") return "false\n";
+        if (command === "claude") return "claude v2.1.71\n";
+        if (command === "gh" && args?.[0] === "--version")
+          return "gh version 2.45.0\n";
+        if (command === "gh") return "Logged in to github.com as test\n";
+        if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     const git = results.find((r) => r.name === "git")!;
@@ -118,16 +129,19 @@ describe("runPreflightChecks", () => {
   });
 
   test("gh not authenticated returns warn", () => {
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      if (command === "git") return "git version 2.44.0\n";
-      if (command === "claude") return "claude v2.1.71\n";
-      if (command === "gh" && args?.[0] === "--version") return "gh version 2.45.0\n";
-      if (command === "gh" && args?.[0] === "auth")
-        throw new Error("not logged in");
-      if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        if (command === "git") return "git version 2.44.0\n";
+        if (command === "claude") return "claude v2.1.71\n";
+        if (command === "gh" && args?.[0] === "--version")
+          return "gh version 2.45.0\n";
+        if (command === "gh" && args?.[0] === "auth")
+          throw new Error("not logged in");
+        if (command === "cloudflared") return "cloudflared version 2024.1.0\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     const gh = results.find((r) => r.name === "gh CLI")!;
@@ -136,17 +150,19 @@ describe("runPreflightChecks", () => {
   });
 
   test("version parsing extracts semver", () => {
-    mockedExecFileSync.mockImplementation((cmd: string, args?: readonly string[]) => {
-      const command = String(cmd);
-      if (command === "git") return "git version 2.44.0.windows.1\n";
-      if (command === "claude") return "claude v2.1.71\n";
-      if (command === "gh" && args?.[0] === "--version")
-        return "gh version 2.45.0 (2024-01-15)\n";
-      if (command === "gh") return "Logged in to github.com as test\n";
-      if (command === "cloudflared")
-        return "cloudflared version 2024.1.0 (built 2024-01-15)\n";
-      return "";
-    });
+    mockedExecFileSync.mockImplementation(
+      (cmd: string, args?: readonly string[]) => {
+        const command = String(cmd);
+        if (command === "git") return "git version 2.44.0.windows.1\n";
+        if (command === "claude") return "claude v2.1.71\n";
+        if (command === "gh" && args?.[0] === "--version")
+          return "gh version 2.45.0 (2024-01-15)\n";
+        if (command === "gh") return "Logged in to github.com as test\n";
+        if (command === "cloudflared")
+          return "cloudflared version 2024.1.0 (built 2024-01-15)\n";
+        return "";
+      },
+    );
 
     const results = runPreflightChecks();
     expect(results[1].version).toBe("2.44.0");

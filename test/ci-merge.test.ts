@@ -3,8 +3,15 @@
 // ---------------------------------------------------------------------------
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
-import { checkCiStatus, attemptMerge } from "../src/inngest/activities/ci-merge.js";
-import type { PrCheckStatus, PrMergeState, PrInfo } from "../src/github/index.js";
+import {
+  checkCiStatus,
+  attemptMerge,
+} from "../src/inngest/activities/ci-merge.js";
+import type {
+  PrCheckStatus,
+  PrMergeState,
+  PrInfo,
+} from "../src/github/index.js";
 
 // ---------------------------------------------------------------------------
 // Mocks

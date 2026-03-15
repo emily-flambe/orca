@@ -10,14 +10,7 @@
 // 4. rebasePrBranch argument verification — no git call args checked anywhere
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),

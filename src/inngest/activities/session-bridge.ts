@@ -8,9 +8,42 @@
 
 import { inngest } from "../client.js";
 import type { SessionHandle, SessionResult } from "../../runner/index.js";
+import type { OrcaEvents } from "../events.js";
 import { createLogger } from "../../logger.js";
 
 const logger = createLogger("session-bridge");
+
+/**
+ * Sends an Inngest event with exponential backoff retry.
+ * Retries up to `maxAttempts` times (delays: 1s, 2s, 4s, ...).
+ */
+export async function sendWithRetry<K extends keyof OrcaEvents>(
+  name: K,
+  data: OrcaEvents[K] extends { data: infer D } ? D : never,
+  maxAttempts = 3,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await inngest.send({ name, data } as Parameters<typeof inngest.send>[0]);
+      return;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        const delayMs = Math.pow(2, attempt - 1) * 1000;
+        logger.warn(
+          `[orca/session-bridge] inngest.send("${String(name)}") attempt ${attempt}/${maxAttempts} failed, retrying in ${delayMs}ms:`,
+          err,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  logger.error(
+    `[orca/session-bridge] inngest.send("${String(name)}") failed after ${maxAttempts} attempts:`,
+    lastError,
+  );
+}
 
 /**
  * Monitors a running Claude session and emits an Inngest event when it completes.
@@ -40,49 +73,43 @@ export function monitorSession(
         );
 
       if (isSuccess || isMaxTurns) {
-        await inngest.send({
-          name: "session/completed",
-          data: {
-            invocationId,
-            linearIssueId: taskId,
-            phase,
-            exitCode: result.exitCode ?? 0,
-            summary: result.outputSummary,
-            costUsd: result.costUsd,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            sessionId: handle.sessionId,
-            branchName: meta?.branchName ?? null,
-            worktreePath: meta?.worktreePath ?? null,
-            numTurns: result.numTurns,
-            isMaxTurns,
-          },
+        await sendWithRetry("session/completed", {
+          invocationId,
+          linearIssueId: taskId,
+          phase,
+          exitCode: result.exitCode ?? 0,
+          summary: result.outputSummary,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          sessionId: handle.sessionId,
+          branchName: meta?.branchName ?? null,
+          worktreePath: meta?.worktreePath ?? null,
+          numTurns: result.numTurns,
+          isMaxTurns,
         });
       } else {
-        await inngest.send({
-          name: "session/failed",
-          data: {
-            invocationId,
-            linearIssueId: taskId,
-            phase,
-            exitCode: result.exitCode ?? 1,
-            errorMessage: result.outputSummary,
-            isRateLimited,
-            isContentFiltered,
-            isDllInit: false, // DLL init is detected at spawn time, not session result
-            isMaxTurns,
-            sessionId: handle.sessionId,
-            worktreePath: meta?.worktreePath ?? null,
-            costUsd: result.costUsd,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-          },
+        await sendWithRetry("session/failed", {
+          invocationId,
+          linearIssueId: taskId,
+          phase,
+          exitCode: result.exitCode ?? 1,
+          errorMessage: result.outputSummary ?? "",
+          isRateLimited,
+          isContentFiltered,
+          isDllInit: false, // DLL init is detected at spawn time, not session result
+          isMaxTurns,
+          sessionId: handle.sessionId,
+          worktreePath: meta?.worktreePath ?? null,
+          costUsd: result.costUsd,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
         });
       }
     })
     .catch((err) => {
       logger.error(
-        `error emitting Inngest event for invocation ${invocationId}:`,
+        `[orca/session-bridge] error emitting Inngest event for invocation ${invocationId}:`,
         err,
       );
     });

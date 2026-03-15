@@ -85,8 +85,7 @@ describe("parseReview", () => {
 
     expect(result).toEqual<ParseReviewOutput>({
       result: "CHANGES_REQUESTED",
-      fixReason:
-        "The error handling in foo() is missing a try/catch",
+      fixReason: "The error handling in foo() is missing a try/catch",
     });
   });
 
@@ -228,11 +227,15 @@ describe("parseReview", () => {
     const logPath = writeNdjsonLog(tmpDir, "11.ndjson", [
       {
         type: "system",
-        message: { content: [{ type: "text", text: "REVIEW_RESULT:APPROVED" }] },
+        message: {
+          content: [{ type: "text", text: "REVIEW_RESULT:APPROVED" }],
+        },
       },
       {
         type: "user",
-        message: { content: [{ type: "text", text: "REVIEW_RESULT:APPROVED" }] },
+        message: {
+          content: [{ type: "text", text: "REVIEW_RESULT:APPROVED" }],
+        },
       },
     ]);
 

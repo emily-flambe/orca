@@ -615,7 +615,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/status
   // -----------------------------------------------------------------------
-  app.get("/api/status", (c) => {
+  app.get("/api/status", async (c) => {
     const activeSessions = countActiveSessions(db);
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
@@ -646,6 +646,41 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       }
     }
 
+    // Inngest connectivity check
+    let inngestReachable = false;
+    try {
+      const inngestBaseUrl =
+        process.env.INNGEST_BASE_URL ?? "http://localhost:8288";
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      try {
+        const res = await fetch(`${inngestBaseUrl}/`, {
+          signal: controller.signal,
+        });
+        inngestReachable = res.ok;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch {
+      inngestReachable = false;
+    }
+
+    // Count stranded tasks: active statuses with updatedAt older than threshold
+    const strandedThresholdMs = config.strandedTaskThresholdMin * 60 * 1000;
+    const strandedStatuses = new Set([
+      "dispatched",
+      "running",
+      "awaiting_ci",
+      "deploying",
+      "in_review",
+    ]);
+    const nowMs = Date.now();
+    const strandedTasks = allTasks.filter(
+      (t) =>
+        strandedStatuses.has(t.orcaStatus) &&
+        nowMs - new Date(t.updatedAt).getTime() > strandedThresholdMs,
+    ).length;
+
     const draining = isDraining();
     return c.json({
       activeSessions,
@@ -666,6 +701,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
+      inngestReachable,
+      strandedTasks,
     });
   });
 

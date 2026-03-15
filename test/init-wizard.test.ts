@@ -24,7 +24,9 @@ vi.mock("../src/cli/preflight.js", () => ({
 
 vi.mock("../src/linear/client.js", () => {
   // Must be a real constructable function, not an arrow function
-  const LinearClient = vi.fn(function LinearClientMock(this: Record<string, unknown>) {
+  const LinearClient = vi.fn(function LinearClientMock(
+    this: Record<string, unknown>,
+  ) {
     this.fetchViewer = vi.fn();
     this.fetchAllProjects = vi.fn();
     this.fetchProjectMetadata = vi.fn();
@@ -66,7 +68,9 @@ const mockPassword = vi.mocked(inquirer.password);
 const mockCheckbox = vi.mocked(inquirer.checkbox);
 const mockConfirm = vi.mocked(inquirer.confirm);
 const mockRunPreflightChecks = vi.mocked(preflightMod.runPreflightChecks);
-const MockLinearClient = vi.mocked(LinearClient) as unknown as ReturnType<typeof vi.fn>;
+const MockLinearClient = vi.mocked(LinearClient) as unknown as ReturnType<
+  typeof vi.fn
+>;
 const mockExistsSync = vi.mocked(fs.existsSync);
 const mockWriteFileSync = vi.mocked(fs.writeFileSync);
 const mockReadFileSync = vi.mocked(fs.readFileSync);
@@ -107,25 +111,33 @@ function setupHappyPath() {
   mockCheckbox.mockResolvedValue(["proj-1"]);
   mockInput.mockImplementation(({ message }: { message: string }) => {
     if (message.includes("Tunnel name")) return Promise.resolve("orca");
-    if (message.includes("Hostname")) return Promise.resolve("orca.example.com");
+    if (message.includes("Hostname"))
+      return Promise.resolve("orca.example.com");
     if (message.includes("Default repo path")) return Promise.resolve("/tmp");
-    if (message.includes("webhook secret")) return Promise.resolve("manual-secret");
+    if (message.includes("webhook secret"))
+      return Promise.resolve("manual-secret");
     return Promise.resolve("");
   });
   mockConfirm.mockResolvedValue(true);
 
   // cloudflared: cert.pem doesn't exist (existsSync returns false),
   // so tunnel login will be called. Simulate tunnel list returning existing tunnel.
-  mockExecFileSync.mockImplementation((cmd: string, args: readonly string[]) => {
-    const cmdStr = String(cmd);
-    const firstArg = args[0];
-    const secondArg = args[1];
-    if (cmdStr === "cloudflared" && firstArg === "tunnel" && secondArg === "list") {
-      return JSON.stringify([{ id: "existing-tunnel-uuid", name: "orca" }]);
-    }
-    // All other cloudflared calls (login, route, ingress): succeed silently
-    return "";
-  });
+  mockExecFileSync.mockImplementation(
+    (cmd: string, args: readonly string[]) => {
+      const cmdStr = String(cmd);
+      const firstArg = args[0];
+      const secondArg = args[1];
+      if (
+        cmdStr === "cloudflared" &&
+        firstArg === "tunnel" &&
+        secondArg === "list"
+      ) {
+        return JSON.stringify([{ id: "existing-tunnel-uuid", name: "orca" }]);
+      }
+      // All other cloudflared calls (login, route, ingress): succeed silently
+      return "";
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +232,12 @@ describe("runInit", () => {
 
   test("exits with code 1 when Linear authentication fails", async () => {
     setupHappyPath();
-    MockLinearClient.mockImplementation(function (this: Record<string, unknown>) {
-      this.fetchViewer = vi.fn().mockRejectedValue(new Error("Invalid API key"));
+    MockLinearClient.mockImplementation(function (
+      this: Record<string, unknown>,
+    ) {
+      this.fetchViewer = vi
+        .fn()
+        .mockRejectedValue(new Error("Invalid API key"));
       this.fetchAllProjects = vi.fn();
       this.fetchProjectMetadata = vi.fn();
       this.createWebhook = vi.fn();
@@ -261,8 +277,10 @@ describe("runInit", () => {
     setupLinearClientMock({ webhookError: new Error("Forbidden") });
     mockInput.mockImplementation(({ message }: { message: string }) => {
       if (message.includes("Tunnel name")) return Promise.resolve("orca");
-      if (message.includes("Hostname")) return Promise.resolve("orca.example.com");
-      if (message.includes("webhook secret")) return Promise.resolve("my-manual-secret");
+      if (message.includes("Hostname"))
+        return Promise.resolve("orca.example.com");
+      if (message.includes("webhook secret"))
+        return Promise.resolve("my-manual-secret");
       return Promise.resolve("");
     });
 
@@ -321,7 +339,8 @@ describe("runInit", () => {
     );
 
     mockConfirm.mockImplementation(({ message }: { message: string }) => {
-      if (message.includes("existing Linear API key")) return Promise.resolve(true);
+      if (message.includes("existing Linear API key"))
+        return Promise.resolve(true);
       if (message.includes("Overwrite")) return Promise.resolve(true);
       return Promise.resolve(true);
     });
@@ -349,14 +368,15 @@ describe("runInit", () => {
     );
 
     mockConfirm.mockImplementation(({ message }: { message: string }) => {
-      if (message.includes("existing Linear API key")) return Promise.resolve(true);
+      if (message.includes("existing Linear API key"))
+        return Promise.resolve(true);
       return Promise.resolve(true);
     });
 
     await runInit();
 
-    const envWriteCall = mockWriteFileSync.mock.calls.find(([p]) =>
-      typeof p === "string" && p.endsWith(".env"),
+    const envWriteCall = mockWriteFileSync.mock.calls.find(
+      ([p]) => typeof p === "string" && p.endsWith(".env"),
     );
     expect(envWriteCall).toBeDefined();
     const [, content] = envWriteCall!;
@@ -400,15 +420,17 @@ describe("runInit", () => {
     mockReadFileSync.mockReturnValue("ORCA_LINEAR_API_KEY=lin_api_existing\n");
 
     mockConfirm.mockImplementation(({ message }: { message: string }) => {
-      if (message.includes("existing Linear API key")) return Promise.resolve(true);
-      if (message.includes("Overwrite existing .env")) return Promise.resolve(false);
+      if (message.includes("existing Linear API key"))
+        return Promise.resolve(true);
+      if (message.includes("Overwrite existing .env"))
+        return Promise.resolve(false);
       return Promise.resolve(true);
     });
 
     await runInit();
 
-    const envWriteCall = mockWriteFileSync.mock.calls.find(([p]) =>
-      typeof p === "string" && p.endsWith(".env"),
+    const envWriteCall = mockWriteFileSync.mock.calls.find(
+      ([p]) => typeof p === "string" && p.endsWith(".env"),
     );
     expect(envWriteCall).toBeUndefined();
     expect(consoleLogSpy).toHaveBeenCalledWith(

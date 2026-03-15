@@ -629,7 +629,7 @@ describe("Conditional projectName update in upsertTask", () => {
     // Sync with null projectName (issue removed from project)
     const issue = makeIssue({
       identifier: "PN-CLEAR-1",
-      projectName: null as any,  // Type mismatch but could happen at runtime
+      projectName: null as any, // Type mismatch but could happen at runtime
     });
     const client = mockLinearClient([issue]);
     const graph = new DependencyGraph();
@@ -649,7 +649,9 @@ describe("Conditional projectName update in upsertTask", () => {
 
 describe("Frontend sort comparator - project", () => {
   // These test the sorting logic extracted from the component
-  function sortByProject<T extends { projectName: string | null }>(items: T[]): T[] {
+  function sortByProject<T extends { projectName: string | null }>(
+    items: T[],
+  ): T[] {
     return [...items].sort((a, b) => {
       return (a.projectName ?? "").localeCompare(b.projectName ?? "");
     });
@@ -689,8 +691,12 @@ describe("Frontend sort comparator - project", () => {
     const sorted = sortByProject(items);
     // "" and null both become "" in localeCompare
     // They should sort before "Alpha"
-    expect(sorted[0]!.projectName === "" || sorted[0]!.projectName === null).toBe(true);
-    expect(sorted[1]!.projectName === "" || sorted[1]!.projectName === null).toBe(true);
+    expect(
+      sorted[0]!.projectName === "" || sorted[0]!.projectName === null,
+    ).toBe(true);
+    expect(
+      sorted[1]!.projectName === "" || sorted[1]!.projectName === null,
+    ).toBe(true);
     expect(sorted[2]!.projectName).toBe("Alpha");
     expect(sorted[3]!.projectName).toBe("Beta");
   });

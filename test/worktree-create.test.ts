@@ -242,9 +242,12 @@ describe("createWorktree — stale directory removal", () => {
     });
 
     // rmSync fails with EBUSY (file held by another process)
-    const ebusyErr = Object.assign(new Error("EBUSY: resource busy or locked"), {
-      code: "EBUSY",
-    });
+    const ebusyErr = Object.assign(
+      new Error("EBUSY: resource busy or locked"),
+      {
+        code: "EBUSY",
+      },
+    );
     mockRmSync.mockImplementation(() => {
       throw ebusyErr;
     });
@@ -258,7 +261,9 @@ describe("createWorktree — stale directory removal", () => {
     }
     expect(caught).toBeDefined();
     expect((caught as Error).name).toBe("WorktreeLockedError");
-    expect((caught as Error).message).toContain("processes killed but EPERM persists");
+    expect((caught as Error).message).toContain(
+      "processes killed but EPERM persists",
+    );
     expect((caught as { cause: unknown }).cause).toBe(ebusyErr);
   });
 

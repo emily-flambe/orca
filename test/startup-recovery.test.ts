@@ -39,7 +39,13 @@ function now(): string {
 function seedTask(
   db: OrcaDb,
   id: string,
-  status: "ready" | "dispatched" | "running" | "failed" | "in_review" | "changes_requested" = "ready",
+  status:
+    | "ready"
+    | "dispatched"
+    | "running"
+    | "failed"
+    | "in_review"
+    | "changes_requested" = "ready",
   staleSessionRetryCount = 0,
 ): void {
   const ts = now();
@@ -59,7 +65,10 @@ function seedTask(
 }
 
 /** Simulate what the startup orphan recovery logic does (mirrors src/cli/index.ts). */
-function runStartupRecovery(db: OrcaDb): { orphanCount: number; recoveredCount: number } {
+function runStartupRecovery(db: OrcaDb): {
+  orphanCount: number;
+  recoveredCount: number;
+} {
   // Step 1: Mark running invocations as failed
   const orphanedInvocations = getRunningInvocations(db);
   for (const inv of orphanedInvocations) {
@@ -194,7 +203,9 @@ describe("clearSessionIds", () => {
 
     // After clear: getLastCompletedImplementInvocation filters by isNotNull(sessionId),
     // so it should return undefined
-    expect(getLastCompletedImplementInvocation(db, "TASK-GCII")).toBeUndefined();
+    expect(
+      getLastCompletedImplementInvocation(db, "TASK-GCII"),
+    ).toBeUndefined();
   });
 
   test("after clearing, getLastMaxTurnsInvocation returns undefined", () => {
@@ -299,7 +310,9 @@ describe("startup recovery — orphaned invocations", () => {
     expect(implInv?.sessionId).toBeNull();
 
     // getLastCompletedImplementInvocation should return undefined (no stale resume)
-    expect(getLastCompletedImplementInvocation(db, "TASK-FIX-RESUME")).toBeUndefined();
+    expect(
+      getLastCompletedImplementInvocation(db, "TASK-FIX-RESUME"),
+    ).toBeUndefined();
   });
 });
 
@@ -334,7 +347,9 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
     runShutdownHandler(db);
 
     // Verify shutdown state: session ID is cleared by the shutdown handler
-    const invAfterShutdown = getInvocationsByTask(db, "TASK-GRACEFUL").find((i) => i.id === invId);
+    const invAfterShutdown = getInvocationsByTask(db, "TASK-GRACEFUL").find(
+      (i) => i.id === invId,
+    );
     expect(invAfterShutdown?.status).toBe("failed");
     expect(invAfterShutdown?.sessionId).toBeNull();
 
@@ -345,7 +360,9 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
     expect(orphanCount).toBe(0);
 
     // Session ID remains null — no stale resume will be attempted
-    const invAfterStartup = getInvocationsByTask(db, "TASK-GRACEFUL").find((i) => i.id === invId);
+    const invAfterStartup = getInvocationsByTask(db, "TASK-GRACEFUL").find(
+      (i) => i.id === invId,
+    );
     expect(invAfterStartup?.sessionId).toBeNull();
   });
 
@@ -472,7 +489,9 @@ describe("startup recovery — correct behavior", () => {
     expect(orphanCount).toBe(1);
 
     // Implement session ID should be cleared
-    const implInv = getInvocationsByTask(db, "TASK-IN-REVIEW").find((i) => i.id === implInvId);
+    const implInv = getInvocationsByTask(db, "TASK-IN-REVIEW").find(
+      (i) => i.id === implInvId,
+    );
     expect(implInv?.sessionId).toBeNull();
 
     // Stale count should be reset
@@ -498,7 +517,9 @@ describe("startup recovery — correct behavior", () => {
       const task = getTask(db, `TASK-MULTI-${i}`);
       expect(task?.staleSessionRetryCount).toBe(0);
       // Session IDs should be cleared
-      expect(getLastCompletedImplementInvocation(db, `TASK-MULTI-${i}`)).toBeUndefined();
+      expect(
+        getLastCompletedImplementInvocation(db, `TASK-MULTI-${i}`),
+      ).toBeUndefined();
     }
   });
 
@@ -524,7 +545,9 @@ describe("startup recovery — correct behavior", () => {
     runStartupRecovery(db);
 
     // TASK-CLEAN's completed invocation should be untouched
-    const cleanInv = getInvocationsByTask(db, "TASK-CLEAN").find((i) => i.id === cleanInvId);
+    const cleanInv = getInvocationsByTask(db, "TASK-CLEAN").find(
+      (i) => i.id === cleanInvId,
+    );
     expect(cleanInv?.sessionId).toBe("clean-session");
   });
 });
