@@ -76,6 +76,25 @@ export const budgetEvents = sqliteTable("budget_events", {
   recordedAt: text("recorded_at").notNull(),
 });
 
+export const systemEvents = sqliteTable("system_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type", {
+    enum: [
+      "startup",
+      "shutdown",
+      "restart",
+      "error",
+      "health_check",
+      "task_completed",
+      "task_failed",
+      "deploy",
+    ] as const,
+  }).notNull(),
+  message: text("message").notNull(),
+  metadata: text("metadata"), // JSON string for extra context
+  createdAt: text("created_at").notNull(),
+});
+
 export const cronSchedules = sqliteTable("cron_schedules", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),

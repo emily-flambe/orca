@@ -135,7 +135,41 @@ export interface ActivityEntry {
   outputTokens: number | null;
 }
 
+export interface SystemEvent {
+  id: number;
+  type: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface MetricsData {
+  // Observability fields
+  uptime: {
+    seconds: number | null;
+    since: string | null;
+    restartsToday: number;
+  };
+  throughput: {
+    last24h: { completed: number; failed: number };
+    last7d: { completed: number; failed: number };
+  };
+  errors: {
+    lastHour: number;
+    last24h: number;
+  };
+  queue: {
+    ready: number;
+    running: number;
+    inReview: number;
+  };
+  budget: {
+    costInWindow: number;
+    limit: number;
+    windowHours: number;
+  };
+  recentEvents: SystemEvent[];
+  // Legacy fields
   tasksByStatus: Record<string, number>;
   invocationStats: {
     byStatus: InvocationStat[];

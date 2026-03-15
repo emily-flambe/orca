@@ -44,6 +44,15 @@ const mockStatus = {
 };
 
 const mockMetrics = {
+  uptime: { seconds: 3600, since: "2024-01-01T00:00:00Z", restartsToday: 0 },
+  throughput: {
+    last24h: { completed: 5, failed: 1 },
+    last7d: { completed: 20, failed: 3 },
+  },
+  errors: { lastHour: 0, last24h: 0 },
+  queue: { ready: 1, running: 0, inReview: 0 },
+  budget: { costInWindow: 0.5, limit: 50, windowHours: 24 },
+  recentEvents: [],
   tasksByStatus: { ready: 1 },
   invocationStats: {
     byStatus: [

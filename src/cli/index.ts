@@ -15,6 +15,7 @@ import {
   updateTaskStatus,
   updateTaskFields,
   clearSessionIds,
+  insertSystemEvent,
 } from "../db/queries.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
@@ -103,6 +104,19 @@ program
 
     // Initialize deploy state (SHA dedup + cooldown)
     initDeployState();
+
+    // Log startup event
+    insertSystemEvent(db, {
+      type: "startup",
+      message: "Orca starting up",
+      metadata: {
+        port: config.port,
+        version: process.env.npm_package_version ?? "unknown",
+        nodeVersion: process.version,
+        pid: process.pid,
+        pm2: typeof process.send === "function",
+      },
+    });
 
     // Initialize Linear dependencies
     const client = new LinearClient(config.linearApiKey);
@@ -338,6 +352,11 @@ program
           `DLL health check failed (${consecutiveDllFailures} consecutive)`,
         );
         if (consecutiveDllFailures >= 3) {
+          insertSystemEvent(db, {
+            type: "error",
+            message: "DLL_INIT degradation detected — exiting for PM2 restart",
+            metadata: { consecutiveFailures: consecutiveDllFailures },
+          });
           logger.error(
             "DLL_INIT degradation detected — exiting for PM2 restart",
           );
@@ -352,6 +371,16 @@ program
       if (shuttingDown) return;
       shuttingDown = true;
       logger.info("Orca shutting down...");
+
+      const running = getRunningInvocations(db);
+      insertSystemEvent(db, {
+        type: "shutdown",
+        message: "Graceful shutdown",
+        metadata: {
+          reason: isDraining() ? "deploy" : "signal",
+          runningTasks: running.length,
+        },
+      });
 
       // Close HTTP server first to stop accepting new requests
       server.close();
@@ -370,7 +399,6 @@ program
       // worktree so the next dispatch can resume from the interrupted state.
       // Otherwise, remove the worktree so retries start fresh.
       const deployInProgress = isDraining();
-      const running = getRunningInvocations(db);
       for (const inv of running) {
         if (deployInProgress && inv.phase === "implement" && inv.worktreePath) {
           // Preserve worktree for deploy-interrupted resume

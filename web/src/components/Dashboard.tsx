@@ -5,6 +5,7 @@ import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
 import ActiveSessionsGrid from "./ActiveSessionsGrid";
 import ActivityFeed from "./ActivityFeed";
+import SystemMetrics from "./SystemMetrics";
 
 // ---------------------------------------------------------------------------
 // Main dashboard
@@ -47,6 +48,9 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {/* System health */}
+      <SystemMetrics />
+
       {/* Active sessions */}
       <ActiveSessionsGrid />
 
