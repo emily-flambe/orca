@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import type { Task, OrcaStatus } from "./types";
 import {
   fetchTasks,
@@ -261,18 +262,38 @@ function TasksPage({
 // ---------------------------------------------------------------------------
 
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Derive activePage from URL pathname
+  const activePage = useMemo((): Page => {
+    const path = location.pathname;
+    if (path.startsWith("/tasks")) return "tasks";
+    if (path === "/metrics") return "metrics";
+    if (path === "/cron") return "cron";
+    if (path === "/settings") return "settings";
+    if (path === "/logs") return "logs";
+    return "dashboard";
+  }, [location.pathname]);
+
+  // Derive selectedTaskId from URL pathname: /tasks/:id → id segment
+  const selectedTaskId = useMemo((): string | null => {
+    const match = location.pathname.match(/^\/tasks\/(.+)$/);
+    return match ? decodeURIComponent(match[1]!) : null;
+  }, [location.pathname]);
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [version, setVersion] = useState<string | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
-  const [activePage, setActivePage] = useState<Page>("dashboard");
-  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [mobileView, setMobileView] = useState<"list" | "detail">(
+    selectedTaskId ? "detail" : "list",
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
@@ -375,30 +396,43 @@ export default function App() {
     onReconnect: handleReconnect,
   });
 
-  const handleSelectTask = useCallback((id: string) => {
-    setSelectedTaskId(id);
-    setMobileView("detail");
-  }, []);
+  const handleSelectTask = useCallback(
+    (id: string) => {
+      navigate(`/tasks/${id}`);
+      setMobileView("detail");
+    },
+    [navigate],
+  );
 
   const handleNavigateToInvocation = useCallback(
     (linearIssueId: string, invocationId: number) => {
       const task = tasks.find((t) => t.linearIssueId === linearIssueId);
       if (!task) return;
-      setSelectedTaskId(linearIssueId);
       setExpandedInvocationId(invocationId);
       setDetailKey((k) => k + 1);
-      setActivePage("tasks");
+      navigate(`/tasks/${linearIssueId}`);
       setMobileView("detail");
       setSidebarOpen(false);
     },
-    [tasks],
+    [tasks, navigate],
   );
 
-  const handleNavigate = useCallback((page: Page) => {
-    setActivePage(page);
-    setSidebarOpen(false);
-    if (page === "tasks") setMobileView("list");
-  }, []);
+  const handleNavigate = useCallback(
+    (page: Page) => {
+      const pathMap: Record<Page, string> = {
+        dashboard: "/",
+        tasks: "/tasks",
+        metrics: "/metrics",
+        cron: "/cron",
+        settings: "/settings",
+        logs: "/logs",
+      };
+      navigate(pathMap[page]);
+      setSidebarOpen(false);
+      if (page === "tasks") setMobileView("list");
+    },
+    [navigate],
+  );
 
   return (
     <div className="h-screen flex bg-gray-950 text-gray-100">
@@ -446,7 +480,10 @@ export default function App() {
             expandedInvocationId={expandedInvocationId}
             detailRefreshTrigger={detailRefreshTrigger}
             onSelect={handleSelectTask}
-            onMobileBack={() => setMobileView("list")}
+            onMobileBack={() => {
+              navigate("/tasks");
+              setMobileView("list");
+            }}
           />
         )}
 
