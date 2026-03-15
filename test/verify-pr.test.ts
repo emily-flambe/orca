@@ -49,7 +49,7 @@ beforeEach(() => {
   findPrForBranchMock.mockReset();
   findPrByUrlMock.mockReset();
   pushAndCreatePrMock.mockReset();
-  findPrForBranchMock.mockReturnValue({ exists: false });
+  findPrForBranchMock.mockResolvedValue({ exists: false });
   findPrByUrlMock.mockReturnValue({ exists: false });
   pushAndCreatePrMock.mockReturnValue({ exists: false });
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -63,7 +63,7 @@ beforeEach(() => {
 
 describe("PR found by branch name", () => {
   test("returns pr_found when findPrForBranch finds a PR", async () => {
-    findPrForBranchMock.mockReturnValue({
+    findPrForBranchMock.mockResolvedValue({
       exists: true,
       url: "https://github.com/org/repo/pull/42",
       number: 42,
@@ -81,7 +81,7 @@ describe("PR found by branch name", () => {
   });
 
   test("uses PR headBranch when it differs from input branchName", async () => {
-    findPrForBranchMock.mockReturnValue({
+    findPrForBranchMock.mockResolvedValue({
       exists: true,
       url: "https://github.com/org/repo/pull/42",
       number: 42,

@@ -64,7 +64,7 @@ describe("findPrForBranch", () => {
     vi.restoreAllMocks();
   });
 
-  test("returns PrInfo when PR found", () => {
+  test("returns PrInfo when PR found", async () => {
     const pr = {
       url: "https://github.com/owner/repo/pull/1",
       number: 1,
@@ -73,7 +73,7 @@ describe("findPrForBranch", () => {
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
-    const result = findPrForBranch("orca/EMI-1-inv-1", "/tmp/repo", 1);
+    const result = await findPrForBranch("orca/EMI-1-inv-1", "/tmp/repo", 1);
 
     expect(result).toEqual({
       exists: true,
@@ -84,7 +84,7 @@ describe("findPrForBranch", () => {
     });
   });
 
-  test("merged is true when state is MERGED", () => {
+  test("merged is true when state is MERGED", async () => {
     const pr = {
       url: "https://github.com/owner/repo/pull/2",
       number: 2,
@@ -93,32 +93,32 @@ describe("findPrForBranch", () => {
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
-    const result = findPrForBranch("orca/EMI-2-inv-1", "/tmp/repo", 1);
+    const result = await findPrForBranch("orca/EMI-2-inv-1", "/tmp/repo", 1);
 
     expect(result.exists).toBe(true);
     expect(result.merged).toBe(true);
   });
 
-  test("returns exists: false when empty array", () => {
+  test("returns exists: false when empty array", async () => {
     execSyncMock.mockReturnValue(JSON.stringify([]));
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const result = findPrForBranch("orca/no-pr", "/tmp/repo", 1);
+    const result = await findPrForBranch("orca/no-pr", "/tmp/repo", 1);
 
     expect(result).toEqual({ exists: false });
   });
 
-  test("returns exists: false on gh failure after maxAttempts", () => {
+  test("returns exists: false on gh failure after maxAttempts", async () => {
     execSyncMock.mockImplementation(() => {
       throw new Error("gh: network error");
     });
 
-    const result = findPrForBranch("orca/bad-branch", "/tmp/repo", 1);
+    const result = await findPrForBranch("orca/bad-branch", "/tmp/repo", 1);
 
     expect(result).toEqual({ exists: false });
   });
 
-  test("calls gh pr list with correct args", () => {
+  test("calls gh pr list with correct args", async () => {
     const pr = {
       url: "https://github.com/owner/repo/pull/3",
       number: 3,
@@ -127,7 +127,7 @@ describe("findPrForBranch", () => {
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
-    findPrForBranch("orca/EMI-3-inv-1", "/tmp/repo", 1);
+    await findPrForBranch("orca/EMI-3-inv-1", "/tmp/repo", 1);
 
     const [cmd, args, opts] = execSyncMock.mock.calls[0];
     expect(cmd).toBe("gh");
@@ -144,24 +144,24 @@ describe("findPrForBranch", () => {
     expect(opts.cwd).toBe("/tmp/repo");
   });
 
-  test("warns on empty result", () => {
+  test("warns on empty result", async () => {
     execSyncMock.mockReturnValue(JSON.stringify([]));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    findPrForBranch("orca/no-pr", "/tmp/repo", 1);
+    await findPrForBranch("orca/no-pr", "/tmp/repo", 1);
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("no PR found"),
     );
   });
 
-  test("logs error after exhausting attempts on gh failure", () => {
+  test("logs error after exhausting attempts on gh failure", async () => {
     execSyncMock.mockImplementation(() => {
       throw new Error("network timeout");
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    findPrForBranch("orca/fail", "/tmp/repo", 1);
+    await findPrForBranch("orca/fail", "/tmp/repo", 1);
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("exhausted 1 attempts"),
