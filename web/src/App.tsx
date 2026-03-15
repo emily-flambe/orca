@@ -25,6 +25,15 @@ document.documentElement.classList.add("dark");
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
+function pageFromPathname(pathname: string): Page {
+  if (pathname.startsWith("/tasks")) return "tasks";
+  if (pathname.startsWith("/metrics")) return "metrics";
+  if (pathname.startsWith("/logs")) return "logs";
+  if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/cron")) return "cron";
+  return "dashboard";
+}
+
 // ---------------------------------------------------------------------------
 // Settings page
 // ---------------------------------------------------------------------------
@@ -266,7 +275,9 @@ export default function App() {
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
-  const [activePage, setActivePage] = useState<Page>("dashboard");
+  const [activePage, setActivePage] = useState<Page>(() =>
+    pageFromPathname(window.location.pathname),
+  );
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => {
@@ -373,6 +384,7 @@ export default function App() {
       setSelectedTaskId(linearIssueId);
       setExpandedInvocationId(invocationId);
       setDetailKey((k) => k + 1);
+      window.history.pushState(null, "", "/tasks");
       setActivePage("tasks");
       setMobileView("detail");
       setSidebarOpen(false);
@@ -381,9 +393,19 @@ export default function App() {
   );
 
   const handleNavigate = useCallback((page: Page) => {
+    const path = page === "dashboard" ? "/" : `/${page}`;
+    window.history.pushState(null, "", path);
     setActivePage(page);
     setSidebarOpen(false);
     if (page === "tasks") setMobileView("list");
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setActivePage(pageFromPathname(window.location.pathname));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   return (
