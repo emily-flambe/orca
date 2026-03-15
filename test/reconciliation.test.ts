@@ -26,11 +26,12 @@ import type { TaskStatus } from "../src/shared/types.js";
 const testConfig = {
   sessionTimeoutMin: 45,
   deployTimeoutMin: 30,
+  awaitingCiTimeoutMin: 180,
   maxRetries: 3,
 };
 // sessionThresholdMs = (45 + 10) * 60 * 1000 = 3,300,000ms
 // deployThresholdMs  = (30 + 10) * 60 * 1000 = 2,400,000ms
-// awaitingCiThresholdMs = 3 * 60 * 60 * 1000 = 10,800,000ms
+// awaitingCiThresholdMs = 180 * 60 * 1000 = 10,800,000ms
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,6 +79,7 @@ function runReconciliation(
   config: {
     sessionTimeoutMin: number;
     deployTimeoutMin: number;
+    awaitingCiTimeoutMin: number;
     maxRetries: number;
   },
   activeHandleIds: Set<number>,
@@ -85,7 +87,7 @@ function runReconciliation(
   const now = Date.now();
   const sessionThresholdMs = (config.sessionTimeoutMin + 10) * 60 * 1000;
   const deployThresholdMs = (config.deployTimeoutMin + 10) * 60 * 1000;
-  const awaitingCiThresholdMs = 3 * 60 * 60 * 1000;
+  const awaitingCiThresholdMs = config.awaitingCiTimeoutMin * 60 * 1000;
 
   const allTasks = getAllTasks(db);
   const runningInvocations = getRunningInvocations(db);
@@ -139,7 +141,7 @@ function runReconciliation(
 // ---------------------------------------------------------------------------
 const SESSION_THRESHOLD_MS = (testConfig.sessionTimeoutMin + 10) * 60 * 1000; // 3,300,000
 const DEPLOY_THRESHOLD_MS = (testConfig.deployTimeoutMin + 10) * 60 * 1000; // 2,400,000
-const AWAITING_CI_THRESHOLD_MS = 3 * 60 * 60 * 1000; // 10,800,000
+const AWAITING_CI_THRESHOLD_MS = testConfig.awaitingCiTimeoutMin * 60 * 1000; // 10,800,000
 
 // ---------------------------------------------------------------------------
 // Tests: running / dispatched state

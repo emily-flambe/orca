@@ -77,10 +77,7 @@ function seedTask(
   });
 }
 
-function seedRunningInvocation(
-  db: OrcaDb,
-  linearIssueId: string,
-): number {
+function seedRunningInvocation(db: OrcaDb, linearIssueId: string): number {
   const ts = new Date(BASE_TS).toISOString();
   return insertInvocation(db, {
     linearIssueId,
@@ -131,9 +128,7 @@ function runReconciliation(
 
     const taskInvocations =
       runningInvocationsByTask.get(task.linearIssueId) ?? [];
-    const hasActiveHandle = taskInvocations.some((id) =>
-      activeHandles.has(id),
-    );
+    const hasActiveHandle = taskInvocations.some((id) => activeHandles.has(id));
 
     if (!hasActiveHandle) {
       if (task.retryCount >= config.maxRetries) {
@@ -154,9 +149,7 @@ function runReconciliation(
 
     const taskInvocations =
       runningInvocationsByTask.get(task.linearIssueId) ?? [];
-    const hasActiveHandle = taskInvocations.some((id) =>
-      activeHandles.has(id),
-    );
+    const hasActiveHandle = taskInvocations.some((id) => activeHandles.has(id));
     if (hasActiveHandle) continue;
 
     if (task.retryCount >= config.maxRetries) {
@@ -188,7 +181,10 @@ function runReconciliation(
         reconciled.push(task.linearIssueId);
         continue;
       }
-      reEmitted.push({ name: "task/awaiting-ci", linearIssueId: task.linearIssueId });
+      reEmitted.push({
+        name: "task/awaiting-ci",
+        linearIssueId: task.linearIssueId,
+      });
     } else {
       if (!task.mergeCommitSha || task.prNumber == null) {
         // Fall back to reset
@@ -200,7 +196,10 @@ function runReconciliation(
         reconciled.push(task.linearIssueId);
         continue;
       }
-      reEmitted.push({ name: "task/deploying", linearIssueId: task.linearIssueId });
+      reEmitted.push({
+        name: "task/deploying",
+        linearIssueId: task.linearIssueId,
+      });
     }
     reconciled.push(task.linearIssueId);
   }

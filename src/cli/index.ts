@@ -26,6 +26,7 @@ import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { inngest } from "../inngest/client.js";
+import { sendWithRetry } from "../inngest/activities/session-bridge.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
 import { initTaskLifecycle } from "../inngest/workflows/task-lifecycle.js";
@@ -421,23 +422,18 @@ program
     );
     if (dispatchableTasks.length > 0) {
       for (const task of dispatchableTasks) {
-        inngest
-          .send({
-            name: "task/ready",
-            data: {
-              linearIssueId: task.linearIssueId,
-              repoPath: task.repoPath,
-              priority: task.priority,
-              projectName: task.projectName ?? null,
-              taskType: task.taskType ?? "standard",
-              createdAt: task.createdAt,
-            },
-          })
-          .catch((err: unknown) =>
-            logger.warn(
-              `startup: failed to re-emit task/ready for ${task.linearIssueId}: ${err}`,
-            ),
-          );
+        sendWithRetry("task/ready", {
+          linearIssueId: task.linearIssueId,
+          repoPath: task.repoPath,
+          priority: task.priority,
+          projectName: task.projectName ?? null,
+          taskType: task.taskType ?? "standard",
+          createdAt: task.createdAt,
+        }).catch((err: unknown) =>
+          logger.warn(
+            `startup: failed to re-emit task/ready for ${task.linearIssueId}: ${err}`,
+          ),
+        );
       }
       logger.info(
         `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,

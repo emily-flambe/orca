@@ -445,7 +445,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     ) {
       return c.json(
         {
-          error: "status must be one of: backlog, ready, done, failed, canceled",
+          error:
+            "status must be one of: backlog, ready, done, failed, canceled",
         },
         400,
       );

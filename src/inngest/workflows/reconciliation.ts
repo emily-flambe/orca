@@ -43,6 +43,7 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
       const now = Date.now();
       const thresholdMs = config.strandedTaskThresholdMin * 60 * 1000;
       const sessionTimeoutMs = config.sessionTimeoutMin * 60 * 1000;
+      const awaitingCiTimeoutMs = config.awaitingCiTimeoutMin * 60 * 1000;
       const reconciled: string[] = [];
 
       // Build a map of running invocation IDs per task (used by phases 1 and 2).
@@ -223,7 +224,9 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
 
       for (const task of awaitingOrDeploying) {
         const age = now - new Date(task.updatedAt).getTime();
-        if (age < thresholdMs) continue;
+        const ciOrDeployThreshold =
+          task.orcaStatus === "awaiting_ci" ? awaitingCiTimeoutMs : thresholdMs;
+        if (age < ciOrDeployThreshold) continue;
 
         if (task.orcaStatus === "awaiting_ci") {
           if (!task.prBranchName || task.prNumber == null) {
@@ -263,15 +266,12 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
             continue;
           }
           try {
-            await inngest.send({
-              name: "task/awaiting-ci",
-              data: {
-                linearIssueId: task.linearIssueId,
-                prNumber: task.prNumber,
-                prBranchName: task.prBranchName,
-                repoPath: task.repoPath,
-                ciStartedAt: task.ciStartedAt ?? new Date().toISOString(),
-              },
+            await sendWithRetry("task/awaiting-ci", {
+              linearIssueId: task.linearIssueId,
+              prNumber: task.prNumber,
+              prBranchName: task.prBranchName,
+              repoPath: task.repoPath,
+              ciStartedAt: task.ciStartedAt ?? new Date().toISOString(),
             });
             // Touch updatedAt so we don't re-emit on the next cron tick.
             updateTaskFields(db, task.linearIssueId, {});
@@ -332,16 +332,12 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
             continue;
           }
           try {
-            await inngest.send({
-              name: "task/deploying",
-              data: {
-                linearIssueId: task.linearIssueId,
-                mergeCommitSha: task.mergeCommitSha,
-                repoPath: task.repoPath,
-                prNumber: task.prNumber,
-                deployStartedAt:
-                  task.deployStartedAt ?? new Date().toISOString(),
-              },
+            await sendWithRetry("task/deploying", {
+              linearIssueId: task.linearIssueId,
+              mergeCommitSha: task.mergeCommitSha,
+              repoPath: task.repoPath,
+              prNumber: task.prNumber,
+              deployStartedAt: task.deployStartedAt ?? new Date().toISOString(),
             });
             // Touch updatedAt so we don't re-emit on the next cron tick.
             updateTaskFields(db, task.linearIssueId, {});

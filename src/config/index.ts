@@ -28,6 +28,7 @@ export interface OrcaConfig {
   cleanupIntervalMin: number;
   cleanupBranchMaxAgeMin: number;
   strandedTaskThresholdMin: number;
+  awaitingCiTimeoutMin: number;
   invocationLogRetentionHours: number;
   resumeOnMaxTurns: boolean;
   resumeOnFix: boolean;
@@ -328,6 +329,7 @@ Steps:
       "ORCA_STRANDED_TASK_THRESHOLD_MIN",
       15,
     ),
+    awaitingCiTimeoutMin: readIntOrDefault("ORCA_AWAITING_CI_TIMEOUT_MIN", 180),
     invocationLogRetentionHours: readIntOrDefault(
       "ORCA_INVOCATION_LOG_RETENTION_HOURS",
       168,
