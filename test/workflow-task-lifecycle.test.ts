@@ -70,6 +70,7 @@ vi.mock("../src/runner/index.js", () => ({
     sessionId: "sess-123",
     kill: vi.fn(),
   }),
+  killSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../src/worktree/index.js", () => ({
@@ -124,7 +125,7 @@ import {
   sumCostInWindow,
   incrementRetryCount,
 } from "../src/db/queries.js";
-import { spawnSession } from "../src/runner/index.js";
+import { spawnSession, killSession } from "../src/runner/index.js";
 import { findPrForBranch } from "../src/github/index.js";
 import { existsSync } from "node:fs";
 import { writeBackStatus } from "../src/linear/sync.js";
@@ -141,6 +142,7 @@ const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
 const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSpawnSession = vi.mocked(spawnSession);
+const mockKillSession = vi.mocked(killSession);
 const mockFindPrForBranch = vi.mocked(findPrForBranch);
 const mockGetInvocation = vi.mocked(getInvocation);
 const mockExistsSync = vi.mocked(existsSync);
@@ -246,6 +248,31 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
       activeHandles.clear();
       resetSessionSlots();
       return waitForEventResponses.get(id) ?? null;
+    }),
+    sleep: vi.fn(async () => {}),
+    sendEvent: vi.fn(async () => {}),
+  };
+}
+
+/**
+ * Like createStep, but does NOT clear activeHandles on timeout (null response).
+ * Use this when testing that timeout paths kill the active handle.
+ */
+function createStepPreserveHandlesOnTimeout(
+  waitForEventResponses: Map<string, unknown> = new Map(),
+) {
+  return {
+    run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
+    waitForEvent: vi.fn(async (id: string, _opts: unknown) => {
+      const response = waitForEventResponses.get(id);
+      if (response !== undefined) {
+        // Event received — clear handles as normal
+        activeHandles.clear();
+        resetSessionSlots();
+        return response;
+      }
+      // Timeout (null) — leave handles in place so the kill path can find them
+      return null;
     }),
     sleep: vi.fn(async () => {}),
     sendEvent: vi.fn(async () => {}),
@@ -856,6 +883,82 @@ describe("task-lifecycle workflow", () => {
         outputTokens: 200,
         endedAt: expect.any(String),
       }),
+    );
+  });
+
+  test("implement timeout → killSession called on the active handle", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const fakeHandle = {
+      done: new Promise(() => {}),
+      sessionId: "sess-timeout",
+      process: { exitCode: null, killed: false, pid: 1234 } as never,
+      kill: vi.fn(),
+    };
+    mockSpawnSession.mockReturnValue(fakeHandle);
+    mockKillSession.mockResolvedValue(undefined as never);
+
+    // Use step that preserves handles on timeout so the kill path can find them
+    const step = createStepPreserveHandlesOnTimeout();
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockKillSession).toHaveBeenCalledWith(fakeHandle);
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      1,
+      expect.objectContaining({ status: "timed_out" }),
+    );
+  });
+
+  test("review timeout → killSession called on the active handle", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    // invocationId 1 for implement, 2 for review
+    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
+    mockGetInvocation.mockReturnValue({ outputSummary: "" });
+    mockFindPrForBranch.mockReturnValue({
+      exists: true,
+      number: 42,
+      url: "https://github.com/org/repo/pull/42",
+      headBranch: "orca/TEST-1-inv-1",
+      merged: false,
+    });
+
+    const reviewHandle = {
+      done: new Promise(() => {}),
+      sessionId: "sess-review-timeout",
+      process: { exitCode: null, killed: false, pid: 5678 } as never,
+      kill: vi.fn(),
+    };
+    // First spawn (implement) returns a normal handle, second (review) returns reviewHandle
+    mockSpawnSession
+      .mockReturnValueOnce({
+        done: new Promise(() => {}),
+        sessionId: "sess-implement",
+        process: { exitCode: null, killed: false, pid: 1111 } as never,
+        kill: vi.fn(),
+      })
+      .mockReturnValueOnce(reviewHandle);
+    mockKillSession.mockResolvedValue(undefined as never);
+
+    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
+    // implement succeeds, review times out
+    const step = createStepPreserveHandlesOnTimeout(
+      new Map([["await-implement", implementEvent]]),
+    );
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockKillSession).toHaveBeenCalledWith(reviewHandle);
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      2,
+      expect.objectContaining({ status: "timed_out" }),
     );
   });
 });

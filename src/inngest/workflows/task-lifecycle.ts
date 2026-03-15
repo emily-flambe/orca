@@ -38,7 +38,7 @@ import {
   insertSystemEvent,
   countActiveSessions,
 } from "../../db/queries.js";
-import { spawnSession } from "../../runner/index.js";
+import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
 import {
   emitTaskUpdated,
@@ -624,6 +624,12 @@ export const taskLifecycle = inngest.createFunction(
           log(
             `task ${taskId}: implement session timed out (invocation ${invocationId})`,
           );
+          const timedOutHandle = activeHandles.get(invocationId);
+          if (timedOutHandle) {
+            killSession(timedOutHandle).catch(() => {});
+            activeHandles.delete(invocationId);
+            releaseSessionSlot();
+          }
           updateInvocation(db, invocationId, {
             status: "timed_out",
             endedAt: new Date().toISOString(),
@@ -1032,6 +1038,12 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: review session timed out (cycle ${cycle + 1})`,
             );
+            const timedOutHandle = activeHandles.get(invocationId);
+            if (timedOutHandle) {
+              killSession(timedOutHandle).catch(() => {});
+              activeHandles.delete(invocationId);
+              releaseSessionSlot();
+            }
             updateInvocation(db, invocationId, {
               status: "timed_out",
               endedAt: new Date().toISOString(),
@@ -1310,6 +1322,12 @@ export const taskLifecycle = inngest.createFunction(
 
           if (!fixEvent) {
             log(`task ${taskId}: fix session timed out (cycle ${cycle + 1})`);
+            const timedOutHandle = activeHandles.get(invocationId);
+            if (timedOutHandle) {
+              killSession(timedOutHandle).catch(() => {});
+              activeHandles.delete(invocationId);
+              releaseSessionSlot();
+            }
             updateInvocation(db, invocationId, {
               status: "timed_out",
               endedAt: new Date().toISOString(),
