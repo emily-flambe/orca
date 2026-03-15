@@ -440,10 +440,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       newStatus !== "backlog" &&
       newStatus !== "ready" &&
       newStatus !== "done" &&
-      newStatus !== "failed"
+      newStatus !== "failed" &&
+      newStatus !== "canceled"
     ) {
       return c.json(
-        { error: "status must be one of: backlog, ready, done, failed" },
+        {
+          error: "status must be one of: backlog, ready, done, failed, canceled",
+        },
         400,
       );
     }
@@ -515,7 +518,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const linearTransition =
       newStatus === "ready"
         ? "retry"
-        : newStatus === "failed"
+        : newStatus === "failed" || newStatus === "canceled"
           ? "failed_permanent"
           : newStatus;
     writeBackStatus(client, taskId, linearTransition, stateMap).catch((err) =>

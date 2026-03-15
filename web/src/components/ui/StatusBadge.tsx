@@ -21,6 +21,8 @@ export function getStatusBadgeClasses(status: string): string {
       return "bg-teal-500/20 text-teal-400";
     case "backlog":
       return "bg-gray-500/20 text-gray-500";
+    case "canceled":
+      return "bg-gray-500/20 text-gray-400";
     case "timed_out":
       return "bg-orange-500/20 text-orange-400";
     default:

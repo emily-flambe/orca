@@ -14,6 +14,7 @@ export const TASK_STATUSES = [
   "running",
   "done",
   "failed",
+  "canceled",
   "in_review",
   "changes_requested",
   "deploying",
