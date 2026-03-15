@@ -42,7 +42,11 @@ export const cleanupCronWorkflow = inngest.createFunction(
           staleSessionRetryCount: 0,
           isParent: 0,
         });
-        incrementCronRunCount(db, schedule.id, computeNextRunAt(schedule.schedule));
+        incrementCronRunCount(
+          db,
+          schedule.id,
+          computeNextRunAt(schedule.schedule),
+        );
         const cronTask = getTask(db, taskId);
         if (cronTask) {
           try {
