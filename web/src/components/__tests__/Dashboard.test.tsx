@@ -16,6 +16,10 @@ vi.mock("../ActivityFeed", () => ({
   default: () => <div data-testid="activity-feed" />,
 }));
 
+vi.mock("../SystemMetrics", () => ({
+  default: () => <div data-testid="system-metrics" />,
+}));
+
 const mockFetchMetrics = vi.mocked(fetchMetrics);
 
 function makeMetrics(overrides: Partial<MetricsData> = {}): MetricsData {
