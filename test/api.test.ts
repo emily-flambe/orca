@@ -963,11 +963,13 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(400);
   });
 
-  it("allows status='failed' as a manual target", async () => {
+  it("accepts status='failed' (manual override via UI)", async () => {
     insertTask(db, makeTask({ linearIssueId: "T-FAILED-TARGET" }));
 
     const res = await postStatus("T-FAILED-TARGET", { status: "failed" });
     expect(res.status).toBe(200);
+    const task = getTask(db, "T-FAILED-TARGET");
+    expect(task!.orcaStatus).toBe("failed");
   });
 
   it("rejects status='running' (not an allowed target)", async () => {

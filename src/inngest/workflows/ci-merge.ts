@@ -23,6 +23,7 @@ import {
   isCiFlakeOnMain,
 } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
+import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
 
 const logger = createLogger("ci-gate");
 
@@ -48,7 +49,7 @@ export const ciMergeWorkflow = inngest.createFunction(
 
     let merged = false;
     let attempts = 0;
-    const maxPollAttempts = 240; // 2 hours at 30s intervals
+    const maxPollAttempts = getSchedulerDeps().config.maxCiPollAttempts;
 
     while (!merged && attempts < maxPollAttempts) {
       attempts++;
@@ -293,9 +294,29 @@ export const ciMergeWorkflow = inngest.createFunction(
     }
 
     if (!merged) {
-      log(
-        `task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`,
-      );
+      await step.run("ci-poll-exhausted", async () => {
+        const deps = getSchedulerDeps();
+        const { db, client, stateMap } = deps;
+        updateTaskStatus(db, linearIssueId, "failed");
+        emitTaskUpdated(getTask(db, linearIssueId)!);
+
+        await writeBackStatus(
+          client,
+          linearIssueId,
+          "failed_permanent",
+          stateMap,
+        );
+
+        sendPermanentFailureAlert(
+          deps,
+          linearIssueId,
+          `CI checks never resolved after ${maxPollAttempts} poll attempts`,
+        );
+
+        log(
+          `task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`,
+        );
+      });
       return { status: "failed", reason: "poll_exhausted" };
     }
 
