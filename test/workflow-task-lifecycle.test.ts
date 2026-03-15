@@ -129,6 +129,7 @@ import { existsSync } from "node:fs";
 import { writeBackStatus } from "../src/linear/sync.js";
 import { createWorktree } from "../src/worktree/index.js";
 import { initTaskLifecycle } from "../src/inngest/workflows/task-lifecycle.js";
+import { activeHandles } from "../src/session-handles.js";
 
 // Typed mocks
 const mockGetTask = vi.mocked(getTask);
@@ -238,10 +239,13 @@ function makeTaskReadyEvent(taskId = "TEST-1") {
 function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
   return {
     run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
-    waitForEvent: vi.fn(
-      async (id: string, _opts: unknown) =>
-        waitForEventResponses.get(id) ?? null,
-    ),
+    waitForEvent: vi.fn(async (id: string, _opts: unknown) => {
+      // Simulate session completion: clear activeHandles so the next spawn
+      // doesn't hit the concurrency cap (real sessions clean up via
+      // bridgeSessionCompletion's .then() callback).
+      activeHandles.clear();
+      return waitForEventResponses.get(id) ?? null;
+    }),
     sleep: vi.fn(async () => {}),
     sendEvent: vi.fn(async () => {}),
   };
@@ -253,6 +257,7 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  activeHandles.clear();
 
   // Re-apply defaults after reset
   mockSumCostInWindow.mockReturnValue(0);
