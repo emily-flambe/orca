@@ -17,6 +17,14 @@ import { formatTokens } from "../utils/formatTokens";
 interface Props {
   taskId: string;
   initialInvocationId?: number;
+  refreshTrigger?: number;
+}
+
+function timeAgo(date: Date): string {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  return `${Math.floor(secs / 60)}m ago`;
 }
 
 function formatDuration(start: string, end: string | null): string {
@@ -39,19 +47,27 @@ const MANUAL_STATUSES = [
   { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
 ] as const;
 
-export default function TaskDetail({ taskId, initialInvocationId }: Props) {
+export default function TaskDetail({
+  taskId,
+  initialInvocationId,
+  refreshTrigger,
+}: Props) {
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [selectedInvocationId, setSelectedInvocationId] = useState<
     number | null
   >(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
-      .then((d) => setDetail(d))
+      .then((d) => {
+        setDetail(d);
+        setLastUpdated(new Date());
+      })
       .catch(console.error);
-  }, [taskId]);
+  }, [taskId, refreshTrigger]);
 
   useEffect(() => {
     if (detail && initialInvocationId != null) {
@@ -137,6 +153,11 @@ export default function TaskDetail({ taskId, initialInvocationId }: Props) {
           >
             Retry
           </button>
+        )}
+        {lastUpdated && (
+          <span className="ml-auto text-xs text-gray-600">
+            Updated {timeAgo(lastUpdated)}
+          </span>
         )}
       </div>
 
