@@ -43,6 +43,7 @@ const mockConfig = {
   maxReviewCycles: 3,
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  maxCiPollAttempts: 240,
 };
 
 const mockLinearClient = {
@@ -89,10 +90,6 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock("../src/scheduler/alerts.js", () => ({
-  sendPermanentFailureAlert: vi.fn(),
-}));
-
 vi.mock("../src/events.js", () => ({
   emitTaskUpdated: vi.fn(),
   emitInvocationStarted: vi.fn(),
@@ -101,6 +98,10 @@ vi.mock("../src/events.js", () => ({
 
 vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../src/scheduler/alerts.js", () => ({
+  sendPermanentFailureAlert: vi.fn(),
 }));
 
 vi.mock("../src/github/index.js", () => ({
@@ -553,6 +554,40 @@ describe("ci-merge workflow", () => {
     expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
+    );
+  });
+
+  test("CI poll exhausted → updates task to failed, writes back to Linear, fires alert", async () => {
+    (mockSchedulerDeps as Record<string, unknown>).config = {
+      ...mockConfig,
+      maxCiPollAttempts: 1,
+    };
+
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 1 check
+      .mockReturnValueOnce(makeTask()) // inside check-ci step (iteration 1)
+      .mockReturnValue(makeTask()); // poll-exhausted step calls
+
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockWriteBackStatus).toHaveBeenCalledWith(
+      mockLinearClient,
+      "TEST-1",
+      "failed_permanent",
+      mockStateMap,
+    );
+    expect(mockSendPermanentFailureAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ db: mockDb }),
+      "TEST-1",
+      expect.stringContaining("poll attempts"),
     );
   });
 

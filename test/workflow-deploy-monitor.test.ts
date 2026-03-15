@@ -44,6 +44,7 @@ const mockConfig = {
   deployTimeoutMin: 30,
   deployStrategy: "github_actions" as const,
   maxRetries: 3,
+  maxDeployPollAttempts: 60,
 };
 
 const mockLinearClient = {
@@ -99,6 +100,10 @@ vi.mock("../src/linear/sync.js", () => ({
   writeBackStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../src/scheduler/alerts.js", () => ({
+  sendPermanentFailureAlert: vi.fn(),
+}));
+
 vi.mock("../src/github/index.js", () => ({
   getWorkflowRunStatus: vi.fn(),
 }));
@@ -107,8 +112,9 @@ vi.mock("../src/git.js", () => ({
   git: vi.fn().mockReturnValue(""),
 }));
 
-vi.mock("../src/scheduler/alerts.js", () => ({
-  sendPermanentFailureAlert: vi.fn(),
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn().mockReturnValue(false),
+  readFileSync: vi.fn().mockReturnValue(""),
 }));
 
 // ---------------------------------------------------------------------------
@@ -195,7 +201,10 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "aborted", reason: "task_not_found" });
+    expect(result).toMatchObject({
+      status: "aborted",
+      reason: "task_not_found",
+    });
   });
 
   test("task status changed from deploying → returns aborted", async () => {
@@ -207,7 +216,10 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "aborted", reason: "status_changed" });
+    expect(result).toMatchObject({
+      status: "aborted",
+      reason: "status_changed",
+    });
   });
 
   test("deploy timeout → fails permanently with deploy_timeout reason", async () => {
@@ -245,8 +257,12 @@ describe("deploy-monitor workflow", () => {
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
   });
 
-  test("deploy success → transitions to done", async () => {
-    mockGetTask.mockReturnValue(makeTask());
+  test("deploy success → updates task to done, writes back to Linear", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // inside check-deploy step
+      .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
+
     mockGetWorkflowRunStatus.mockResolvedValue("success");
 
     const step = createDeployMonitorStep();
@@ -265,8 +281,12 @@ describe("deploy-monitor workflow", () => {
     );
   });
 
-  test("deploy failure → transitions to failed_permanent", async () => {
-    mockGetTask.mockReturnValue(makeTask());
+  test("deploy failure → updates task to failed, writes back to Linear", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValueOnce(makeTask()) // inside check-deploy step
+      .mockReturnValue(makeTask()); // subsequent calls
+
     mockGetWorkflowRunStatus.mockResolvedValue("failure");
 
     const step = createDeployMonitorStep();
@@ -275,8 +295,15 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "deploy_ci_failure" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "deploy_ci_failure",
+    });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -300,6 +327,56 @@ describe("deploy-monitor workflow", () => {
     });
 
     expect(step.sleep).toHaveBeenCalledWith("deploy-poll-wait-1", "30s");
+  });
+
+  test("no merge commit SHA → marks task done without polling", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop check
+      .mockReturnValue(makeTask()); // subsequent calls
+
+    const step = createDeployMonitorStep();
+    const result = await capturedDeployMonitorHandler({
+      event: makeDeployingEvent({ mergeCommitSha: undefined }),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "done", reason: "no_sha" });
+    expect(mockGetWorkflowRunStatus).not.toHaveBeenCalled();
+  });
+
+  test("poll exhaustion → updates task to failed, writes back to Linear, fires alert", async () => {
+    // Override maxDeployPollAttempts to 1 so the loop exits after one pending poll
+    (mockSchedulerDeps as Record<string, unknown>).config = {
+      ...mockConfig,
+      maxDeployPollAttempts: 1,
+    };
+
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 1 check
+      .mockReturnValueOnce(makeTask()) // inside check-deploy step
+      .mockReturnValue(makeTask()); // poll-exhausted step calls (updateTaskStatus, emitTaskUpdated)
+
+    mockGetWorkflowRunStatus.mockResolvedValue("pending");
+
+    const step = createDeployMonitorStep();
+    const result = await capturedDeployMonitorHandler({
+      event: makeDeployingEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockWriteBackStatus).toHaveBeenCalledWith(
+      mockLinearClient,
+      "TEST-1",
+      "failed_permanent",
+      mockStateMap,
+    );
+    expect(mockSendPermanentFailureAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ db: mockDb }),
+      "TEST-1",
+      expect.stringContaining("poll attempts"),
+    );
   });
 
   test("poll exhaustion (60 pending attempts) → task failed with poll_exhausted reason", async () => {

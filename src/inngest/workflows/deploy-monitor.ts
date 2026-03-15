@@ -31,7 +31,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
 
     let resolved = false;
     let attempts = 0;
-    const maxPollAttempts = 60; // 30 minutes at 30s intervals
+    const maxPollAttempts = getSchedulerDeps().config.maxDeployPollAttempts;
 
     while (!resolved && attempts < maxPollAttempts) {
       attempts++;

@@ -49,7 +49,7 @@ export const ciMergeWorkflow = inngest.createFunction(
 
     let merged = false;
     let attempts = 0;
-    const maxPollAttempts = 240; // 2 hours at 30s intervals
+    const maxPollAttempts = getSchedulerDeps().config.maxCiPollAttempts;
 
     while (!merged && attempts < maxPollAttempts) {
       attempts++;
