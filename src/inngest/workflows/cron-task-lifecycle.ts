@@ -9,7 +9,6 @@
 import {
   getTask,
   claimTaskForDispatch,
-  updateTaskStatus,
   insertInvocation,
   updateInvocation,
 } from "../../db/queries.js";
@@ -24,6 +23,7 @@ import {
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
+import { updateAndEmit } from "../helpers.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -143,8 +143,7 @@ export const cronTaskLifecycle = inngest.createFunction(
         );
 
         emitInvocationStarted({ taskId, invocationId });
-        updateTaskStatus(db, taskId, "running");
-        emitTaskUpdated(getTask(db, taskId)!);
+        updateAndEmit(db, taskId, "running");
 
         log(
           `cron task ${taskId}: session spawned as invocation ${invocationId}`,
@@ -169,14 +168,12 @@ export const cronTaskLifecycle = inngest.createFunction(
       if (!task) return { outcome: "permanent_fail" as const };
 
       if (succeeded) {
-        updateTaskStatus(db, taskId, "done");
-        emitTaskUpdated(getTask(db, taskId)!);
+        updateAndEmit(db, taskId, "done");
         log(`cron task ${taskId} completed successfully`);
         return { outcome: "done" as const };
       }
 
-      updateTaskStatus(db, taskId, "failed");
-      emitTaskUpdated(getTask(db, taskId)!);
+      updateAndEmit(db, taskId, "failed");
       log(
         `cron task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
       );

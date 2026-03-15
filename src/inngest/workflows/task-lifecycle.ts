@@ -64,6 +64,7 @@ import {
 } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { updateAndEmit } from "../helpers.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency cap — read from env at module load time so it's available when
@@ -299,6 +300,36 @@ function worktreeHasNoChanges(worktreePath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Shared: mark task as already-done during Gate 2
+//
+// Both "no branch name" and "no PR found" cases share identical transition
+// logic when the work is already on main. Only the system-event reason differs.
+// ---------------------------------------------------------------------------
+
+function markTaskAlreadyDone(
+  db: OrcaDb,
+  client: WorkflowDeps["client"],
+  stateMap: WorkflowDeps["stateMap"],
+  taskId: string,
+  worktreePath: string,
+  reason: string,
+): void {
+  updateTaskStatus(db, taskId, "done");
+  insertSystemEvent(db, {
+    type: "task_completed",
+    message: `Task ${taskId} completed`,
+    metadata: { taskId, phase: "implement", reason },
+  });
+  emitTaskUpdated(getTask(db, taskId)!);
+  writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
+  try {
+    removeWorktree(worktreePath);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Shared: build disallowed tools list
 // ---------------------------------------------------------------------------
 
@@ -393,9 +424,7 @@ export const taskLifecycle = inngest.createFunction(
         `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
       );
       await step.run("requeue-budget-exceeded", () => {
-        updateTaskStatus(db, taskId, "ready");
-        const task = getTask(db, taskId);
-        if (task) emitTaskUpdated(task);
+        updateAndEmit(db, taskId, "ready");
       });
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }
@@ -606,8 +635,7 @@ export const taskLifecycle = inngest.createFunction(
         );
 
         emitInvocationStarted({ taskId, invocationId });
-        updateTaskStatus(db, taskId, "running");
-        emitTaskUpdated(getTask(db, taskId)!);
+        updateAndEmit(db, taskId, "running");
 
         const dispatchMsg = isDeployResume
           ? `Resuming after deploy interruption (invocation #${invocationId})`
@@ -677,9 +705,7 @@ export const taskLifecycle = inngest.createFunction(
             endedAt: new Date().toISOString(),
             outputSummary: "session timed out after 45 minutes",
           });
-          updateTaskStatus(db, taskId, "failed");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "failed");
           try {
             removeWorktree(worktreePath);
           } catch {
@@ -782,9 +808,7 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          updateTaskStatus(db, taskId, "failed");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "failed");
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
@@ -844,23 +868,14 @@ export const taskLifecycle = inngest.createFunction(
         if (!branchName) {
           if (isAlreadyDone || noChanges) {
             log(`task ${taskId}: work already on main — marking done`);
-            updateTaskStatus(db, taskId, "done");
-            insertSystemEvent(db, {
-              type: "task_completed",
-              message: `Task ${taskId} completed`,
-              metadata: {
-                taskId,
-                phase: "implement",
-                reason: "already_on_main",
-              },
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
+            markTaskAlreadyDone(
+              db,
+              client,
+              stateMap,
+              taskId,
+              worktreePath,
+              "already_on_main",
+            );
             return { outcome: "done" };
           }
           updateInvocation(db, invocationId, {
@@ -896,19 +911,14 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: no PR found but work is already done — marking done`,
             );
-            updateTaskStatus(db, taskId, "done");
-            insertSystemEvent(db, {
-              type: "task_completed",
-              message: `Task ${taskId} completed`,
-              metadata: { taskId, phase: "implement", reason: "already_done" },
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
+            markTaskAlreadyDone(
+              db,
+              client,
+              stateMap,
+              taskId,
+              worktreePath,
+              "already_done",
+            );
             return { outcome: "done" };
           }
           log(
@@ -967,8 +977,7 @@ export const taskLifecycle = inngest.createFunction(
             .catch(() => {});
         }
 
-        updateTaskStatus(db, taskId, "in_review");
-        emitTaskUpdated(getTask(db, taskId)!);
+        updateAndEmit(db, taskId, "in_review");
         writeBackStatus(client, taskId, "in_review", stateMap).catch(() => {});
         client
           .createComment(
@@ -1125,8 +1134,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateTaskStatus(db, taskId, "running");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "running");
           client
             .createComment(
               taskId,
@@ -1186,9 +1194,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "review session timed out after 45 minutes",
             });
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1217,9 +1223,7 @@ export const taskLifecycle = inngest.createFunction(
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
           if (!isSuccess) {
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1263,8 +1267,7 @@ export const taskLifecycle = inngest.createFunction(
         const ciInfo = await step.run(`transition-awaiting-ci-${cycle}`, () => {
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
-          updateTaskStatus(db, taskId, "awaiting_ci");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "awaiting_ci");
           writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
             () => {},
           );
@@ -1312,9 +1315,7 @@ export const taskLifecycle = inngest.createFunction(
 
       if (reviewResult.outcome === "no_marker" || isLastCycle) {
         await step.run(`cycles-exhausted-${cycle}`, () => {
-          updateTaskStatus(db, taskId, "in_review");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "in_review");
           const reason =
             reviewResult.outcome === "no_marker"
               ? "no REVIEW_RESULT marker found"
@@ -1379,8 +1380,7 @@ export const taskLifecycle = inngest.createFunction(
           if (!task) throw new Error(`task ${taskId} not found`);
 
           incrementReviewCycleCount(db, taskId);
-          updateTaskStatus(db, taskId, "changes_requested");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "changes_requested");
           writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
             () => {},
           );
@@ -1446,8 +1446,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateTaskStatus(db, taskId, "running");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "running");
 
           const reviewCycle = task.reviewCycleCount + 1;
           client
@@ -1502,9 +1501,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "fix session timed out after 45 minutes",
             });
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1539,15 +1536,12 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           if (!isSuccess) {
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             return { ok: false, timedOut: false };
           }
 
           // Fix succeeded — transition back to in_review for next review cycle
-          updateTaskStatus(db, taskId, "in_review");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "in_review");
           writeBackStatus(client, taskId, "in_review", stateMap).catch(
             () => {},
           );

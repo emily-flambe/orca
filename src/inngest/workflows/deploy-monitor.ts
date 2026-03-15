@@ -1,11 +1,11 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
-import { getTask, updateTaskStatus } from "../../db/queries.js";
-import { emitTaskUpdated } from "../../events.js";
+import { getTask } from "../../db/queries.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
 import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
+import { updateAndEmit, isPollingTimedOut } from "../helpers.js";
 
 const logger = createLogger("deploy-monitor");
 
@@ -53,12 +53,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
 
       // Timeout check
       const timeoutMs = deps.config.deployTimeoutMin * 60 * 1000;
-      const startedAt = new Date(deployStartedAt).getTime();
-      if (startedAt + timeoutMs < Date.now()) {
+      if (isPollingTimedOut(deployStartedAt, timeoutMs)) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
+          updateAndEmit(db, linearIssueId, "failed");
 
           await writeBackStatus(
             client,
@@ -89,8 +87,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (!mergeCommitSha) {
         await step.run("deploy-no-sha", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "done");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
+          updateAndEmit(db, linearIssueId, "done");
 
           await writeBackStatus(client, linearIssueId, "done", stateMap);
 
@@ -126,8 +123,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (deployStatus.status === "success") {
         await step.run("deploy-success", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "done");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
+          updateAndEmit(db, linearIssueId, "done");
 
           await writeBackStatus(client, linearIssueId, "done", stateMap);
 
@@ -148,8 +144,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
+          updateAndEmit(db, linearIssueId, "failed");
 
           await writeBackStatus(
             client,
@@ -187,8 +182,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       await step.run("deploy-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateTaskStatus(db, linearIssueId, "failed");
-        emitTaskUpdated(getTask(db, linearIssueId)!);
+        updateAndEmit(db, linearIssueId, "failed");
 
         await writeBackStatus(
           client,
