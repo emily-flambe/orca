@@ -72,17 +72,31 @@ Additionally:
 - Expanded startup re-emit to cover `ready`, `changes_requested`, and `in_review`
 - Added `task/ready` re-emit on retry path so retryable failures re-enter the queue
 
+**Phase 3 — Echo prevention and concurrency enforcement (commits 52e302d, 14b61f8, ab00b2c, 846eac4):**
+
+Three additional bugs discovered after the initial fix:
+
+1. **Echo prevention single-slot overwrite**: `expectedChanges` map stored one entry per task. Rapid state transitions (dispatched → in_review) overwrote the previous echo registration. Unrecognized echoes passed through `resolveConflict` which killed running sessions ("interrupted by Linear state change"). Fix: changed to array-based storage with independent TTLs per entry, extended TTL from 10s to 30s.
+
+2. **TOCTOU race in `assertSessionCapacity()`**: Used only in-memory `activeHandles.size` which reset to 0 on every deploy. Multiple Inngest step callbacks on a fresh process all saw 0 and spawned beyond the cap. Fix: now uses `Math.max(DB running count, activeHandles.size, pendingSessionCount)` where DB count survives deploys and pendingSessionCount is a synchronous counter incremented before spawn.
+
+3. **Phantom invocations**: `insertInvocation(status: "running")` was called BEFORE `assertSessionCapacity()`. When the check threw, the "running" invocation stayed in the DB permanently, inflating the count. Fix: moved capacity check before the insert.
+
 ## Lessons Learned
 
 ### What went well
 - Process-level `assertSessionCapacity()` guard is a good safety net independent of Inngest's queue semantics
 - Orphan detection on startup correctly cleaned up stale invocations
+- Multi-layered capacity check (DB + in-memory + pending counter) is resilient to different failure modes
 
 ### What went wrong
 - Inngest's `idempotency` semantics were misunderstood — assumed "one at a time" but actual behavior is "one per 24 hours"
 - First fix was deployed without verifying stuck task re-dispatch still worked
 - No integration test covering the full restart → re-emit → dispatch cycle
 - 15 restarts in 1 hour suggest an underlying stability issue that wasn't investigated
+- In-memory-only concurrency guards don't survive blue/green deploys — DB state is the only reliable source
+- Inngest dev server's concurrency enforcement is unreliable — process-level guards are essential
+- Write-back echo prevention with single-slot storage caused cascading session kills under rapid state transitions
 
 ### Action items
 
