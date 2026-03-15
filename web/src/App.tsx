@@ -209,6 +209,7 @@ function TasksPage({
   mobileView,
   detailKey,
   expandedInvocationId,
+  detailRefreshTrigger,
   onSelect,
   onMobileBack,
 }: {
@@ -217,6 +218,7 @@ function TasksPage({
   mobileView: "list" | "detail";
   detailKey: number;
   expandedInvocationId: number | null;
+  detailRefreshTrigger: number;
   onSelect: (id: string) => void;
   onMobileBack: () => void;
 }) {
@@ -251,6 +253,7 @@ function TasksPage({
             key={`${selectedTaskId}-${detailKey}`}
             taskId={selectedTaskId}
             initialInvocationId={expandedInvocationId ?? undefined}
+            refreshTrigger={detailRefreshTrigger}
           />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500">
@@ -272,6 +275,8 @@ export default function App() {
   const [version, setVersion] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [detailKey, setDetailKey] = useState(0);
+  const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
+  const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
@@ -300,16 +305,23 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
-  const handleTaskUpdated = useCallback((task: unknown) => {
-    const t = task as Task;
-    setTasks((prev) => {
-      const idx = prev.findIndex((p) => p.linearIssueId === t.linearIssueId);
-      if (idx === -1) return [...prev, t];
-      const next = [...prev];
-      next[idx] = t;
-      return next;
-    });
-  }, []);
+  const handleTaskUpdated = useCallback(
+    (task: unknown) => {
+      const t = task as Task;
+      setTasks((prev) => {
+        const idx = prev.findIndex((p) => p.linearIssueId === t.linearIssueId);
+        if (idx === -1) return [...prev, t];
+        const next = [...prev];
+        next[idx] = t;
+        return next;
+      });
+      setDashboardRefreshTrigger((n) => n + 1);
+      if (t.linearIssueId === selectedTaskId) {
+        setDetailRefreshTrigger((n) => n + 1);
+      }
+    },
+    [selectedTaskId],
+  );
 
   const handleStatusUpdated = useCallback((s: unknown) => {
     setStatus(s as OrcaStatus);
@@ -320,12 +332,14 @@ export default function App() {
       if (data.taskId === selectedTaskId) {
         setDetailKey((k) => k + 1);
       }
+      setDashboardRefreshTrigger((n) => n + 1);
     },
     [selectedTaskId],
   );
 
   const handleTasksRefreshed = useCallback(() => {
     fetchTasks().then(setTasks).catch(console.error);
+    setDashboardRefreshTrigger((n) => n + 1);
   }, []);
 
   const handleReconnect = useCallback(() => {
@@ -452,13 +466,17 @@ export default function App() {
             mobileView={mobileView}
             detailKey={detailKey}
             expandedInvocationId={expandedInvocationId}
+            detailRefreshTrigger={detailRefreshTrigger}
             onSelect={handleSelectTask}
             onMobileBack={() => setMobileView("list")}
           />
         )}
 
         {activePage === "dashboard" && (
-          <Dashboard onNavigateToInvocation={handleNavigateToInvocation} />
+          <Dashboard
+            onNavigateToInvocation={handleNavigateToInvocation}
+            refreshTrigger={dashboardRefreshTrigger}
+          />
         )}
 
         {activePage === "metrics" && <MetricsPage />}

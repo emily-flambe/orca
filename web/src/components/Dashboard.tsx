@@ -7,6 +7,17 @@ import ActiveSessionsGrid from "./ActiveSessionsGrid";
 import ActivityFeed from "./ActivityFeed";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function timeAgo(date: Date): string {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  return `${Math.floor(secs / 60)}m ago`;
+}
+
+// ---------------------------------------------------------------------------
 // Main dashboard
 // ---------------------------------------------------------------------------
 interface DashboardProps {
@@ -14,19 +25,24 @@ interface DashboardProps {
     linearIssueId: string,
     invocationId: number,
   ) => void;
+  refreshTrigger?: number;
 }
 
-export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
+export default function Dashboard({
+  onNavigateToInvocation,
+  refreshTrigger,
+}: DashboardProps) {
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const load = useCallback(() => {
-    setLoading(true);
     fetchMetrics()
       .then((d) => {
         setData(d);
         setError(null);
+        setLastUpdated(new Date());
       })
       .catch((err) =>
         setError(err instanceof Error ? err.message : String(err)),
@@ -36,7 +52,15 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
 
   useEffect(() => {
     load();
+    const interval = setInterval(load, 30_000);
+    return () => clearInterval(interval);
   }, [load]);
+
+  useEffect(() => {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      load();
+    }
+  }, [refreshTrigger, load]);
 
   if (loading) return <Skeleton lines={6} className="m-6" />;
   if (error)
@@ -52,8 +76,15 @@ export default function Dashboard({ onNavigateToInvocation }: DashboardProps) {
 
       {/* Activity feed */}
       <Card>
-        <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
-          Recent Activity
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs text-gray-500 uppercase tracking-wide">
+            Recent Activity
+          </div>
+          {lastUpdated && (
+            <div className="text-xs text-gray-600">
+              Updated {timeAgo(lastUpdated)}
+            </div>
+          )}
         </div>
         <ActivityFeed
           entries={recentActivity}
