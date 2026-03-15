@@ -178,7 +178,7 @@ fi
 # ---------------------------------------------------------------------------
 log "re-registering Inngest functions..."
 INNGEST_REGISTER=$(curl -sf -X PUT "http://localhost:$STANDBY_PORT/api/inngest" 2>&1 || true)
-if echo "$INNGEST_REGISTER" | grep -q '"modified":true'; then
+if echo "$INNGEST_REGISTER" | grep -q '"Successfully registered"'; then
   log "Inngest functions registered successfully"
 else
   log "WARNING: Inngest registration may have failed: $INNGEST_REGISTER"
