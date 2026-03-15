@@ -19,10 +19,12 @@ import {
   rebasePrBranch,
   findPrForBranch,
   getMergeCommitSha,
+  getFailingCheckNames,
+  isCiFlakeOnMain,
 } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
 
-const logger = createLogger("ci-merge");
+const logger = createLogger("ci-gate");
 
 function log(message: string): void {
   logger.info(message);
@@ -170,74 +172,118 @@ export const ciMergeWorkflow = inngest.createFunction(
 
         // action === "retry" — fall through to sleep and poll again
       } else if (ciStatus.status === "failure") {
-        // CI failed — handle review cycle or fail permanently
-        await step.run(`ci-failure-${attempts}`, async () => {
-          const { db, config, client, stateMap } = getSchedulerDeps();
-          const freshTask = getTask(db, linearIssueId);
-          if (!freshTask) return;
-
-          if (freshTask.reviewCycleCount < config.maxReviewCycles) {
-            incrementReviewCycleCount(db, linearIssueId);
-            updateTaskStatus(db, linearIssueId, "changes_requested");
-            emitTaskUpdated(getTask(db, linearIssueId)!);
-
-            await writeBackStatus(
-              client,
-              linearIssueId,
-              "changes_requested",
-              stateMap,
-            ).catch((err) => {
-              log(
-                `write-back failed on CI failure for task ${linearIssueId}: ${err}`,
-              );
-            });
-
-            await client
-              .createComment(
-                linearIssueId,
-                `CI failed on PR #${prNumber} — requesting fixes (cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-              )
-              .catch((err) => {
-                log(
-                  `comment failed on CI failure for task ${linearIssueId}: ${err}`,
-                );
-              });
-
-            log(
-              `task ${linearIssueId} CI failed → changes_requested ` +
-                `(cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+        // CI failed — check if this is a flake (same failures on main)
+        const flakeCheck = await step.run(
+          `ci-flake-check-${attempts}`,
+          async (): Promise<{ isFlake: boolean }> => {
+            const { db } = getSchedulerDeps();
+            const freshTask = getTask(db, linearIssueId);
+            if (!freshTask) return { isFlake: false };
+            const failingNames = await getFailingCheckNames(
+              prNumber,
+              freshTask.repoPath,
             );
-          } else {
-            // Cycles exhausted — mark as failed
-            updateTaskStatus(db, linearIssueId, "failed");
-            emitTaskUpdated(getTask(db, linearIssueId)!);
-
-            await writeBackStatus(
-              client,
-              linearIssueId,
-              "failed_permanent",
-              stateMap,
-            ).catch((err) => {
+            const flake = await isCiFlakeOnMain(
+              failingNames,
+              freshTask.repoPath,
+            );
+            if (flake) {
               log(
-                `write-back failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
+                `task ${linearIssueId} CI failure matches main branch failures — flake detected, re-polling without burning retry (failing: ${failingNames.join(", ")})`,
+              );
+            } else {
+              log(
+                `task ${linearIssueId} CI failure is unique to PR branch — treating as real failure`,
+              );
+            }
+            return { isFlake: flake };
+          },
+        );
+
+        if (flakeCheck.isFlake) {
+          // Flake — comment on Linear, sleep, and re-poll without burning retry
+          const { client } = getSchedulerDeps();
+          await client
+            .createComment(
+              linearIssueId,
+              `CI checks failed on PR #${prNumber} but the same failures exist on main — likely a flake. Re-queuing without counting against retry budget.`,
+            )
+            .catch((err) => {
+              log(
+                `comment failed on CI flake for task ${linearIssueId}: ${err}`,
               );
             });
+          await step.sleep(`ci-flake-wait-${attempts}`, "30s");
+        } else {
+          // Real failure — handle review cycle or fail permanently
+          await step.run(`ci-failure-${attempts}`, async () => {
+            const { db, config, client, stateMap } = getSchedulerDeps();
+            const freshTask = getTask(db, linearIssueId);
+            if (!freshTask) return;
 
-            await client
-              .createComment(
+            if (freshTask.reviewCycleCount < config.maxReviewCycles) {
+              incrementReviewCycleCount(db, linearIssueId);
+              updateTaskStatus(db, linearIssueId, "changes_requested");
+              emitTaskUpdated(getTask(db, linearIssueId)!);
+
+              await writeBackStatus(
+                client,
                 linearIssueId,
-                `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
-              )
-              .catch((err) => {
+                "changes_requested",
+                stateMap,
+              ).catch((err) => {
                 log(
-                  `comment failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
+                  `write-back failed on CI failure for task ${linearIssueId}: ${err}`,
                 );
               });
 
-            log(`task ${linearIssueId} CI failed, cycles exhausted → failed`);
-          }
-        });
-        return { status: "ci_failure" };
+              await client
+                .createComment(
+                  linearIssueId,
+                  `CI failed on PR #${prNumber} — requesting fixes (cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                )
+                .catch((err) => {
+                  log(
+                    `comment failed on CI failure for task ${linearIssueId}: ${err}`,
+                  );
+                });
+
+              log(
+                `task ${linearIssueId} CI failed → changes_requested ` +
+                  `(cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+              );
+            } else {
+              // Cycles exhausted — mark as failed
+              updateTaskStatus(db, linearIssueId, "failed");
+              emitTaskUpdated(getTask(db, linearIssueId)!);
+
+              await writeBackStatus(
+                client,
+                linearIssueId,
+                "failed_permanent",
+                stateMap,
+              ).catch((err) => {
+                log(
+                  `write-back failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
+                );
+              });
+
+              await client
+                .createComment(
+                  linearIssueId,
+                  `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
+                )
+                .catch((err) => {
+                  log(
+                    `comment failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
+                  );
+                });
+
+              log(`task ${linearIssueId} CI failed, cycles exhausted → failed`);
+            }
+          });
+          return { status: "ci_failure" };
+        } // end else (not a flake)
       }
 
       // "pending" — sleep and poll again
