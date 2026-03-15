@@ -520,6 +520,11 @@ export const taskLifecycle = inngest.createFunction(
           appendSystemPrompt = config.implementSystemPrompt || undefined;
         }
 
+        // Check capacity BEFORE inserting invocation — inserting first would
+        // leave a phantom "running" row in the DB if the check throws.
+        assertSessionCapacity(db);
+        claimSessionSlot();
+
         const now = new Date().toISOString();
         const invocationId = insertInvocation(db, {
           linearIssueId: taskId,
@@ -535,8 +540,6 @@ export const taskLifecycle = inngest.createFunction(
           logPath: `logs/${invocationId}.ndjson`,
         });
 
-        assertSessionCapacity(db);
-        claimSessionSlot();
         const startedAt = Date.now();
         const handle = spawnSession({
           agentPrompt,
@@ -937,6 +940,9 @@ export const taskLifecycle = inngest.createFunction(
             baseRef,
           });
 
+          assertSessionCapacity(db);
+          claimSessionSlot();
+
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
             linearIssueId: taskId,
@@ -952,8 +958,6 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
-          assertSessionCapacity(db);
-          claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
@@ -1218,6 +1222,9 @@ export const taskLifecycle = inngest.createFunction(
             updateTaskFixReason(db, taskId, null);
           }
 
+          assertSessionCapacity(db);
+          claimSessionSlot();
+
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
             linearIssueId: taskId,
@@ -1233,8 +1240,6 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
-          assertSessionCapacity(db);
-          claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
