@@ -595,8 +595,27 @@ describe("GET /api/metrics — contract", () => {
     const res = await app.request("/api/metrics");
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(typeof body.uptime).toBe("object");
+    expect(typeof body.uptime.restartsToday).toBe("number");
+    expect(typeof body.throughput).toBe("object");
+    expect(typeof body.throughput.last24h.completed).toBe("number");
+    expect(typeof body.throughput.last24h.failed).toBe("number");
+    expect(typeof body.throughput.last7d.completed).toBe("number");
+    expect(typeof body.throughput.last7d.failed).toBe("number");
+    expect(typeof body.errors).toBe("object");
+    expect(typeof body.errors.lastHour).toBe("number");
+    expect(typeof body.errors.last24h).toBe("number");
+    expect(typeof body.queue).toBe("object");
+    expect(typeof body.queue.ready).toBe("number");
+    expect(typeof body.queue.running).toBe("number");
+    expect(typeof body.queue.inReview).toBe("number");
+    expect(typeof body.budget).toBe("object");
+    expect(typeof body.budget.costInWindow).toBe("number");
+    expect(typeof body.budget.limit).toBe("number");
+    expect(typeof body.budget.windowHours).toBe("number");
+    expect(Array.isArray(body.recentEvents)).toBe(true);
+    // Legacy fields (backward-compat with dashboard)
     expect(typeof body.tasksByStatus).toBe("object");
-    expect(body.tasksByStatus).not.toBeNull();
     expect(typeof body.invocationStats).toBe("object");
     expect(Array.isArray(body.recentErrors)).toBe(true);
     expect(typeof body.costLast24h).toBe("number");

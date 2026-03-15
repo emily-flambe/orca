@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS budget_events (
   recorded_at TEXT NOT NULL
 )`;
 
+const CREATE_SYSTEM_EVENTS = `
+CREATE TABLE IF NOT EXISTS system_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  metadata TEXT,
+  created_at TEXT NOT NULL
+)`;
+
 const CREATE_CRON_SCHEDULES = `
 CREATE TABLE IF NOT EXISTS cron_schedules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -363,6 +372,7 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_INVOCATIONS);
   sqlite.exec(CREATE_BUDGET_EVENTS);
   sqlite.exec(CREATE_CRON_SCHEDULES);
+  sqlite.exec(CREATE_SYSTEM_EVENTS);
 
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.

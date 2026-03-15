@@ -29,6 +29,7 @@ vi.mock("../src/db/queries.js", () => ({
   updateTaskStatus: vi.fn(),
   updateTaskFields: vi.fn(),
   clearSessionIds: vi.fn(),
+  insertSystemEvent: vi.fn(),
 }));
 
 vi.mock("../src/db/index.js", () => ({

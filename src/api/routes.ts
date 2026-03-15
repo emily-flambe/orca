@@ -33,6 +33,9 @@ import {
   getRecentActivity,
   sumCostInWindowRange,
   getSuccessRate12h,
+  getRecentSystemEvents,
+  countSystemEventsSince,
+  getLastStartup,
   getAllCronSchedules,
   getCronSchedule,
   insertCronSchedule,
@@ -658,6 +661,139 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/metrics
+  // -----------------------------------------------------------------------
+  app.get("/api/metrics", (c) => {
+    const now = new Date();
+    const oneDayAgo = new Date(
+      now.getTime() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const sevenDaysAgo = new Date(
+      now.getTime() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+
+    // Uptime
+    const lastStartup = getLastStartup(db);
+    const uptimeSeconds = lastStartup
+      ? Math.floor(
+          (now.getTime() - new Date(lastStartup.createdAt).getTime()) / 1000,
+        )
+      : null;
+
+    // Task throughput
+    const completedToday = countSystemEventsSince(
+      db,
+      oneDayAgo,
+      "task_completed",
+    );
+    const failedToday = countSystemEventsSince(db, oneDayAgo, "task_failed");
+    const completed7d = countSystemEventsSince(
+      db,
+      sevenDaysAgo,
+      "task_completed",
+    );
+    const failed7d = countSystemEventsSince(db, sevenDaysAgo, "task_failed");
+
+    // Error rate
+    const errorsToday = countSystemEventsSince(db, oneDayAgo, "error");
+    const errorsLastHour = countSystemEventsSince(db, oneHourAgo, "error");
+
+    // Restart count (startups in last 24h — first one is normal, extras are restarts)
+    const startupsToday = countSystemEventsSince(db, oneDayAgo, "startup");
+    const restartsToday = Math.max(0, startupsToday - 1);
+
+    // Current queue state
+    const allTasksForMetrics = getAllTasks(db);
+    const queueDepth = allTasksForMetrics.filter(
+      (t) => t.orcaStatus === "ready",
+    ).length;
+    const runningCount = allTasksForMetrics.filter(
+      (t) => t.orcaStatus === "running",
+    ).length;
+    const inReviewCount = allTasksForMetrics.filter(
+      (t) => t.orcaStatus === "in_review",
+    ).length;
+
+    // Budget
+    const metricsWindowStart = budgetWindowStart(config.budgetWindowHours);
+    const costInWindowMetrics = sumCostInWindow(db, metricsWindowStart);
+
+    // Recent events for timeline
+    const recentEvents = getRecentSystemEvents(db, 50);
+
+    // Legacy fields (backward-compat with dashboard)
+    const tasksByStatus: Record<string, number> = {};
+    for (const task of allTasksForMetrics) {
+      tasksByStatus[task.orcaStatus] =
+        (tasksByStatus[task.orcaStatus] ?? 0) + 1;
+    }
+    const invocationStats = getInvocationStats(db);
+    const recentErrors = getRecentErrors(db, 20);
+    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
+    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
+    const prev24hStart = new Date(
+      now.getTime() - 48 * 60 * 60 * 1000,
+    ).toISOString();
+    const prev24hEnd = new Date(
+      now.getTime() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
+    const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
+    const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
+    const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
+    const dailyStats = getDailyStats(db, 14);
+    const recentActivity = getRecentActivity(db, 20);
+    const successRate12h = getSuccessRate12h(db);
+
+    return c.json({
+      uptime: {
+        seconds: uptimeSeconds,
+        since: lastStartup?.createdAt ?? null,
+        restartsToday,
+      },
+      throughput: {
+        last24h: { completed: completedToday, failed: failedToday },
+        last7d: { completed: completed7d, failed: failed7d },
+      },
+      errors: {
+        lastHour: errorsLastHour,
+        last24h: errorsToday,
+      },
+      queue: {
+        ready: queueDepth,
+        running: runningCount,
+        inReview: inReviewCount,
+      },
+      budget: {
+        costInWindow: costInWindowMetrics,
+        limit: config.budgetMaxCostUsd,
+        windowHours: config.budgetWindowHours,
+      },
+      recentEvents: recentEvents.map((e) => ({
+        id: e.id,
+        type: e.type,
+        message: e.message,
+        metadata: e.metadata ? JSON.parse(e.metadata) : null,
+        createdAt: e.createdAt,
+      })),
+      // Legacy fields (backward-compat with dashboard)
+      tasksByStatus,
+      invocationStats,
+      recentErrors,
+      costLast24h,
+      costLast7d,
+      costPrev24h,
+      tokensLast24h,
+      tokensLast7d,
+      tokensPrev24h,
+      dailyStats,
+      recentActivity,
+      successRate12h,
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/config
   // -----------------------------------------------------------------------
   app.post("/api/config", async (c) => {
@@ -732,53 +868,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       implementModel: config.implementModel,
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // GET /api/metrics
-  // -----------------------------------------------------------------------
-  app.get("/api/metrics", (c) => {
-    const allTasks = getAllTasks(db);
-    const tasksByStatus: Record<string, number> = {};
-    for (const task of allTasks) {
-      tasksByStatus[task.orcaStatus] =
-        (tasksByStatus[task.orcaStatus] ?? 0) + 1;
-    }
-
-    const invocationStats = getInvocationStats(db);
-    const recentErrors = getRecentErrors(db, 20);
-
-    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
-    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
-
-    const prev24hStart = new Date(
-      Date.now() - 48 * 60 * 60 * 1000,
-    ).toISOString();
-    const prev24hEnd = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
-
-    const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
-    const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
-    const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
-
-    const dailyStats = getDailyStats(db, 14);
-    const recentActivity = getRecentActivity(db, 20);
-    const successRate12h = getSuccessRate12h(db);
-
-    return c.json({
-      tasksByStatus,
-      invocationStats,
-      recentErrors,
-      costLast24h,
-      costLast7d,
-      costPrev24h,
-      tokensLast24h,
-      tokensLast7d,
-      tokensPrev24h,
-      dailyStats,
-      recentActivity,
-      successRate12h,
     });
   });
 

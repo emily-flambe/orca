@@ -35,6 +35,7 @@ import {
   getLastMaxTurnsInvocation,
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
+  insertSystemEvent,
 } from "../../db/queries.js";
 import { spawnSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -627,6 +628,15 @@ export const taskLifecycle = inngest.createFunction(
           if (!task) return { outcome: "permanent_fail" };
 
           if (task.retryCount >= config.maxRetries) {
+            insertSystemEvent(db, {
+              type: "task_failed",
+              message: `Task ${taskId} permanently failed`,
+              metadata: {
+                taskId,
+                phase: "implement",
+                retries: config.maxRetries,
+              },
+            });
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );
@@ -671,6 +681,15 @@ export const taskLifecycle = inngest.createFunction(
           if (isAlreadyDone || noChanges) {
             log(`task ${taskId}: work already on main — marking done`);
             updateTaskStatus(db, taskId, "done");
+            insertSystemEvent(db, {
+              type: "task_completed",
+              message: `Task ${taskId} completed`,
+              metadata: {
+                taskId,
+                phase: "implement",
+                reason: "already_on_main",
+              },
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
             try {
@@ -687,6 +706,16 @@ export const taskLifecycle = inngest.createFunction(
           updateTaskStatus(db, taskId, "failed");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
+            insertSystemEvent(db, {
+              type: "task_failed",
+              message: `Task ${taskId} permanently failed`,
+              metadata: {
+                taskId,
+                phase: "gate2",
+                reason: "no_branch_name",
+                retries: config.maxRetries,
+              },
+            });
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );
@@ -704,6 +733,11 @@ export const taskLifecycle = inngest.createFunction(
               `task ${taskId}: no PR found but work is already done — marking done`,
             );
             updateTaskStatus(db, taskId, "done");
+            insertSystemEvent(db, {
+              type: "task_completed",
+              message: `Task ${taskId} completed`,
+              metadata: { taskId, phase: "implement", reason: "already_done" },
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
             try {
@@ -723,6 +757,16 @@ export const taskLifecycle = inngest.createFunction(
           updateTaskStatus(db, taskId, "failed");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
+            insertSystemEvent(db, {
+              type: "task_failed",
+              message: `Task ${taskId} permanently failed`,
+              metadata: {
+                taskId,
+                phase: "gate2",
+                reason: "no_pr_found",
+                retries: config.maxRetries,
+              },
+            });
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );

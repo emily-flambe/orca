@@ -21,6 +21,7 @@ import {
   invocations,
   budgetEvents,
   cronSchedules,
+  systemEvents,
   type TaskStatus,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
@@ -932,4 +933,85 @@ export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
   }
 
   return oldTasks.length;
+}
+
+// ---------------------------------------------------------------------------
+// System event types
+// ---------------------------------------------------------------------------
+export type SystemEvent = typeof systemEvents.$inferSelect;
+export type SystemEventType = SystemEvent["type"];
+
+// ---------------------------------------------------------------------------
+// System event queries
+// ---------------------------------------------------------------------------
+
+/** Insert a system event. */
+export function insertSystemEvent(
+  db: OrcaDb,
+  event: {
+    type: SystemEventType;
+    message: string;
+    metadata?: Record<string, unknown>;
+  },
+): void {
+  db.insert(systemEvents)
+    .values({
+      type: event.type,
+      message: event.message,
+      metadata: event.metadata ? JSON.stringify(event.metadata) : null,
+      createdAt: new Date().toISOString(),
+    })
+    .run();
+}
+
+/** Get recent system events (newest first). */
+export function getRecentSystemEvents(db: OrcaDb, limit = 100): SystemEvent[] {
+  return db
+    .select()
+    .from(systemEvents)
+    .orderBy(desc(systemEvents.createdAt))
+    .limit(limit)
+    .all();
+}
+
+/** Get system events by type. */
+export function getSystemEventsByType(
+  db: OrcaDb,
+  type: SystemEventType,
+  limit = 50,
+): SystemEvent[] {
+  return db
+    .select()
+    .from(systemEvents)
+    .where(eq(systemEvents.type, type))
+    .orderBy(desc(systemEvents.createdAt))
+    .limit(limit)
+    .all();
+}
+
+/** Count events by type since a given timestamp. */
+export function countSystemEventsSince(
+  db: OrcaDb,
+  since: string,
+  type?: SystemEventType,
+): number {
+  const conditions = [gte(systemEvents.createdAt, since)];
+  if (type) conditions.push(eq(systemEvents.type, type));
+  const result = db
+    .select({ count: count() })
+    .from(systemEvents)
+    .where(and(...conditions))
+    .get();
+  return result?.count ?? 0;
+}
+
+/** Get uptime info: time since last startup event. */
+export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
+  return db
+    .select()
+    .from(systemEvents)
+    .where(eq(systemEvents.type, "startup"))
+    .orderBy(desc(systemEvents.createdAt))
+    .limit(1)
+    .get();
 }
