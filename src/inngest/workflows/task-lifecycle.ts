@@ -49,7 +49,12 @@ import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
 import { git } from "../../git.js";
-import { activeHandles } from "../../session-handles.js";
+import {
+  activeHandles,
+  claimSessionSlot,
+  releaseSessionSlot,
+  getPendingSessionCount,
+} from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 
@@ -62,14 +67,16 @@ const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
 
 /**
  * Process-level guard: throws if the number of active Claude sessions has
- * reached the concurrency cap.  This is a hard safety net independent of
- * Inngest's queue-based concurrency — prevents runaway session spawning even
- * if duplicate workflow runs slip through.
+ * reached the concurrency cap. Uses pendingSessionCount (incremented
+ * synchronously before spawn) to close the TOCTOU window where multiple
+ * Inngest step callbacks could all see activeHandles.size === 0.
  */
 function assertSessionCapacity(): void {
-  if (activeHandles.size >= CONCURRENCY_CAP) {
+  const pending = getPendingSessionCount();
+  const effective = Math.max(activeHandles.size, pending);
+  if (effective >= CONCURRENCY_CAP) {
     throw new Error(
-      `session cap reached: ${activeHandles.size} active sessions (cap=${CONCURRENCY_CAP})`,
+      `session cap reached: ${effective} active sessions (cap=${CONCURRENCY_CAP}), handles=${activeHandles.size}, pending=${pending}`,
     );
   }
 }
@@ -146,6 +153,7 @@ function bridgeSessionCompletion(
       const invStatus = result.subtype === "success" ? "completed" : "failed";
 
       activeHandles.delete(invocationId);
+      releaseSessionSlot();
 
       inngest
         .send({
@@ -174,6 +182,7 @@ function bridgeSessionCompletion(
     })
     .catch((err) => {
       activeHandles.delete(invocationId);
+      releaseSessionSlot();
 
       // Process-level error — send a synthetic failure event so the workflow
       // doesn't wait forever before timing out.
@@ -524,6 +533,7 @@ export const taskLifecycle = inngest.createFunction(
         });
 
         assertSessionCapacity();
+        claimSessionSlot();
         const startedAt = Date.now();
         const handle = spawnSession({
           agentPrompt,
@@ -940,6 +950,7 @@ export const taskLifecycle = inngest.createFunction(
           });
 
           assertSessionCapacity();
+          claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
@@ -1220,6 +1231,7 @@ export const taskLifecycle = inngest.createFunction(
           });
 
           assertSessionCapacity();
+          claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
