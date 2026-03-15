@@ -135,7 +135,7 @@ export function registerExpectedChange(
   stateName: string,
 ): void {
   const entries = expectedChanges.get(taskId) ?? [];
-  entries.push({ stateName, expiresAt: Date.now() + 30_000 });
+  entries.push({ stateName, expiresAt: Date.now() + 90_000 });
   expectedChanges.set(taskId, entries);
 }
 
@@ -859,7 +859,9 @@ export async function writeBackStatus(
   }
 
   // Register BEFORE the API call so the echo window covers API latency + webhook delay.
-  // TTL is 30s to account for slow API calls + Linear webhook delivery lag.
+  // TTL is 90s to account for slow API calls + Linear webhook delivery lag,
+  // especially during rapid retry-redispatch cycles where multiple state changes
+  // compete for Linear's webhook pipeline.
   registerExpectedChange(taskId, stateEntry.name);
 
   try {

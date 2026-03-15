@@ -710,7 +710,9 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           incrementRetryCount(db, taskId);
-          writeBackStatus(client, taskId, "retry", stateMap).catch(() => {});
+          // Skip "retry" (Todo) write-back — immediate re-dispatch will write
+          // "In Progress" within seconds, and the intermediate "Todo" webhook
+          // can arrive after echo TTL expires, killing the new session.
           return { outcome: "retry" };
         }
 
