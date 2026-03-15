@@ -31,15 +31,13 @@ import { initTaskLifecycle } from "../inngest/workflows/task-lifecycle.js";
 import { setSchedulerDeps } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
+import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 
 const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
-
 const program = new Command();
 
 program
@@ -295,27 +293,6 @@ program
     const server = serve({ fetch: app.fetch, port: config.port });
     logger.info(`Hono server listening on port ${config.port}`);
 
-    // Write port-aware pidfile to avoid collisions during blue/green deploy
-    const pidFile = join(process.cwd(), `orca-${config.port}.pid`);
-    writeFileSync(pidFile, String(process.pid));
-    // Legacy pidfile for backward compat with scripts/deploy.sh
-    const legacyPidFile = join(process.cwd(), "orca.pid");
-    writeFileSync(legacyPidFile, String(process.pid));
-    for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
-      process.on(sig, () => {
-        try {
-          unlinkSync(pidFile);
-        } catch {
-          /* already gone */
-        }
-        try {
-          unlinkSync(legacyPidFile);
-        } catch {
-          /* already gone */
-        }
-      });
-    }
-
     // Start cloudflared tunnel (skip in external tunnel mode)
     let tunnel: TunnelHandle | null = null;
     if (config.externalTunnel) {
@@ -344,6 +321,30 @@ program
     initTaskLifecycle({ db, config, client, stateMap });
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
+
+    // Signal PM2 that the app is ready to accept traffic
+    if (typeof process.send === "function") {
+      process.send("ready");
+    }
+
+    // Self-health monitoring: detect DLL_INIT degradation and exit for PM2 restart
+    let consecutiveDllFailures = 0;
+    setInterval(() => {
+      if (probeDllHealth()) {
+        consecutiveDllFailures = 0;
+      } else {
+        consecutiveDllFailures++;
+        logger.warn(
+          `DLL health check failed (${consecutiveDllFailures} consecutive)`,
+        );
+        if (consecutiveDllFailures >= 3) {
+          logger.error(
+            "DLL_INIT degradation detected — exiting for PM2 restart",
+          );
+          process.exit(1);
+        }
+      }
+    }, 60_000);
 
     // Graceful shutdown
     let shuttingDown = false;

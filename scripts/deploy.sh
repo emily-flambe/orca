@@ -25,54 +25,6 @@ json_field() {
   "
 }
 
-# Helper: kill a process (cross-platform)
-kill_pid() {
-  local pid="$1"
-  if command -v taskkill &>/dev/null; then
-    taskkill //PID "$pid" //F 2>/dev/null || true
-  else
-    kill -9 "$pid" 2>/dev/null || true
-  fi
-}
-
-# Helper: kill all Orca instances except the tracked old one
-kill_orphans() {
-  local exclude_pid="${1:-}"
-  local found=0
-  if command -v wmic &>/dev/null; then
-    # Windows: parse wmic CSV output
-    local csv
-    csv=$(wmic process where "name='node.exe'" get ProcessId,CommandLine /format:csv 2>/dev/null || true)
-    while IFS= read -r line; do
-      if echo "$line" | grep -qi "cli/index.ts"; then
-        local pid
-        pid=$(echo "$line" | awk -F',' '{gsub(/[[:space:]]/,"",$NF); print $NF}')
-        if [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]]; then
-          if [[ -z "$exclude_pid" || "$pid" != "$exclude_pid" ]]; then
-            log "killing orphaned instance PID=$pid"
-            kill_pid "$pid"
-            found=$((found + 1))
-          fi
-        fi
-      fi
-    done <<< "$csv"
-  else
-    # Unix: use pgrep
-    local pids
-    pids=$(pgrep -f "cli/index.ts" 2>/dev/null || true)
-    for pid in $pids; do
-      if [[ -z "$exclude_pid" || "$pid" != "$exclude_pid" ]]; then
-        log "killing orphaned instance PID=$pid"
-        kill_pid "$pid"
-        found=$((found + 1))
-      fi
-    done
-  fi
-  if [[ "$found" -eq 0 ]]; then
-    log "no orphaned instances found"
-  fi
-}
-
 # ---------------------------------------------------------------------------
 # Lockfile — prevent concurrent deploys
 # ---------------------------------------------------------------------------
@@ -103,24 +55,6 @@ fi
 log "active=$ACTIVE_PORT  standby=$STANDBY_PORT"
 
 # ---------------------------------------------------------------------------
-# Save old PID BEFORE building (pidfile will be overwritten by new instance)
-# ---------------------------------------------------------------------------
-OLD_PID=""
-for PIDFILE in "$PROJECT_DIR/orca-${ACTIVE_PORT}.pid" "$PROJECT_DIR/orca.pid"; do
-  if [[ -f "$PIDFILE" ]]; then
-    OLD_PID=$(cat "$PIDFILE" 2>/dev/null || true)
-    if [[ -n "$OLD_PID" ]]; then
-      log "old instance PID=$OLD_PID (from $PIDFILE)"
-      break
-    fi
-  fi
-done
-
-if [[ -z "$OLD_PID" ]]; then
-  log "WARNING: no pidfile found — old instance may need manual cleanup"
-fi
-
-# ---------------------------------------------------------------------------
 # Pull, install, build  (must succeed before we touch the running instance)
 # ---------------------------------------------------------------------------
 cd "$PROJECT_DIR"
@@ -134,22 +68,21 @@ npm install
 log "building frontend..."
 (cd web && npm run build)
 
-# Build succeeded — safe to clean up orphaned instances now
-log "killing any orphaned Orca instances..."
-kill_orphans "$OLD_PID"
+# Build succeeded — safe to clean up before starting new instance
+# Stop any existing PM2 processes on the standby port (clean slate)
+log "stopping any existing PM2 process on standby port $STANDBY_PORT..."
+PM2="$PROJECT_DIR/node_modules/.bin/pm2"
+$PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Start new instance on standby port
 # ---------------------------------------------------------------------------
 log "starting new instance on port $STANDBY_PORT..."
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT 2>/dev/null || true
-ORCA_PORT=$STANDBY_PORT ORCA_EXTERNAL_TUNNEL=true \
-  npx tsx src/cli/index.ts start \
-  >> "$PROJECT_DIR/orca.log" 2>&1 &
-NEW_PID=$!
-echo "$NEW_PID" > "$PROJECT_DIR/orca-${STANDBY_PORT}.pid"
-disown
-log "new instance PID=$NEW_PID"
+
+# Start via PM2 ecosystem config
+$PM2 start ecosystem.config.cjs --only "orca-${STANDBY_PORT}"
+log "new instance started via PM2"
 
 # ---------------------------------------------------------------------------
 # Health check new instance (retry up to 60 times, 2s apart = 120s max)
@@ -167,7 +100,7 @@ done
 
 if [[ "$HEALTH_OK" != "true" ]]; then
   log "ERROR: health check failed after 120s — rolling back"
-  kill_pid "$NEW_PID"
+  $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
   exit 1
 fi
 
@@ -230,16 +163,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Drain old instance and kill immediately
+# Drain old instance and stop via PM2
 # ---------------------------------------------------------------------------
-if [[ -n "$OLD_PID" ]]; then
+if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
   log "draining old instance on port $ACTIVE_PORT (stop scheduler)..."
   curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
 
-  log "killing old instance (PID=$OLD_PID)..."
-  kill_pid "$OLD_PID"
-
-  rm -f "$PROJECT_DIR/orca-${ACTIVE_PORT}.pid" 2>/dev/null || true
+  log "stopping old instance via PM2..."
+  $PM2 delete "orca-${ACTIVE_PORT}" 2>/dev/null || true
 fi
 
 # ---------------------------------------------------------------------------
@@ -257,7 +188,7 @@ node -e "
     activePort:$STANDBY_PORT,
     standbyPort:$ACTIVE_PORT,
     deployedAt:new Date().toISOString(),
-    pid:$NEW_PID
+    pm2Name:'orca-$STANDBY_PORT'
   },null,2)+'\n');
 "
 

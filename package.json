@@ -18,7 +18,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "test:e2e": "playwright test",
-    "inngest:start": "bash scripts/start-inngest.sh"
+    "inngest:start": "bash scripts/start-inngest.sh",
+    "pm2:start": "npx pm2 start ecosystem.config.cjs",
+    "pm2:stop": "npx pm2 stop all",
+    "pm2:status": "npx pm2 status",
+    "pm2:logs": "npx pm2 logs"
   },
   "keywords": [
     "ai",
@@ -37,7 +41,8 @@
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.12.3",
-    "inngest": "^3.52.6"
+    "inngest": "^3.52.6",
+    "pm2": "^6.0.14"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

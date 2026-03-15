@@ -23,3 +23,6 @@ tmp/
 incidents/
 bugs/
 .inngest/
+
+# PM2
+.pm2/
