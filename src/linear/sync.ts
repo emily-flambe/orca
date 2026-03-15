@@ -189,7 +189,11 @@ export function buildPrompt(issue: LinearIssue): string {
   return ownPrompt;
 }
 
-function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
+function upsertTask(
+  db: OrcaDb,
+  issue: LinearIssue,
+  config: OrcaConfig,
+): boolean {
   // Canceled → transition existing tasks to failed; skip creating new ones.
   if (issue.state.type === "canceled") {
     const existing = getTask(db, issue.identifier);
@@ -198,7 +202,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
     }
-    return;
+    return false;
   }
 
   const orcaStatus = mapLinearStateToOrcaStatus(
@@ -208,7 +212,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
   );
 
   // Skip backlog and unknown states
-  if (orcaStatus === null) return;
+  if (orcaStatus === null) return false;
 
   // Resolve repo path: per-project map → defaultCwd fallback → skip
   const repoPath =
@@ -217,7 +221,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
     log(
       `skipping ${issue.identifier}: no repo path for project ${issue.projectId}`,
     );
-    return;
+    return false;
   }
 
   const agentPrompt = buildPrompt(issue);
@@ -250,6 +254,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
       createdAt: now,
       updatedAt: now,
     });
+    return insertStatus === "ready";
   } else {
     // Determine whether Linear's state should override Orca's local status.
     //
@@ -290,6 +295,7 @@ function upsertTask(db: OrcaDb, issue: LinearIssue, config: OrcaConfig): void {
           }
         : {}),
     });
+    return effectiveStatus === "ready" && existing.orcaStatus !== "ready";
   }
 }
 
@@ -367,6 +373,7 @@ export async function fullSync(
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
   labelIdCache?: Map<string, string>,
+  inngest?: InngestClient,
 ): Promise<LinearIssue[]> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
@@ -392,8 +399,10 @@ export async function fullSync(
     }
   }
 
+  const readyToEmit: string[] = [];
   for (const issue of filteredIssues) {
-    upsertTask(db, issue, config);
+    const shouldEmit = upsertTask(db, issue, config);
+    if (shouldEmit) readyToEmit.push(issue.identifier);
   }
 
   graph.rebuild(filteredIssues);
@@ -401,6 +410,29 @@ export async function fullSync(
   // Evaluate parent statuses after all upserts
   if (stateMap) {
     await evaluateParentStatuses(db, client, stateMap);
+  }
+
+  if (inngest && readyToEmit.length > 0) {
+    for (const id of readyToEmit) {
+      const task = getTask(db, id);
+      if (task) {
+        inngest
+          .send({
+            name: "task/ready",
+            data: {
+              linearIssueId: task.linearIssueId,
+              repoPath: task.repoPath,
+              priority: task.priority,
+              projectName: task.projectName ?? null,
+              taskType: task.taskType,
+              createdAt: task.createdAt,
+            },
+          })
+          .catch((err: unknown) => {
+            log(`failed to emit task/ready for ${id}: ${err}`);
+          });
+      }
+    }
   }
 
   emitTasksRefreshed();

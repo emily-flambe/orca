@@ -6,6 +6,7 @@ import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
+import type { InngestClient } from "../inngest/client.js";
 import { fullSync } from "./sync.js";
 import { createLogger } from "../logger.js";
 
@@ -20,6 +21,7 @@ export interface PollerDeps {
   config: OrcaConfig;
   stateMap: WorkflowStateMap;
   labelIdCache?: Map<string, string>;
+  inngest?: InngestClient;
   isTunnelConnected: () => boolean;
 }
 
@@ -121,6 +123,7 @@ export function createPoller(deps: PollerDeps): PollerHandle {
         deps.config,
         deps.stateMap,
         deps.labelIdCache,
+        deps.inngest,
       );
 
       // Success — reset backoff
