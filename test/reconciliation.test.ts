@@ -75,7 +75,11 @@ function seedTask(
  */
 function runReconciliation(
   db: OrcaDb,
-  config: { sessionTimeoutMin: number; deployTimeoutMin: number; maxRetries: number },
+  config: {
+    sessionTimeoutMin: number;
+    deployTimeoutMin: number;
+    maxRetries: number;
+  },
   activeHandleIds: Set<number>,
 ): { reconciled: string[]; failed: string[] } {
   const now = Date.now();
@@ -134,8 +138,8 @@ function runReconciliation(
 // Threshold constants (derived from testConfig — kept here for clarity)
 // ---------------------------------------------------------------------------
 const SESSION_THRESHOLD_MS = (testConfig.sessionTimeoutMin + 10) * 60 * 1000; // 3,300,000
-const DEPLOY_THRESHOLD_MS = (testConfig.deployTimeoutMin + 10) * 60 * 1000;   // 2,400,000
-const AWAITING_CI_THRESHOLD_MS = 3 * 60 * 60 * 1000;                          // 10,800,000
+const DEPLOY_THRESHOLD_MS = (testConfig.deployTimeoutMin + 10) * 60 * 1000; // 2,400,000
+const AWAITING_CI_THRESHOLD_MS = 3 * 60 * 60 * 1000; // 10,800,000
 
 // ---------------------------------------------------------------------------
 // Tests: running / dispatched state
@@ -285,12 +289,7 @@ describe("reconciliation — deploying tasks", () => {
   });
 
   test("deploying task older than deployThreshold is reset to ready", () => {
-    seedTask(
-      db,
-      "TASK-DEP1",
-      "deploying",
-      ageAgo(DEPLOY_THRESHOLD_MS + 3000),
-    );
+    seedTask(db, "TASK-DEP1", "deploying", ageAgo(DEPLOY_THRESHOLD_MS + 3000));
 
     const { reconciled } = runReconciliation(db, testConfig, new Set());
 
@@ -299,12 +298,7 @@ describe("reconciliation — deploying tasks", () => {
   });
 
   test("deploying task with recent updatedAt is NOT reconciled", () => {
-    seedTask(
-      db,
-      "TASK-DEP2",
-      "deploying",
-      ageAgo(DEPLOY_THRESHOLD_MS - 1000),
-    );
+    seedTask(db, "TASK-DEP2", "deploying", ageAgo(DEPLOY_THRESHOLD_MS - 1000));
 
     const { reconciled, failed } = runReconciliation(db, testConfig, new Set());
 
@@ -411,7 +405,12 @@ describe("reconciliation — terminal and non-intermediate states", () => {
   });
 
   test("backlog task is never reconciled", () => {
-    seedTask(db, "TASK-BACKLOG", "backlog", ageAgo(SESSION_THRESHOLD_MS + 1000));
+    seedTask(
+      db,
+      "TASK-BACKLOG",
+      "backlog",
+      ageAgo(SESSION_THRESHOLD_MS + 1000),
+    );
 
     const { reconciled, failed } = runReconciliation(db, testConfig, new Set());
 
@@ -468,7 +467,13 @@ describe("reconciliation — multiple stranded tasks in one pass", () => {
     seedTask(db, "MULTI-AWAITING_CI", "awaiting_ci", ageAgo(OLD_CI));
     seedTask(db, "MULTI-DEPLOYING", "deploying", ageAgo(OLD_DEPLOY));
     // This one has retries exhausted — should be failed
-    seedTask(db, "MULTI-EXHAUSTED", "running", ageAgo(OLD), testConfig.maxRetries);
+    seedTask(
+      db,
+      "MULTI-EXHAUSTED",
+      "running",
+      ageAgo(OLD),
+      testConfig.maxRetries,
+    );
     // Terminal tasks should be untouched
     seedTask(db, "MULTI-DONE", "done", ageAgo(OLD));
     seedTask(db, "MULTI-FAILED", "failed", ageAgo(OLD));
@@ -589,7 +594,13 @@ describe("reconciliation — edge cases", () => {
   });
 
   test("retryCount of 0 (default) is still reset to ready when stuck", () => {
-    seedTask(db, "TASK-ZERO-RETRY", "running", ageAgo(SESSION_THRESHOLD_MS + 1000), 0);
+    seedTask(
+      db,
+      "TASK-ZERO-RETRY",
+      "running",
+      ageAgo(SESSION_THRESHOLD_MS + 1000),
+      0,
+    );
 
     const { reconciled } = runReconciliation(db, testConfig, new Set());
 

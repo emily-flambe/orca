@@ -22,14 +22,25 @@ vi.mock("node:fs", () => ({
 
 import { existsSync } from "node:fs";
 import { git } from "../src/git.js";
-import { findPrForBranch, findPrByUrl, pushAndCreatePr } from "../src/github/index.js";
-import { verifyPr, type VerifyPrInput } from "../src/inngest/activities/verify-pr.js";
+import {
+  findPrForBranch,
+  findPrByUrl,
+  pushAndCreatePr,
+} from "../src/github/index.js";
+import {
+  verifyPr,
+  type VerifyPrInput,
+} from "../src/inngest/activities/verify-pr.js";
 
 const gitMock = git as unknown as ReturnType<typeof vi.fn>;
 const existsMock = existsSync as unknown as ReturnType<typeof vi.fn>;
-const findPrForBranchMock = findPrForBranch as unknown as ReturnType<typeof vi.fn>;
+const findPrForBranchMock = findPrForBranch as unknown as ReturnType<
+  typeof vi.fn
+>;
 const findPrByUrlMock = findPrByUrl as unknown as ReturnType<typeof vi.fn>;
-const pushAndCreatePrMock = pushAndCreatePr as unknown as ReturnType<typeof vi.fn>;
+const pushAndCreatePrMock = pushAndCreatePr as unknown as ReturnType<
+  typeof vi.fn
+>;
 
 function baseInput(overrides?: Partial<VerifyPrInput>): VerifyPrInput {
   return {
@@ -174,12 +185,12 @@ describe("already done detection", () => {
     // git remote get-url (no URL in summary so won't hit URL fallback path — summary has no github URL)
     // recovery: git log origin/main..HEAD — throws (no unpushed)
     gitMock
-      .mockImplementationOnce(() => { throw new Error("no unpushed"); }) // recovery log
+      .mockImplementationOnce(() => {
+        throw new Error("no unpushed");
+      }) // recovery log
       .mockReturnValueOnce(""); // worktreeHasNoChanges diff
 
-    const result = await verifyPr(
-      baseInput({ summary: "Fixed the bug" }),
-    );
+    const result = await verifyPr(baseInput({ summary: "Fixed the bug" }));
 
     expect(result.status).toBe("already_done");
     expect(result).toHaveProperty("message", "no local commits on worktree");
@@ -196,7 +207,10 @@ describe("already done detection", () => {
     );
 
     expect(result.status).toBe("already_done");
-    expect(result).toHaveProperty("message", "output summary indicates already done");
+    expect(result).toHaveProperty(
+      "message",
+      "output summary indicates already done",
+    );
   });
 
   test("returns already_done when no branchName and worktree has no changes", async () => {
@@ -255,9 +269,7 @@ describe("no PR found", () => {
   test("returns no_pr when all checks fail", async () => {
     existsMock.mockReturnValue(false);
 
-    const result = await verifyPr(
-      baseInput({ summary: "I created a PR" }),
-    );
+    const result = await verifyPr(baseInput({ summary: "I created a PR" }));
 
     expect(result).toEqual({
       status: "no_pr",

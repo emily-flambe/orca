@@ -33,10 +33,8 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
       const { db, config } = deps;
 
       const now = Date.now();
-      const sessionThresholdMs =
-        (config.sessionTimeoutMin + 10) * 60 * 1000;
-      const deployThresholdMs =
-        (config.deployTimeoutMin + 10) * 60 * 1000;
+      const sessionThresholdMs = (config.sessionTimeoutMin + 10) * 60 * 1000;
+      const deployThresholdMs = (config.deployTimeoutMin + 10) * 60 * 1000;
       const awaitingCiThresholdMs = 3 * 60 * 60 * 1000;
 
       const allTasks = getAllTasks(db);
@@ -50,10 +48,7 @@ export const stuckTaskReconciliationWorkflow = inngest.createFunction(
         let shouldReconcile = false;
         let reason = "";
 
-        if (
-          task.orcaStatus === "running" ||
-          task.orcaStatus === "dispatched"
-        ) {
+        if (task.orcaStatus === "running" || task.orcaStatus === "dispatched") {
           if (ageMs > sessionThresholdMs) {
             // Check if any running invocation for this task has an active handle
             const taskInvocations = runningInvocations.filter(
