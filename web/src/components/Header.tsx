@@ -1,4 +1,6 @@
+import { useState, useEffect } from "react";
 import type { Page } from "./Sidebar";
+import { fetchStatus } from "../hooks/useApi.js";
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard: "Dashboard",
@@ -9,12 +11,56 @@ const PAGE_TITLES: Record<Page, string> = {
   cron: "Cron",
 };
 
+function useHealthStatus(): boolean | null {
+  const [online, setOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function check() {
+      try {
+        await fetchStatus();
+        if (!cancelled) setOnline(true);
+      } catch {
+        if (!cancelled) setOnline(false);
+      }
+    }
+
+    check();
+    const id = setInterval(check, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  return online;
+}
+
+function HealthDot({ online }: { online: boolean | null }) {
+  const color =
+    online === null
+      ? "bg-gray-500"
+      : online
+        ? "bg-green-400"
+        : "bg-red-500";
+  const label = online === null ? "Checking..." : online ? "Online" : "Offline";
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${color} shrink-0`}
+      title={label}
+      aria-label={label}
+    />
+  );
+}
+
 interface HeaderProps {
   activePage: Page;
   onOpenSidebar: () => void;
 }
 
 export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
+  const online = useHealthStatus();
   return (
     <div className="sticky top-0 z-20 h-14 flex items-center px-4 border-b border-gray-800 bg-gray-950 shrink-0">
       {/* Left side */}
@@ -39,15 +85,17 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
         </svg>
       </button>
 
-      <span className="md:hidden text-sm font-bold tracking-widest uppercase text-gray-100">
+      <span className="md:hidden flex items-center gap-2 text-sm font-bold tracking-widest uppercase text-gray-100">
         Orca
+        <HealthDot online={online} />
       </span>
 
       <span className="hidden md:block text-sm font-semibold text-gray-200">
         {PAGE_TITLES[activePage]}
       </span>
 
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-3">
+        <HealthDot online={online} />
         <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
           Settings
         </button>
