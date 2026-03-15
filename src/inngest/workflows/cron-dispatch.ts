@@ -53,6 +53,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
               cwd,
               timeout: 60_000,
               stdio: "pipe",
+              shell: process.platform === "win32" ? "bash" : "/bin/sh",
             });
             incrementCronRunCount(
               db,
