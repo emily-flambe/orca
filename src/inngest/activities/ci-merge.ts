@@ -21,7 +21,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type CiStatus = "pending" | "success" | "failure";
+export type CiStatus = "pending" | "success" | "failure" | "error";
 
 export type MergeStatus =
   | "merged"
@@ -68,6 +68,10 @@ export async function checkCiStatus(
   }
   if (status === "failure") {
     return { status: "failure" };
+  }
+  if (status === "error") {
+    // gh CLI failed (transient) — caller should treat as retriable
+    return { status: "error" };
   }
   // "pending" — Inngest will sleep and call again
   return { status: "pending" };

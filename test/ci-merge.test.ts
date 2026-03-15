@@ -72,6 +72,12 @@ describe("checkCiStatus", () => {
     const result = await checkCiStatus(input);
     expect(result.status).toBe("failure");
   });
+
+  test("returns error when gh CLI fails (transient)", async () => {
+    mockGetPrCheckStatus.mockResolvedValue("error");
+    const result = await checkCiStatus(input);
+    expect(result.status).toBe("error");
+  });
 });
 
 // ---------------------------------------------------------------------------

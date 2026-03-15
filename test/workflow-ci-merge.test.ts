@@ -683,6 +683,38 @@ describe("ci-merge workflow", () => {
     expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
   });
 
+  test("CI error → treated as pending, continues polling, eventually succeeds", async () => {
+    // Iteration 1: error (transient gh CLI failure) → sleep → iteration 2: success → merge
+    mockGetTask
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 1
+      .mockReturnValueOnce(makeTask()) // outer loop iteration 2
+      .mockReturnValueOnce(makeTask()) // mergeAndFinalize task lookup
+      .mockReturnValue(makeTask()); // subsequent calls
+
+    mockGetPrCheckStatus
+      .mockResolvedValueOnce("error") // iteration 1: transient error
+      .mockResolvedValueOnce("success"); // iteration 2: success
+
+    mockGetPrMergeState.mockResolvedValue({
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN",
+    });
+    mockMergePr.mockResolvedValue({ merged: true });
+    mockGetMergeCommitSha.mockResolvedValue("abc999");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent(),
+      step,
+    });
+
+    // Should not have merged on the error iteration
+    expect(step.sleep).toHaveBeenCalledWith("ci-poll-wait-1", "30s");
+    // Should eventually merge
+    expect(result).toMatchObject({ status: "merged" });
+    expect(mockMergePr).toHaveBeenCalledWith(42, "/repo");
+  });
+
   test("poll exhaustion → no duplicate explicit createComment call (alert handles it)", async () => {
     // sendPermanentFailureAlert handles the Linear comment + webhook.
     // No extra explicit createComment call should occur from the exhaustion step.

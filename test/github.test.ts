@@ -441,7 +441,7 @@ describe("getPrCheckStatus", () => {
     expect(result).toBe("success");
   });
 
-  test("returns no_checks on gh CLI failure", async () => {
+  test("returns error on gh CLI failure (after retries)", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
@@ -449,7 +449,28 @@ describe("getPrCheckStatus", () => {
     });
 
     const result = await getPrCheckStatus(1, "/tmp/repo");
-    expect(result).toBe("no_checks");
+    expect(result).toBe("error");
+  });
+
+  test("returns success on second attempt when first attempt throws", async () => {
+    execFileMock
+      .mockImplementationOnce((_cmd, _args, _opts, callback) => {
+        const err = new Error("gh transient failure");
+        (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
+        callback(err, null);
+      })
+      .mockImplementationOnce((_cmd, _args, _opts, callback) => {
+        callback(null, {
+          stdout: JSON.stringify([
+            { name: "test", state: "SUCCESS", bucket: "pass" },
+          ]),
+          stderr: "",
+        });
+      });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+    expect(result).toBe("success");
+    expect(execFileMock).toHaveBeenCalledTimes(2);
   });
 
   test("calls gh pr checks with correct args", async () => {
