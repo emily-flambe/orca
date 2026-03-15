@@ -132,7 +132,7 @@ The review agent outputs `REVIEW_RESULT:APPROVED` and merges the PR.
 
 The review agent outputs `REVIEW_RESULT:CHANGES_REQUESTED`.
 
-1. Check `reviewCycleCount < ORCA_MAX_REVIEW_CYCLES` (default 3).
+1. Check `reviewCycleCount < ORCA_MAX_REVIEW_CYCLES` (default 10).
 2. If under limit: increment cycle count, set task to `changes_requested`.
 3. **Write-back to Linear:** move issue to **"In Progress"**.
 4. Remove the git worktree.
@@ -141,7 +141,7 @@ The review agent outputs `REVIEW_RESULT:CHANGES_REQUESTED`.
 
 ### 6c. Review cycles exhausted
 
-If `reviewCycleCount >= ORCA_MAX_REVIEW_CYCLES`:
+If `reviewCycleCount >= ORCA_MAX_REVIEW_CYCLES` (default 10):
 
 1. Leave task as `in_review` for human intervention.
 2. Log a warning.
@@ -342,7 +342,7 @@ Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
 |---|---|---|
 | `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
 | `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
-| `ORCA_MAX_REVIEW_CYCLES` | 3 | Max review-fix cycles before human intervention |
+| `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix cycles before human intervention |
 | `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
 | `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
 | `ORCA_DEPLOY_POLL_INTERVAL_SEC` | 30 | How often to poll GitHub Actions |

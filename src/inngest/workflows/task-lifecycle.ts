@@ -48,7 +48,11 @@ import {
 import { writeBackStatus } from "../../linear/sync.js";
 import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
-import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
+import {
+  findPrForBranch,
+  closeSupersededPrs,
+  getPrCheckStatus,
+} from "../../github/index.js";
 import { git } from "../../git.js";
 import {
   activeHandles,
@@ -433,6 +437,37 @@ export const taskLifecycle = inngest.createFunction(
     log(`task ${taskId}: claimed (was ${claimResult.phase ?? "unknown"})`);
 
     // -------------------------------------------------------------------------
+    // Guard A: abort if task is in a terminal state before implement spawn
+    // -------------------------------------------------------------------------
+
+    const guardAImplement = await step.run(
+      "guard-a-implement",
+      (): { aborted: boolean } => {
+        const freshTask = getTask(db, taskId);
+        if (
+          !freshTask ||
+          ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+        ) {
+          log(
+            `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+          );
+          insertSystemEvent(db, {
+            type: "self_heal",
+            message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+            metadata: {
+              taskId,
+              abortedStatus: freshTask?.orcaStatus ?? "deleted",
+              phase: "implement",
+            },
+          });
+          return { aborted: true };
+        }
+        return { aborted: false };
+      },
+    );
+    if (guardAImplement.aborted) return { outcome: "aborted_stale" };
+
+    // -------------------------------------------------------------------------
     // Step 3: Spawn implement session
     // -------------------------------------------------------------------------
 
@@ -601,6 +636,54 @@ export const taskLifecycle = inngest.createFunction(
     });
 
     // -------------------------------------------------------------------------
+    // Step 4b: Cron tasks — skip Gate 2 / review / CI / deploy
+    // -------------------------------------------------------------------------
+
+    const isCronTask =
+      event.data.taskType === "cron_claude" ||
+      event.data.taskType === "cron_shell";
+
+    if (isCronTask) {
+      const succeeded = implementEvent && implementEvent.data.exitCode === 0;
+
+      const cronResult = await step.run("finalize-cron-task", () => {
+        const { db } = getDeps();
+        const task = getTask(db, taskId);
+        if (!task) return { outcome: "permanent_fail" as const };
+
+        if (succeeded) {
+          updateTaskStatus(db, taskId, "done");
+          emitTaskUpdated(getTask(db, taskId)!);
+          log(`cron task ${taskId} completed successfully`);
+          return { outcome: "done" as const };
+        }
+
+        // Cron task failed — mark failed (no retry loop for cron)
+        updateTaskStatus(db, taskId, "failed");
+        emitTaskUpdated(getTask(db, taskId)!);
+        log(
+          `cron task ${taskId} failed (exit code: ${implementEvent?.data.exitCode ?? "timeout"})`,
+        );
+        return { outcome: "permanent_fail" as const };
+      });
+
+      // Clean up worktree for cron tasks
+      if (implementCtx.worktreePath) {
+        await step.run("cleanup-cron-worktree", () => {
+          try {
+            removeWorktree(implementCtx.worktreePath);
+          } catch (err) {
+            log(
+              `failed to remove cron worktree ${implementCtx.worktreePath}: ${err}`,
+            );
+          }
+        });
+      }
+
+      return { outcome: cronResult.outcome };
+    }
+
+    // -------------------------------------------------------------------------
     // Step 5: Process implement result + Gate 2
     // -------------------------------------------------------------------------
 
@@ -609,7 +692,8 @@ export const taskLifecycle = inngest.createFunction(
       | "done"
       | "retry"
       | "permanent_fail"
-      | "timed_out";
+      | "timed_out"
+      | "rescued_pr";
 
     const gate2 = await step.run(
       "process-implement-and-gate2",
@@ -680,6 +764,57 @@ export const taskLifecycle = inngest.createFunction(
               /* ignore */
             }
           }
+
+          // Guard B: check for orphaned green PR before writing failed status
+          const guardBTask = getTask(db, taskId);
+          if (guardBTask?.prBranchName) {
+            try {
+              const prInfo = await findPrForBranch(
+                guardBTask.prBranchName,
+                guardBTask.repoPath,
+              );
+              if (prInfo.exists && prInfo.number) {
+                const ciStatus = await getPrCheckStatus(
+                  prInfo.number,
+                  guardBTask.repoPath,
+                );
+                if (ciStatus === "success") {
+                  updateTaskStatus(db, taskId, "awaiting_ci");
+                  updateTaskCiInfo(db, taskId, {
+                    ciStartedAt: new Date().toISOString(),
+                  });
+                  const rescuedTask = getTask(db, taskId);
+                  if (rescuedTask) emitTaskUpdated(rescuedTask);
+                  insertSystemEvent(db, {
+                    type: "self_heal",
+                    message: `Rescued orphaned green PR for ${taskId} (PR #${prInfo.number})`,
+                    metadata: {
+                      taskId,
+                      prNumber: prInfo.number,
+                      phase: "implement",
+                    },
+                  });
+                  log(
+                    `Guard B: rescued task ${taskId} — PR #${prInfo.number} has passing CI`,
+                  );
+                  await inngest.send({
+                    name: "task/awaiting-ci",
+                    data: {
+                      linearIssueId: taskId,
+                      repoPath: guardBTask.repoPath,
+                      prNumber: prInfo.number,
+                      prBranchName: guardBTask.prBranchName!,
+                      ciStartedAt: new Date().toISOString(),
+                    },
+                  });
+                  return { outcome: "rescued_pr" };
+                }
+              }
+            } catch (err) {
+              log(`Guard B rescue check failed for ${taskId}: ${err}`);
+            }
+          }
+
           updateTaskStatus(db, taskId, "failed");
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
@@ -896,7 +1031,8 @@ export const taskLifecycle = inngest.createFunction(
     if (
       gate2.outcome === "timed_out" ||
       gate2.outcome === "permanent_fail" ||
-      gate2.outcome === "done"
+      gate2.outcome === "done" ||
+      gate2.outcome === "rescued_pr"
     ) {
       return { outcome: gate2.outcome };
     }
@@ -926,6 +1062,38 @@ export const taskLifecycle = inngest.createFunction(
     // -------------------------------------------------------------------------
 
     for (let cycle = 0; cycle < config.maxReviewCycles; cycle++) {
+      // -----------------------------------------------------------------------
+      // Guard A: abort if task is in a terminal state before review spawn
+      // -----------------------------------------------------------------------
+
+      const guardAReview = await step.run(
+        `guard-a-review-${cycle}`,
+        (): { aborted: boolean } => {
+          const freshTask = getTask(db, taskId);
+          if (
+            !freshTask ||
+            ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+          ) {
+            log(
+              `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+            );
+            insertSystemEvent(db, {
+              type: "self_heal",
+              message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+              metadata: {
+                taskId,
+                abortedStatus: freshTask?.orcaStatus ?? "deleted",
+                phase: "review",
+                cycle,
+              },
+            });
+            return { aborted: true };
+          }
+          return { aborted: false };
+        },
+      );
+      if (guardAReview.aborted) return { outcome: "aborted_stale" };
+
       // -----------------------------------------------------------------------
       // 6a: Spawn review session
       // -----------------------------------------------------------------------
@@ -1196,6 +1364,38 @@ export const taskLifecycle = inngest.createFunction(
       }
 
       // Changes requested — spawn fix session before next review cycle
+
+      // -----------------------------------------------------------------------
+      // Guard A: abort if task is in a terminal state before fix spawn
+      // -----------------------------------------------------------------------
+
+      const guardAFix = await step.run(
+        `guard-a-fix-${cycle}`,
+        (): { aborted: boolean } => {
+          const freshTask = getTask(db, taskId);
+          if (
+            !freshTask ||
+            ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+          ) {
+            log(
+              `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+            );
+            insertSystemEvent(db, {
+              type: "self_heal",
+              message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+              metadata: {
+                taskId,
+                abortedStatus: freshTask?.orcaStatus ?? "deleted",
+                phase: "fix",
+                cycle,
+              },
+            });
+            return { aborted: true };
+          }
+          return { aborted: false };
+        },
+      );
+      if (guardAFix.aborted) return { outcome: "aborted_stale" };
 
       // -----------------------------------------------------------------------
       // 6e: Spawn fix session

@@ -47,6 +47,7 @@ export async function runReconciliation(deps: {
     "awaiting_ci",
     "deploying",
     "in_review",
+    "changes_requested",
   ]);
 
   if (intermediateTasks.length === 0) {

@@ -34,6 +34,7 @@ import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
+import { initAlertSystem } from "../scheduler/alerts.js";
 
 const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
@@ -101,6 +102,7 @@ program
       maxSizeBytes: config.logMaxSizeMb * 1024 * 1024,
     });
     const db = createDb(config.dbPath);
+    initAlertSystem(db);
 
     // Initialize deploy state (SHA dedup + cooldown)
     initDeployState();

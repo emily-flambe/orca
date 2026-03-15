@@ -68,7 +68,7 @@ Copy `.env.example` to `.env` and fill in the required values.
 | `ORCA_IMPLEMENT_MODEL` | `sonnet` | Model for implementation agents |
 | `ORCA_REVIEW_MODEL` | `haiku` | Model for review agents |
 | `ORCA_FIX_MODEL` | `sonnet` | Model for fix agents |
-| `ORCA_MAX_REVIEW_CYCLES` | `3` | Max review-fix cycles before human intervention |
+| `ORCA_MAX_REVIEW_CYCLES` | `10` | Max review-fix cycles before human intervention |
 | `ORCA_REVIEW_MAX_TURNS` | `30` | Max turns for review agent sessions |
 | `ORCA_RESUME_ON_MAX_TURNS` | `true` | Resume sessions that hit max turns |
 | `ORCA_DISALLOWED_TOOLS` | `""` | Comma-separated list of blocked tools |

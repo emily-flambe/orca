@@ -124,14 +124,18 @@ import {
   updateInvocation,
   sumCostInWindow,
   incrementRetryCount,
+  insertSystemEvent,
 } from "../src/db/queries.js";
 import { spawnSession, killSession } from "../src/runner/index.js";
-import { findPrForBranch } from "../src/github/index.js";
+import { findPrForBranch, getPrCheckStatus } from "../src/github/index.js";
 import { existsSync } from "node:fs";
 import { writeBackStatus } from "../src/linear/sync.js";
 import { createWorktree } from "../src/worktree/index.js";
 import { initTaskLifecycle } from "../src/inngest/workflows/task-lifecycle.js";
+import { inngest } from "../src/inngest/client.js";
 import { activeHandles, resetSessionSlots } from "../src/session-handles.js";
+
+const mockInngestSend = vi.mocked(inngest.send);
 
 // Typed mocks
 const mockGetTask = vi.mocked(getTask);
@@ -144,7 +148,9 @@ const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSpawnSession = vi.mocked(spawnSession);
 const mockKillSession = vi.mocked(killSession);
 const mockFindPrForBranch = vi.mocked(findPrForBranch);
+const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
 const mockGetInvocation = vi.mocked(getInvocation);
+const mockInsertSystemEvent = vi.mocked(insertSystemEvent);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
@@ -959,6 +965,265 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       2,
       expect.objectContaining({ status: "timed_out" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard A — stale workflow abort
+// ---------------------------------------------------------------------------
+
+describe("Guard A — stale workflow abort", () => {
+  test("canceled task → workflow aborts with aborted_stale", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim (emitTaskUpdated)
+      .mockReturnValueOnce(makeTask({ orcaStatus: "canceled" })); // guard-a-implement
+    mockClaimTaskForDispatch.mockReturnValue(true);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toEqual({ outcome: "aborted_stale" });
+    expect(mockInsertSystemEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "self_heal" }),
+    );
+  });
+
+  test("done task → workflow aborts", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "done" })); // guard-a-implement
+    mockClaimTaskForDispatch.mockReturnValue(true);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toEqual({ outcome: "aborted_stale" });
+    expect(mockInsertSystemEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "self_heal" }),
+    );
+  });
+
+  test("deleted task (null) → workflow aborts", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(null); // guard-a-implement: task deleted
+    mockClaimTaskForDispatch.mockReturnValue(true);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toEqual({ outcome: "aborted_stale" });
+    expect(mockInsertSystemEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "self_heal" }),
+    );
+  });
+
+  test("active task → workflow proceeds normally (spawnSession called)", async () => {
+    // Guard A returns non-terminal status, so workflow continues to start-implement
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValue(makeTask({ orcaStatus: "running" })); // all subsequent calls
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    // Implement times out so we get a clean exit
+    const step = createStep(new Map([["await-implement", null]]));
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockSpawnSession).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard B — orphaned green PR recovery
+// ---------------------------------------------------------------------------
+
+describe("Guard B — orphaned green PR recovery", () => {
+  test("failed implement with green PR → rescued to awaiting_ci", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValue(
+        makeTask({
+          orcaStatus: "running",
+          prBranchName: "orca/TEST-1-inv-1",
+          retryCount: 0,
+        }),
+      ); // all subsequent (start-implement, process-implement-and-gate2)
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    mockFindPrForBranch.mockResolvedValue({
+      exists: true,
+      number: 42,
+      url: "https://github.com/org/repo/pull/42",
+      headBranch: "orca/TEST-1-inv-1",
+      merged: false,
+    });
+    mockGetPrCheckStatus.mockResolvedValue("success");
+    mockInngestSend.mockResolvedValue(undefined as never);
+
+    const failedEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+    });
+    const step = createStep(new Map([["await-implement", failedEvent]]));
+
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "rescued_pr" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "awaiting_ci",
+    );
+    expect(mockInsertSystemEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "self_heal" }),
+    );
+    expect(mockInngestSend).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "task/awaiting-ci" }),
+    );
+  });
+
+  test("failed implement with failing PR → falls through to normal failure", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValue(
+        makeTask({
+          orcaStatus: "running",
+          prBranchName: "orca/TEST-1-inv-1",
+          retryCount: 0,
+        }),
+      );
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    mockFindPrForBranch.mockResolvedValue({
+      exists: true,
+      number: 42,
+      url: "https://github.com/org/repo/pull/42",
+      headBranch: "orca/TEST-1-inv-1",
+      merged: false,
+    });
+    mockGetPrCheckStatus.mockResolvedValue("failure");
+
+    const failedEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+    });
+    const step = createStep(new Map([["await-implement", failedEvent]]));
+
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "retry" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
+  });
+
+  test("failed implement with no PR → falls through to normal failure", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValue(
+        makeTask({
+          orcaStatus: "running",
+          prBranchName: "orca/TEST-1-inv-1",
+          retryCount: 0,
+        }),
+      );
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    mockFindPrForBranch.mockResolvedValue({ exists: false } as never);
+
+    const failedEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+    });
+    const step = createStep(new Map([["await-implement", failedEvent]]));
+
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "retry" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
+  });
+
+  test("gh CLI error → try/catch catches, falls through to normal failure", async () => {
+    mockGetTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValue(
+        makeTask({
+          orcaStatus: "running",
+          prBranchName: "orca/TEST-1-inv-1",
+          retryCount: 0,
+        }),
+      );
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    mockFindPrForBranch.mockRejectedValue(new Error("gh CLI not found"));
+
+    const failedEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+    });
+    const step = createStep(new Map([["await-implement", failedEvent]]));
+
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "retry" });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
     );
   });
 });

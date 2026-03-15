@@ -249,9 +249,9 @@ describe("default values", () => {
     expect(cfg.defaultMaxTurns).toBe(50);
   });
 
-  test("maxReviewCycles defaults to 3", async () => {
+  test("maxReviewCycles defaults to 10", async () => {
     const cfg = await loadConfig();
-    expect(cfg.maxReviewCycles).toBe(3);
+    expect(cfg.maxReviewCycles).toBe(10);
   });
 
   test("reviewMaxTurns defaults to 30", async () => {
