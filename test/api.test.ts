@@ -970,6 +970,13 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
   });
 
+  it("accepts status='canceled' (allowed manual target)", async () => {
+    insertTask(db, makeTask({ linearIssueId: "T-CANCELED-TARGET" }));
+
+    const res = await postStatus("T-CANCELED-TARGET", { status: "canceled" });
+    expect(res.status).toBe(200);
+  });
+
   it("rejects status='running' (not an allowed target)", async () => {
     insertTask(db, makeTask({ linearIssueId: "T-RUNNING-TARGET" }));
 
