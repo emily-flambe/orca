@@ -882,8 +882,7 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: "Post-implementation gate failed: no branch name",
           });
-          updateTaskStatus(db, taskId, "failed");
-          emitTaskUpdated(getTask(db, taskId) ?? task);
+          updateAndEmit(db, taskId, "failed");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -928,8 +927,7 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
-          updateTaskStatus(db, taskId, "failed");
-          emitTaskUpdated(getTask(db, taskId) ?? task);
+          updateAndEmit(db, taskId, "failed");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
