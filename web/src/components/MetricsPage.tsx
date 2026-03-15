@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import type { MetricsData, RecentError, DailyStatEntry } from "../hooks/useApi";
-import { fetchMetrics } from "../hooks/useApi";
+import type {
+  MetricsData,
+  SystemEvent,
+  RecentError,
+  DailyStatEntry,
+} from "../hooks/useApi";
+import { fetchMetrics, fetchStatus } from "../hooks/useApi";
+import type { OrcaStatus } from "../types";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
-import SystemMetrics from "./SystemMetrics";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -13,17 +18,22 @@ function formatDollars(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-function formatDuration(secs: number): string {
-  if (secs < 60) return `${Math.round(secs)}s`;
-  const m = Math.floor(secs / 60);
-  const s = Math.round(secs % 60);
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+function formatUptime(seconds: number): string {
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  return `${d}d ${h}h`;
 }
 
-function costTrendPct(current: number, previous: number): number | null {
-  if (previous === 0 && current === 0) return null;
-  if (previous === 0) return 100;
-  return Math.round(((current - previous) / previous) * 100);
+function formatCompactNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }
 
 function timeAgo(iso: string): string {
@@ -37,185 +47,220 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function trendPct(current: number, previous: number): number | null {
+  if (previous === 0 && current === 0) return null;
+  if (previous === 0) return 100;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Sub-components
+// Health Banner
 // ---------------------------------------------------------------------------
 
-function CostCards({
-  costLast24h,
-  costLast7d,
-  costPrev24h,
+type HealthLevel = "green" | "yellow" | "red";
+
+function getHealthLevel(
+  metrics: MetricsData,
+  status: OrcaStatus | null,
+): HealthLevel {
+  if (metrics.uptime.seconds == null || metrics.uptime.seconds === 0)
+    return "red";
+  if (metrics.errors.lastHour > 0 || (status?.draining ?? false))
+    return "yellow";
+  return "green";
+}
+
+const healthStyles: Record<
+  HealthLevel,
+  { bg: string; border: string; text: string; label: string }
+> = {
+  green: {
+    bg: "bg-green-500/10",
+    border: "border-green-500/30",
+    text: "text-green-400",
+    label: "Healthy",
+  },
+  yellow: {
+    bg: "bg-yellow-500/10",
+    border: "border-yellow-500/30",
+    text: "text-yellow-400",
+    label: "Degraded",
+  },
+  red: {
+    bg: "bg-red-500/10",
+    border: "border-red-500/30",
+    text: "text-red-400",
+    label: "Down",
+  },
+};
+
+function HealthBanner({
+  metrics,
+  status,
 }: {
-  costLast24h: number;
-  costLast7d: number;
-  costPrev24h: number;
+  metrics: MetricsData;
+  status: OrcaStatus | null;
 }) {
-  const trend = costTrendPct(costLast24h, costPrev24h);
+  const level = getHealthLevel(metrics, status);
+  const style = healthStyles[level];
+  const { uptime } = metrics;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+    <div
+      className={`${style.bg} border ${style.border} rounded-lg px-4 py-2.5 flex items-center gap-4 flex-wrap`}
+    >
+      <span className={`text-sm font-semibold ${style.text}`}>
+        {style.label}
+      </span>
+      <span className="text-xs text-gray-400">
+        Uptime:{" "}
+        <span className="tabular-nums text-gray-200">
+          {uptime.seconds != null ? formatUptime(uptime.seconds) : "--"}
+        </span>
+      </span>
+      {uptime.since && (
+        <span className="text-xs text-gray-400">
+          Since:{" "}
+          <span className="tabular-nums text-gray-200">
+            {formatDateTime(uptime.since)}
+          </span>
+        </span>
+      )}
+      <span className="text-xs text-gray-400">
+        Sessions:{" "}
+        <span className="tabular-nums text-gray-200">
+          {status?.activeSessions ?? 0}
+        </span>
+      </span>
+      {status?.draining && (
+        <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
+          Draining ({status.drainSessionCount})
+        </span>
+      )}
+      {uptime.restartsToday > 0 && (
+        <span className="text-xs text-yellow-400 tabular-nums">
+          {uptime.restartsToday} restart
+          {uptime.restartsToday > 1 ? "s" : ""} today
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Key Numbers Row
+// ---------------------------------------------------------------------------
+
+function KeyNumbers({ metrics }: { metrics: MetricsData }) {
+  const successRate = metrics.successRate12h;
+  const successColor =
+    successRate == null
+      ? "text-gray-500"
+      : successRate > 80
+        ? "text-green-400"
+        : successRate > 50
+          ? "text-yellow-400"
+          : "text-red-400";
+
+  const costTrend = trendPct(metrics.costLast24h, metrics.costPrev24h);
+  const tokenTrend = trendPct(metrics.tokensLast24h, metrics.tokensPrev24h);
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Success Rate */}
+      <Card>
+        <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
+          Success Rate
+        </div>
+        <span className={`text-xl font-semibold tabular-nums ${successColor}`}>
+          {successRate != null ? `${Math.round(successRate)}%` : "--"}
+        </span>
+        <div className="text-xs text-gray-600 mt-1">12h window</div>
+      </Card>
+
+      {/* Cost (24h) */}
       <Card>
         <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
           Cost (24h)
         </div>
         <div className="flex items-baseline gap-2">
           <span className="text-xl font-semibold tabular-nums text-gray-100">
-            {formatDollars(costLast24h)}
+            {formatDollars(metrics.costLast24h)}
           </span>
-          {trend !== null && (
+          {costTrend !== null && (
             <span
-              className={`text-xs tabular-nums ${trend > 0 ? "text-red-400" : trend < 0 ? "text-green-400" : "text-gray-500"}`}
+              className={`text-xs tabular-nums ${costTrend > 0 ? "text-red-400" : costTrend < 0 ? "text-green-400" : "text-gray-500"}`}
             >
-              {trend > 0 ? "+" : ""}
-              {trend}%
+              {costTrend > 0 ? "\u2191" : "\u2193"}
+              {Math.abs(costTrend)}%
             </span>
           )}
         </div>
         <div className="text-xs text-gray-600 mt-1">
-          vs prev 24h: {formatDollars(costPrev24h)}
+          vs prev: {formatDollars(metrics.costPrev24h)}
         </div>
       </Card>
 
+      {/* Tokens (24h) */}
       <Card>
         <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
-          Cost (7d)
+          Tokens (24h)
         </div>
-        <span className="text-xl font-semibold tabular-nums text-gray-100">
-          {formatDollars(costLast7d)}
-        </span>
+        <div className="flex items-baseline gap-2">
+          <span className="text-xl font-semibold tabular-nums text-gray-100">
+            {formatCompactNumber(metrics.tokensLast24h)}
+          </span>
+          {tokenTrend !== null && (
+            <span
+              className={`text-xs tabular-nums ${tokenTrend > 0 ? "text-red-400" : tokenTrend < 0 ? "text-green-400" : "text-gray-500"}`}
+            >
+              {tokenTrend > 0 ? "\u2191" : "\u2193"}
+              {Math.abs(tokenTrend)}%
+            </span>
+          )}
+        </div>
         <div className="text-xs text-gray-600 mt-1">
-          avg/day: {formatDollars(costLast7d / 7)}
+          vs prev: {formatCompactNumber(metrics.tokensPrev24h)}
         </div>
       </Card>
 
+      {/* Queue */}
       <Card>
         <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
-          Success Rate (12h)
+          Queue
         </div>
-        <span className="text-xl font-semibold tabular-nums text-gray-100">
-          --
-        </span>
-        <div className="text-xs text-gray-600 mt-1">completed / total</div>
+        <div className="text-sm font-medium tabular-nums text-gray-100">
+          <span className="text-yellow-400">{metrics.queue.ready}</span>
+          {" ready / "}
+          <span className="text-blue-400">{metrics.queue.running}</span>
+          {" running / "}
+          <span className="text-purple-400">{metrics.queue.inReview}</span>
+          {" review"}
+        </div>
       </Card>
     </div>
   );
 }
 
-function InvocationStatsSection({
-  data,
-}: {
-  data: MetricsData["invocationStats"];
-}) {
-  const total = data.byStatus.reduce((s, e) => s + e.count, 0);
+// ---------------------------------------------------------------------------
+// Daily Activity Chart
+// ---------------------------------------------------------------------------
 
-  return (
-    <Card>
-      <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
-        Invocation Stats
-      </div>
-
-      {/* Status breakdown bar */}
-      {total > 0 && (
-        <div className="mb-4">
-          <div className="flex h-3 rounded-full overflow-hidden bg-gray-800">
-            {data.byStatus.map((entry) => {
-              const pct = (entry.count / total) * 100;
-              if (pct === 0) return null;
-              const color =
-                entry.status === "completed"
-                  ? "bg-green-500"
-                  : entry.status === "failed"
-                    ? "bg-red-500"
-                    : entry.status === "running"
-                      ? "bg-blue-500"
-                      : "bg-gray-600";
-              return (
-                <div
-                  key={entry.status}
-                  className={`${color} transition-all`}
-                  style={{ width: `${pct}%` }}
-                  title={`${entry.status}: ${entry.count}`}
-                />
-              );
-            })}
-          </div>
-          <div className="flex flex-wrap gap-3 mt-2">
-            {data.byStatus.map((entry) => {
-              const color =
-                entry.status === "completed"
-                  ? "text-green-400"
-                  : entry.status === "failed"
-                    ? "text-red-400"
-                    : entry.status === "running"
-                      ? "text-blue-400"
-                      : "text-gray-400";
-              return (
-                <div key={entry.status} className="flex items-center gap-1.5">
-                  <span
-                    className={`inline-block h-2 w-2 rounded-full ${
-                      entry.status === "completed"
-                        ? "bg-green-500"
-                        : entry.status === "failed"
-                          ? "bg-red-500"
-                          : entry.status === "running"
-                            ? "bg-blue-500"
-                            : "bg-gray-600"
-                    }`}
-                  />
-                  <span className={`text-xs capitalize ${color}`}>
-                    {entry.status}
-                  </span>
-                  <span className="text-xs text-gray-500 tabular-nums">
-                    {entry.count}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Aggregate stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div>
-          <div className="text-xs text-gray-500">Avg Duration</div>
-          <div className="text-sm font-medium tabular-nums text-gray-200">
-            {data.avgDurationSecs != null
-              ? formatDuration(data.avgDurationSecs)
-              : "--"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Avg Cost</div>
-          <div className="text-sm font-medium tabular-nums text-gray-200">
-            {data.avgCostUsd != null ? formatDollars(data.avgCostUsd) : "--"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Total Cost</div>
-          <div className="text-sm font-medium tabular-nums text-gray-200">
-            {data.totalCostUsd != null
-              ? formatDollars(data.totalCostUsd)
-              : "--"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500">Total Invocations</div>
-          <div className="text-sm font-medium tabular-nums text-gray-200">
-            {total}
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function DailyStatsChart({ stats }: { stats: DailyStatEntry[] }) {
+function DailyActivityChart({ stats }: { stats: DailyStatEntry[] }) {
   if (stats.length === 0) {
     return (
       <Card>
         <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
-          Daily Stats (14d)
+          Daily Activity (14d)
         </div>
         <div className="py-6 text-center text-sm text-gray-500">
           No daily stats yet
@@ -229,9 +274,9 @@ function DailyStatsChart({ stats }: { stats: DailyStatEntry[] }) {
   return (
     <Card>
       <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
-        Daily Stats (14d)
+        Daily Activity (14d)
       </div>
-      <div className="flex items-end gap-1 h-32">
+      <div className="flex items-end gap-1 h-36">
         {stats.map((day) => {
           const completedH =
             maxCount > 0 ? (day.completed / maxCount) * 100 : 0;
@@ -240,7 +285,7 @@ function DailyStatsChart({ stats }: { stats: DailyStatEntry[] }) {
           return (
             <div
               key={day.date}
-              className="flex-1 flex flex-col items-center gap-0"
+              className="flex-1 flex flex-col items-center"
               title={`${day.date}: ${day.completed} completed, ${day.failed} failed, $${day.costUsd.toFixed(2)}`}
             >
               <div className="w-full flex flex-col justify-end h-24">
@@ -260,7 +305,10 @@ function DailyStatsChart({ stats }: { stats: DailyStatEntry[] }) {
                   <div className="w-full bg-gray-800 rounded-t-sm min-h-[2px] h-[2px]" />
                 )}
               </div>
-              <div className="text-[10px] text-gray-600 mt-1 tabular-nums truncate w-full text-center">
+              <div className="text-[9px] text-gray-500 tabular-nums mt-0.5">
+                {formatDollars(day.costUsd)}
+              </div>
+              <div className="text-[10px] text-gray-600 tabular-nums truncate w-full text-center">
                 {dateLabel}
               </div>
             </div>
@@ -276,10 +324,218 @@ function DailyStatsChart({ stats }: { stats: DailyStatEntry[] }) {
           <span className="inline-block h-2 w-2 rounded-full bg-red-500" />
           <span className="text-xs text-gray-400">Failed</span>
         </div>
+        <span className="text-xs text-gray-600">Cost shown below each bar</span>
       </div>
     </Card>
   );
 }
+
+// ---------------------------------------------------------------------------
+// System Configuration
+// ---------------------------------------------------------------------------
+
+function SystemConfiguration({
+  status,
+  metrics,
+}: {
+  status: OrcaStatus | null;
+  metrics: MetricsData;
+}) {
+  if (!status) {
+    return (
+      <Card>
+        <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
+          System Configuration
+        </div>
+        <div className="py-4 text-center text-sm text-gray-500">
+          Status unavailable
+        </div>
+      </Card>
+    );
+  }
+
+  const budgetPct =
+    status.budgetLimit > 0
+      ? (status.costInWindow / status.budgetLimit) * 100
+      : 0;
+  const budgetBarColor =
+    budgetPct < 50
+      ? "bg-green-500"
+      : budgetPct < 80
+        ? "bg-yellow-500"
+        : "bg-red-500";
+
+  return (
+    <Card>
+      <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
+        System Configuration
+      </div>
+      <div className="space-y-3">
+        {/* Concurrency */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Concurrency</span>
+          <span className="text-sm tabular-nums text-gray-200">
+            {status.activeSessions} / {status.concurrencyCap} slots
+          </span>
+        </div>
+
+        {/* Models */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Models</span>
+          <div className="flex gap-2">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+              impl: {status.implementModel}
+            </span>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+              rev: {status.reviewModel}
+            </span>
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+              fix: {status.fixModel}
+            </span>
+          </div>
+        </div>
+
+        {/* Budget */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-400">
+              Budget ({metrics.budget.windowHours}h)
+            </span>
+            <span className="text-sm tabular-nums text-gray-200">
+              {formatDollars(status.costInWindow)} /{" "}
+              {formatDollars(status.budgetLimit)}
+            </span>
+          </div>
+          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${budgetBarColor}`}
+              style={{ width: `${Math.min(budgetPct, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Token budget */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Tokens in window</span>
+          <span className="text-sm tabular-nums text-gray-200">
+            {formatCompactNumber(status.tokensInWindow)}
+            {status.tokenBudgetLimit > 0 && (
+              <span className="text-gray-500">
+                {" "}
+                / {formatCompactNumber(status.tokenBudgetLimit)}
+              </span>
+            )}
+          </span>
+        </div>
+
+        {/* Drain status */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Drain</span>
+          <span
+            className={`text-sm ${status.draining ? "text-yellow-400" : "text-gray-500"}`}
+          >
+            {status.draining
+              ? `Active (${status.drainSessionCount} sessions)`
+              : "Off"}
+          </span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Task Pipeline
+// ---------------------------------------------------------------------------
+
+const PIPELINE_ORDER = [
+  "backlog",
+  "ready",
+  "dispatched",
+  "running",
+  "in_review",
+  "changes_requested",
+  "awaiting_ci",
+  "deploying",
+  "done",
+  "failed",
+] as const;
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  backlog: { bg: "bg-gray-600", text: "text-gray-400" },
+  ready: { bg: "bg-yellow-500", text: "text-yellow-400" },
+  dispatched: { bg: "bg-blue-500", text: "text-blue-400" },
+  running: { bg: "bg-blue-500", text: "text-blue-400" },
+  in_review: { bg: "bg-purple-500", text: "text-purple-400" },
+  changes_requested: { bg: "bg-purple-500", text: "text-purple-400" },
+  awaiting_ci: { bg: "bg-cyan-500", text: "text-cyan-400" },
+  deploying: { bg: "bg-cyan-500", text: "text-cyan-400" },
+  done: { bg: "bg-green-500", text: "text-green-400" },
+  failed: { bg: "bg-red-500", text: "text-red-400" },
+};
+
+function TaskPipeline({
+  tasksByStatus,
+}: {
+  tasksByStatus: Record<string, number>;
+}) {
+  const entries = PIPELINE_ORDER.filter((s) => (tasksByStatus[s] ?? 0) > 0).map(
+    (s) => ({ status: s, count: tasksByStatus[s] ?? 0 }),
+  );
+  const total = entries.reduce((s, e) => s + e.count, 0);
+
+  return (
+    <Card>
+      <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
+        Task Pipeline
+      </div>
+      {total === 0 ? (
+        <div className="py-4 text-center text-sm text-gray-500">No tasks</div>
+      ) : (
+        <>
+          {/* Stacked bar */}
+          <div className="flex h-5 rounded-full overflow-hidden bg-gray-800 mb-3">
+            {entries.map((e) => {
+              const pct = (e.count / total) * 100;
+              const colors = STATUS_COLORS[e.status] ?? STATUS_COLORS.backlog;
+              return (
+                <div
+                  key={e.status}
+                  className={`${colors.bg} transition-all`}
+                  style={{ width: `${pct}%` }}
+                  title={`${e.status.replace(/_/g, " ")}: ${e.count}`}
+                />
+              );
+            })}
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+            {entries.map((e) => {
+              const colors = STATUS_COLORS[e.status] ?? STATUS_COLORS.backlog;
+              return (
+                <div key={e.status} className="flex items-center gap-1.5">
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${colors.bg}`}
+                  />
+                  <span className={`text-xs capitalize ${colors.text}`}>
+                    {e.status.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-xs text-gray-500 tabular-nums">
+                    {e.count}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recent Errors
+// ---------------------------------------------------------------------------
 
 function RecentErrorsList({ errors }: { errors: RecentError[] }) {
   if (errors.length === 0) {
@@ -296,108 +552,123 @@ function RecentErrorsList({ errors }: { errors: RecentError[] }) {
   }
 
   return (
-    <Card>
-      <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
+    <Card padding={false}>
+      <div className="text-xs text-gray-500 mb-1 uppercase tracking-wide px-4 pt-4">
         Recent Errors
       </div>
-      <div className="divide-y divide-gray-800 max-h-64 overflow-y-auto">
-        {errors.map((err) => (
-          <div key={err.id} className="py-2.5 first:pt-0 last:pb-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-red-500 shrink-0" />
-              <span className="text-xs font-mono text-gray-300 tabular-nums">
-                {err.linearIssueId}
-              </span>
-              {err.phase && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
-                  {err.phase}
-                </span>
-              )}
-              <span className="flex-1" />
-              <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">
-                {timeAgo(err.startedAt)}
-              </span>
-            </div>
-            {err.outputSummary && (
-              <div className="text-xs text-gray-500 pl-4 line-clamp-2">
-                {err.outputSummary}
-              </div>
-            )}
-            <div className="flex gap-3 pl-4 mt-1">
-              {err.costUsd != null && (
-                <span className="text-xs text-gray-600 tabular-nums">
-                  {formatDollars(err.costUsd)}
-                </span>
-              )}
-              {err.status && (
-                <span className="text-xs text-red-400">{err.status}</span>
-              )}
-            </div>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-800 text-gray-500">
+              <th className="text-left font-medium px-4 py-2">Issue</th>
+              <th className="text-left font-medium px-4 py-2">Phase</th>
+              <th className="text-left font-medium px-4 py-2">Time</th>
+              <th className="text-left font-medium px-4 py-2">Status</th>
+              <th className="text-left font-medium px-4 py-2">Output</th>
+            </tr>
+          </thead>
+          <tbody>
+            {errors.map((err) => (
+              <tr
+                key={err.id}
+                className="border-b border-gray-800/50 bg-red-500/5 hover:bg-red-500/10 transition-colors"
+              >
+                <td className="px-4 py-2 font-mono tabular-nums text-gray-300 whitespace-nowrap">
+                  {err.linearIssueId}
+                </td>
+                <td className="px-4 py-2 text-gray-400">{err.phase ?? "--"}</td>
+                <td className="px-4 py-2 text-gray-500 tabular-nums whitespace-nowrap">
+                  {timeAgo(err.startedAt)}
+                </td>
+                <td className="px-4 py-2">
+                  <span className="text-red-400">{err.status}</span>
+                </td>
+                <td className="px-4 py-2 text-gray-500 max-w-xs truncate">
+                  {err.outputSummary ?? "--"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Card>
   );
 }
 
-function TasksByStatusSection({
-  tasksByStatus,
-}: {
-  tasksByStatus: Record<string, number>;
-}) {
-  const entries = Object.entries(tasksByStatus).sort(([, a], [, b]) => b - a);
-  const total = entries.reduce((s, [, c]) => s + c, 0);
+// ---------------------------------------------------------------------------
+// System Events Timeline
+// ---------------------------------------------------------------------------
 
-  if (entries.length === 0) return null;
+function eventDotColor(type: string): string {
+  switch (type) {
+    case "startup":
+    case "task_completed":
+      return "bg-green-400";
+    case "error":
+    case "task_failed":
+      return "bg-red-400";
+    case "deploy":
+      return "bg-blue-400";
+    case "shutdown":
+    case "health_check":
+      return "bg-gray-500";
+    case "restart":
+      return "bg-yellow-400";
+    default:
+      return "bg-gray-500";
+  }
+}
 
-  const statusColor = (status: string): string => {
-    switch (status) {
-      case "done":
-        return "bg-green-500";
-      case "failed":
-        return "bg-red-500";
-      case "running":
-      case "dispatched":
-        return "bg-blue-500";
-      case "ready":
-        return "bg-yellow-500";
-      case "in_review":
-      case "changes_requested":
-        return "bg-purple-500";
-      case "awaiting_ci":
-      case "deploying":
-        return "bg-cyan-500";
-      default:
-        return "bg-gray-600";
-    }
-  };
+function SystemEventsTimeline({ events }: { events: SystemEvent[] }) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const display = events.slice(0, 20);
 
   return (
     <Card>
       <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
-        Tasks by Status
+        System Events
       </div>
-      <div className="space-y-2">
-        {entries.map(([status, count]) => {
-          const pct = total > 0 ? (count / total) * 100 : 0;
-          return (
-            <div key={status} className="flex items-center gap-3">
-              <span className="text-xs text-gray-400 w-28 capitalize truncate">
-                {status.replace(/_/g, " ")}
-              </span>
-              <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${statusColor(status)}`}
-                  style={{ width: `${pct}%` }}
-                />
+      {display.length === 0 ? (
+        <div className="py-4 text-center text-sm text-gray-500">
+          No system events yet
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-800 max-h-80 overflow-y-auto">
+          {display.map((event) => (
+            <div
+              key={event.id}
+              className={`flex items-start gap-3 py-2 px-1 ${event.metadata ? "cursor-pointer hover:bg-gray-800/60" : ""} rounded transition-colors`}
+              onClick={() =>
+                event.metadata &&
+                setExpandedId(expandedId === event.id ? null : event.id)
+              }
+            >
+              <span
+                className={`inline-block h-2 w-2 rounded-full shrink-0 mt-1.5 ${eventDotColor(event.type)}`}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
+                    {event.type}
+                  </span>
+                  <span className="text-sm text-gray-300 truncate">
+                    {event.message}
+                  </span>
+                  <span className="flex-1" />
+                  <span className="text-xs text-gray-600 tabular-nums whitespace-nowrap">
+                    {timeAgo(event.createdAt)}
+                  </span>
+                </div>
+                {expandedId === event.id && event.metadata && (
+                  <pre className="mt-1 text-xs text-gray-500 bg-gray-800/50 rounded p-2 overflow-x-auto">
+                    {JSON.stringify(event.metadata, null, 2)}
+                  </pre>
+                )}
               </div>
-              <span className="text-xs text-gray-400 tabular-nums w-8 text-right">
-                {count}
-              </span>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -407,14 +678,16 @@ function TasksByStatusSection({
 // ---------------------------------------------------------------------------
 
 export default function MetricsPage() {
-  const [data, setData] = useState<MetricsData | null>(null);
+  const [metrics, setMetrics] = useState<MetricsData | null>(null);
+  const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetchMetrics()
-      .then((d) => {
-        setData(d);
+    Promise.all([fetchMetrics(), fetchStatus()])
+      .then(([m, s]) => {
+        setMetrics(m);
+        setStatus(s);
         setError(null);
       })
       .catch((err) =>
@@ -432,31 +705,30 @@ export default function MetricsPage() {
   if (loading) return <Skeleton lines={8} className="m-6" />;
   if (error)
     return <div className="p-6 text-sm text-red-400">Error: {error}</div>;
-  if (!data) return null;
+  if (!metrics) return null;
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-      {/* System health cards + event timeline */}
-      <SystemMetrics />
+    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* 1. Health Banner */}
+      <HealthBanner metrics={metrics} status={status} />
 
-      {/* Cost tracking */}
-      <CostCards
-        costLast24h={data.costLast24h}
-        costLast7d={data.costLast7d}
-        costPrev24h={data.costPrev24h}
-      />
+      {/* 2. Key Numbers Row */}
+      <KeyNumbers metrics={metrics} />
 
-      {/* Daily stats chart */}
-      <DailyStatsChart stats={data.dailyStats} />
+      {/* 3. Daily Activity Chart */}
+      <DailyActivityChart stats={metrics.dailyStats} />
 
-      {/* Two-column layout for invocation stats and tasks by status */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <InvocationStatsSection data={data.invocationStats} />
-        <TasksByStatusSection tasksByStatus={data.tasksByStatus} />
+      {/* 4. Two-column: System Config + Task Pipeline */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <SystemConfiguration status={status} metrics={metrics} />
+        <TaskPipeline tasksByStatus={metrics.tasksByStatus} />
       </div>
 
-      {/* Recent errors */}
-      <RecentErrorsList errors={data.recentErrors} />
+      {/* 5. Recent Errors */}
+      <RecentErrorsList errors={metrics.recentErrors} />
+
+      {/* 6. System Events Timeline */}
+      <SystemEventsTimeline events={metrics.recentEvents ?? []} />
     </div>
   );
 }
