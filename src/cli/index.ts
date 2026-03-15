@@ -336,6 +336,38 @@ program
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
 
+    // Re-emit task/ready events for any tasks already in "ready" state.
+    // Events can be lost if Orca crashes, Inngest is down, or tasks were
+    // recovered from running→ready above. Without this, ready tasks sit
+    // in the DB with no corresponding Inngest workflow to pick them up.
+    const readyTasks = getAllTasks(db).filter(
+      (t) => t.orcaStatus === "ready",
+    );
+    if (readyTasks.length > 0) {
+      for (const task of readyTasks) {
+        inngest
+          .send({
+            name: "task/ready",
+            data: {
+              linearIssueId: task.linearIssueId,
+              repoPath: task.repoPath,
+              priority: task.priority,
+              projectName: task.projectName ?? null,
+              taskType: task.taskType ?? "standard",
+              createdAt: task.createdAt,
+            },
+          })
+          .catch((err: unknown) =>
+            logger.warn(
+              `startup: failed to re-emit task/ready for ${task.linearIssueId}: ${err}`,
+            ),
+          );
+      }
+      logger.info(
+        `startup: re-emitted task/ready for ${readyTasks.length} task(s)`,
+      );
+    }
+
     // Signal PM2 that the app is ready to accept traffic
     if (typeof process.send === "function") {
       process.send("ready");
