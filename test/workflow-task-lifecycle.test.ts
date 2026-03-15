@@ -66,7 +66,20 @@ vi.mock("../src/runner/index.js", () => ({
     sessionId: "sess-123",
     kill: vi.fn(),
   }),
+  killSession: vi.fn().mockResolvedValue(undefined),
 }));
+
+// eslint-disable-next-line no-var
+var mockActiveHandlesMap: Map<number, unknown>;
+
+vi.mock("../src/session-handles.js", () => {
+  mockActiveHandlesMap = new Map();
+  return {
+    get activeHandles() {
+      return mockActiveHandlesMap;
+    },
+  };
+});
 
 vi.mock("../src/worktree/index.js", () => ({
   createWorktree: vi.fn().mockReturnValue({
@@ -119,7 +132,7 @@ import {
   sumCostInWindow,
   incrementRetryCount,
 } from "../src/db/queries.js";
-import { spawnSession } from "../src/runner/index.js";
+import { spawnSession, killSession } from "../src/runner/index.js";
 import { findPrForBranch } from "../src/github/index.js";
 import { existsSync } from "node:fs";
 import { writeBackStatus } from "../src/linear/sync.js";
@@ -134,6 +147,7 @@ const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
 const mockSpawnSession = vi.mocked(spawnSession);
+const mockKillSession = vi.mocked(killSession);
 const mockFindPrForBranch = vi.mocked(findPrForBranch);
 const mockGetInvocation = vi.mocked(getInvocation);
 const mockExistsSync = vi.mocked(existsSync);
@@ -249,8 +263,10 @@ function createStep(
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockActiveHandlesMap.clear();
 
   // Re-apply defaults after reset
+  mockKillSession.mockResolvedValue(undefined);
   mockSumCostInWindow.mockReturnValue(0);
   mockLinearClient.createComment.mockResolvedValue({});
   mockLinearClient.createAttachment.mockResolvedValue({});
@@ -657,5 +673,61 @@ describe("task-lifecycle workflow", () => {
     expect(result).toMatchObject({ outcome: "retry" });
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
+  });
+
+  test("implement timeout: killSession called with active handle, handle removed", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const fakeHandle = {
+      done: new Promise(() => {}),
+      sessionId: "sess-123",
+      kill: vi.fn(),
+      process: { exitCode: null, killed: false, pid: 9999 },
+    };
+    mockSpawnSession.mockReturnValue(fakeHandle as never);
+
+    // Simulate timeout: waitForEvent returns null
+    const step = createStep(new Map([["await-implement", null]]));
+
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "timed_out" });
+    // killSession should have been called with the handle that was registered
+    expect(mockKillSession).toHaveBeenCalledWith(fakeHandle);
+    // handle should be removed from activeHandles
+    expect(mockActiveHandlesMap.has(1)).toBe(false);
+  });
+
+  test("implement spawns session: handle registered in activeHandles", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const fakeHandle = {
+      done: new Promise(() => {}),
+      sessionId: "sess-123",
+      kill: vi.fn(),
+      process: { exitCode: null, killed: false, pid: 9999 },
+    };
+    mockSpawnSession.mockReturnValue(fakeHandle as never);
+
+    // waitForEvent returns null to cause timeout (stops workflow early)
+    const step = createStep(new Map([["await-implement", null]]));
+
+    await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    // The handle was registered (then deleted during timeout handling)
+    // We verify registration by checking killSession was called with our handle
+    expect(mockKillSession).toHaveBeenCalledWith(fakeHandle);
   });
 });

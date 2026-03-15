@@ -4,6 +4,7 @@ import {
   cleanupStaleResources,
   cleanupOldInvocationLogs,
 } from "../../cleanup/index.js";
+import { sweepDeadHandles } from "../../session-handles.js";
 
 export const cleanupCronWorkflow = inngest.createFunction(
   {
@@ -16,6 +17,7 @@ export const cleanupCronWorkflow = inngest.createFunction(
       const { db, config } = getSchedulerDeps();
       cleanupStaleResources({ db, config });
       cleanupOldInvocationLogs({ db, config });
+      sweepDeadHandles();
     });
   },
 );
