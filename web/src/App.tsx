@@ -20,11 +20,7 @@ import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
 import MetricsPage from "./components/MetricsPage";
-
-// Apply dark mode before first render to avoid flash
-document.documentElement.classList.add("dark");
-
-const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
+import { MODEL_OPTIONS } from "./constants.js";
 
 // ---------------------------------------------------------------------------
 // Settings page

@@ -9,6 +9,7 @@ import { fetchMetrics, fetchStatus } from "../hooks/useApi";
 import type { OrcaStatus } from "../types";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
+import { timeAgo, formatUptime, eventDotColor } from "../utils/timeUtils.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -18,33 +19,10 @@ function formatDollars(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
-function formatUptime(seconds: number): string {
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
-  }
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  return `${d}d ${h}h`;
-}
-
 function formatCompactNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
-}
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 function trendPct(current: number, previous: number): number | null {
@@ -598,26 +576,6 @@ function RecentErrorsList({ errors }: { errors: RecentError[] }) {
 // ---------------------------------------------------------------------------
 // System Events Timeline
 // ---------------------------------------------------------------------------
-
-function eventDotColor(type: string): string {
-  switch (type) {
-    case "startup":
-    case "task_completed":
-      return "bg-green-400";
-    case "error":
-    case "task_failed":
-      return "bg-red-400";
-    case "deploy":
-      return "bg-blue-400";
-    case "shutdown":
-    case "health_check":
-      return "bg-gray-500";
-    case "restart":
-      return "bg-yellow-400";
-    default:
-      return "bg-gray-500";
-  }
-}
 
 function SystemEventsTimeline({ events }: { events: SystemEvent[] }) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
