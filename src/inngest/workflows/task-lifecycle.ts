@@ -36,6 +36,7 @@ import {
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
   insertSystemEvent,
+  countActiveSessions,
 } from "../../db/queries.js";
 import { spawnSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -67,16 +68,18 @@ const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
 
 /**
  * Process-level guard: throws if the number of active Claude sessions has
- * reached the concurrency cap. Uses pendingSessionCount (incremented
- * synchronously before spawn) to close the TOCTOU window where multiple
- * Inngest step callbacks could all see activeHandles.size === 0.
+ * reached the concurrency cap. Uses THREE sources to prevent TOCTOU races:
+ * 1. DB count of running invocations (survives deploys)
+ * 2. pendingSessionCount (synchronous counter, incremented before spawn)
+ * 3. activeHandles.size (in-memory handle registry)
  */
-function assertSessionCapacity(): void {
+function assertSessionCapacity(db: OrcaDb): void {
+  const dbCount = countActiveSessions(db);
   const pending = getPendingSessionCount();
-  const effective = Math.max(activeHandles.size, pending);
+  const effective = Math.max(dbCount, activeHandles.size, pending);
   if (effective >= CONCURRENCY_CAP) {
     throw new Error(
-      `session cap reached: ${effective} active sessions (cap=${CONCURRENCY_CAP}), handles=${activeHandles.size}, pending=${pending}`,
+      `session cap reached: ${effective} active sessions (cap=${CONCURRENCY_CAP}), db=${dbCount}, handles=${activeHandles.size}, pending=${pending}`,
     );
   }
 }
@@ -532,7 +535,7 @@ export const taskLifecycle = inngest.createFunction(
           logPath: `logs/${invocationId}.ndjson`,
         });
 
-        assertSessionCapacity();
+        assertSessionCapacity(db);
         claimSessionSlot();
         const startedAt = Date.now();
         const handle = spawnSession({
@@ -949,7 +952,7 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
-          assertSessionCapacity();
+          assertSessionCapacity(db);
           claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
@@ -1230,7 +1233,7 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
-          assertSessionCapacity();
+          assertSessionCapacity(db);
           claimSessionSlot();
           const startedAt = Date.now();
           const handle = spawnSession({
