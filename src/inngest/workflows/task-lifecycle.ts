@@ -37,8 +37,9 @@ import {
   getLastCompletedImplementInvocation,
   insertSystemEvent,
 } from "../../db/queries.js";
-import { spawnSession } from "../../runner/index.js";
+import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
+import { activeHandles } from "../../session-handles.js";
 import {
   emitTaskUpdated,
   emitInvocationStarted,
@@ -127,6 +128,7 @@ function bridgeSessionCompletion(
     .then((result) => {
       const invStatus = result.subtype === "success" ? "completed" : "failed";
 
+      activeHandles.delete(invocationId);
       inngest
         .send({
           name: "session/completed",
@@ -158,6 +160,7 @@ function bridgeSessionCompletion(
       log(
         `runner error for invocation ${invocationId}: ${err} — sending synthetic failure event`,
       );
+      activeHandles.delete(invocationId);
       inngest
         .send({
           name: "session/completed",
@@ -507,6 +510,7 @@ export const taskLifecycle = inngest.createFunction(
           repoPath: task.repoPath,
           model,
         });
+        activeHandles.set(invocationId, handle);
 
         bridgeSessionCompletion(
           invocationId,
@@ -577,6 +581,13 @@ export const taskLifecycle = inngest.createFunction(
           log(
             `task ${taskId}: implement session timed out (invocation ${invocationId})`,
           );
+          const timedOutHandle = activeHandles.get(invocationId);
+          if (timedOutHandle) {
+            killSession(timedOutHandle).catch(() => {
+              /* ignore */
+            });
+            activeHandles.delete(invocationId);
+          }
           updateInvocation(db, invocationId, {
             status: "timed_out",
             endedAt: new Date().toISOString(),
@@ -895,6 +906,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.reviewModel,
           });
+          activeHandles.set(invocationId, handle);
 
           bridgeSessionCompletion(
             invocationId,
@@ -956,6 +968,13 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: review session timed out (cycle ${cycle + 1})`,
             );
+            const timedOutHandle = activeHandles.get(invocationId);
+            if (timedOutHandle) {
+              killSession(timedOutHandle).catch(() => {
+                /* ignore */
+              });
+              activeHandles.delete(invocationId);
+            }
             updateInvocation(db, invocationId, {
               status: "timed_out",
               endedAt: new Date().toISOString(),
@@ -1168,6 +1187,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.fixModel,
           });
+          activeHandles.set(invocationId, handle);
 
           bridgeSessionCompletion(
             invocationId,
@@ -1224,6 +1244,13 @@ export const taskLifecycle = inngest.createFunction(
 
           if (!fixEvent) {
             log(`task ${taskId}: fix session timed out (cycle ${cycle + 1})`);
+            const timedOutHandle = activeHandles.get(invocationId);
+            if (timedOutHandle) {
+              killSession(timedOutHandle).catch(() => {
+                /* ignore */
+              });
+              activeHandles.delete(invocationId);
+            }
             updateInvocation(db, invocationId, {
               status: "timed_out",
               endedAt: new Date().toISOString(),
