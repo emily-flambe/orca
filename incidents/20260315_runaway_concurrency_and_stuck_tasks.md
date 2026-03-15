@@ -90,6 +90,12 @@ Fix:
 1. Increased echo TTL from 30s to 90s to survive Linear webhook delivery lag
 2. Removed the "retry" (Todo) write-back before immediate re-dispatch — the intermediate state serves no purpose and creates the race condition
 
+**Phase 5 — Stale cross-deploy echoes + dispatched state gap (commits ed32b7d, 778f438):**
+
+After deploying Phase 4's fix, stale "Todo" webhooks from the OLD instance's pre-fix retry write-backs arrived minutes later on the NEW instance, which had no echo records for them. The 2-min recency guard (ed32b7d) protected "running" and "in_review" tasks, but missed the brief "dispatched" window between claim and session spawn. Stale "Todo" webhooks arriving during this window reset the task to "ready", triggering new workflow claims and spawning duplicate sessions. EMI-321 hit 6 concurrent sessions (filling the entire concurrency cap) for the same task.
+
+Fix (778f438): Extended the stale-echo guard to also protect "dispatched" state. Any task in "running", "in_review", or "dispatched" that was updated within the last 2 minutes will ignore "Todo" webhooks as stale echoes.
+
 ## Lessons Learned
 
 ### What went well
