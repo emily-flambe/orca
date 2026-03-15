@@ -86,6 +86,11 @@ vi.mock("../src/db/queries.js", () => ({
   getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   getInvocation: vi.fn(),
+  getInvocationsByTask: vi.fn().mockReturnValue([]),
+}));
+
+vi.mock("../src/scheduler/alerts.js", () => ({
+  sendPermanentFailureAlert: vi.fn(),
 }));
 
 vi.mock("../src/events.js", () => ({
@@ -139,6 +144,7 @@ import {
   getFailingCheckNames,
   isCiFlakeOnMain,
 } from "../src/github/index.js";
+import { sendPermanentFailureAlert } from "../src/scheduler/alerts.js";
 
 // Import the workflow module to trigger createFunction capture
 import "../src/inngest/workflows/ci-merge.js";
@@ -154,6 +160,7 @@ const mockGetMergeCommitSha = vi.mocked(getMergeCommitSha);
 const mockUpdatePrBranch = vi.mocked(updatePrBranch);
 const mockGetFailingCheckNames = vi.mocked(getFailingCheckNames);
 const mockIsCiFlakeOnMain = vi.mocked(isCiFlakeOnMain);
+const mockSendPermanentFailureAlert = vi.mocked(sendPermanentFailureAlert);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -556,5 +563,110 @@ describe("ci-merge workflow", () => {
         expect.objectContaining({ event: "task/cancelled" }),
       ]),
     );
+  });
+
+  test("poll exhaustion (240 pending attempts) → task failed with poll_exhausted reason", async () => {
+    // Always return a valid task with awaiting_ci status so the loop runs all 240 iterations.
+    // step.sleep is mocked to resolve immediately so there's no real delay.
+    mockGetTask.mockReturnValue(makeTask());
+    // CI always pending — never resolves
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    const result = await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({
+        // Set ciStartedAt to recent time so the timeout (deployTimeoutMin=30min) doesn't trigger
+        ciStartedAt: new Date().toISOString(),
+      }),
+      step,
+    });
+
+    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
+  });
+
+  test("poll exhaustion → updateTaskStatus called with 'failed'", async () => {
+    mockGetTask.mockReturnValue(makeTask());
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({ ciStartedAt: new Date().toISOString() }),
+      step,
+    });
+
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+  });
+
+  test("poll exhaustion → writeBackStatus called with 'failed_permanent'", async () => {
+    mockGetTask.mockReturnValue(makeTask());
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({ ciStartedAt: new Date().toISOString() }),
+      step,
+    });
+
+    expect(mockWriteBackStatus).toHaveBeenCalledWith(
+      mockLinearClient,
+      "TEST-1",
+      "failed_permanent",
+      mockStateMap,
+    );
+  });
+
+  test("poll exhaustion → sendPermanentFailureAlert called with poll count in reason", async () => {
+    mockGetTask.mockReturnValue(makeTask());
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({ ciStartedAt: new Date().toISOString() }),
+      step,
+    });
+
+    // sendPermanentFailureAlert is responsible for posting the Linear comment + webhook
+    expect(mockSendPermanentFailureAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ db: mockDb }),
+      "TEST-1",
+      expect.stringContaining("240"),
+    );
+  });
+
+  test("poll exhaustion → sendPermanentFailureAlert is called inside step.run", async () => {
+    mockGetTask.mockReturnValue(makeTask());
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({ ciStartedAt: new Date().toISOString() }),
+      step,
+    });
+
+    // Must be called inside a step.run (not fire-and-forget outside)
+    expect(step.run).toHaveBeenCalledWith("ci-poll-exhausted", expect.any(Function));
+    expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
+  });
+
+  test("poll exhaustion → no duplicate explicit createComment call (alert handles it)", async () => {
+    // sendPermanentFailureAlert handles the Linear comment + webhook.
+    // No extra explicit createComment call should occur from the exhaustion step.
+    mockGetTask.mockReturnValue(makeTask());
+    mockGetPrCheckStatus.mockResolvedValue("pending");
+
+    const step = createCiMergeStep();
+    await capturedCiMergeHandler({
+      event: makeAwaitingCiEvent({ ciStartedAt: new Date().toISOString() }),
+      step,
+    });
+
+    // sendPermanentFailureAlert is mocked so createComment won't be called by it.
+    // No explicit createComment from the exhaustion step either.
+    const exhaustionComments = mockLinearClient.createComment.mock.calls.filter(
+      ([_id, msg]: [string, string]) =>
+        msg.includes("240") || msg.includes("poll exhausted"),
+    );
+    expect(exhaustionComments.length).toBe(0);
+    expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
   });
 });
