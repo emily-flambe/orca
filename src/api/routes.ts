@@ -45,6 +45,7 @@ import {
   getTasksByCronSchedule,
   insertTask,
   deleteTask,
+  insertSystemEvent,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -1468,6 +1469,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // Legacy unpause — Inngest mode has no scheduler to unpause
   app.post("/api/deploy/unpause", (c) => c.json({ status: "ok" }));
+
+  // -----------------------------------------------------------------------
+  // POST /api/deploy/event  — log deploy success/failure to system_events
+  // -----------------------------------------------------------------------
+  app.post("/api/deploy/event", async (c) => {
+    const body = await c.req.json<{ status: string; message?: string }>();
+    const status = body.status === "failure" ? "failure" : "success";
+    const message = body.message ?? `Deploy ${status}`;
+    insertSystemEvent(db, {
+      type: "deploy",
+      message,
+      metadata: { status },
+    });
+    logger.info(`audit: deploy event status=${status}`);
+    return c.json({ ok: true });
+  });
 
   return app;
 }

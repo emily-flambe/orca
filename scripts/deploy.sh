@@ -122,6 +122,18 @@ if [[ "$HEALTH_OK" != "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Helper: log a deploy event to the running instance's system_events table
+# ---------------------------------------------------------------------------
+log_deploy_event() {
+  local port="$1"
+  local status="$2"
+  local message="$3"
+  curl -sf -X POST "http://localhost:$port/api/deploy/event" \
+    -H "Content-Type: application/json" \
+    -d "{\"status\":\"$status\",\"message\":\"$message\"}" > /dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
 # Update Cloudflare tunnel origin (if vars are set)
 # ---------------------------------------------------------------------------
 if [[ -f "$PROJECT_DIR/.env" ]]; then
@@ -134,57 +146,127 @@ CF_TUNNEL_ID="${CLOUDFLARE_TUNNEL_ID:-}"
 CF_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 CF_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 
+TUNNEL_SWITCHED=false
+RAW_TUNNEL_CONFIG=""
+
 if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
   log "switching Cloudflare tunnel origin to port $STANDBY_PORT..."
 
   CF_API_BASE="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$CF_TUNNEL_ID/configurations"
 
-  CURRENT_CONFIG=$(curl -sf \
+  RAW_TUNNEL_CONFIG=$(curl -sf \
     -H "Authorization: Bearer $CF_API_TOKEN" \
     -H "Content-Type: application/json" \
-    "$CF_API_BASE" || true)
+    "$CF_API_BASE" 2>/dev/null || true)
 
-  if [[ -z "$CURRENT_CONFIG" ]]; then
-    log "WARNING: failed to fetch tunnel config — skipping tunnel update"
+  if [[ -z "$RAW_TUNNEL_CONFIG" ]]; then
+    log "ERROR: failed to fetch tunnel config — aborting deploy, keeping old instance"
+    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: could not fetch tunnel config"
+    $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
+    exit 1
+  fi
+
+  UPDATED_CONFIG=$(echo "$RAW_TUNNEL_CONFIG" | node -e "
+    var d='';
+    process.stdin.on('data',function(c){d+=c});
+    process.stdin.on('end',function(){
+      var cfg=JSON.parse(d);
+      var ingress=cfg.result.config.ingress.map(function(r){
+        if(r.service&&r.service.indexOf('localhost')!==-1){
+          r.service=r.service.replace(/:\d+/,':$STANDBY_PORT');
+        }
+        return r;
+      });
+      console.log(JSON.stringify({config:{ingress:ingress}}));
+    })
+  ")
+
+  PUT_RESULT=$(curl -sf -X PUT \
+    -H "Authorization: Bearer $CF_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$UPDATED_CONFIG" \
+    "$CF_API_BASE" 2>/dev/null || true)
+
+  SUCCESS=$(echo "$PUT_RESULT" | json_field success false)
+  if [[ "$SUCCESS" == "true" ]]; then
+    TUNNEL_SWITCHED=true
+    log "tunnel origin switched to port $STANDBY_PORT"
   else
-    UPDATED_CONFIG=$(echo "$CURRENT_CONFIG" | node -e "
-      var d='';
-      process.stdin.on('data',function(c){d+=c});
-      process.stdin.on('end',function(){
-        var cfg=JSON.parse(d);
-        var ingress=cfg.result.config.ingress.map(function(r){
-          if(r.service&&r.service.indexOf('localhost')!==-1){
-            r.service=r.service.replace(/:\d+/,':$STANDBY_PORT');
-          }
-          return r;
-        });
-        console.log(JSON.stringify({config:{ingress:ingress}}));
-      })
-    ")
-
-    PUT_RESULT=$(curl -sf -X PUT \
-      -H "Authorization: Bearer $CF_API_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d "$UPDATED_CONFIG" \
-      "$CF_API_BASE" || true)
-
-    SUCCESS=$(echo "$PUT_RESULT" | json_field success false)
-    if [[ "$SUCCESS" == "true" ]]; then
-      log "tunnel origin switched to port $STANDBY_PORT"
-    else
-      log "WARNING: tunnel config update may have failed"
-    fi
+    log "ERROR: tunnel switch PUT failed — aborting deploy, keeping old instance"
+    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: tunnel switch PUT failed"
+    $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
+    exit 1
   fi
 else
   log "WARNING: Cloudflare tunnel vars not set — skipping tunnel switch"
 fi
 
 # ---------------------------------------------------------------------------
-# Drain old instance and stop via PM2
+# Post-switch health check — verify new instance is still healthy
+# If it fails, roll back the tunnel and abort (old instance stays up)
+# ---------------------------------------------------------------------------
+log "post-switch health check on port $STANDBY_PORT..."
+POST_SWITCH_OK=false
+for i in $(seq 1 5); do
+  if curl -sf "http://localhost:$STANDBY_PORT/api/status" > /dev/null 2>&1; then
+    POST_SWITCH_OK=true
+    break
+  fi
+  sleep 2
+done
+
+if [[ "$POST_SWITCH_OK" != "true" ]]; then
+  log "ERROR: post-switch health check failed — rolling back tunnel to port $ACTIVE_PORT"
+
+  if [[ "$TUNNEL_SWITCHED" == "true" ]]; then
+    ROLLBACK_CONFIG=$(echo "$RAW_TUNNEL_CONFIG" | node -e "
+      var d='';
+      process.stdin.on('data',function(c){d+=c});
+      process.stdin.on('end',function(){
+        var cfg=JSON.parse(d);
+        console.log(JSON.stringify({config:{ingress:cfg.result.config.ingress}}));
+      })
+    ")
+    curl -sf -X PUT \
+      -H "Authorization: Bearer $CF_API_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$ROLLBACK_CONFIG" \
+      "$CF_API_BASE" > /dev/null 2>&1 \
+      && log "tunnel rolled back to port $ACTIVE_PORT" \
+      || log "WARNING: tunnel rollback PUT failed — manual intervention may be needed"
+  fi
+
+  log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: post-switch health check failed"
+  $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Drain old instance: signal it to stop accepting new work, then wait for
+# in-flight sessions to complete before killing the process.
 # ---------------------------------------------------------------------------
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
-  log "draining old instance on port $ACTIVE_PORT (stop scheduler)..."
+  log "draining old instance on port $ACTIVE_PORT..."
   curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
+
+  DRAIN_TIMEOUT=30
+  DRAIN_ELAPSED=0
+  log "waiting for active sessions to finish (timeout=${DRAIN_TIMEOUT}s)..."
+  while [[ $DRAIN_ELAPSED -lt $DRAIN_TIMEOUT ]]; do
+    ACTIVE_SESSIONS=$(curl -sf "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
+      | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" \
+      2>/dev/null || echo "0")
+    if [[ "$ACTIVE_SESSIONS" == "0" ]]; then
+      log "all sessions drained"
+      break
+    fi
+    log "waiting... active sessions: $ACTIVE_SESSIONS"
+    sleep 5
+    DRAIN_ELAPSED=$((DRAIN_ELAPSED + 5))
+  done
+  if [[ $DRAIN_ELAPSED -ge $DRAIN_TIMEOUT ]]; then
+    log "WARNING: drain timeout after ${DRAIN_TIMEOUT}s — forcing shutdown with $ACTIVE_SESSIONS active sessions"
+  fi
 
   log "stopping old instance via PM2..."
   $PM2 delete "orca-${ACTIVE_PORT}" 2>/dev/null || true
@@ -215,5 +297,7 @@ node -e "
     pm2Name:'orca-$STANDBY_PORT'
   },null,2)+'\n');
 "
+
+log_deploy_event "$STANDBY_PORT" "success" "Deploy completed successfully on port $STANDBY_PORT"
 
 log "done! active=$STANDBY_PORT  (next deploy will use port $ACTIVE_PORT)"
