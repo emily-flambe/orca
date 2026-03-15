@@ -13,6 +13,31 @@ import { createLogger } from "../../logger.js";
 const logger = createLogger("session-bridge");
 
 /**
+ * Sends an Inngest event with up to maxAttempts retries on transient failures.
+ * Delays between attempts use exponential backoff (1s after attempt 1, 2s after attempt 2).
+ * The final attempt throws immediately on failure.
+ */
+async function sendWithRetry(
+  event: Parameters<typeof inngest.send>[0],
+  maxAttempts = 3,
+): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await inngest.send(event);
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) throw err;
+      const delayMs = Math.pow(2, attempt - 1) * 1000;
+      logger.warn(
+        `[orca/session-bridge] inngest.send attempt ${attempt}/${maxAttempts} failed, retrying in ${delayMs}ms:`,
+        err,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+/**
  * Monitors a running Claude session and emits an Inngest event when it completes.
  *
  * This runs fire-and-forget — the promise is not returned to the caller.
@@ -40,7 +65,7 @@ export function monitorSession(
         );
 
       if (isSuccess || isMaxTurns) {
-        await inngest.send({
+        await sendWithRetry({
           name: "session/completed",
           data: {
             invocationId,
@@ -59,7 +84,7 @@ export function monitorSession(
           },
         });
       } else {
-        await inngest.send({
+        await sendWithRetry({
           name: "session/failed",
           data: {
             invocationId,
@@ -69,7 +94,7 @@ export function monitorSession(
             errorMessage: result.outputSummary,
             isRateLimited,
             isContentFiltered,
-            isDllInit: false, // DLL init is detected at spawn time, not session result
+            isDllInit: false,
             isMaxTurns,
             sessionId: handle.sessionId,
             worktreePath: meta?.worktreePath ?? null,
@@ -82,7 +107,7 @@ export function monitorSession(
     })
     .catch((err) => {
       logger.error(
-        `error emitting Inngest event for invocation ${invocationId}:`,
+        `[orca/session-bridge] error emitting Inngest event for invocation ${invocationId} after all retries:`,
         err,
       );
     });
