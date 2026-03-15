@@ -14,17 +14,9 @@ import {
   updateInvocation,
 } from "../../db/queries.js";
 import { spawnSession } from "../../runner/index.js";
-import {
-  emitTaskUpdated,
-  emitInvocationStarted,
-  emitInvocationCompleted,
-} from "../../events.js";
+import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
-import {
-  claimSessionSlot,
-  releaseSessionSlot,
-  activeHandles,
-} from "../../session-handles.js";
+import { claimSessionSlot } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import {

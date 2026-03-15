@@ -13,11 +13,9 @@ import {
   getDueCronSchedules,
   getTask,
   insertTask,
-  updateTaskStatus,
   incrementCronRunCount,
   updateCronLastRunStatus,
 } from "../../db/queries.js";
-import { emitTaskUpdated } from "../../events.js";
 import { computeNextRunAt } from "../../cron/index.js";
 import { createLogger } from "../../logger.js";
 
