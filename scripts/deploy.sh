@@ -174,8 +174,15 @@ if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Post-deploy signal (Inngest mode — no scheduler to unpause)
+# Post-deploy: re-register with Inngest server
 # ---------------------------------------------------------------------------
+log "re-registering Inngest functions..."
+INNGEST_REGISTER=$(curl -sf -X PUT "http://localhost:$STANDBY_PORT/api/inngest" 2>&1 || true)
+if echo "$INNGEST_REGISTER" | grep -q '"modified":true'; then
+  log "Inngest functions registered successfully"
+else
+  log "WARNING: Inngest registration may have failed: $INNGEST_REGISTER"
+fi
 log "post-deploy health verified"
 
 # ---------------------------------------------------------------------------

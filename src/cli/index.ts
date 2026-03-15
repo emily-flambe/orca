@@ -336,6 +336,22 @@ program
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
 
+    // Self-register with Inngest server so it knows our callback URL.
+    // Without this, deploys/restarts that change ports leave Inngest
+    // accepting events but unable to execute workflows.
+    fetch(`http://localhost:${config.port}/api/inngest`, { method: "PUT" })
+      .then(async (res) => {
+        if (res.ok) {
+          logger.info("Inngest functions registered successfully");
+        } else {
+          const body = await res.text().catch(() => "");
+          logger.warn(`Inngest registration returned ${res.status}: ${body}`);
+        }
+      })
+      .catch((err: unknown) =>
+        logger.warn(`Inngest registration failed: ${err}`),
+      );
+
     // Re-emit task/ready events for any tasks already in "ready" state.
     // Events can be lost if Orca crashes, Inngest is down, or tasks were
     // recovered from running→ready above. Without this, ready tasks sit
