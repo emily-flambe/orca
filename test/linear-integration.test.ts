@@ -517,17 +517,36 @@ describe("10.3 - Conflict resolution", () => {
     vi.restoreAllMocks();
   });
 
-  test("running task, Linear says Todo -> task becomes ready", () => {
+  test("running task, Linear says Todo -> task becomes ready (if not recently dispatched)", () => {
+    vi.useFakeTimers();
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1",
       orcaStatus: "running",
     });
+
+    // Advance time past the 2-min stale-echo guard window
+    vi.advanceTimersByTime(180_000);
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
+    vi.useRealTimers();
+  });
+
+  test("running task recently dispatched, Linear says Todo -> suppressed as stale echo", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "CONFLICT-1b",
+      orcaStatus: "running",
+    });
+
+    // updatedAt is "now" (from seedTask), so within the 2-min guard window
+    resolveConflict(db, taskId, "Todo", "unstarted");
+
+    const task = getTask(db, taskId);
+    expect(task).toBeDefined();
+    expect(task!.orcaStatus).toBe("running"); // NOT killed
   });
 
   test("ready task, Linear says Done -> task becomes done", () => {

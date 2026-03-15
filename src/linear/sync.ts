@@ -727,8 +727,18 @@ export function resolveConflict(
   }
 
   // Any state → Linear unstarted (Todo): reset to ready with fresh retry/review counts.
+  // Guard: if the task is running and was recently updated (within 2 min), this is
+  // almost certainly a stale webhook echo from a previous retry cycle or pre-deploy
+  // write-back, not a genuine user action. Skip to avoid killing active sessions.
   if (linearStateType === "unstarted") {
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+      const updatedAgo = Date.now() - new Date(task.updatedAt).getTime();
+      if (updatedAgo < 120_000) {
+        log(
+          `conflict suppressed: task ${taskId} is ${task.orcaStatus} (updated ${Math.round(updatedAgo / 1000)}s ago), ignoring stale "Todo" webhook`,
+        );
+        return;
+      }
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, {
