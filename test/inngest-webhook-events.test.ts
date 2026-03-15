@@ -197,6 +197,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     registerExpectedChange = syncMod.registerExpectedChange;
     // Clear any leftover echo prevention state
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 

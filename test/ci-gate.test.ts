@@ -350,6 +350,7 @@ describe("Write-back - awaiting_ci transition is no-op", () => {
     writeBackStatus = syncMod.writeBackStatus;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
@@ -458,6 +459,7 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
     processWebhookEvent = syncMod.processWebhookEvent;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 

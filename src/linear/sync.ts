@@ -102,6 +102,29 @@ export interface WebhookEvent {
 // 4.6 Write-back loop prevention
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 4.7 Post-deploy webhook grace period
+// ---------------------------------------------------------------------------
+// After a deploy, echo registrations from the old instance are lost. Webhooks
+// triggered by the old instance's write-backs arrive at the new instance with
+// no matching echo entries. To prevent false "Linear state change" kills, skip
+// conflict resolution for state-change webhooks during a grace period after
+// startup.
+
+const STARTUP_GRACE_MS = 60_000;
+let startupTimestamp = Date.now();
+
+export function isInStartupGrace(): boolean {
+  return Date.now() - startupTimestamp < STARTUP_GRACE_MS;
+}
+
+/** For testing: skip the startup grace period. */
+export function clearStartupGrace(): void {
+  startupTimestamp = 0;
+}
+
+// ---------------------------------------------------------------------------
+
 export const expectedChanges = new Map<
   string,
   Array<{ stateName: string; expiresAt: number }>
@@ -483,6 +506,16 @@ export async function processWebhookEvent(
   if (stateName && isExpectedChange(event.data.identifier, stateName)) {
     log(
       `skipping echo webhook for ${event.data.identifier} (state: ${stateName})`,
+    );
+    return;
+  }
+
+  // During the post-deploy grace period, treat state-change webhooks for
+  // EXISTING tasks as potential echoes from the old instance. New tasks
+  // (action: create) always go through.
+  if (stateName && isInStartupGrace() && event.action === "update") {
+    log(
+      `startup grace: deferring state-change webhook for ${event.data.identifier} (state: ${stateName}, ${Math.round((STARTUP_GRACE_MS - (Date.now() - startupTimestamp)) / 1000)}s remaining)`,
     );
     return;
   }

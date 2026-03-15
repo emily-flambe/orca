@@ -529,6 +529,7 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     resolveConflict = syncMod.resolveConflict;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
@@ -706,6 +707,7 @@ describe("Write-back - deploying transition is no-op", () => {
     writeBackStatus = syncMod.writeBackStatus;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
@@ -919,6 +921,7 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
     processWebhookEvent = syncMod.processWebhookEvent;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 

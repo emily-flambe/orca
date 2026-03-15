@@ -600,6 +600,7 @@ describe("10.4 - Write-back loop prevention", () => {
     expectedChanges = syncMod.expectedChanges;
     // Clear any leftover entries from other tests
     expectedChanges.clear();
+    syncMod.clearStartupGrace();
   });
 
   afterEach(() => {

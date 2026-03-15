@@ -256,6 +256,7 @@ describe("processWebhookEvent — label filter", () => {
     db = freshDb();
     const syncMod = await import("../src/linear/sync.js");
     processWebhookEvent = syncMod.processWebhookEvent;
+    syncMod.clearStartupGrace();
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
 
