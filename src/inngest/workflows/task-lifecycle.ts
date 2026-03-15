@@ -636,6 +636,54 @@ export const taskLifecycle = inngest.createFunction(
     });
 
     // -------------------------------------------------------------------------
+    // Step 4b: Cron tasks — skip Gate 2 / review / CI / deploy
+    // -------------------------------------------------------------------------
+
+    const isCronTask =
+      event.data.taskType === "cron_claude" ||
+      event.data.taskType === "cron_shell";
+
+    if (isCronTask) {
+      const succeeded = implementEvent && implementEvent.data.exitCode === 0;
+
+      const cronResult = await step.run("finalize-cron-task", () => {
+        const { db } = getDeps();
+        const task = getTask(db, taskId);
+        if (!task) return { outcome: "permanent_fail" as const };
+
+        if (succeeded) {
+          updateTaskStatus(db, taskId, "done");
+          emitTaskUpdated(getTask(db, taskId)!);
+          log(`cron task ${taskId} completed successfully`);
+          return { outcome: "done" as const };
+        }
+
+        // Cron task failed — mark failed (no retry loop for cron)
+        updateTaskStatus(db, taskId, "failed");
+        emitTaskUpdated(getTask(db, taskId)!);
+        log(
+          `cron task ${taskId} failed (exit code: ${implementEvent?.data.exitCode ?? "timeout"})`,
+        );
+        return { outcome: "permanent_fail" as const };
+      });
+
+      // Clean up worktree for cron tasks
+      if (implementCtx.worktreePath) {
+        await step.run("cleanup-cron-worktree", () => {
+          try {
+            removeWorktree(implementCtx.worktreePath);
+          } catch (err) {
+            log(
+              `failed to remove cron worktree ${implementCtx.worktreePath}: ${err}`,
+            );
+          }
+        });
+      }
+
+      return { outcome: cronResult.outcome };
+    }
+
+    // -------------------------------------------------------------------------
     // Step 5: Process implement result + Gate 2
     // -------------------------------------------------------------------------
 

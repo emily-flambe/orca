@@ -301,7 +301,7 @@ Steps:
       "ORCA_FIX_SYSTEM_PROMPT",
       DEFAULT_FIX_SYSTEM_PROMPT,
     ),
-    maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 3),
+    maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 10),
     reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
     implementModel: readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
     reviewModel: readEnvOrDefault("ORCA_REVIEW_MODEL", "haiku"),
