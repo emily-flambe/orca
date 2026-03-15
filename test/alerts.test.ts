@@ -2,11 +2,28 @@
 // Alerts tests — sendPermanentFailureAlert behavior
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, beforeEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import { insertTask, insertInvocation } from "../src/db/queries.js";
+import {
+  insertTask,
+  insertInvocation,
+  getRecentSystemEvents,
+  insertSystemEvent,
+} from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
-import { sendPermanentFailureAlert } from "../src/scheduler/alerts.js";
+import {
+  sendPermanentFailureAlert,
+  sendAlert,
+  sendAlertThrottled,
+  trackHealingAttempt,
+  shouldEscalate,
+  resetHealingCounters,
+  lastHealingAttemptTimestamp,
+  initAlertSystem,
+  _getHealingCounters,
+  _getAlertCooldowns,
+  type AlertPayload,
+} from "../src/scheduler/alerts.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -275,5 +292,343 @@ describe("sendPermanentFailureAlert", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
 
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendAlert
+// ---------------------------------------------------------------------------
+
+describe("sendAlert", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+    vi.restoreAllMocks();
+  });
+
+  const basePayload: AlertPayload = {
+    severity: "warning",
+    title: "Test Alert",
+    message: "Something happened",
+  };
+
+  test("inserts system event with type self_heal", () => {
+    const deps = makeDeps(db);
+    sendAlert(deps, basePayload);
+
+    const events = getRecentSystemEvents(db);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("self_heal");
+    expect(events[0].message).toContain("[warning]");
+    expect(events[0].message).toContain("Test Alert");
+  });
+
+  test("posts Linear comment when taskId is set", async () => {
+    const deps = makeDeps(db);
+    sendAlert(deps, { ...basePayload, taskId: "TASK-1" });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    expect(deps.client.createComment).toHaveBeenCalledOnce();
+    const [calledTaskId, calledComment] = (
+      deps.client.createComment as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    expect(calledTaskId).toBe("TASK-1");
+    expect(calledComment).toContain("Test Alert");
+  });
+
+  test("fires webhook when alertWebhookUrl is configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = testConfig({
+      alertWebhookUrl: "https://hooks.example.com/test",
+    });
+    const deps = makeDeps(db, config);
+    sendAlert(deps, basePayload);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hooks.example.com/test");
+    expect(options.method).toBe("POST");
+    expect(options.headers["Content-Type"]).toBe("application/json");
+
+    const body = JSON.parse(options.body);
+    expect(body.text).toContain("Test Alert");
+    expect(body.attachments[0].title).toBe("Test Alert");
+  });
+
+  test("never throws even when DB insert fails", () => {
+    const deps = makeDeps(db);
+    deps.db = {} as any; // Force DB error
+    expect(() => sendAlert(deps, basePayload)).not.toThrow();
+  });
+
+  test("never throws even when webhook fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValue(new Error("connection refused"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = testConfig({
+      alertWebhookUrl: "https://hooks.example.com/fail",
+    });
+    const deps = makeDeps(db, config);
+
+    expect(() => sendAlert(deps, basePayload)).not.toThrow();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  });
+
+  test("never throws even when Linear comment fails", async () => {
+    const deps = makeDeps(db);
+    (deps.client.createComment as ReturnType<typeof vi.fn>).mockImplementation(
+      () => {
+        throw new Error("sync error");
+      },
+    );
+
+    expect(() =>
+      sendAlert(deps, { ...basePayload, taskId: "TASK-ERR" }),
+    ).not.toThrow();
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  });
+
+  test("maps severity to correct webhook color", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const config = testConfig({
+      alertWebhookUrl: "https://hooks.example.com/color",
+    });
+    const deps = makeDeps(db, config);
+
+    const expected: Record<string, string> = {
+      info: "#36a64f",
+      warning: "warning",
+      critical: "danger",
+    };
+
+    for (const [severity, color] of Object.entries(expected)) {
+      fetchMock.mockClear();
+      sendAlert(deps, {
+        ...basePayload,
+        severity: severity as AlertPayload["severity"],
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.attachments[0].color).toBe(color);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendAlertThrottled
+// ---------------------------------------------------------------------------
+
+describe("sendAlertThrottled", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+    vi.restoreAllMocks();
+    resetHealingCounters(); // also clears alertCooldowns
+  });
+
+  const payload: AlertPayload = {
+    severity: "warning",
+    title: "Throttle Test",
+    message: "msg",
+  };
+
+  test("deduplicates within cooldown window", () => {
+    const deps = makeDeps(db);
+    sendAlertThrottled(deps, "dup-key", payload, 60_000);
+    sendAlertThrottled(deps, "dup-key", payload, 60_000);
+
+    const events = getRecentSystemEvents(db);
+    expect(events).toHaveLength(1);
+  });
+
+  test("allows after cooldown expires", () => {
+    vi.useFakeTimers();
+    try {
+      const deps = makeDeps(db);
+      sendAlertThrottled(deps, "expire-key", payload, 5_000);
+
+      let events = getRecentSystemEvents(db);
+      expect(events).toHaveLength(1);
+
+      vi.advanceTimersByTime(6_000);
+
+      sendAlertThrottled(deps, "expire-key", payload, 5_000);
+
+      events = getRecentSystemEvents(db);
+      expect(events).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// trackHealingAttempt
+// ---------------------------------------------------------------------------
+
+describe("trackHealingAttempt", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetHealingCounters();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("increments and returns count", () => {
+    expect(trackHealingAttempt("inc-key")).toBe(1);
+    expect(trackHealingAttempt("inc-key")).toBe(2);
+    expect(trackHealingAttempt("inc-key")).toBe(3);
+  });
+
+  test("resets after 1h inactivity", () => {
+    vi.useFakeTimers();
+    trackHealingAttempt("stale-key");
+    expect(_getHealingCounters().get("stale-key")?.count).toBe(1);
+
+    vi.advanceTimersByTime(3_600_001); // 1h + 1ms
+
+    const result = trackHealingAttempt("stale-key");
+    expect(result).toBe(1); // reset, so starts fresh
+  });
+
+  test("excludes events within 10 min of last startup", () => {
+    const db = freshDb();
+    insertSystemEvent(db, { type: "startup", message: "test startup" });
+    initAlertSystem(db);
+
+    // Startup just happened, so within 10 min grace period
+    const result = trackHealingAttempt("grace-key");
+    expect(result).toBe(0);
+
+    // Clean up
+    initAlertSystem(null as any); // reset cachedDb
+  });
+
+  test("counts normally after 10 min post-startup", () => {
+    vi.useFakeTimers();
+    const db = freshDb();
+
+    // Insert startup event "in the past" by advancing time after insert
+    insertSystemEvent(db, { type: "startup", message: "old startup" });
+    vi.advanceTimersByTime(600_001); // advance past 10 min grace
+
+    initAlertSystem(db);
+
+    const result = trackHealingAttempt("post-grace-key");
+    expect(result).toBe(1);
+
+    // Clean up
+    initAlertSystem(null as any);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldEscalate
+// ---------------------------------------------------------------------------
+
+describe("shouldEscalate", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetHealingCounters();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("returns false with no attempts", () => {
+    expect(shouldEscalate("unknown-key")).toBe(false);
+  });
+
+  test("returns false after 2 attempts", () => {
+    trackHealingAttempt("esc-2");
+    trackHealingAttempt("esc-2");
+    expect(shouldEscalate("esc-2")).toBe(false);
+  });
+
+  test("returns true after 3 attempts", () => {
+    trackHealingAttempt("esc-3");
+    trackHealingAttempt("esc-3");
+    trackHealingAttempt("esc-3");
+    expect(shouldEscalate("esc-3")).toBe(true);
+  });
+
+  test("returns false after 1h inactivity reset", () => {
+    vi.useFakeTimers();
+    trackHealingAttempt("esc-stale");
+    trackHealingAttempt("esc-stale");
+    trackHealingAttempt("esc-stale");
+    expect(shouldEscalate("esc-stale")).toBe(true);
+
+    vi.advanceTimersByTime(3_600_001);
+    expect(shouldEscalate("esc-stale")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resetHealingCounters
+// ---------------------------------------------------------------------------
+
+describe("resetHealingCounters", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetHealingCounters();
+  });
+
+  test("clears all counters", () => {
+    trackHealingAttempt("reset-a");
+    trackHealingAttempt("reset-a");
+    trackHealingAttempt("reset-a");
+    trackHealingAttempt("reset-b");
+
+    expect(shouldEscalate("reset-a")).toBe(true);
+    expect(_getHealingCounters().size).toBe(2);
+
+    resetHealingCounters();
+
+    expect(shouldEscalate("reset-a")).toBe(false);
+    expect(_getHealingCounters().size).toBe(0);
+    expect(_getAlertCooldowns().size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lastHealingAttemptTimestamp
+// ---------------------------------------------------------------------------
+
+describe("lastHealingAttemptTimestamp", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetHealingCounters();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("returns null with no attempts", () => {
+    expect(lastHealingAttemptTimestamp()).toBeNull();
+  });
+
+  test("returns correct timestamp after attempts", () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    trackHealingAttempt("ts-key");
+
+    const ts = lastHealingAttemptTimestamp();
+    expect(ts).toBe(1_000_000);
   });
 });

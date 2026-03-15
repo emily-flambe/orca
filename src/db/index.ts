@@ -353,6 +353,16 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "cron_schedules", "last_run_status")) {
     sqlite.exec("ALTER TABLE cron_schedules ADD COLUMN last_run_status TEXT");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 16 (self-monitoring composite index):
+  //   - Add composite index on system_events(type, created_at) for efficient
+  //     startup reconstruction of healing counters.
+  //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
+  // ---------------------------------------------------------------------------
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_system_events_type_created ON system_events(type, created_at)",
+  );
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

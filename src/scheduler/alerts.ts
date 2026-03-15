@@ -1,9 +1,255 @@
-import { getInvocationsByTask, getTask } from "../db/queries.js";
+import {
+  getInvocationsByTask,
+  getTask,
+  insertSystemEvent,
+  getLastStartup,
+  countSystemEventsSince,
+} from "../db/queries.js";
+import type { OrcaDb } from "../db/index.js";
 import type { SchedulerDeps } from "./types.js";
 import { createLogger } from "../logger.js";
 
 const logger = createLogger("alerts");
 const log = (...args: unknown[]) => logger.info(...args);
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type AlertSeverity = "info" | "warning" | "critical";
+
+export interface AlertPayload {
+  severity: AlertSeverity;
+  title: string;
+  message: string;
+  fields?: { title: string; value: string; short?: boolean }[];
+  taskId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const ESCALATION_THRESHOLD = 3;
+const POST_DEPLOY_GRACE_MS = 600_000; // 10 min
+const HEALING_INACTIVITY_RESET_MS = 3_600_000; // 1h
+
+const SEVERITY_COLORS: Record<AlertSeverity, string> = {
+  info: "#36a64f",
+  warning: "warning",
+  critical: "danger",
+};
+
+// ---------------------------------------------------------------------------
+// In-memory state
+// ---------------------------------------------------------------------------
+
+const alertCooldowns = new Map<string, number>();
+
+const healingCounters = new Map<
+  string,
+  { count: number; lastAttemptAt: number }
+>();
+
+let cachedDb: OrcaDb | null = null;
+
+// ---------------------------------------------------------------------------
+// Core alert functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Send an alert: insert system event, post Linear comment, fire webhook.
+ * NEVER throws — all internal operations are individually try/caught.
+ */
+export function sendAlert(deps: SchedulerDeps, payload: AlertPayload): void {
+  // 1. Insert system event
+  try {
+    insertSystemEvent(deps.db, {
+      type: "self_heal",
+      message: `[${payload.severity}] ${payload.title}: ${payload.message}`,
+      metadata: {
+        severity: payload.severity,
+        title: payload.title,
+        taskId: payload.taskId,
+        fields: payload.fields,
+      },
+    });
+  } catch (err) {
+    log(`sendAlert: DB insert failed: ${err}`);
+  }
+
+  // 2. Post Linear comment (if taskId is set)
+  if (payload.taskId) {
+    try {
+      deps.client
+        .createComment(
+          payload.taskId,
+          `**[Orca Self-Heal] ${payload.title}**\n\n${payload.message}`,
+        )
+        .catch((err: unknown) => {
+          log(`sendAlert: Linear comment failed for ${payload.taskId}: ${err}`);
+        });
+    } catch (err) {
+      log(`sendAlert: Linear comment setup failed: ${err}`);
+    }
+  }
+
+  // 3. Fire webhook (if configured)
+  if (deps.config.alertWebhookUrl) {
+    try {
+      const webhookPayload = {
+        text: `Orca: [${payload.severity}] ${payload.title}`,
+        attachments: [
+          {
+            color: SEVERITY_COLORS[payload.severity],
+            title: payload.title,
+            text: payload.message,
+            fields: payload.fields ?? [],
+          },
+        ],
+      };
+
+      fetch(deps.config.alertWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(webhookPayload),
+      })
+        .then((res) => {
+          if (!res.ok) {
+            log(`sendAlert: webhook returned ${res.status}`);
+          }
+        })
+        .catch((err: unknown) => {
+          log(`sendAlert: webhook failed: ${err}`);
+        });
+    } catch (err) {
+      log(`sendAlert: webhook setup failed: ${err}`);
+    }
+  }
+}
+
+/**
+ * Send an alert with per-key cooldown to prevent spam.
+ */
+export function sendAlertThrottled(
+  deps: SchedulerDeps,
+  key: string,
+  payload: AlertPayload,
+  cooldownMs: number,
+): void {
+  const now = Date.now();
+  const lastSent = alertCooldowns.get(key);
+  if (lastSent && now - lastSent < cooldownMs) {
+    return;
+  }
+  alertCooldowns.set(key, now);
+  sendAlert(deps, payload);
+}
+
+// ---------------------------------------------------------------------------
+// Healing attempt tracking
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialize the alert system. Called once at startup.
+ * Caches the DB reference for trackHealingAttempt's post-deploy grace check.
+ */
+export function initAlertSystem(db: OrcaDb): void {
+  cachedDb = db;
+
+  try {
+    const oneHourAgo = new Date(
+      Date.now() - HEALING_INACTIVITY_RESET_MS,
+    ).toISOString();
+    const selfHealCount = countSystemEventsSince(db, oneHourAgo, "self_heal");
+    const healthCheckCount = countSystemEventsSince(
+      db,
+      oneHourAgo,
+      "health_check",
+    );
+    log(
+      `initAlertSystem: found ${selfHealCount} self_heal + ${healthCheckCount} health_check events in last 1h`,
+    );
+  } catch (err) {
+    log(`initAlertSystem: counter reconstruction failed (non-fatal): ${err}`);
+  }
+}
+
+/**
+ * Track a healing attempt. Returns the current count for this key.
+ * Resets after 1h of inactivity. Excludes events within 10 min of last startup.
+ */
+export function trackHealingAttempt(key: string): number {
+  const now = Date.now();
+
+  // Post-deploy exclusion
+  if (cachedDb) {
+    try {
+      const lastStartup = getLastStartup(cachedDb);
+      if (lastStartup) {
+        const startupTime = new Date(lastStartup.createdAt).getTime();
+        if (now - startupTime < POST_DEPLOY_GRACE_MS) {
+          return 0;
+        }
+      }
+    } catch {
+      // If DB query fails, proceed without exclusion
+    }
+  }
+
+  const entry = healingCounters.get(key);
+  if (entry && now - entry.lastAttemptAt > HEALING_INACTIVITY_RESET_MS) {
+    healingCounters.delete(key);
+  }
+
+  const current = healingCounters.get(key) ?? { count: 0, lastAttemptAt: now };
+  current.count++;
+  current.lastAttemptAt = now;
+  healingCounters.set(key, current);
+
+  return current.count;
+}
+
+/**
+ * Returns true after 3 healing attempts in 1h for the same key.
+ */
+export function shouldEscalate(key: string): boolean {
+  const entry = healingCounters.get(key);
+  if (!entry) return false;
+
+  const now = Date.now();
+  if (now - entry.lastAttemptAt > HEALING_INACTIVITY_RESET_MS) {
+    healingCounters.delete(key);
+    return false;
+  }
+
+  return entry.count >= ESCALATION_THRESHOLD;
+}
+
+/**
+ * Clear all counters. Called on auto-undrain.
+ */
+export function resetHealingCounters(): void {
+  healingCounters.clear();
+  alertCooldowns.clear();
+}
+
+/**
+ * Returns the timestamp of the most recent healing attempt across all keys.
+ */
+export function lastHealingAttemptTimestamp(): number | null {
+  let latest: number | null = null;
+  for (const entry of healingCounters.values()) {
+    if (latest === null || entry.lastAttemptAt > latest) {
+      latest = entry.lastAttemptAt;
+    }
+  }
+  return latest;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy wrapper (preserved for backward compat)
+// ---------------------------------------------------------------------------
 
 export function sendPermanentFailureAlert(
   deps: SchedulerDeps,
@@ -17,7 +263,6 @@ export function sendPermanentFailureAlert(
   const retryCount = task?.retryCount ?? 0;
   const maxRetries = config.maxRetries;
 
-  // Rich Linear comment with failure context
   const comment = [
     `**Task permanently failed**`,
     ``,
@@ -26,11 +271,10 @@ export function sendPermanentFailureAlert(
     `**Invocations:** ${invocationIds}`,
   ].join("\n");
 
-  client.createComment(taskId, comment).catch((err) => {
+  client.createComment(taskId, comment).catch((err: unknown) => {
     log(`comment failed for task ${taskId}: ${err}`);
   });
 
-  // Optional webhook notification
   if (config.alertWebhookUrl) {
     const payload = {
       text: `Orca: task ${taskId} permanently failed`,
@@ -62,8 +306,25 @@ export function sendPermanentFailureAlert(
           log(`webhook returned ${res.status} for task ${taskId}`);
         }
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         log(`webhook failed for task ${taskId}: ${err}`);
       });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/** @internal */
+export function _getHealingCounters(): Map<
+  string,
+  { count: number; lastAttemptAt: number }
+> {
+  return healingCounters;
+}
+
+/** @internal */
+export function _getAlertCooldowns(): Map<string, number> {
+  return alertCooldowns;
 }

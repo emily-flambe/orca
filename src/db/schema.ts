@@ -88,6 +88,7 @@ export const systemEvents = sqliteTable("system_events", {
       "task_completed",
       "task_failed",
       "deploy",
+      "self_heal",
     ] as const,
   }).notNull(),
   message: text("message").notNull(),
