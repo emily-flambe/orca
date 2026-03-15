@@ -14,7 +14,10 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 // Captured handler and config from inngest.createFunction
 // Must be `var` (not `let`) so it's hoisted and accessible when vi.mock runs
 // eslint-disable-next-line no-var
-var capturedHandler: (ctx: { event: unknown; step: unknown }) => Promise<unknown>;
+var capturedHandler: (ctx: {
+  event: unknown;
+  step: unknown;
+}) => Promise<unknown>;
 // eslint-disable-next-line no-var
 var capturedFunctionConfig: { cancelOn?: unknown[] };
 
@@ -116,6 +119,7 @@ import {
   claimTaskForDispatch,
   updateTaskStatus,
   insertInvocation,
+  updateInvocation,
   sumCostInWindow,
   incrementRetryCount,
 } from "../src/db/queries.js";
@@ -133,6 +137,7 @@ const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
 const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
+const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSpawnSession = vi.mocked(spawnSession);
 const mockFindPrForBranch = vi.mocked(findPrForBranch);
 const mockGetInvocation = vi.mocked(getInvocation);
@@ -230,13 +235,12 @@ function makeTaskReadyEvent(taskId = "TEST-1") {
  * Creates a mock step that executes step.run() fns immediately and returns
  * pre-configured responses for step.waitForEvent().
  */
-function createStep(
-  waitForEventResponses: Map<string, unknown> = new Map(),
-) {
+function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
   return {
     run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
     waitForEvent: vi.fn(
-      async (id: string, _opts: unknown) => waitForEventResponses.get(id) ?? null,
+      async (id: string, _opts: unknown) =>
+        waitForEventResponses.get(id) ?? null,
     ),
     sleep: vi.fn(async () => {}),
     sendEvent: vi.fn(async () => {}),
@@ -336,7 +340,11 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "timed_out" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
   });
 
   test("implement succeeds, PR found → transitions to in_review", async () => {
@@ -364,7 +372,11 @@ describe("task-lifecycle workflow", () => {
     // After Gate 2 passes with PR found, the workflow continues to review loop.
     // With no review event it returns timed_out or awaiting_ci based on flow.
     // The in_review transition happens inside the step.run, then it continues to review.
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "in_review");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "in_review",
+    );
   });
 
   test("implement succeeds, no PR found, no changes → transitions to done", async () => {
@@ -601,11 +613,20 @@ describe("task-lifecycle workflow", () => {
     });
 
     const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent0 = makeSessionCompletedEvent({ invocationId: 2, phase: "review" });
+    const reviewEvent0 = makeSessionCompletedEvent({
+      invocationId: 2,
+      phase: "review",
+    });
     const fixEvent0 = makeSessionCompletedEvent({ invocationId: 3 });
-    const reviewEvent1 = makeSessionCompletedEvent({ invocationId: 4, phase: "review" });
+    const reviewEvent1 = makeSessionCompletedEvent({
+      invocationId: 4,
+      phase: "review",
+    });
     const fixEvent1 = makeSessionCompletedEvent({ invocationId: 5 });
-    const reviewEvent2 = makeSessionCompletedEvent({ invocationId: 6, phase: "review" });
+    const reviewEvent2 = makeSessionCompletedEvent({
+      invocationId: 6,
+      phase: "review",
+    });
 
     const step = createStep(
       new Map([
@@ -655,7 +676,179 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
+  });
+
+  test("implement success → invocation finalized with completed status and cost data", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+    mockGetInvocation.mockReturnValue({ outputSummary: "" });
+    mockFindPrForBranch.mockReturnValue({ exists: false });
+    mockExistsSync.mockReturnValue(false);
+
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      costUsd: 0.05,
+      inputTokens: 500,
+      outputTokens: 300,
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      1,
+      expect.objectContaining({
+        status: "completed",
+        costUsd: 0.05,
+        inputTokens: 500,
+        outputTokens: 300,
+        endedAt: expect.any(String),
+      }),
+    );
+  });
+
+  test("implement failure → invocation finalized with failed status", async () => {
+    const task = makeTask({ retryCount: 0 });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      costUsd: 0.02,
+      inputTokens: 100,
+      outputTokens: 50,
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      1,
+      expect.objectContaining({
+        status: "failed",
+        costUsd: 0.02,
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+    );
+  });
+
+  test("review success → invocation finalized with completed status", async () => {
+    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
+    mockGetInvocation
+      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review
+    mockFindPrForBranch.mockReturnValue({
+      exists: true,
+      number: 42,
+      url: "https://github.com/org/repo/pull/42",
+      headBranch: "orca/TEST-1-inv-1",
+      merged: false,
+    });
+
+    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
+    const reviewEvent = makeSessionCompletedEvent({
+      invocationId: 2,
+      phase: "review",
+      costUsd: 0.003,
+      inputTokens: 200,
+      outputTokens: 100,
+    });
+    const step = createStep(
+      new Map([
+        ["await-implement", implementEvent],
+        ["await-review-0", reviewEvent],
+      ]),
+    );
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      2,
+      expect.objectContaining({
+        status: "completed",
+        costUsd: 0.003,
+        inputTokens: 200,
+        outputTokens: 100,
+        endedAt: expect.any(String),
+      }),
+    );
+  });
+
+  test("fix success → invocation finalized with completed status", async () => {
+    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation
+      .mockReturnValueOnce(1) // implement
+      .mockReturnValueOnce(2) // review
+      .mockReturnValueOnce(3) // fix
+      .mockReturnValueOnce(4); // review cycle 1
+    mockGetInvocation
+      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review 1
+    mockFindPrForBranch.mockReturnValue({
+      exists: true,
+      number: 42,
+      url: "https://github.com/org/repo/pull/42",
+      headBranch: "orca/TEST-1-inv-1",
+      merged: false,
+    });
+
+    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
+    const reviewEvent0 = makeSessionCompletedEvent({
+      invocationId: 2,
+      phase: "review",
+    });
+    const fixEvent = makeSessionCompletedEvent({
+      invocationId: 3,
+      costUsd: 0.04,
+      inputTokens: 400,
+      outputTokens: 200,
+    });
+    const reviewEvent1 = makeSessionCompletedEvent({
+      invocationId: 4,
+      phase: "review",
+    });
+
+    const step = createStep(
+      new Map([
+        ["await-implement", implementEvent],
+        ["await-review-0", reviewEvent0],
+        ["await-fix-0", fixEvent],
+        ["await-review-1", reviewEvent1],
+      ]),
+    );
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockUpdateInvocation).toHaveBeenCalledWith(
+      mockDb,
+      3,
+      expect.objectContaining({
+        status: "completed",
+        costUsd: 0.04,
+        inputTokens: 400,
+        outputTokens: 200,
+        endedAt: expect.any(String),
+      }),
+    );
   });
 });
