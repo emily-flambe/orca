@@ -295,6 +295,7 @@ export default function App() {
     selectedTaskId ? "detail" : "list",
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
   useEffect(() => {
     fetchTasks().then(setTasks).catch(console.error);
     fetchStatus().then(setStatus).catch(console.error);
