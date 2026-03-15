@@ -300,7 +300,12 @@ export const ciMergeWorkflow = inngest.createFunction(
         updateTaskStatus(db, linearIssueId, "failed");
         emitTaskUpdated(getTask(db, linearIssueId)!);
 
-        await writeBackStatus(client, linearIssueId, "failed_permanent", stateMap);
+        await writeBackStatus(
+          client,
+          linearIssueId,
+          "failed_permanent",
+          stateMap,
+        );
 
         sendPermanentFailureAlert(
           deps,
@@ -308,7 +313,9 @@ export const ciMergeWorkflow = inngest.createFunction(
           `CI checks never resolved after ${maxPollAttempts} poll attempts`,
         );
 
-        log(`task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`);
+        log(
+          `task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`,
+        );
       });
       return { status: "failed", reason: "poll_exhausted" };
     }

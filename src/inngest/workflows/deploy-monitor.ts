@@ -190,7 +190,12 @@ export const deployMonitorWorkflow = inngest.createFunction(
         updateTaskStatus(db, linearIssueId, "failed");
         emitTaskUpdated(getTask(db, linearIssueId)!);
 
-        await writeBackStatus(client, linearIssueId, "failed_permanent", stateMap);
+        await writeBackStatus(
+          client,
+          linearIssueId,
+          "failed_permanent",
+          stateMap,
+        );
 
         sendPermanentFailureAlert(
           deps,
@@ -198,7 +203,9 @@ export const deployMonitorWorkflow = inngest.createFunction(
           `Deploy status never resolved after ${maxPollAttempts} poll attempts`,
         );
 
-        log(`task ${linearIssueId} deploy poll exhausted ${maxPollAttempts} attempts`);
+        log(
+          `task ${linearIssueId} deploy poll exhausted ${maxPollAttempts} attempts`,
+        );
       });
       return { status: "failed", reason: "poll_exhausted" };
     }
