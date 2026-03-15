@@ -34,6 +34,7 @@ import {
   findPrByUrl,
   getMergeCommitSha,
   getPrCheckStatus,
+  getPrCheckStatusSync,
   getPrMergeState,
   mergePr,
   updatePrBranch,
@@ -441,7 +442,7 @@ describe("getPrCheckStatus", () => {
     expect(result).toBe("success");
   });
 
-  test("returns no_checks on gh CLI failure", async () => {
+  test("returns error on gh CLI failure", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       const err = new Error("gh failed");
       (err as NodeJS.ErrnoException & { stderr?: string }).stderr = "error";
@@ -449,8 +450,34 @@ describe("getPrCheckStatus", () => {
     });
 
     const result = await getPrCheckStatus(1, "/tmp/repo");
-    expect(result).toBe("no_checks");
+    expect(result).toBe("error");
   });
+
+  test(
+    "retries once on transient CLI error and returns success",
+    { timeout: 5000 },
+    async () => {
+      let callCount = 0;
+      execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+        callCount++;
+        if (callCount === 1) {
+          const err = new Error("transient error");
+          callback(err, null);
+        } else {
+          callback(null, {
+            stdout: JSON.stringify([
+              { name: "test", state: "SUCCESS", bucket: "pass" },
+            ]),
+            stderr: "",
+          });
+        }
+      });
+
+      const result = await getPrCheckStatus(1, "/tmp/repo");
+      expect(result).toBe("success");
+      expect(callCount).toBe(2);
+    },
+  );
 
   test("calls gh pr checks with correct args", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
@@ -1352,5 +1379,164 @@ describe("closePrsForCanceledTask", () => {
     const count = closePrsForCanceledTask("EMI-20", "/tmp/repo");
 
     expect(count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPrCheckStatusSync
+// ---------------------------------------------------------------------------
+
+describe("getPrCheckStatusSync", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns no_checks for empty checks array", () => {
+    execSyncMock.mockReturnValue(JSON.stringify([]));
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("no_checks");
+  });
+
+  test("returns pending when any check has bucket pending", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "PENDING", bucket: "pending" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("pending");
+  });
+
+  test("returns pending when any check has bucket queued", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([{ name: "build", state: "QUEUED", bucket: "queued" }]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("pending");
+  });
+
+  test("returns failure when any check has bucket fail", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "FAILURE", bucket: "fail" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("failure");
+  });
+
+  test("returns success when all checks pass", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "SUCCESS", bucket: "pass" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("success");
+  });
+
+  test("returns error on gh CLI failure — NOT no_checks", () => {
+    // This is the critical test: a CLI failure must return "error", not "no_checks".
+    // Returning "no_checks" would allow the ci-merge workflow to attempt a premature merge.
+    execSyncMock.mockImplementation(() => {
+      throw new Error("gh: DLL init failed");
+    });
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("error");
+    expect(result).not.toBe("no_checks");
+    expect(result).not.toBe("success");
+  });
+
+  test("returns error on JSON parse failure — NOT no_checks", () => {
+    // Malformed output from gh should produce "error", not be confused with no_checks
+    execSyncMock.mockReturnValue("not-valid-json");
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("error");
+    expect(result).not.toBe("no_checks");
+  });
+
+  test("calls gh pr checks with correct args", () => {
+    execSyncMock.mockReturnValue(JSON.stringify([]));
+
+    getPrCheckStatusSync(7, "/tmp/repo");
+
+    const [cmd, args, opts] = execSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toEqual([
+      "pr",
+      "checks",
+      "7",
+      "--json",
+      "name,state,bucket",
+    ]);
+    expect(opts.cwd).toBe("/tmp/repo");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPrCheckStatus — retry count verification
+// ---------------------------------------------------------------------------
+
+describe("getPrCheckStatus — retry count", () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("makes exactly 2 gh calls when both attempts fail (maxAttempts=2)", async () => {
+    let callCount = 0;
+    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+      callCount++;
+      const err = new Error("transient DLL error");
+      callback(err, null);
+    });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+
+    expect(result).toBe("error");
+    // Must be exactly 2 — not 1 (too few, skipped retry) or 3+ (exceeded maxAttempts)
+    expect(callCount).toBe(2);
+  });
+
+  test("returns result from second attempt when first fails and second succeeds", async () => {
+    let callCount = 0;
+    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+      callCount++;
+      if (callCount === 1) {
+        callback(new Error("DLL init"), null);
+      } else {
+        callback(null, {
+          stdout: JSON.stringify([
+            { name: "test", state: "FAILURE", bucket: "fail" },
+          ]),
+          stderr: "",
+        });
+      }
+    });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+
+    // Must use the second attempt's result, not the error
+    expect(result).toBe("failure");
+    expect(callCount).toBe(2);
   });
 });

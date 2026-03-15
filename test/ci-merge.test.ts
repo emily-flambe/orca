@@ -72,6 +72,12 @@ describe("checkCiStatus", () => {
     const result = await checkCiStatus(input);
     expect(result.status).toBe("failure");
   });
+
+  test("returns pending (retriable) when gh CLI errors", async () => {
+    mockGetPrCheckStatus.mockResolvedValue("error");
+    const result = await checkCiStatus(input);
+    expect(result.status).toBe("pending");
+  });
 });
 
 // ---------------------------------------------------------------------------

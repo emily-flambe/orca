@@ -69,7 +69,7 @@ export async function checkCiStatus(
   if (status === "failure") {
     return { status: "failure" };
   }
-  // "pending" — Inngest will sleep and call again
+  // "pending" or "error" (transient gh CLI failure) — Inngest will sleep and call again
   return { status: "pending" };
 }
 
