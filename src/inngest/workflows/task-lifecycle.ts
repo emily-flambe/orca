@@ -46,6 +46,8 @@ import {
   emitInvocationCompleted,
 } from "../../events.js";
 import { writeBackStatus } from "../../linear/sync.js";
+import { sendAlert } from "../../scheduler/alerts.js";
+import type { SchedulerDeps } from "../../scheduler/types.js";
 import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
@@ -507,11 +509,12 @@ export const taskLifecycle = inngest.createFunction(
         if (!resumeWorktreePath) {
           const prevInv = getLastDeployInterruptedInvocation(db, taskId);
           if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
+            resumeSessionId = prevInv.sessionId ?? undefined;
             resumeWorktreePath = prevInv.worktreePath;
             resumeBranchName = prevInv.branchName ?? undefined;
             isDeployResume = true;
             log(
-              `task ${taskId}: resuming deploy-interrupted worktree ${resumeWorktreePath}`,
+              `task ${taskId}: resuming deploy-interrupted session ${resumeSessionId ?? "none"} at ${resumeWorktreePath}`,
             );
           }
         }
@@ -740,14 +743,23 @@ export const taskLifecycle = inngest.createFunction(
                   });
                   const rescuedTask = getTask(db, taskId);
                   if (rescuedTask) emitTaskUpdated(rescuedTask);
-                  insertSystemEvent(db, {
-                    type: "self_heal",
-                    message: `Rescued orphaned green PR for ${taskId} (PR #${prInfo.number})`,
-                    metadata: {
-                      taskId,
-                      prNumber: prInfo.number,
-                      phase: "implement",
-                    },
+                  sendAlert(getDeps() as unknown as SchedulerDeps, {
+                    severity: "info",
+                    title: "Rescued orphaned green PR",
+                    message: `Task ${taskId} had a passing PR on branch ${guardBTask.prBranchName} — transitioning to awaiting_ci instead of failing`,
+                    taskId,
+                    fields: [
+                      {
+                        title: "Branch",
+                        value: guardBTask.prBranchName!,
+                        short: true,
+                      },
+                      {
+                        title: "PR",
+                        value: `#${prInfo.number}`,
+                        short: true,
+                      },
+                    ],
                   });
                   log(
                     `Guard B: rescued task ${taskId} — PR #${prInfo.number} has passing CI`,

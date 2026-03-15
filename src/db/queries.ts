@@ -405,8 +405,10 @@ export function getLastMaxTurnsInvocation(
 
 /**
  * Find the most recent invocation for a task that was interrupted by a deploy
- * and has a preserved worktree (worktree_preserved = 1) during the implement phase.
- * Used to determine if a retry can reuse the preserved worktree.
+ * and has a preserved worktree (worktree_preserved = 1).
+ * Used to determine if a retry can reuse the preserved worktree and resume
+ * the session. Matches all phases (implement, review, fix) since deploy
+ * interruptions now preserve worktrees for every phase.
  */
 export function getLastDeployInterruptedInvocation(
   db: OrcaDb,
@@ -419,7 +421,6 @@ export function getLastDeployInterruptedInvocation(
       and(
         eq(invocations.linearIssueId, taskId),
         eq(invocations.outputSummary, "interrupted_by_deploy"),
-        eq(invocations.phase, "implement"),
         eq(invocations.status, "failed"),
         eq(invocations.worktreePreserved, 1),
         isNotNull(invocations.worktreePath),
@@ -986,6 +987,24 @@ export function getSystemEventsByType(
     .select()
     .from(systemEvents)
     .where(eq(systemEvents.type, type))
+    .orderBy(desc(systemEvents.createdAt))
+    .limit(limit)
+    .all();
+}
+
+/** Get system events by type since a given timestamp. */
+export function getSystemEventsSince(
+  db: OrcaDb,
+  since: string,
+  type?: SystemEventType,
+  limit = 200,
+): SystemEvent[] {
+  const conditions = [gte(systemEvents.createdAt, since)];
+  if (type) conditions.push(eq(systemEvents.type, type));
+  return db
+    .select()
+    .from(systemEvents)
+    .where(and(...conditions))
     .orderBy(desc(systemEvents.createdAt))
     .limit(limit)
     .all();

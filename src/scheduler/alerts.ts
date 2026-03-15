@@ -4,6 +4,7 @@ import {
   insertSystemEvent,
   getLastStartup,
   countSystemEventsSince,
+  getSystemEventsSince,
 } from "../db/queries.js";
 import type { OrcaDb } from "../db/index.js";
 import type { SchedulerDeps } from "./types.js";
@@ -170,6 +171,45 @@ export function initAlertSystem(db: OrcaDb): void {
     log(
       `initAlertSystem: found ${selfHealCount} self_heal + ${healthCheckCount} health_check events in last 1h`,
     );
+
+    // Reconstruct healingCounters from recent self_heal events
+    const recentHeals = getSystemEventsSince(db, oneHourAgo, "self_heal");
+    const countersByKey = new Map<
+      string,
+      { count: number; lastAttemptAt: number }
+    >();
+    for (const event of recentHeals) {
+      let key = "unknown";
+      if (event.metadata) {
+        try {
+          const meta = JSON.parse(event.metadata);
+          if (meta.title) {
+            key = meta.title;
+          }
+        } catch {
+          // metadata not valid JSON — use "unknown"
+        }
+      }
+      const eventTime = new Date(event.createdAt).getTime();
+      const existing = countersByKey.get(key);
+      if (existing) {
+        existing.count++;
+        if (eventTime > existing.lastAttemptAt) {
+          existing.lastAttemptAt = eventTime;
+        }
+      } else {
+        countersByKey.set(key, { count: 1, lastAttemptAt: eventTime });
+      }
+    }
+    for (const [key, value] of countersByKey) {
+      healingCounters.set(key, value);
+    }
+
+    if (countersByKey.size > 0) {
+      log(
+        `initAlertSystem: reconstructed ${countersByKey.size} healing counter(s) from DB`,
+      );
+    }
   } catch (err) {
     log(`initAlertSystem: counter reconstruction failed (non-fatal): ${err}`);
   }
@@ -256,14 +296,14 @@ export function sendPermanentFailureAlert(
   taskId: string,
   reason: string,
 ): void {
-  const { db, config, client } = deps;
+  const { db, config } = deps;
   const task = getTask(db, taskId);
   const invocations = getInvocationsByTask(db, taskId);
   const invocationIds = invocations.map((inv) => inv.id).join(", ") || "none";
   const retryCount = task?.retryCount ?? 0;
   const maxRetries = config.maxRetries;
 
-  const comment = [
+  const message = [
     `**Task permanently failed**`,
     ``,
     `**Reason:** ${reason}`,
@@ -271,45 +311,22 @@ export function sendPermanentFailureAlert(
     `**Invocations:** ${invocationIds}`,
   ].join("\n");
 
-  client.createComment(taskId, comment).catch((err: unknown) => {
-    log(`comment failed for task ${taskId}: ${err}`);
+  sendAlert(deps, {
+    severity: "critical",
+    title: "Permanent Task Failure",
+    message,
+    taskId,
+    fields: [
+      { title: "Task ID", value: taskId, short: true },
+      {
+        title: "Retry count",
+        value: `${retryCount}/${maxRetries}`,
+        short: true,
+      },
+      { title: "Reason", value: reason, short: false },
+      { title: "Invocations", value: invocationIds, short: false },
+    ],
   });
-
-  if (config.alertWebhookUrl) {
-    const payload = {
-      text: `Orca: task ${taskId} permanently failed`,
-      attachments: [
-        {
-          color: "danger",
-          title: "Permanent Task Failure",
-          fields: [
-            { title: "Task ID", value: taskId, short: true },
-            {
-              title: "Retry count",
-              value: `${retryCount}/${maxRetries}`,
-              short: true,
-            },
-            { title: "Reason", value: reason, short: false },
-            { title: "Invocations", value: invocationIds, short: false },
-          ],
-        },
-      ],
-    };
-
-    fetch(config.alertWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          log(`webhook returned ${res.status} for task ${taskId}`);
-        }
-      })
-      .catch((err: unknown) => {
-        log(`webhook failed for task ${taskId}: ${err}`);
-      });
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,8 @@ import { removeWorktree } from "../worktree/index.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
+import { activeHandles } from "../session-handles.js";
+import { killSession } from "../runner/index.js";
 
 const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
@@ -477,17 +479,19 @@ program
 
     // Graceful shutdown
     let shuttingDown = false;
-    const shutdown = () => {
+    const shutdown = async () => {
       if (shuttingDown) return;
       shuttingDown = true;
       logger.info("Orca shutting down...");
 
       const running = getRunningInvocations(db);
+      const deployInProgress = isDraining();
+
       insertSystemEvent(db, {
         type: "shutdown",
         message: "Graceful shutdown",
         metadata: {
-          reason: isDraining() ? "deploy" : "signal",
+          reason: deployInProgress ? "deploy" : "signal",
           runningTasks: running.length,
         },
       });
@@ -501,17 +505,57 @@ program
       // Stop cloudflared tunnel
       if (tunnel) tunnel.stop();
 
-      // Mark all running invocations as failed AND reset their tasks to
-      // "ready" so they re-enter the dispatch queue on next startup.
-      // Without this, tasks stay orphaned in "running" state forever.
-      //
-      // If the scheduler was draining (deploy in progress), preserve the
-      // worktree so the next dispatch can resume from the interrupted state.
-      // Otherwise, remove the worktree so retries start fresh.
-      const deployInProgress = isDraining();
+      // 1. Gracefully kill all active Claude sessions
+      const killPromises: Promise<void>[] = [];
+      for (const [invId, handle] of activeHandles) {
+        logger.info(`killing session for invocation ${invId}...`);
+        killPromises.push(
+          killSession(handle).catch((err) => {
+            logger.warn(`failed to kill session ${invId}: ${err}`);
+          }) as Promise<void>,
+        );
+      }
+      // Wait up to 10s for all sessions to die
+      await Promise.race([
+        Promise.allSettled(killPromises),
+        new Promise((resolve) => setTimeout(resolve, 10_000)),
+      ]);
+
+      // 2. Send session/failed events to Inngest so old workflows exit cleanly
       for (const inv of running) {
-        if (deployInProgress && inv.phase === "implement" && inv.worktreePath) {
-          // Preserve worktree for deploy-interrupted resume
+        try {
+          await inngest.send({
+            name: "session/failed",
+            data: {
+              invocationId: inv.id,
+              linearIssueId: inv.linearIssueId,
+              phase: (inv.phase as "implement" | "review") ?? "implement",
+              exitCode: 1,
+              errorMessage: deployInProgress
+                ? "interrupted_by_deploy"
+                : "interrupted by shutdown",
+              isRateLimited: false,
+              isContentFiltered: false,
+              isDllInit: false,
+              isMaxTurns: false,
+              sessionId: null,
+              worktreePath: inv.worktreePath ?? null,
+              costUsd: null,
+              inputTokens: null,
+              outputTokens: null,
+            },
+          });
+        } catch (err) {
+          logger.warn(
+            `failed to send session/failed event for inv ${inv.id}: ${err}`,
+          );
+        }
+      }
+
+      // 3. Update DB records (preserve worktrees for ALL phases during deploy)
+      for (const inv of running) {
+        if (deployInProgress && inv.worktreePath) {
+          // Preserve worktree for ALL phases during deploy (not just implement)
           updateInvocation(db, inv.id, {
             status: "failed",
             endedAt: new Date().toISOString(),
@@ -519,7 +563,7 @@ program
             worktreePreserved: 1,
           });
           logger.info(
-            `preserving worktree for deploy-interrupted task ${inv.linearIssueId}: ${inv.worktreePath}`,
+            `preserving worktree for deploy-interrupted task ${inv.linearIssueId} (${inv.phase}): ${inv.worktreePath}`,
           );
         } else {
           updateInvocation(db, inv.id, {
@@ -537,10 +581,11 @@ program
           }
         }
         updateTaskStatus(db, inv.linearIssueId, "ready");
-        // Clear implement-phase session IDs so the next startup doesn't try
-        // to resume a dead Claude session. Also reset the stale counter so
-        // pre-shutdown stale detections don't carry over into the next run.
-        clearSessionIds(db, inv.linearIssueId);
+        // Only clear session IDs for non-deploy shutdowns so the new instance
+        // can use --resume for deploy-interrupted sessions.
+        if (!deployInProgress) {
+          clearSessionIds(db, inv.linearIssueId);
+        }
         updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
       }
 
@@ -549,8 +594,14 @@ program
       }, 2000);
     };
 
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
+    // Signal handlers call the async function fire-and-forget
+    // (signal handlers can't be async directly)
+    process.on("SIGTERM", () => {
+      shutdown();
+    });
+    process.on("SIGINT", () => {
+      shutdown();
+    });
 
     process.on("unhandledRejection", (reason: unknown) => {
       const err = reason instanceof Error ? reason : new Error(String(reason));

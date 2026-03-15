@@ -206,8 +206,8 @@ describe("sendPermanentFailureAlert", () => {
     expect(options.headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse(options.body);
-    expect(body.text).toContain(taskId);
-    expect(body.text).toContain("permanently failed");
+    expect(body.text).toContain("Permanent Task Failure");
+    expect(body.text).toContain("critical");
     expect(body.attachments).toHaveLength(1);
     const attachment = body.attachments[0];
     expect(attachment.color).toBe("danger");
