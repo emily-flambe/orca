@@ -39,11 +39,7 @@ function useHealthStatus(): boolean | null {
 
 function HealthDot({ online }: { online: boolean | null }) {
   const color =
-    online === null
-      ? "bg-gray-500"
-      : online
-        ? "bg-green-400"
-        : "bg-red-500";
+    online === null ? "bg-gray-500" : online ? "bg-green-400" : "bg-red-500";
   const label = online === null ? "Checking..." : online ? "Online" : "Offline";
   return (
     <span
