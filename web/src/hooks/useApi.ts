@@ -284,4 +284,14 @@ export function deleteCronSchedule(id: number): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/cron/${id}`, { method: "DELETE" });
 }
 
+export function fetchCronScheduleTasks(
+  scheduleId: number,
+  limit = 20,
+  offset = 0,
+): Promise<{ tasks: TaskWithInvocations[]; total: number }> {
+  return fetchJson<{ tasks: TaskWithInvocations[]; total: number }>(
+    `/cron/${scheduleId}/tasks?limit=${limit}&offset=${offset}`,
+  );
+}
+
 export type { CronSchedule };

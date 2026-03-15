@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
-import type { CronSchedule } from "../types";
+import type { CronSchedule, TaskWithInvocations } from "../types";
 import {
   fetchCronSchedules,
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  fetchCronScheduleTasks,
 } from "../hooks/useApi";
+import LogViewer from "./LogViewer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +39,199 @@ function formatLastRun(lastRunAt: string | null): string {
   if (diffH < 24) return `${diffH}h ago`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD}d ago`;
+}
+
+function formatDuration(startedAt: string, endedAt: string | null): string {
+  const start = new Date(startedAt).getTime();
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+  const secs = Math.max(0, Math.floor((end - start) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (secs < 3600) return `${mins}m ${remSecs}s`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m`;
+}
+
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case "done":
+      return "bg-green-900/40 text-green-400 border-green-700/40";
+    case "failed":
+      return "bg-red-900/40 text-red-400 border-red-700/40";
+    case "running":
+      return "bg-blue-900/40 text-blue-400 border-blue-700/40";
+    case "canceled":
+      return "bg-gray-800 text-gray-500 border-gray-700";
+    case "dispatched":
+    case "ready":
+      return "bg-yellow-900/40 text-yellow-400 border-yellow-700/40";
+    default:
+      return "bg-gray-800 text-gray-400 border-gray-700";
+  }
+}
+
+const PAGE_SIZE = 20;
+
+function CronHistoryPanel({
+  scheduleId,
+  scheduleType,
+}: {
+  scheduleId: number;
+  scheduleType: string;
+}) {
+  const [tasks, setTasks] = useState<TaskWithInvocations[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setExpandedTaskId(null);
+    fetchCronScheduleTasks(scheduleId, PAGE_SIZE, offset)
+      .then((data) => {
+        if (cancelled) return;
+        setTasks(data.tasks);
+        setTotal(data.total);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduleId, offset]);
+
+  if (loading) {
+    return (
+      <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-500">
+        Loading history...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="border-t border-gray-800 px-4 py-3 text-xs text-red-400">
+        Error: {error}
+      </div>
+    );
+  }
+
+  if (tasks.length === 0) {
+    return (
+      <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-500 italic">
+        {total === 0 ? "No runs yet." : "No results on this page."}
+      </div>
+    );
+  }
+
+  const isClaudeType = scheduleType === "claude";
+
+  return (
+    <div className="border-t border-gray-800">
+      {tasks.map((task) => {
+        const latestInvocation =
+          task.invocations.length > 0
+            ? task.invocations.slice().sort((a, b) =>
+                (a.startedAt ?? "").localeCompare(b.startedAt ?? ""),
+              )[task.invocations.length - 1]
+            : null;
+
+        const duration =
+          latestInvocation
+            ? latestInvocation.endedAt
+              ? formatDuration(latestInvocation.startedAt, latestInvocation.endedAt)
+              : task.orcaStatus === "running"
+                ? formatDuration(latestInvocation.startedAt, null)
+                : "—"
+            : "—";
+
+        const isExpanded = expandedTaskId === task.linearIssueId;
+        const shortId = task.linearIssueId.slice(-12);
+
+        return (
+          <div key={task.linearIssueId} className="border-b border-gray-800 last:border-b-0">
+            <button
+              onClick={() =>
+                setExpandedTaskId(isExpanded ? null : task.linearIssueId)
+              }
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800/50 transition-colors"
+            >
+              <span className="text-xs text-gray-600 font-mono">{isExpanded ? "▼" : "▶"}</span>
+              <span className="font-mono text-xs text-gray-400 shrink-0">{shortId}</span>
+              <span
+                className={`text-xs px-1.5 py-0.5 rounded-full border shrink-0 ${statusBadgeClass(task.orcaStatus)}`}
+              >
+                {task.orcaStatus}
+              </span>
+              <span className="text-xs text-gray-500 shrink-0">
+                {formatLastRun(task.createdAt)}
+              </span>
+              <span className="text-xs text-gray-600 shrink-0">{duration}</span>
+            </button>
+
+            {isExpanded && (
+              <div className="px-4 pb-3">
+                {isClaudeType && latestInvocation ? (
+                  <LogViewer
+                    invocationId={latestInvocation.id}
+                    isRunning={latestInvocation.status === "running"}
+                    outputSummary={latestInvocation.outputSummary}
+                    compact
+                  />
+                ) : (
+                  <div className="bg-gray-800/50 rounded px-3 py-2 text-xs text-gray-400">
+                    <span className="text-gray-500">Status:</span>{" "}
+                    <span className={statusBadgeClass(task.orcaStatus).includes("green") ? "text-green-400" : statusBadgeClass(task.orcaStatus).includes("red") ? "text-red-400" : "text-gray-300"}>
+                      {task.orcaStatus}
+                    </span>
+                    {task.doneAt && (
+                      <span className="ml-3 text-gray-500">
+                        Completed: {formatLastRun(task.doneAt)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {(total > PAGE_SIZE || offset > 0) && (
+        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-800 text-xs text-gray-500">
+          <span>
+            Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={offset === 0}
+              className="px-2 py-1 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={offset + PAGE_SIZE >= total}
+              className="px-2 py-1 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +480,9 @@ export default function CronPage() {
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [expandedScheduleId, setExpandedScheduleId] = useState<number | null>(
+    null,
+  );
 
   const load = useCallback(() => {
     fetchCronSchedules()
@@ -399,9 +597,20 @@ export default function CronPage() {
               onCancel={() => setEditingId(null)}
             />
           ) : (
-            <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
+            <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+              <div
+                className="p-4 space-y-2 cursor-pointer hover:bg-gray-800/30 transition-colors"
+                onClick={() =>
+                  setExpandedScheduleId(
+                    expandedScheduleId === s.id ? null : s.id,
+                  )
+                }
+              >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs text-gray-600 select-none">
+                    {expandedScheduleId === s.id ? "▼" : "▶"}
+                  </span>
                   <span className="text-sm font-medium text-gray-200 truncate">
                     {s.name}
                   </span>
@@ -417,7 +626,7 @@ export default function CronPage() {
                     />
                   )}
                   <button
-                    onClick={() => handleToggleEnabled(s)}
+                    onClick={(e) => { e.stopPropagation(); handleToggleEnabled(s); }}
                     className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
                     title={s.enabled === 1 ? "Disable" : "Enable"}
                   >
@@ -426,7 +635,7 @@ export default function CronPage() {
                     />
                   </button>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => setEditingId(s.id)}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
@@ -488,6 +697,10 @@ export default function CronPage() {
               </div>
 
               <p className="text-xs text-gray-400 line-clamp-2">{s.prompt}</p>
+              </div>
+              {expandedScheduleId === s.id && (
+                <CronHistoryPanel scheduleId={s.id} scheduleType={s.type} />
+              )}
             </div>
           )}
         </div>
