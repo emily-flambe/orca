@@ -1,12 +1,18 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import CronPage from "../CronPage";
-import type { CronSchedule } from "../../types";
+import type {
+  CronSchedule,
+  TaskWithInvocations,
+  Invocation,
+} from "../../types";
 import {
   fetchCronSchedules,
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  fetchCronScheduleTasks,
+  fetchInvocationLogs,
 } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
@@ -14,12 +20,16 @@ vi.mock("../../hooks/useApi", () => ({
   createCronSchedule: vi.fn(),
   updateCronSchedule: vi.fn(),
   deleteCronSchedule: vi.fn(),
+  fetchCronScheduleTasks: vi.fn(),
+  fetchInvocationLogs: vi.fn(),
 }));
 
 const mockFetchCronSchedules = vi.mocked(fetchCronSchedules);
 const mockCreateCronSchedule = vi.mocked(createCronSchedule);
 const mockUpdateCronSchedule = vi.mocked(updateCronSchedule);
 const mockDeleteCronSchedule = vi.mocked(deleteCronSchedule);
+const mockFetchCronScheduleTasks = vi.mocked(fetchCronScheduleTasks);
+const mockFetchInvocationLogs = vi.mocked(fetchInvocationLogs);
 
 function makeSchedule(overrides: Partial<CronSchedule> = {}): CronSchedule {
   return {
@@ -40,6 +50,57 @@ function makeSchedule(overrides: Partial<CronSchedule> = {}): CronSchedule {
     nextRunAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function makeInvocation(overrides: Partial<Invocation> = {}): Invocation {
+  return {
+    id: 100,
+    linearIssueId: "issue-abc-123456789012",
+    startedAt: new Date(Date.now() - 60000).toISOString(),
+    endedAt: new Date().toISOString(),
+    status: "completed",
+    sessionId: null,
+    branchName: null,
+    worktreePath: null,
+    costUsd: null,
+    inputTokens: null,
+    outputTokens: null,
+    numTurns: null,
+    outputSummary: null,
+    logPath: null,
+    phase: "implement",
+    model: null,
+    agentPrompt: null,
+    ...overrides,
+  };
+}
+
+function makeTask(
+  overrides: Partial<TaskWithInvocations> = {},
+): TaskWithInvocations {
+  return {
+    linearIssueId: "issue-abc-123456789012",
+    agentPrompt: "Do the task",
+    repoPath: "/repo",
+    orcaStatus: "done",
+    priority: 0,
+    retryCount: 0,
+    prBranchName: null,
+    reviewCycleCount: 0,
+    mergeCommitSha: null,
+    prNumber: null,
+    deployStartedAt: null,
+    ciStartedAt: null,
+    doneAt: new Date().toISOString(),
+    projectName: null,
+    invocationCount: 1,
+    createdAt: new Date(Date.now() - 120000).toISOString(),
+    updatedAt: new Date().toISOString(),
+    taskType: "linear",
+    cronScheduleId: 1,
+    invocations: [makeInvocation()],
     ...overrides,
   };
 }
@@ -431,6 +492,339 @@ describe("CronPage", () => {
     });
 
     expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Schedule expand / collapse
+  // ---------------------------------------------------------------------------
+
+  it("clicking a schedule row toggles history panel open and closed", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "shell", lastRunAt: null, lastRunStatus: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    // History panel not visible initially
+    expect(screen.queryByText("No runs yet.")).not.toBeInTheDocument();
+
+    // Click to expand
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No runs yet.")).toBeInTheDocument();
+    });
+
+    // Click again to collapse
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("No runs yet.")).not.toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CronHistoryPanel — shell cron
+  // ---------------------------------------------------------------------------
+
+  it("shell cron with no run history shows 'No runs yet'", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "shell", lastRunAt: null, lastRunStatus: null }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No runs yet.")).toBeInTheDocument();
+    });
+    // fetchCronScheduleTasks should NOT be called for shell crons
+    expect(mockFetchCronScheduleTasks).not.toHaveBeenCalled();
+  });
+
+  it("shell cron with run history shows lastRunStatus and lastRunAt", async () => {
+    const lastRunAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(); // 2h ago
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "shell", lastRunAt, lastRunStatus: "success" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Last run:")).toBeInTheDocument();
+      expect(screen.getByText("success")).toBeInTheDocument();
+      expect(screen.getByText("2h ago")).toBeInTheDocument();
+    });
+    expect(mockFetchCronScheduleTasks).not.toHaveBeenCalled();
+  });
+
+  it("shell cron with failed lastRunStatus shows failure badge in history panel", async () => {
+    const lastRunAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "shell", lastRunAt, lastRunStatus: "failed" }),
+    ]);
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("failed")).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CronHistoryPanel — claude cron loading / error / empty
+  // ---------------------------------------------------------------------------
+
+  it("claude cron shows loading state while fetchCronScheduleTasks is pending", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude" }),
+    ]);
+    mockFetchCronScheduleTasks.mockReturnValue(new Promise(() => {}));
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Loading history...")).toBeInTheDocument();
+    });
+  });
+
+  it("claude cron shows error state when fetchCronScheduleTasks rejects", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude" }),
+    ]);
+    mockFetchCronScheduleTasks.mockRejectedValue(new Error("fetch failed"));
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Error: fetch failed/)).toBeInTheDocument();
+    });
+  });
+
+  it("claude cron shows 'No runs yet' when fetchCronScheduleTasks returns empty", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude" }),
+    ]);
+    mockFetchCronScheduleTasks.mockResolvedValue({ tasks: [], total: 0 });
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("No runs yet.")).toBeInTheDocument();
+    });
+  });
+
+  it("claude cron renders task rows with status badge and creation time", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude", id: 2 }),
+    ]);
+    const task = makeTask({ orcaStatus: "done", cronScheduleId: 2 });
+    mockFetchCronScheduleTasks.mockResolvedValue({ tasks: [task], total: 1 });
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      // Status badge
+      expect(screen.getByText("done")).toBeInTheDocument();
+      // Short task ID (last 12 chars of linearIssueId)
+      expect(screen.getByText("123456789012")).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CronHistoryPanel — inline task expansion (claude)
+  // ---------------------------------------------------------------------------
+
+  it("clicking a task row expands and collapses inline log content", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude", id: 3 }),
+    ]);
+    const invocation = makeInvocation({ id: 42, status: "completed" });
+    const task = makeTask({ cronScheduleId: 3, invocations: [invocation] });
+    mockFetchCronScheduleTasks.mockResolvedValue({ tasks: [task], total: 1 });
+    mockFetchInvocationLogs.mockReturnValue(new Promise(() => {})); // keep loading
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    // Expand schedule
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("done")).toBeInTheDocument();
+    });
+
+    // Expand task row — LogViewer is rendered, which calls fetchInvocationLogs
+    const taskRow = screen.getByText("done").closest("button")!;
+    fireEvent.click(taskRow);
+
+    await waitFor(() => {
+      expect(mockFetchInvocationLogs).toHaveBeenCalledWith(42);
+    });
+
+    // Collapse task row
+    fireEvent.click(taskRow);
+
+    await waitFor(() => {
+      // fetchInvocationLogs was called once (LogViewer unmounted on collapse)
+      expect(mockFetchInvocationLogs).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // CronHistoryPanel — pagination
+  // ---------------------------------------------------------------------------
+
+  it("pagination controls are shown when total exceeds page size", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude", id: 4 }),
+    ]);
+    const tasks = Array.from({ length: 20 }, (_, i) =>
+      makeTask({
+        linearIssueId: `issue-${i.toString().padStart(12, "0")}`,
+        cronScheduleId: 4,
+      }),
+    );
+    mockFetchCronScheduleTasks.mockResolvedValue({ tasks, total: 45 });
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Prev")).toBeInTheDocument();
+      expect(screen.getByText("Next")).toBeInTheDocument();
+      expect(screen.getByText("Showing 1–20 of 45")).toBeInTheDocument();
+    });
+
+    // Prev is disabled on first page
+    expect(screen.getByText("Prev")).toBeDisabled();
+    // Next is enabled
+    expect(screen.getByText("Next")).not.toBeDisabled();
+  });
+
+  it("clicking Next fetches the next page", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude", id: 5 }),
+    ]);
+    const firstPageTasks = Array.from({ length: 20 }, (_, i) =>
+      makeTask({
+        linearIssueId: `issue-page1-${i.toString().padStart(6, "0")}`,
+        cronScheduleId: 5,
+      }),
+    );
+    const secondPageTasks = [
+      makeTask({ linearIssueId: "issue-page2-000000", cronScheduleId: 5 }),
+    ];
+    mockFetchCronScheduleTasks
+      .mockResolvedValueOnce({ tasks: firstPageTasks, total: 21 })
+      .mockResolvedValueOnce({ tasks: secondPageTasks, total: 21 });
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Next")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Next"));
+
+    await waitFor(() => {
+      expect(mockFetchCronScheduleTasks).toHaveBeenCalledWith(5, 20, 20);
+    });
+  });
+
+  it("pagination controls are hidden when total fits on one page", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ type: "claude", id: 6 }),
+    ]);
+    const tasks = [makeTask({ cronScheduleId: 6 })];
+    mockFetchCronScheduleTasks.mockResolvedValue({ tasks, total: 1 });
+    render(<CronPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Test schedule")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByText("Test schedule").closest("[class*='cursor-pointer']")!,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("done")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Prev")).not.toBeInTheDocument();
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
   });
 
   it("opens CronForm pre-filled with schedule data when Edit is clicked", async () => {

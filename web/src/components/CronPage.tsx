@@ -132,7 +132,9 @@ function CronHistoryPanel({ schedule }: { schedule: CronSchedule }) {
             </span>
           )}
           {schedule.lastRunAt && (
-            <span className="text-gray-500">{formatLastRun(schedule.lastRunAt)}</span>
+            <span className="text-gray-500">
+              {formatLastRun(schedule.lastRunAt)}
+            </span>
           )}
         </div>
       </div>
@@ -170,33 +172,44 @@ function CronHistoryPanel({ schedule }: { schedule: CronSchedule }) {
       {tasks.map((task) => {
         const latestInvocation =
           task.invocations.length > 0
-            ? task.invocations.slice().sort((a, b) =>
-                (a.startedAt ?? "").localeCompare(b.startedAt ?? ""),
-              )[task.invocations.length - 1]
+            ? task.invocations
+                .slice()
+                .sort((a, b) =>
+                  (a.startedAt ?? "").localeCompare(b.startedAt ?? ""),
+                )[task.invocations.length - 1]
             : null;
 
-        const duration =
-          latestInvocation
-            ? latestInvocation.endedAt
-              ? formatDuration(latestInvocation.startedAt, latestInvocation.endedAt)
-              : task.orcaStatus === "running"
-                ? formatDuration(latestInvocation.startedAt, null)
-                : "—"
-            : "—";
+        const duration = latestInvocation
+          ? latestInvocation.endedAt
+            ? formatDuration(
+                latestInvocation.startedAt,
+                latestInvocation.endedAt,
+              )
+            : task.orcaStatus === "running"
+              ? formatDuration(latestInvocation.startedAt, null)
+              : "—"
+          : "—";
 
         const isExpanded = expandedTaskId === task.linearIssueId;
         const shortId = task.linearIssueId.slice(-12);
 
         return (
-          <div key={task.linearIssueId} className="border-b border-gray-800 last:border-b-0">
+          <div
+            key={task.linearIssueId}
+            className="border-b border-gray-800 last:border-b-0"
+          >
             <button
               onClick={() =>
                 setExpandedTaskId(isExpanded ? null : task.linearIssueId)
               }
               className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-800/50 transition-colors"
             >
-              <span className="text-xs text-gray-600 font-mono">{isExpanded ? "▼" : "▶"}</span>
-              <span className="font-mono text-xs text-gray-400 shrink-0">{shortId}</span>
+              <span className="text-xs text-gray-600 font-mono">
+                {isExpanded ? "▼" : "▶"}
+              </span>
+              <span className="font-mono text-xs text-gray-400 shrink-0">
+                {shortId}
+              </span>
               <span
                 className={`text-xs px-1.5 py-0.5 rounded-full border shrink-0 ${statusBadgeClass(task.orcaStatus)}`}
               >
@@ -220,7 +233,15 @@ function CronHistoryPanel({ schedule }: { schedule: CronSchedule }) {
                 ) : (
                   <div className="bg-gray-800/50 rounded px-3 py-2 text-xs text-gray-400">
                     <span className="text-gray-500">Status:</span>{" "}
-                    <span className={statusBadgeClass(task.orcaStatus).includes("green") ? "text-green-400" : statusBadgeClass(task.orcaStatus).includes("red") ? "text-red-400" : "text-gray-300"}>
+                    <span
+                      className={
+                        statusBadgeClass(task.orcaStatus).includes("green")
+                          ? "text-green-400"
+                          : statusBadgeClass(task.orcaStatus).includes("red")
+                            ? "text-red-400"
+                            : "text-gray-300"
+                      }
+                    >
                       {task.orcaStatus}
                     </span>
                     {task.doneAt && (
@@ -239,7 +260,8 @@ function CronHistoryPanel({ schedule }: { schedule: CronSchedule }) {
       {(total > PAGE_SIZE || offset > 0) && (
         <div className="flex items-center justify-between px-4 py-2 border-t border-gray-800 text-xs text-gray-500">
           <span>
-            Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+            Showing {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of{" "}
+            {total}
           </span>
           <div className="flex gap-2">
             <button
@@ -635,101 +657,105 @@ export default function CronPage() {
                   )
                 }
               >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs text-gray-600 select-none">
-                    {expandedScheduleId === s.id ? "▼" : "▶"}
-                  </span>
-                  <span className="text-sm font-medium text-gray-200 truncate">
-                    {s.name}
-                  </span>
-                  <span
-                    className={`text-xs px-1.5 py-0.5 rounded-full border ${s.type === "claude" ? "bg-purple-900/40 text-purple-400 border-purple-700/40" : "bg-gray-800 text-gray-400 border-gray-700"}`}
-                  >
-                    {s.type}
-                  </span>
-                  {s.lastRunStatus === "failed" && (
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs text-gray-600 select-none">
+                      {expandedScheduleId === s.id ? "▼" : "▶"}
+                    </span>
+                    <span className="text-sm font-medium text-gray-200 truncate">
+                      {s.name}
+                    </span>
                     <span
-                      className="inline-block h-2 w-2 rounded-full bg-red-500 shrink-0"
-                      title="Last run failed"
-                    />
-                  )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleToggleEnabled(s); }}
-                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
-                    title={s.enabled === 1 ? "Disable" : "Enable"}
-                  >
-                    <span
-                      className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${s.enabled === 1 ? "translate-x-3.5" : "translate-x-0.5"}`}
-                    />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => setEditingId(s.id)}
-                    className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
-                  >
-                    Edit
-                  </button>
-                  {deletingId === s.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-gray-500">Confirm?</span>
-                      <button
-                        onClick={() => handleDelete(s.id)}
-                        className="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setDeletingId(null)}
-                        className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setDeletingId(s.id)}
-                      className="px-2 py-1 text-xs text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                      className={`text-xs px-1.5 py-0.5 rounded-full border ${s.type === "claude" ? "bg-purple-900/40 text-purple-400 border-purple-700/40" : "bg-gray-800 text-gray-400 border-gray-700"}`}
                     >
-                      Delete
+                      {s.type}
+                    </span>
+                    {s.lastRunStatus === "failed" && (
+                      <span
+                        className="inline-block h-2 w-2 rounded-full bg-red-500 shrink-0"
+                        title="Last run failed"
+                      />
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleEnabled(s);
+                      }}
+                      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
+                      title={s.enabled === 1 ? "Disable" : "Enable"}
+                    >
+                      <span
+                        className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${s.enabled === 1 ? "translate-x-3.5" : "translate-x-0.5"}`}
+                      />
                     </button>
+                  </div>
+                  <div
+                    className="flex items-center gap-1 shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setEditingId(s.id)}
+                      className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                    >
+                      Edit
+                    </button>
+                    {deletingId === s.id ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500">Confirm?</span>
+                        <button
+                          onClick={() => handleDelete(s.id)}
+                          className="px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded transition-colors"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeletingId(s.id)}
+                        className="px-2 py-1 text-xs text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                  <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded">
+                    {s.schedule}
+                  </span>
+                  <span>Next: {formatNextRun(s.nextRunAt)}</span>
+                  <span>Runs: {s.runCount}</span>
+                  {s.lastRunAt && (
+                    <span
+                      className={
+                        s.lastRunStatus === "success"
+                          ? "text-green-400"
+                          : s.lastRunStatus === "failed"
+                            ? "text-red-400"
+                            : "text-gray-500"
+                      }
+                    >
+                      Last: {formatLastRun(s.lastRunAt)}
+                    </span>
+                  )}
+                  {s.maxRuns != null && <span>Max: {s.maxRuns}</span>}
+                  {s.repoPath && (
+                    <span className="truncate max-w-[200px]" title={s.repoPath}>
+                      {s.repoPath}
+                    </span>
                   )}
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded">
-                  {s.schedule}
-                </span>
-                <span>Next: {formatNextRun(s.nextRunAt)}</span>
-                <span>Runs: {s.runCount}</span>
-                {s.lastRunAt && (
-                  <span
-                    className={
-                      s.lastRunStatus === "success"
-                        ? "text-green-400"
-                        : s.lastRunStatus === "failed"
-                          ? "text-red-400"
-                          : "text-gray-500"
-                    }
-                  >
-                    Last: {formatLastRun(s.lastRunAt)}
-                  </span>
-                )}
-                {s.maxRuns != null && <span>Max: {s.maxRuns}</span>}
-                {s.repoPath && (
-                  <span className="truncate max-w-[200px]" title={s.repoPath}>
-                    {s.repoPath}
-                  </span>
-                )}
+                <p className="text-xs text-gray-400 line-clamp-2">{s.prompt}</p>
               </div>
-
-              <p className="text-xs text-gray-400 line-clamp-2">{s.prompt}</p>
-              </div>
-              {expandedScheduleId === s.id && (
-                <CronHistoryPanel schedule={s} />
-              )}
+              {expandedScheduleId === s.id && <CronHistoryPanel schedule={s} />}
             </div>
           )}
         </div>
