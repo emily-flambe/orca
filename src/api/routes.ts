@@ -616,7 +616,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // GET /api/status
   // -----------------------------------------------------------------------
-  app.get("/api/status", (c) => {
+  app.get("/api/status", async (c) => {
     const activeSessions = countActiveSessions(db);
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
@@ -647,6 +647,20 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       }
     }
 
+    // Check Inngest connectivity with a short timeout.
+    const inngestBaseUrl =
+      process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
+    let inngestReachable = false;
+    try {
+      const controller = new AbortController();
+      const timerId = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(inngestBaseUrl, { signal: controller.signal });
+      clearTimeout(timerId);
+      inngestReachable = res.status < 500;
+    } catch {
+      inngestReachable = false;
+    }
+
     const draining = isDraining();
     return c.json({
       activeSessions,
@@ -667,6 +681,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
+      inngestReachable,
+      inngestConnected: inngestReachable,
     });
   });
 

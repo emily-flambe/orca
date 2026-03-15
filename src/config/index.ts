@@ -49,6 +49,7 @@ export interface OrcaConfig {
   cloudflaredPath: string;
   externalTunnel: boolean;
   cronRetentionDays: number;
+  strandedTaskThresholdMin: number;
   stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
@@ -346,6 +347,10 @@ Steps:
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
     cronRetentionDays: readIntOrDefault("ORCA_CRON_RETENTION_DAYS", 7),
+    strandedTaskThresholdMin: readIntOrDefault(
+      "ORCA_STRANDED_TASK_THRESHOLD_MIN",
+      30,
+    ),
     stateMapOverrides: (() => {
       const raw = readEnv("ORCA_STATE_MAP");
       if (raw === undefined) return undefined;
