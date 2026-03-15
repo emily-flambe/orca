@@ -51,7 +51,22 @@ echo "[inngest] UI/API:    http://localhost:8288"
 echo "[inngest] Connect:   http://localhost:8289"
 echo "[inngest] Data dir:  .inngest/"
 
-exec npx inngest-cli@latest start \
+# Use the locally-installed inngest-cli binary (pinned via package.json) to
+# avoid pulling a different version from npm on every invocation.
+INNGEST_BIN="$(node -e "var p=require.resolve('inngest-cli/bin/inngest');console.log(p)" 2>/dev/null || true)"
+if [[ -z "$INNGEST_BIN" ]]; then
+  # Fallback: walk node_modules manually
+  if [[ -f "./node_modules/inngest-cli/bin/inngest" ]]; then
+    INNGEST_BIN="./node_modules/inngest-cli/bin/inngest"
+  elif [[ -f "./node_modules/inngest-cli/bin/inngest.exe" ]]; then
+    INNGEST_BIN="./node_modules/inngest-cli/bin/inngest.exe"
+  else
+    echo "[inngest] ERROR: inngest-cli not found in node_modules. Run npm install." >&2
+    exit 1
+  fi
+fi
+
+exec "$INNGEST_BIN" start \
   --sqlite-dir .inngest \
   --port 8288 \
   --event-key "$EVENT_KEY" \
