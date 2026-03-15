@@ -69,9 +69,26 @@ log "building frontend..."
 (cd web && npm run build)
 
 # Build succeeded — safe to clean up before starting new instance
+PM2="$PROJECT_DIR/node_modules/.bin/pm2"
+
+# ---------------------------------------------------------------------------
+# Ensure Inngest dev server is running (shared service, not restarted on deploy)
+# ---------------------------------------------------------------------------
+if ! $PM2 describe inngest &>/dev/null; then
+  log "starting Inngest dev server..."
+  $PM2 start ecosystem.config.cjs --only inngest
+  sleep 3
+  if $PM2 describe inngest &>/dev/null; then
+    log "Inngest dev server started"
+  else
+    log "WARNING: Inngest dev server failed to start — task dispatching may not work"
+  fi
+else
+  log "Inngest dev server already running"
+fi
+
 # Stop any existing PM2 processes on the standby port (clean slate)
 log "stopping any existing PM2 process on standby port $STANDBY_PORT..."
-PM2="$PROJECT_DIR/node_modules/.bin/pm2"
 $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
