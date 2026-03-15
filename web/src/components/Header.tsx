@@ -92,9 +92,6 @@ export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
 
       <div className="ml-auto flex items-center gap-3">
         <HealthDot online={online} />
-        <button className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded">
-          Settings
-        </button>
       </div>
     </div>
   );

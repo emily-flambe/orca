@@ -230,6 +230,44 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
     return direction === "desc" ? -cmp : cmp;
   });
 
+  function handleExport() {
+    const fields: (keyof Task)[] = [
+      "linearIssueId",
+      "orcaStatus",
+      "taskType",
+      "priority",
+      "projectName",
+      "prBranchName",
+      "prNumber",
+      "retryCount",
+      "createdAt",
+      "updatedAt",
+      "doneAt",
+    ];
+
+    function escapeCell(value: unknown): string {
+      const str = value === null || value === undefined ? "" : String(value);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    }
+
+    const header = fields.join(",");
+    const rows = sorted.map((task) =>
+      fields.map((f) => escapeCell(task[f])).join(","),
+    );
+    const csv = [header, ...rows].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `orca-tasks-${new Date().toISOString().replace(/:/g, "-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   // Count tasks per status (from all tasks, ignoring filters)
   const statusCounts = useMemo(() => {
     const counts: Partial<Record<FilterStatus, number>> = {};
@@ -452,7 +490,10 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
 
         {/* Export */}
         <div className="flex justify-end">
-          <button className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm">
+          <button
+            onClick={handleExport}
+            className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm"
+          >
             Export
           </button>
         </div>
