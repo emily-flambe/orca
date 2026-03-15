@@ -549,6 +549,19 @@ describe("10.3 - Conflict resolution", () => {
     expect(task!.orcaStatus).toBe("running"); // NOT killed
   });
 
+  test("dispatched task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
+    const taskId = seedTask(db, {
+      linearIssueId: "CONFLICT-1c",
+      orcaStatus: "dispatched" as "running",
+    });
+
+    resolveConflict(db, taskId, "Todo", "unstarted");
+
+    const task = getTask(db, taskId);
+    expect(task).toBeDefined();
+    expect(task!.orcaStatus).toBe("dispatched"); // NOT reset to ready
+  });
+
   test("ready task, Linear says Done -> task becomes done", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-2",
