@@ -49,6 +49,7 @@ import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
 import { git } from "../../git.js";
+import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 
@@ -58,6 +59,20 @@ import { createLogger } from "../../logger.js";
 // ---------------------------------------------------------------------------
 
 const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
+
+/**
+ * Process-level guard: throws if the number of active Claude sessions has
+ * reached the concurrency cap.  This is a hard safety net independent of
+ * Inngest's queue-based concurrency — prevents runaway session spawning even
+ * if duplicate workflow runs slip through.
+ */
+function assertSessionCapacity(): void {
+  if (activeHandles.size >= CONCURRENCY_CAP) {
+    throw new Error(
+      `session cap reached: ${activeHandles.size} active sessions (cap=${CONCURRENCY_CAP})`,
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Timeout constants
@@ -286,6 +301,10 @@ export const taskLifecycle = inngest.createFunction(
       limit: CONCURRENCY_CAP,
     },
 
+    // Deduplicate: only one workflow run per task at a time.  Duplicate
+    // task/ready events (from restarts, webhooks, API) are collapsed.
+    idempotency: "event.data.linearIssueId",
+
     // Cancel this workflow when a task/cancelled event arrives with the same
     // linearIssueId as the trigger event.
     cancelOn: [
@@ -493,6 +512,7 @@ export const taskLifecycle = inngest.createFunction(
           logPath: `logs/${invocationId}.ndjson`,
         });
 
+        assertSessionCapacity();
         const startedAt = Date.now();
         const handle = spawnSession({
           agentPrompt,
@@ -889,6 +909,7 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
+          assertSessionCapacity();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
@@ -1168,6 +1189,7 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
+          assertSessionCapacity();
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
