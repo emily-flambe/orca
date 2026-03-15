@@ -5,6 +5,7 @@ import { getTask, updateTaskStatus } from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
+import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
 
 const logger = createLogger("deploy-monitor");
 
@@ -183,9 +184,29 @@ export const deployMonitorWorkflow = inngest.createFunction(
     }
 
     if (!resolved) {
-      log(
-        `task ${linearIssueId} deploy poll exhausted ${maxPollAttempts} attempts`,
-      );
+      await step.run("deploy-poll-exhausted", async () => {
+        const deps = getSchedulerDeps();
+        const { db, client, stateMap } = deps;
+        updateTaskStatus(db, linearIssueId, "failed");
+        emitTaskUpdated(getTask(db, linearIssueId)!);
+
+        await writeBackStatus(
+          client,
+          linearIssueId,
+          "failed_permanent",
+          stateMap,
+        );
+
+        sendPermanentFailureAlert(
+          deps,
+          linearIssueId,
+          `Deploy status never resolved after ${maxPollAttempts} poll attempts`,
+        );
+
+        log(
+          `task ${linearIssueId} deploy poll exhausted ${maxPollAttempts} attempts`,
+        );
+      });
       return { status: "failed", reason: "poll_exhausted" };
     }
 
