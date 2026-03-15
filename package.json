@@ -50,6 +50,7 @@
     "@types/node": "^25.3.2",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
+    "inngest-cli": "^1.17.5",
     "prettier": "^3.8.1",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",

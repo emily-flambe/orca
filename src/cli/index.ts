@@ -253,6 +253,40 @@ program
       );
     }
 
+    // Reconcile backlog/ready tasks whose Linear status is still active.
+    // On crash/restart, tasks may have been reset to backlog/ready but the
+    // Linear status was never updated from "In Progress" / "In Review".
+    const resetTasks = getAllTasks(db).filter(
+      (t) => t.orcaStatus === "backlog" || t.orcaStatus === "ready",
+    );
+    let reconciledReset = 0;
+    for (const task of resetTasks) {
+      const linearIssue = syncedIssueMap.get(task.linearIssueId);
+      if (!linearIssue || !activeLinearStates.has(linearIssue.state.name)) {
+        continue;
+      }
+      const transition = task.orcaStatus === "backlog" ? "backlog" : "retry";
+      const label = task.orcaStatus === "backlog" ? "backlog" : "ready";
+      writeBackStatus(client, task.linearIssueId, transition, stateMap)
+        .then(() =>
+          client.createComment(
+            task.linearIssueId,
+            `**Orca status correction:** This task was reset to ${label} after a crash/restart but the Linear status was not updated. Correcting now.`,
+          ),
+        )
+        .catch((err) => {
+          logger.warn(
+            `reconcile write-back failed for ${task.linearIssueId}: ${err}`,
+          );
+        });
+      reconciledReset++;
+    }
+    if (reconciledReset > 0) {
+      logger.info(
+        `reconciling ${reconciledReset} backlog/ready task(s) with stale Linear status`,
+      );
+    }
+
     // Start Hono HTTP server with webhook endpoint
     const webhookApp = createWebhookRoute({
       db,
@@ -336,6 +370,19 @@ program
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
 
+    // Verify Inngest server is reachable before self-registration.
+    const inngestBaseUrl =
+      process.env.INNGEST_BASE_URL || "http://localhost:8288";
+    fetch(inngestBaseUrl)
+      .then(() =>
+        logger.info(`Inngest server is reachable at ${inngestBaseUrl}`),
+      )
+      .catch(() =>
+        logger.error(
+          `WARNING: Inngest server is not reachable at ${inngestBaseUrl} — task dispatching will not work`,
+        ),
+      );
+
     // Self-register with Inngest server so it knows our callback URL.
     // Without this, deploys/restarts that change ports leave Inngest
     // accepting events but unable to execute workflows.
@@ -356,9 +403,7 @@ program
     // Events can be lost if Orca crashes, Inngest is down, or tasks were
     // recovered from running→ready above. Without this, ready tasks sit
     // in the DB with no corresponding Inngest workflow to pick them up.
-    const readyTasks = getAllTasks(db).filter(
-      (t) => t.orcaStatus === "ready",
-    );
+    const readyTasks = getAllTasks(db).filter((t) => t.orcaStatus === "ready");
     if (readyTasks.length > 0) {
       for (const task of readyTasks) {
         inngest
