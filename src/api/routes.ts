@@ -682,7 +682,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
       inngestReachable,
-      inngestConnected: inngestReachable,
     });
   });
 

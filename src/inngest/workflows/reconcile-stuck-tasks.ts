@@ -74,10 +74,14 @@ export async function runReconciliation(deps: {
     let reason = "";
 
     if (orcaStatus === "dispatched" || orcaStatus === "running") {
-      // Stranded if no live session handle for this task.
-      if (!liveTaskIds.has(linearIssueId)) {
+      // Apply a minimum age grace period before declaring stranded.
+      // A task may have just been dispatched and not yet spawned a session.
+      const gracePeriodMs = 2 * 60 * 1000; // 2 minutes
+      const updatedMs = updatedAt ? new Date(updatedAt).getTime() : 0;
+      const ageMs = now - updatedMs;
+      if (ageMs > gracePeriodMs && !liveTaskIds.has(linearIssueId)) {
         isStranded = true;
-        reason = `task in ${orcaStatus} with no active session handle`;
+        reason = `task in ${orcaStatus} with no active session handle for ${Math.round(ageMs / 60000)} min`;
       }
     } else {
       // awaiting_ci, deploying, in_review — check age threshold.

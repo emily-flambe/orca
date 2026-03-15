@@ -14,7 +14,8 @@ const logger = createLogger("session-bridge");
 
 /**
  * Sends an Inngest event with up to maxAttempts retries on transient failures.
- * Delays: 1s, 2s, 4s (exponential backoff).
+ * Delays between attempts use exponential backoff (1s after attempt 1, 2s after attempt 2).
+ * The final attempt throws immediately on failure.
  */
 async function sendWithRetry(
   event: Parameters<typeof inngest.send>[0],
