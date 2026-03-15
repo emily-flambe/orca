@@ -669,6 +669,62 @@ describe("10.4 - Write-back loop prevention", () => {
     registerExpectedChange("TASK-4", "In Progress");
     expect(isExpectedChange("TASK-4", "In Review")).toBe(false);
   });
+
+  test("rapid back-to-back write-backs register both entries", () => {
+    registerExpectedChange("TASK-5", "In Progress");
+    registerExpectedChange("TASK-5", "In Review");
+    const entries = expectedChanges.get("TASK-5");
+    expect(entries).toHaveLength(2);
+  });
+
+  test("rapid back-to-back: first webhook echo consumed, second still pending", () => {
+    registerExpectedChange("TASK-6", "In Progress");
+    registerExpectedChange("TASK-6", "In Review");
+
+    // First webhook arrives (dispatched echo)
+    expect(isExpectedChange("TASK-6", "In Progress")).toBe(true);
+
+    // Second webhook arrives (running echo) — must still match
+    expect(isExpectedChange("TASK-6", "In Review")).toBe(true);
+
+    // No more entries
+    expect(expectedChanges.has("TASK-6")).toBe(false);
+  });
+
+  test("rapid back-to-back: webhooks arrive in reverse order", () => {
+    registerExpectedChange("TASK-7", "In Progress");
+    registerExpectedChange("TASK-7", "In Review");
+
+    // Webhooks arrive out of order
+    expect(isExpectedChange("TASK-7", "In Review")).toBe(true);
+    expect(isExpectedChange("TASK-7", "In Progress")).toBe(true);
+
+    expect(expectedChanges.has("TASK-7")).toBe(false);
+  });
+
+  test("rapid back-to-back: consuming one does not consume the other", () => {
+    registerExpectedChange("TASK-8", "In Progress");
+    registerExpectedChange("TASK-8", "In Review");
+
+    // Only consume the first
+    expect(isExpectedChange("TASK-8", "In Progress")).toBe(true);
+
+    // Second is still pending and blocks conflict resolution
+    expect(isExpectedChange("TASK-8", "In Progress")).toBe(false);
+    expect(isExpectedChange("TASK-8", "In Review")).toBe(true);
+  });
+
+  test("rapid back-to-back: second overwrite no longer happens (one entry per call)", () => {
+    // Registering the same state twice creates two independent entries
+    registerExpectedChange("TASK-9", "In Progress");
+    registerExpectedChange("TASK-9", "In Progress");
+
+    expect(isExpectedChange("TASK-9", "In Progress")).toBe(true);
+    // Second entry still present
+    expect(isExpectedChange("TASK-9", "In Progress")).toBe(true);
+    // Now empty
+    expect(isExpectedChange("TASK-9", "In Progress")).toBe(false);
+  });
 });
 
 // ===========================================================================
