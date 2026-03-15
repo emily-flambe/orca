@@ -619,13 +619,13 @@ describe("10.4 - Write-back loop prevention", () => {
     expect(isExpectedChange("TASK-2", "In Progress")).toBe(false);
   });
 
-  test("expired entry (>10s) -> returns false", () => {
+  test("expired entry (>30s) -> returns false", () => {
     vi.useFakeTimers();
 
     registerExpectedChange("TASK-3", "In Review");
 
-    // Advance time past the 10s expiry
-    vi.advanceTimersByTime(11_000);
+    // Advance time past the 30s expiry
+    vi.advanceTimersByTime(31_000);
 
     expect(isExpectedChange("TASK-3", "In Review")).toBe(false);
 
