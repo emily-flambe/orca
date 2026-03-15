@@ -503,7 +503,12 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks" | "error";
+export type PrCheckStatus =
+  | "pending"
+  | "success"
+  | "failure"
+  | "no_checks"
+  | "error";
 
 /**
  * Check CI check status on a PR by number.
