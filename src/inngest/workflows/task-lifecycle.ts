@@ -316,6 +316,10 @@ export const taskLifecycle = inngest.createFunction(
       { limit: 1, key: "event.data.linearIssueId" },
     ],
 
+    // Deduplicate: only one workflow run per task at a time.  Duplicate
+    // task/ready events (from restarts, webhooks, API) are collapsed.
+    idempotency: "event.data.linearIssueId",
+
     // Cancel this workflow when a task/cancelled event arrives with the same
     // linearIssueId as the trigger event.
     cancelOn: [

@@ -54,6 +54,8 @@ function statusFilterActiveStyle(value: FilterStatus): string {
       return "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30";
     case "deploying":
       return "bg-teal-500/20 text-teal-400 border border-teal-500/30";
+    case "canceled":
+      return "bg-gray-500/20 text-gray-400 border border-gray-600";
     case "backlog":
       return "bg-gray-500/20 text-gray-500 border border-gray-700";
     default:
@@ -70,6 +72,7 @@ const STATUS_ORDER: Record<string, number> = {
   changes_requested: 5,
   ready: 6,
   failed: 7,
+  canceled: 7,
   done: 8,
   backlog: 9,
 };
