@@ -130,7 +130,7 @@ export function initTaskLifecycle(deps: WorkflowDeps): void {
   _deps = deps;
 }
 
-function getDeps(): WorkflowDeps {
+export function getDeps(): WorkflowDeps {
   if (!_deps) {
     throw new Error(
       "[orca/inngest] WorkflowDeps not initialized — call initTaskLifecycle() first",
@@ -144,7 +144,7 @@ function getDeps(): WorkflowDeps {
 // The event carries lightweight metadata; callers query DB for full details.
 // ---------------------------------------------------------------------------
 
-function bridgeSessionCompletion(
+export function bridgeSessionCompletion(
   invocationId: number,
   linearIssueId: string,
   phase: "implement" | "review",
@@ -300,7 +300,7 @@ function worktreeHasNoChanges(worktreePath: string): boolean {
 // Shared: build disallowed tools list
 // ---------------------------------------------------------------------------
 
-function buildDisallowedTools(config: OrcaConfig): string[] {
+export function buildDisallowedTools(config: OrcaConfig): string[] {
   const ALWAYS_DISALLOWED = ["EnterPlanMode", "AskUserQuestion"];
   const userDisallowed = config.disallowedTools
     ? config.disallowedTools
@@ -350,7 +350,10 @@ export const taskLifecycle = inngest.createFunction(
     // via incrementRetryCount + re-firing task/ready.
     retries: 0,
   },
-  { event: "task/ready" as const },
+  {
+    event: "task/ready" as const,
+    if: "event.data.taskType != 'cron_claude' && event.data.taskType != 'cron_shell'",
+  },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
     const { db, config, client, stateMap } = getDeps();
@@ -634,54 +637,6 @@ export const taskLifecycle = inngest.createFunction(
       if: `async.data.invocationId == ${implementCtx.invocationId}`,
       timeout: SESSION_TIMEOUT,
     });
-
-    // -------------------------------------------------------------------------
-    // Step 4b: Cron tasks — skip Gate 2 / review / CI / deploy
-    // -------------------------------------------------------------------------
-
-    const isCronTask =
-      event.data.taskType === "cron_claude" ||
-      event.data.taskType === "cron_shell";
-
-    if (isCronTask) {
-      const succeeded = implementEvent && implementEvent.data.exitCode === 0;
-
-      const cronResult = await step.run("finalize-cron-task", () => {
-        const { db } = getDeps();
-        const task = getTask(db, taskId);
-        if (!task) return { outcome: "permanent_fail" as const };
-
-        if (succeeded) {
-          updateTaskStatus(db, taskId, "done");
-          emitTaskUpdated(getTask(db, taskId)!);
-          log(`cron task ${taskId} completed successfully`);
-          return { outcome: "done" as const };
-        }
-
-        // Cron task failed — mark failed (no retry loop for cron)
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-        log(
-          `cron task ${taskId} failed (exit code: ${implementEvent?.data.exitCode ?? "timeout"})`,
-        );
-        return { outcome: "permanent_fail" as const };
-      });
-
-      // Clean up worktree for cron tasks
-      if (implementCtx.worktreePath) {
-        await step.run("cleanup-cron-worktree", () => {
-          try {
-            removeWorktree(implementCtx.worktreePath);
-          } catch (err) {
-            log(
-              `failed to remove cron worktree ${implementCtx.worktreePath}: ${err}`,
-            );
-          }
-        });
-      }
-
-      return { outcome: cronResult.outcome };
-    }
 
     // -------------------------------------------------------------------------
     // Step 5: Process implement result + Gate 2
