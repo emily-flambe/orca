@@ -248,7 +248,7 @@ describe("GET /api/invocations/:id/logs — contract", () => {
       linearIssueId: "LOG-1",
       startedAt: new Date().toISOString(),
       status: "completed",
-      // no logPath — route will derive a path that doesn't exist
+      logPath: join(tmpdir(), `orca-nonexistent-${Date.now()}.ndjson`),
     });
     const res = await app.request(`/api/invocations/${invId}/logs`);
     expect(res.status).toBe(404);
