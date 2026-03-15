@@ -138,9 +138,14 @@ function bridgeSessionCompletion(
   branchName: string | null,
   worktreePath: string | null,
 ): void {
+  // Register handle so assertSessionCapacity() and kill endpoints work.
+  activeHandles.set(invocationId, handle);
+
   handle.done
     .then((result) => {
       const invStatus = result.subtype === "success" ? "completed" : "failed";
+
+      activeHandles.delete(invocationId);
 
       inngest
         .send({
@@ -168,6 +173,8 @@ function bridgeSessionCompletion(
         });
     })
     .catch((err) => {
+      activeHandles.delete(invocationId);
+
       // Process-level error — send a synthetic failure event so the workflow
       // doesn't wait forever before timing out.
       log(
