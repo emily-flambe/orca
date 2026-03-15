@@ -995,12 +995,12 @@ describe("getRecentActivity", () => {
     expect(entry!.status).toBe("queued");
   });
 
-  test("shows retrying when latest invocation failed and task is dispatched", () => {
+  test("shows queued when latest invocation failed and task is dispatched (being re-dispatched)", () => {
     const t = seedTask(db, { orcaStatus: "dispatched" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);
-    expect(entry!.status).toBe("retrying");
+    expect(entry!.status).toBe("queued");
   });
 
   test("shows failed when task is permanently failed", () => {
