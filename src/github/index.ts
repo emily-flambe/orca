@@ -503,7 +503,12 @@ export function closeOrphanedPrs(
   return closed;
 }
 
-export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks" | "error";
+export type PrCheckStatus =
+  | "pending"
+  | "success"
+  | "failure"
+  | "no_checks"
+  | "error";
 
 /**
  * Check CI check status on a PR by number.
@@ -512,20 +517,15 @@ export type PrCheckStatus = "pending" | "success" | "failure" | "no_checks" | "e
  * - Any pending/queued → "pending"
  * - Any fail → "failure"
  * - All pass/skipping → "success"
- * - Empty checks array → "no_checks"
- * - CLI error after retries → "error"
+ * - No checks → "no_checks"
+ * - CLI error after retry → "error"
  */
 export async function getPrCheckStatus(
   prNumber: number,
   cwd: string,
 ): Promise<PrCheckStatus> {
   const maxAttempts = 2;
-  let lastError: unknown;
-
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) {
-      await sleep(1000);
-    }
     try {
       const output = await ghAsync(
         ["pr", "checks", String(prNumber), "--json", "name,state,bucket"],
@@ -548,21 +548,18 @@ export async function getPrCheckStatus(
       if (hasFail) return "failure";
 
       return "success";
-    } catch (err) {
-      lastError = err;
+    } catch {
+      if (attempt < maxAttempts - 1) {
+        await sleep(2000);
+      }
     }
   }
-
-  console.warn(
-    `[orca/github] getPrCheckStatus failed after ${maxAttempts} attempts for PR #${prNumber}:`,
-    lastError,
-  );
   return "error";
 }
 
 /**
  * Synchronous version of getPrCheckStatus — uses execFileSync.
- * Returns "error" on CLI failures.
+ * Returns "error" on any CLI failure (no retry).
  */
 export function getPrCheckStatusSync(
   prNumber: number,

@@ -286,10 +286,7 @@ export const ciMergeWorkflow = inngest.createFunction(
         } // end else (not a flake)
       }
 
-      // "pending" or "error" — sleep and poll again
-      if (ciStatus.status === "error") {
-        log(`task ${linearIssueId} CI check returned error on attempt ${attempts} — will retry`);
-      }
+      // "pending" or "error" (transient gh failure) — sleep and poll again
       if (!merged) {
         await step.sleep(`ci-poll-wait-${attempts}`, "30s");
       }

@@ -73,14 +73,10 @@ describe("checkCiStatus", () => {
     expect(result.status).toBe("failure");
   });
 
-  test("returns pending (not success) when getPrCheckStatus returns error", async () => {
-    // "error" means the gh CLI failed. This must NOT be treated as success or no_checks.
-    // Treating it as success would cause premature merge of a PR whose CI hasn't been verified.
+  test("returns pending (retriable) when gh CLI errors", async () => {
     mockGetPrCheckStatus.mockResolvedValue("error");
     const result = await checkCiStatus(input);
     expect(result.status).toBe("pending");
-    expect(result.status).not.toBe("success");
-    expect(result.status).not.toBe("failure");
   });
 });
 
