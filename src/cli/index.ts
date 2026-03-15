@@ -199,6 +199,9 @@ program
     const labelIdCache = new Map<string, string>();
 
     // Full sync: populate tasks table + dependency graph
+    // Do NOT pass inngest here — the startup re-emit block below handles all
+    // ready tasks after registration. Passing inngest would double-emit task/ready
+    // for every newly-inserted ready task.
     const syncedIssues = await fullSync(
       db,
       client,
@@ -206,6 +209,7 @@ program
       config,
       undefined,
       labelIdCache,
+      undefined,
     );
 
     // Fetch workflow states for write-back (state name → state UUID)
@@ -303,7 +307,7 @@ program
       db,
       config,
       syncTasks: () =>
-        fullSync(db, client, graph, config, stateMap, labelIdCache),
+        fullSync(db, client, graph, config, stateMap, labelIdCache, inngest),
       client,
       stateMap,
       projectMeta,
@@ -360,6 +364,7 @@ program
       config,
       stateMap,
       labelIdCache,
+      inngest,
       isTunnelConnected: () =>
         config.externalTunnel ? true : tunnel!.isTunnelConnected(),
     });
