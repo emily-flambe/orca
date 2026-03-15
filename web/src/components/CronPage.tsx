@@ -74,26 +74,23 @@ function statusBadgeClass(status: string): string {
 
 const PAGE_SIZE = 20;
 
-function CronHistoryPanel({
-  scheduleId,
-  scheduleType,
-}: {
-  scheduleId: number;
-  scheduleType: string;
-}) {
+function CronHistoryPanel({ schedule }: { schedule: CronSchedule }) {
+  const isShellType = schedule.type === "shell";
+
   const [tasks, setTasks] = useState<TaskWithInvocations[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isShellType);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isShellType) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
     setExpandedTaskId(null);
-    fetchCronScheduleTasks(scheduleId, PAGE_SIZE, offset)
+    fetchCronScheduleTasks(schedule.id, PAGE_SIZE, offset)
       .then((data) => {
         if (cancelled) return;
         setTasks(data.tasks);
@@ -108,7 +105,39 @@ function CronHistoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [scheduleId, offset]);
+  }, [schedule.id, offset, isShellType]);
+
+  // Shell crons don't create Task records — show lastRunStatus/lastRunAt directly
+  if (isShellType) {
+    if (!schedule.lastRunAt && !schedule.lastRunStatus) {
+      return (
+        <div className="border-t border-gray-800 px-4 py-3 text-xs text-gray-500 italic">
+          No runs yet.
+        </div>
+      );
+    }
+    return (
+      <div className="border-t border-gray-800 px-4 py-3">
+        <div className="bg-gray-800/50 rounded px-3 py-2 text-xs text-gray-400 flex items-center gap-3">
+          <span className="text-gray-500">Last run:</span>
+          {schedule.lastRunStatus && (
+            <span
+              className={`px-1.5 py-0.5 rounded-full border ${
+                schedule.lastRunStatus === "success"
+                  ? "bg-green-900/40 text-green-400 border-green-700/40"
+                  : "bg-red-900/40 text-red-400 border-red-700/40"
+              }`}
+            >
+              {schedule.lastRunStatus}
+            </span>
+          )}
+          {schedule.lastRunAt && (
+            <span className="text-gray-500">{formatLastRun(schedule.lastRunAt)}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -134,7 +163,7 @@ function CronHistoryPanel({
     );
   }
 
-  const isClaudeType = scheduleType === "claude";
+  const isClaudeType = schedule.type === "claude";
 
   return (
     <div className="border-t border-gray-800">
@@ -699,7 +728,7 @@ export default function CronPage() {
               <p className="text-xs text-gray-400 line-clamp-2">{s.prompt}</p>
               </div>
               {expandedScheduleId === s.id && (
-                <CronHistoryPanel scheduleId={s.id} scheduleType={s.type} />
+                <CronHistoryPanel schedule={s} />
               )}
             </div>
           )}
