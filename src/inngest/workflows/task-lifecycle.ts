@@ -608,6 +608,13 @@ export const taskLifecycle = inngest.createFunction(
           inputTokens: implementEvent.data.inputTokens ?? 0,
           outputTokens: implementEvent.data.outputTokens ?? 0,
         });
+        updateInvocation(db, invocationId, {
+          status: isSuccess ? "completed" : "failed",
+          endedAt: new Date().toISOString(),
+          costUsd: implementEvent.data.costUsd ?? null,
+          inputTokens: implementEvent.data.inputTokens ?? null,
+          outputTokens: implementEvent.data.outputTokens ?? null,
+        });
 
         if (!isSuccess) {
           log(
@@ -982,6 +989,13 @@ export const taskLifecycle = inngest.createFunction(
             inputTokens: reviewEvent.data.inputTokens ?? 0,
             outputTokens: reviewEvent.data.outputTokens ?? 0,
           });
+          updateInvocation(db, invocationId, {
+            status: isSuccess ? "completed" : "failed",
+            endedAt: new Date().toISOString(),
+            costUsd: reviewEvent.data.costUsd ?? null,
+            inputTokens: reviewEvent.data.inputTokens ?? null,
+            outputTokens: reviewEvent.data.outputTokens ?? null,
+          });
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
           if (!isSuccess) {
@@ -1249,6 +1263,13 @@ export const taskLifecycle = inngest.createFunction(
             costUsd: fixEvent.data.costUsd ?? 0,
             inputTokens: fixEvent.data.inputTokens ?? 0,
             outputTokens: fixEvent.data.outputTokens ?? 0,
+          });
+          updateInvocation(db, invocationId, {
+            status: isSuccess ? "completed" : "failed",
+            endedAt: new Date().toISOString(),
+            costUsd: fixEvent.data.costUsd ?? null,
+            inputTokens: fixEvent.data.inputTokens ?? null,
+            outputTokens: fixEvent.data.outputTokens ?? null,
           });
           recordBudgetEventFromEvent(db, invocationId, fixEvent.data);
 
