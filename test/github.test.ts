@@ -34,6 +34,7 @@ import {
   findPrByUrl,
   getMergeCommitSha,
   getPrCheckStatus,
+  getPrCheckStatusSync,
   getPrMergeState,
   mergePr,
   updatePrBranch,
@@ -473,6 +474,52 @@ describe("getPrCheckStatus", () => {
     expect(execFileMock).toHaveBeenCalledTimes(2);
   });
 
+  test("returns no_checks when gh exits with 'no checks reported' stderr", async () => {
+    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+      const err = new Error(
+        "gh command failed: gh pr checks 1 --json name,state,bucket\n" +
+          "no checks reported on the 'orca/EMI-1-inv-1' branch",
+      );
+      (err as NodeJS.ErrnoException & { stderr?: string }).stderr =
+        "no checks reported on the 'orca/EMI-1-inv-1' branch";
+      callback(err, null);
+    });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+    expect(result).toBe("no_checks");
+  });
+
+  test("returns no_checks immediately on 'no checks reported' (no retry)", async () => {
+    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+      const err = new Error(
+        "gh command failed: gh pr checks 1 --json name,state,bucket\n" +
+          "no checks reported on the 'main' branch",
+      );
+      (err as NodeJS.ErrnoException & { stderr?: string }).stderr =
+        "no checks reported on the 'main' branch";
+      callback(err, null);
+    });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+    expect(result).toBe("no_checks");
+    // Should return immediately without retrying — only 1 call
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns error on non-'no checks' gh CLI failure (after retries)", async () => {
+    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+      const err = new Error("gh command failed: network timeout");
+      (err as NodeJS.ErrnoException & { stderr?: string }).stderr =
+        "network timeout";
+      callback(err, null);
+    });
+
+    const result = await getPrCheckStatus(1, "/tmp/repo");
+    expect(result).toBe("error");
+    // Should have retried (maxAttempts = 2)
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+  });
+
   test("calls gh pr checks with correct args", async () => {
     execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
       callback(null, { stdout: JSON.stringify([]), stderr: "" });
@@ -489,6 +536,124 @@ describe("getPrCheckStatus", () => {
       "--json",
       "name,state,bucket",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPrCheckStatusSync
+// ---------------------------------------------------------------------------
+
+describe("getPrCheckStatusSync", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test("returns no_checks for empty checks array", () => {
+    execSyncMock.mockReturnValue(JSON.stringify([]));
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("no_checks");
+  });
+
+  test("returns pending when any check has bucket pending", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "PENDING", bucket: "pending" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("pending");
+  });
+
+  test("returns pending when any check has bucket queued", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "build", state: "QUEUED", bucket: "queued" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("pending");
+  });
+
+  test("returns failure when any check has bucket fail", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "FAILURE", bucket: "fail" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("failure");
+  });
+
+  test("returns success when all checks pass", () => {
+    execSyncMock.mockReturnValue(
+      JSON.stringify([
+        { name: "test", state: "SUCCESS", bucket: "pass" },
+        { name: "lint", state: "SUCCESS", bucket: "pass" },
+      ]),
+    );
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("success");
+  });
+
+  test("returns no_checks when gh exits with 'no checks reported' stderr", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error(
+        "gh command failed: gh pr checks 1 --json name,state,bucket\n" +
+          "no checks reported on the 'orca/EMI-1-inv-1' branch",
+      );
+    });
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("no_checks");
+  });
+
+  test("returns no_checks when stderr has 'No checks reported' (case insensitive)", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error(
+        "gh command failed: gh pr checks 5 --json name,state,bucket\n" +
+          "No Checks Reported on the 'feature-branch' branch",
+      );
+    });
+
+    const result = getPrCheckStatusSync(5, "/tmp/repo");
+    expect(result).toBe("no_checks");
+  });
+
+  test("returns error on non-'no checks' gh CLI failure", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error("gh command failed: gh pr checks 1\nnetwork timeout");
+    });
+
+    const result = getPrCheckStatusSync(1, "/tmp/repo");
+    expect(result).toBe("error");
+  });
+
+  test("calls gh pr checks with correct args", () => {
+    execSyncMock.mockReturnValue(JSON.stringify([]));
+
+    getPrCheckStatusSync(7, "/tmp/repo");
+
+    const [cmd, args, opts] = execSyncMock.mock.calls[0];
+    expect(cmd).toBe("gh");
+    expect(args).toEqual([
+      "pr",
+      "checks",
+      "7",
+      "--json",
+      "name,state,bucket",
+    ]);
+    expect(opts.cwd).toBe("/tmp/repo");
   });
 });
 
