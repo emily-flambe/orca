@@ -74,7 +74,47 @@ PM2="$PROJECT_DIR/node_modules/.bin/pm2"
 # ---------------------------------------------------------------------------
 # Ensure Inngest dev server is running (shared service, not restarted on deploy)
 # ---------------------------------------------------------------------------
-if ! $PM2 describe inngest &>/dev/null; then
+# Kill any stale process holding port 8288 (e.g., orphaned inngest.exe after PM2 crash)
+STALE_PID=$(netstat -ano 2>/dev/null | grep ':8288 ' | grep LISTENING | awk '{print $NF}' | head -1)
+if [[ -n "$STALE_PID" && "$STALE_PID" != "0" ]]; then
+  log "found stale process (PID=$STALE_PID) on port 8288 — killing..."
+  taskkill //PID "$STALE_PID" //F 2>/dev/null || true
+  sleep 2
+  # Verify port is freed
+  if netstat -ano 2>/dev/null | grep ':8288 ' | grep -q LISTENING; then
+    log "WARNING: port 8288 still in use after killing PID=$STALE_PID"
+  else
+    log "port 8288 freed"
+  fi
+fi
+
+# Clean up errored/stopped PM2 entry before starting fresh
+if $PM2 describe inngest &>/dev/null; then
+  INNGEST_STATUS=$($PM2 jlist 2>/dev/null | node -e "
+    var d='';
+    process.stdin.on('data',function(c){d+=c});
+    process.stdin.on('end',function(){
+      try {
+        var procs=JSON.parse(d);
+        var ing=procs.find(function(p){return p.name==='inngest'});
+        console.log(ing?ing.pm2_env.status:'unknown');
+      } catch(e){console.log('unknown')}
+    })
+  " 2>/dev/null || echo "unknown")
+  if [[ "$INNGEST_STATUS" == "online" ]]; then
+    log "Inngest dev server already running via PM2"
+  else
+    log "Inngest PM2 entry exists but status=$INNGEST_STATUS — restarting..."
+    $PM2 delete inngest 2>/dev/null || true
+    $PM2 start ecosystem.config.cjs --only inngest
+    sleep 3
+    if $PM2 describe inngest &>/dev/null; then
+      log "Inngest dev server restarted"
+    else
+      log "WARNING: Inngest dev server failed to start — task dispatching may not work"
+    fi
+  fi
+else
   log "starting Inngest dev server..."
   $PM2 start ecosystem.config.cjs --only inngest
   sleep 3
@@ -83,8 +123,6 @@ if ! $PM2 describe inngest &>/dev/null; then
   else
     log "WARNING: Inngest dev server failed to start — task dispatching may not work"
   fi
-else
-  log "Inngest dev server already running"
 fi
 
 # Stop any existing PM2 processes on the standby port (clean slate)
