@@ -24,16 +24,16 @@ export const TRANSIENT_THRESHOLD = 2;
 export const AWAITING_CI_THRESHOLD = 4;
 export const SNAPSHOT_INTERVAL_MINUTES = 15;
 
-export const TERMINAL_STATUSES = new Set(["done", "failed", "cancelled"]);
+export const TERMINAL_STATUSES = new Set(["done", "failed", "canceled", "ready", "backlog"]);
 
-const TRANSIENT_STATUSES = new Set(["running", "dispatched", "in_review"]);
+const TRANSIENT_STATUSES = new Set(["running", "dispatched", "in_review", "changes_requested", "deploying"]);
 
 /**
  * Given the previous tracking state and a fresh snapshot of tasks,
  * returns the updated tracking state and any stuck-task alerts.
  *
  * Tasks are "stuck" when:
- * - In 'running'/'dispatched'/'in_review' for >= TRANSIENT_THRESHOLD consecutive snapshots
+ * - In 'running'/'dispatched'/'in_review'/'changes_requested'/'deploying' for >= TRANSIENT_THRESHOLD consecutive snapshots
  * - In 'awaiting_ci' for >= AWAITING_CI_THRESHOLD consecutive snapshots
  */
 export function updateTrackingState(

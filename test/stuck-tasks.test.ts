@@ -122,30 +122,24 @@ describe("updateTrackingState", () => {
     expect(alerts).toEqual([]);
   });
 
-  test("terminal status 'cancelled' is excluded from tracking", () => {
-    expect(TERMINAL_STATUSES.has("cancelled")).toBe(true);
-    const { newState, alerts } = updateTrackingState({}, [makeTask("T-1", "cancelled")]);
+  test("terminal status 'canceled' is excluded from tracking", () => {
+    expect(TERMINAL_STATUSES.has("canceled")).toBe(true);
+    const { newState, alerts } = updateTrackingState({}, [makeTask("T-1", "canceled")]);
     expect(newState["T-1"]).toBeUndefined();
     expect(alerts).toEqual([]);
   });
 
-  test("non-transient non-awaiting_ci status 'ready' never generates alerts", () => {
-    // Build up many consecutive snapshots for 'ready'
-    let state: TaskTrackingState = {};
-    let alerts: ReturnType<typeof updateTrackingState>["alerts"] = [];
-    for (let i = 0; i < 10; i++) {
-      ({ newState: state, alerts } = updateTrackingState(state, [makeTask("T-1", "ready")]));
-    }
+  test("terminal status 'ready' is excluded from tracking", () => {
+    expect(TERMINAL_STATUSES.has("ready")).toBe(true);
+    const { newState, alerts } = updateTrackingState({}, [makeTask("T-1", "ready")]);
+    expect(newState["T-1"]).toBeUndefined();
     expect(alerts).toEqual([]);
-    expect(state["T-1"].consecutiveSnapshots).toBe(10);
   });
 
-  test("non-transient non-awaiting_ci status 'backlog' never generates alerts", () => {
-    let state: TaskTrackingState = {};
-    let alerts: ReturnType<typeof updateTrackingState>["alerts"] = [];
-    for (let i = 0; i < 10; i++) {
-      ({ newState: state, alerts } = updateTrackingState(state, [makeTask("T-1", "backlog")]));
-    }
+  test("terminal status 'backlog' is excluded from tracking", () => {
+    expect(TERMINAL_STATUSES.has("backlog")).toBe(true);
+    const { newState, alerts } = updateTrackingState({}, [makeTask("T-1", "backlog")]);
+    expect(newState["T-1"]).toBeUndefined();
     expect(alerts).toEqual([]);
   });
 
@@ -280,11 +274,11 @@ describe("updateTrackingState", () => {
       makeTask("T-4", "ready"),
     ];
     const { newState, alerts } = updateTrackingState({}, tasks);
-    expect(Object.keys(newState)).toHaveLength(3); // T-3 (done) excluded
+    expect(Object.keys(newState)).toHaveLength(2); // T-3 (done) and T-4 (ready) excluded as terminal
     expect(newState["T-1"].status).toBe("running");
     expect(newState["T-2"].status).toBe("awaiting_ci");
-    expect(newState["T-4"].status).toBe("ready");
     expect(newState["T-3"]).toBeUndefined();
+    expect(newState["T-4"]).toBeUndefined();
     expect(alerts).toEqual([]); // all at snapshot 1, below any threshold
   });
 

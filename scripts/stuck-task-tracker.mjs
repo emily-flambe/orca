@@ -5,8 +5,8 @@ const STATE_FILE = 'tmp/task-state-tracking.json';
 const TRANSIENT_THRESHOLD = 2;
 const AWAITING_CI_THRESHOLD = 4;
 const SNAPSHOT_INTERVAL_MINUTES = 15;
-const TERMINAL_STATUSES = new Set(['done', 'failed', 'cancelled']);
-const TRANSIENT_STATUSES = new Set(['running', 'dispatched', 'in_review']);
+const TERMINAL_STATUSES = new Set(['done', 'failed', 'canceled', 'ready', 'backlog']);
+const TRANSIENT_STATUSES = new Set(['running', 'dispatched', 'in_review', 'changes_requested', 'deploying']);
 
 export function loadState() {
   if (!existsSync(STATE_FILE)) {
