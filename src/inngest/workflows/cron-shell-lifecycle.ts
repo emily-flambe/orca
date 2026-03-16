@@ -16,14 +16,26 @@ import {
 import { emitTaskUpdated } from "../../events.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
-import { getDeps } from "./task-lifecycle.js";
+import { getSchedulerDeps } from "../deps.js";
 
 const logger = createLogger("inngest/cron-shell-lifecycle");
 
 export const cronShellLifecycle = inngest.createFunction(
   {
     id: "cron-shell-lifecycle",
-    retries: 0,
+    retries: 3,
+    concurrency: [
+      {
+        limit: 1,
+        key: `event.data.cronScheduleId`,
+      },
+    ],
+    cancelOn: [
+      {
+        event: "task/cancelled" as const,
+        if: "async.data.linearIssueId == event.data.linearIssueId",
+      },
+    ],
   },
   {
     event: "task/ready" as const,
@@ -38,7 +50,7 @@ export const cronShellLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string } => {
-        const { db } = getDeps();
+        const { db } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -50,7 +62,8 @@ export const cronShellLifecycle = inngest.createFunction(
           };
         }
 
-        emitTaskUpdated(getTask(db, taskId)!);
+        const claimedTask = getTask(db, taskId);
+        if (claimedTask) emitTaskUpdated(claimedTask);
         return { claimed: true };
       },
     );
@@ -66,11 +79,20 @@ export const cronShellLifecycle = inngest.createFunction(
     const execResult = await step.run(
       "execute-shell",
       (): { success: boolean; error?: string } => {
-        const { db } = getDeps();
+        const { db } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { success: false, error: "task not found" };
 
-        const command = task.agentPrompt ?? "";
+        // Guard: command must not be empty
+        const command = (task.agentPrompt ?? "").trim();
+        if (!command) {
+          return {
+            success: false,
+            error: "agentPrompt is empty — cannot execute shell command",
+          };
+        }
+
+        // Guard: repoPath should be set (warn but allow fallback)
         const cwd = task.repoPath || process.cwd();
         if (!task.repoPath) {
           logger.warn(
@@ -79,7 +101,8 @@ export const cronShellLifecycle = inngest.createFunction(
         }
 
         updateTaskStatus(db, taskId, "running");
-        emitTaskUpdated(getTask(db, taskId)!);
+        const updatedTask = getTask(db, taskId);
+        if (updatedTask) emitTaskUpdated(updatedTask);
 
         try {
           execSync(command, {
@@ -97,15 +120,17 @@ export const cronShellLifecycle = inngest.createFunction(
 
     // Step 3: Finalize status
     await step.run("finalize", () => {
-      const { db } = getDeps();
+      const { db } = getSchedulerDeps();
 
       if (execResult.success) {
         updateTaskStatus(db, taskId, "done");
-        emitTaskUpdated(getTask(db, taskId)!);
+        const updatedTask = getTask(db, taskId);
+        if (updatedTask) emitTaskUpdated(updatedTask);
         logger.info(`cron-shell task ${taskId} completed successfully`);
       } else {
         updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
+        const updatedTask = getTask(db, taskId);
+        if (updatedTask) emitTaskUpdated(updatedTask);
         logger.info(`cron-shell task ${taskId} failed: ${execResult.error}`);
       }
     });
