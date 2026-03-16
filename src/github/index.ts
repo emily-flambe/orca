@@ -548,7 +548,9 @@ export async function getPrCheckStatus(
       if (hasFail) return "failure";
 
       return "success";
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/no checks reported/i.test(msg)) return "no_checks";
       if (attempt < maxAttempts) {
         await new Promise((r) => setTimeout(r, 1000));
       }
@@ -587,7 +589,9 @@ export function getPrCheckStatusSync(
     if (hasFail) return "failure";
 
     return "success";
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/no checks reported/i.test(msg)) return "no_checks";
     return "error";
   }
 }
