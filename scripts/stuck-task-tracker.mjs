@@ -75,7 +75,7 @@ export function updateState(previousState, tasks, now = new Date()) {
       threshold = TRANSIENT_THRESHOLD;
     }
 
-    if (threshold !== null && consecutiveSnapshots >= threshold) {
+    if (threshold !== null && consecutiveSnapshots === threshold) {
       alerts.push({
         taskId,
         status,
