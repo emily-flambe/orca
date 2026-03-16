@@ -136,7 +136,9 @@ import { findPrForBranch } from "../src/github/index.js";
 import { existsSync } from "node:fs";
 import { writeBackStatus } from "../src/linear/sync.js";
 import { createWorktree } from "../src/worktree/index.js";
-import { initTaskLifecycle } from "../src/inngest/workflows/task-lifecycle.js";
+import { setSchedulerDeps } from "../src/inngest/deps.js";
+// Side-effect import: triggers inngest.createFunction() which populates capturedHandler
+import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
 import { activeHandles, resetSessionSlots } from "../src/session-handles.js";
 
@@ -287,11 +289,12 @@ beforeEach(() => {
     kill: vi.fn(),
   } as never);
 
-  initTaskLifecycle({
+  setSchedulerDeps({
     db: mockDb,
     config: mockConfig,
     client: mockLinearClient as never,
     stateMap: {} as never,
+    graph: {} as never,
   });
 });
 

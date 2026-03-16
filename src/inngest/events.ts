@@ -41,24 +41,6 @@ export type OrcaEvents = {
       isResumeNotFound: boolean;
     };
   };
-  "session/failed": {
-    data: {
-      invocationId: number;
-      linearIssueId: string;
-      phase: "implement" | "review";
-      exitCode: number;
-      errorMessage: string;
-      isRateLimited: boolean;
-      isContentFiltered: boolean;
-      isDllInit: boolean;
-      isMaxTurns: boolean;
-      sessionId: string | null;
-      worktreePath: string | null;
-      costUsd: number | null;
-      inputTokens: number | null;
-      outputTokens: number | null;
-    };
-  };
   "task/awaiting-ci": {
     data: {
       linearIssueId: string;
