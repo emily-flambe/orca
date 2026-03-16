@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import React from "react";
 import CronPage from "../CronPage";
+import { ToastProvider } from "../ui/Toast";
 import type { CronSchedule } from "../../types";
 import {
   fetchCronSchedules,
@@ -8,6 +10,14 @@ import {
   updateCronSchedule,
   deleteCronSchedule,
 } from "../../hooks/useApi";
+
+function renderCronPage() {
+  return render(
+    <ToastProvider>
+      <CronPage />
+    </ToastProvider>,
+  );
+}
 
 vi.mock("../../hooks/useApi", () => ({
   fetchCronSchedules: vi.fn(),
@@ -51,14 +61,14 @@ describe("CronPage", () => {
 
   it("shows loading state when fetchCronSchedules never resolves", () => {
     mockFetchCronSchedules.mockReturnValue(new Promise(() => {}));
-    render(<CronPage />);
+    renderCronPage();
 
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
 
   it("shows error state when fetchCronSchedules rejects", async () => {
     mockFetchCronSchedules.mockRejectedValue(new Error("Network failure"));
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText(/Network failure/)).toBeInTheDocument();
@@ -67,7 +77,7 @@ describe("CronPage", () => {
 
   it("shows empty state when fetchCronSchedules resolves with empty array", async () => {
     mockFetchCronSchedules.mockResolvedValue([]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(
@@ -91,7 +101,7 @@ describe("CronPage", () => {
         type: "shell",
       }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Nightly sync")).toBeInTheDocument();
@@ -106,7 +116,7 @@ describe("CronPage", () => {
 
   it("hides 'New schedule' button when form is open", async () => {
     mockFetchCronSchedules.mockResolvedValue([]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("New schedule")).toBeInTheDocument();
@@ -119,7 +129,7 @@ describe("CronPage", () => {
 
   it("shows validation error when submitting form with no fields filled", async () => {
     mockFetchCronSchedules.mockResolvedValue([]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("New schedule")).toBeInTheDocument();
@@ -135,7 +145,7 @@ describe("CronPage", () => {
 
   it("shows validation error when only name is filled", async () => {
     mockFetchCronSchedules.mockResolvedValue([]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("New schedule")).toBeInTheDocument();
@@ -162,7 +172,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([]);
     mockCreateCronSchedule.mockResolvedValue(newSchedule);
 
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("New schedule")).toBeInTheDocument();
@@ -205,7 +215,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([schedule]);
     mockUpdateCronSchedule.mockResolvedValue(updated);
 
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByTitle("Disable")).toBeInTheDocument();
@@ -220,7 +230,7 @@ describe("CronPage", () => {
 
   it("shows Confirm? and Yes/No buttons when Delete is clicked", async () => {
     mockFetchCronSchedules.mockResolvedValue([makeSchedule()]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Delete")).toBeInTheDocument();
@@ -237,7 +247,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ name: "Keep me" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Delete")).toBeInTheDocument();
@@ -256,7 +266,7 @@ describe("CronPage", () => {
     ]);
     mockDeleteCronSchedule.mockResolvedValue({ ok: true });
 
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Delete me")).toBeInTheDocument();
@@ -282,7 +292,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: null }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Test schedule")).toBeInTheDocument();
@@ -296,7 +306,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: recentTime, lastRunStatus: "success" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Last: just now")).toBeInTheDocument();
@@ -308,7 +318,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: fiveMinAgo, lastRunStatus: "success" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Last: 5m ago")).toBeInTheDocument();
@@ -322,7 +332,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: threeHoursAgo, lastRunStatus: "failed" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Last: 3h ago")).toBeInTheDocument();
@@ -336,7 +346,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: twoDaysAgo, lastRunStatus: null }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Last: 2d ago")).toBeInTheDocument();
@@ -352,7 +362,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: recentTime, lastRunStatus: "success" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       const el = screen.getByText("Last: 5m ago");
@@ -365,7 +375,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: recentTime, lastRunStatus: "failed" }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       const el = screen.getByText("Last: 5m ago");
@@ -378,7 +388,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunAt: recentTime, lastRunStatus: null }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       const el = screen.getByText("Last: 5m ago");
@@ -397,7 +407,7 @@ describe("CronPage", () => {
         lastRunStatus: "failed",
       }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByTitle("Last run failed")).toBeInTheDocument();
@@ -411,7 +421,7 @@ describe("CronPage", () => {
         lastRunStatus: "success",
       }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Test schedule")).toBeInTheDocument();
@@ -424,7 +434,7 @@ describe("CronPage", () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ lastRunStatus: null }),
     ]);
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Test schedule")).toBeInTheDocument();
@@ -444,7 +454,7 @@ describe("CronPage", () => {
     });
     mockUpdateCronSchedule.mockResolvedValue(updated);
 
-    render(<CronPage />);
+    renderCronPage();
 
     await waitFor(() => {
       expect(screen.getByText("Edit")).toBeInTheDocument();

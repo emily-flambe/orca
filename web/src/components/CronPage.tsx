@@ -6,6 +6,7 @@ import {
   updateCronSchedule,
   deleteCronSchedule,
 } from "../hooks/useApi";
+import { useToast } from "./ui/Toast.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -279,12 +280,14 @@ function CronForm({
 // ---------------------------------------------------------------------------
 
 export default function CronPage() {
+  const { showToast } = useToast();
   const [schedules, setSchedules] = useState<CronSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     fetchCronSchedules()
@@ -332,16 +335,39 @@ export default function CronPage() {
   }
 
   async function handleToggleEnabled(s: CronSchedule) {
-    const updated = await updateCronSchedule(s.id, {
-      enabled: s.enabled === 1 ? 0 : 1,
-    });
-    setSchedules((prev) => prev.map((x) => (x.id === s.id ? updated : x)));
+    setTogglingId(s.id);
+    try {
+      const updated = await updateCronSchedule(s.id, {
+        enabled: s.enabled === 1 ? 0 : 1,
+      });
+      setSchedules((prev) => prev.map((x) => (x.id === s.id ? updated : x)));
+      showToast(
+        `${s.name} ${updated.enabled === 1 ? "enabled" : "disabled"}`,
+        "success",
+      );
+    } catch (err) {
+      showToast(
+        `Toggle failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function handleDelete(id: number) {
-    await deleteCronSchedule(id);
-    setSchedules((prev) => prev.filter((s) => s.id !== id));
-    setDeletingId(null);
+    try {
+      await deleteCronSchedule(id);
+      setSchedules((prev) => prev.filter((s) => s.id !== id));
+      setDeletingId(null);
+      showToast("Schedule deleted", "success");
+    } catch (err) {
+      showToast(
+        `Delete failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+      setDeletingId(null);
+    }
   }
 
   if (loading) {
@@ -418,7 +444,8 @@ export default function CronPage() {
                   )}
                   <button
                     onClick={() => handleToggleEnabled(s)}
-                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
+                    disabled={togglingId === s.id}
+                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"}`}
                     title={s.enabled === 1 ? "Disable" : "Enable"}
                   >
                     <span

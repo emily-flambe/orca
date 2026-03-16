@@ -20,6 +20,7 @@ import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
 import MetricsPage from "./components/MetricsPage";
+import { useToast } from "./components/ui/Toast.js";
 
 // Apply dark mode before first render to avoid flash
 document.documentElement.classList.add("dark");
@@ -282,9 +283,12 @@ export default function App() {
     return match ? decodeURIComponent(match[1]!) : null;
   }, [location.pathname]);
 
+  const { showToast } = useToast();
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  const [backendDown, setBackendDown] = useState(false);
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
@@ -297,11 +301,25 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    fetchTasks().then(setTasks).catch(console.error);
-    fetchStatus().then(setStatus).catch(console.error);
-    fetchVersion()
-      .then((v) => setVersion(v.version))
-      .catch(console.error);
+    const results = Promise.allSettled([
+      fetchTasks(),
+      fetchStatus(),
+      fetchVersion(),
+    ]);
+    results.then(([tasksResult, statusResult, versionResult]) => {
+      if (tasksResult.status === "fulfilled") setTasks(tasksResult.value);
+      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+      if (versionResult.status === "fulfilled")
+        setVersion(versionResult.value.version);
+      // Backend is down only if all three failed
+      if (
+        tasksResult.status === "rejected" &&
+        statusResult.status === "rejected" &&
+        versionResult.status === "rejected"
+      ) {
+        setBackendDown(true);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -359,14 +377,21 @@ export default function App() {
   }, []);
 
   const handleSync = useCallback(async () => {
-    await triggerSync();
-    const [newTasks, newStatus] = await Promise.all([
-      fetchTasks(),
-      fetchStatus(),
-    ]);
-    setTasks(newTasks);
-    setStatus(newStatus);
-  }, []);
+    try {
+      await triggerSync();
+      const [newTasks, newStatus] = await Promise.all([
+        fetchTasks(),
+        fetchStatus(),
+      ]);
+      setTasks(newTasks);
+      setStatus(newStatus);
+    } catch (err) {
+      showToast(
+        `Sync failed: ${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+    }
+  }, [showToast]);
 
   const handleConfigUpdate = useCallback(
     async (config: {
@@ -375,11 +400,19 @@ export default function App() {
       reviewModel?: string;
       fixModel?: string;
     }) => {
-      await updateConfig(config);
-      const newStatus = await fetchStatus();
-      setStatus(newStatus);
+      try {
+        await updateConfig(config);
+        const newStatus = await fetchStatus();
+        setStatus(newStatus);
+        showToast("Config updated", "success");
+      } catch (err) {
+        showToast(
+          `Config update failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
+      }
     },
-    [],
+    [showToast],
   );
 
   const handleNewTicket = useCallback(
@@ -470,6 +503,17 @@ export default function App() {
           onConfigUpdate={handleConfigUpdate}
           onNewTicket={handleNewTicket}
         />
+
+        {/* Backend unreachable banner */}
+        {backendDown && (
+          <div className="bg-amber-900/40 border-b border-amber-700/50 px-4 py-2 text-sm text-amber-300 flex items-center gap-2 shrink-0">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+            </span>
+            <span>Backend unreachable — retrying...</span>
+          </div>
+        )}
 
         {/* Page content */}
         {activePage === "tasks" && (

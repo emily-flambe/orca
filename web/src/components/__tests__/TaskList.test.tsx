@@ -1,6 +1,8 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import React from "react";
 import TaskList from "../TaskList";
+import { ToastProvider } from "../ui/Toast";
 import type { Task } from "../../types";
 
 vi.mock("../../hooks/useApi", () => ({
@@ -35,6 +37,14 @@ const defaultProps = {
   onSelect: vi.fn(),
 };
 
+function renderTaskList(props: Parameters<typeof TaskList>[0]) {
+  return render(
+    <ToastProvider>
+      <TaskList {...props} />
+    </ToastProvider>,
+  );
+}
+
 describe("TaskList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -48,7 +58,7 @@ describe("TaskList", () => {
       makeTask({ linearIssueId: "ENG-4", orcaStatus: "in_review" }),
       makeTask({ linearIssueId: "ENG-5", orcaStatus: "failed" }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     expect(screen.getByText("ENG-1")).toBeInTheDocument();
     expect(screen.getByText("ENG-2")).toBeInTheDocument();
@@ -62,7 +72,7 @@ describe("TaskList", () => {
       makeTask({ linearIssueId: "ENG-10", orcaStatus: "backlog" }),
       makeTask({ linearIssueId: "ENG-11", orcaStatus: "ready" }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     expect(screen.queryByText("ENG-10")).not.toBeInTheDocument();
     expect(screen.getByText("ENG-11")).toBeInTheDocument();
@@ -81,7 +91,7 @@ describe("TaskList", () => {
         agentPrompt: "Beta task",
       }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     const searchInput = screen.getByPlaceholderText("Search by ID or title…");
     fireEvent.change(searchInput, { target: { value: "ENG-100" } });
@@ -103,7 +113,7 @@ describe("TaskList", () => {
         agentPrompt: "Add dark mode",
       }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     const searchInput = screen.getByPlaceholderText("Search by ID or title…");
     fireEvent.change(searchInput, { target: { value: "dark mode" } });
@@ -118,7 +128,7 @@ describe("TaskList", () => {
       makeTask({ linearIssueId: "ENG-2", orcaStatus: "backlog" }),
       makeTask({ linearIssueId: "ENG-3", orcaStatus: "ready" }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     // Open the status dropdown
     const dropdownButton = screen.getByText(/of \d+/).closest("button")!;
@@ -147,7 +157,7 @@ describe("TaskList", () => {
         doneAt: new Date().toISOString(),
       }),
     ];
-    render(<TaskList {...defaultProps} tasks={tasks} />);
+    renderTaskList({ ...defaultProps, tasks });
 
     expect(screen.queryByText("ENG-ZERO")).not.toBeInTheDocument();
     expect(screen.getByText("ENG-ONE")).toBeInTheDocument();
@@ -167,7 +177,7 @@ describe("TaskList", () => {
         makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
         makeTask({ linearIssueId: "ENG-3", orcaStatus: "dispatched" }),
       ];
-      render(<TaskList {...defaultProps} tasks={tasks} />);
+      renderTaskList({ ...defaultProps, tasks });
 
       const ids = getTaskIds();
       // running (0) < dispatched (1) < ready (6) in STATUS_ORDER
@@ -176,14 +186,14 @@ describe("TaskList", () => {
     });
 
     it("default sort button shows '↑' on the status sort option", () => {
-      render(<TaskList {...defaultProps} tasks={[]} />);
+      renderTaskList({ ...defaultProps, tasks: [] });
 
       const statusSortBtn = screen.getByRole("button", { name: /status ↑/ });
       expect(statusSortBtn).toBeInTheDocument();
     });
 
     it("clicking a sort button sets it to asc and shows '↑'", () => {
-      render(<TaskList {...defaultProps} tasks={[]} />);
+      renderTaskList({ ...defaultProps, tasks: [] });
 
       const priorityBtn = screen.getByRole("button", { name: "priority" });
       fireEvent.click(priorityBtn);
@@ -194,7 +204,7 @@ describe("TaskList", () => {
     });
 
     it("clicking the same active asc sort button switches it to desc and shows '↓'", () => {
-      render(<TaskList {...defaultProps} tasks={[]} />);
+      renderTaskList({ ...defaultProps, tasks: [] });
 
       // status is already asc by default — click it once to go to desc
       const statusBtn = screen.getByRole("button", { name: /status ↑/ });
@@ -206,7 +216,7 @@ describe("TaskList", () => {
     });
 
     it("clicking the same active desc sort button clears sort — no '↑' or '↓' shown", () => {
-      render(<TaskList {...defaultProps} tasks={[]} />);
+      renderTaskList({ ...defaultProps, tasks: [] });
 
       // status starts asc
       const statusBtnAsc = screen.getByRole("button", { name: /status ↑/ });
@@ -225,7 +235,7 @@ describe("TaskList", () => {
     });
 
     it("clicking a different sort button from an active one resets to asc on the new option", () => {
-      render(<TaskList {...defaultProps} tasks={[]} />);
+      renderTaskList({ ...defaultProps, tasks: [] });
 
       // status is active asc by default; click it to go desc
       const statusBtnAsc = screen.getByRole("button", { name: /status ↑/ });

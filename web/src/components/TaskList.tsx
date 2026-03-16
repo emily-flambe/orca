@@ -5,6 +5,7 @@ import PriorityDot from "./ui/PriorityDot";
 import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
 import Badge from "./ui/Badge";
+import { useToast } from "./ui/Toast.js";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -89,6 +90,7 @@ interface SortState {
 }
 
 export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
+  const { showToast } = useToast();
   const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
@@ -568,7 +570,12 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                             e.stopPropagation();
                             setStatusMenuTaskId(null);
                             updateTaskStatus(task.linearIssueId, s.value).catch(
-                              console.error,
+                              (err: unknown) => {
+                                showToast(
+                                  `Status update failed: ${err instanceof Error ? err.message : String(err)}`,
+                                  "error",
+                                );
+                              },
                             );
                           }}
                           className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
