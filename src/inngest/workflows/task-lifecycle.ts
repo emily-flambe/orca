@@ -284,7 +284,6 @@ export const taskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config } = getSchedulerDeps();
 
     log(`workflow started for task ${taskId}`);
 
@@ -944,6 +943,7 @@ export const taskLifecycle = inngest.createFunction(
     // Retry: task was reset to "ready" by incrementRetryCount — re-emit
     // task/ready so a new workflow picks it up.
     if (gate2.outcome === "retry") {
+      const { db } = getSchedulerDeps();
       const retryTask = getTask(db, taskId);
       if (retryTask) {
         await inngest.send({
@@ -965,6 +965,7 @@ export const taskLifecycle = inngest.createFunction(
     // Step 6+: Review-fix loop (up to maxReviewCycles)
     // -------------------------------------------------------------------------
 
+    const { db, config } = getSchedulerDeps();
     for (let cycle = 0; cycle < config.maxReviewCycles; cycle++) {
       // -----------------------------------------------------------------------
       // Guard A: abort if task is in a terminal state before review spawn
