@@ -315,6 +315,7 @@ export default function CronPage() {
     });
     setSchedules((prev) => [...prev, schedule]);
     setShowNew(false);
+    showToast("Schedule created", "success");
   }
 
   async function handleUpdate(id: number, form: FormState) {
@@ -332,6 +333,7 @@ export default function CronPage() {
     });
     setSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
     setEditingId(null);
+    showToast("Schedule updated", "success");
   }
 
   async function handleToggleEnabled(s: CronSchedule) {

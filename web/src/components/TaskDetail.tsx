@@ -11,6 +11,7 @@ import LiveRunWidget from "./LiveRunWidget";
 import { getStatusBadgeClasses } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
+import { useToast } from "./ui/Toast.js";
 import EmptyState from "./ui/EmptyState";
 import { formatTokens } from "../utils/formatTokens";
 
@@ -54,6 +55,7 @@ export default function TaskDetail({
   initialInvocationId,
   refreshTrigger,
 }: Props) {
+  const { showToast } = useToast();
   const [detail, setDetail] = useState<TaskWithInvocations | null>(null);
   const [selectedInvocationId, setSelectedInvocationId] = useState<
     number | null
@@ -126,7 +128,12 @@ export default function TaskDetail({
                       updateTaskStatus(detail.linearIssueId, s.value)
                         .then(() => fetchTaskDetail(taskId))
                         .then((d) => setDetail(d))
-                        .catch(console.error);
+                        .catch((err) => {
+                          showToast(
+                            `Status update failed: ${err instanceof Error ? err.message : String(err)}`,
+                            "error",
+                          );
+                        });
                     }}
                     className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
                   >
