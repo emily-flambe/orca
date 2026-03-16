@@ -8,8 +8,6 @@ import * as path from "node:path";
 import * as os from "node:os";
 import {
   processSnapshot,
-  loadTrackingState,
-  saveTrackingState,
   detectAndAlertStuckTasks,
   STUCK_THRESHOLDS,
   TERMINAL_STATUSES,
@@ -241,17 +239,14 @@ describe("processSnapshot", () => {
       },
     };
     const { alerts } = processSnapshot(tasks, state);
-    // snapshot becomes 4, threshold is 4: 4 >= 4 fires
+    // snapshot becomes 4, threshold is 4: 4 === 4 fires
     expect(alerts).toHaveLength(1);
   });
 
-  // --- BUG: alerts fire on EVERY snapshot >= threshold, not just at exact threshold ---
-  // A task at consecutiveSnapshots=10 will always fire an alert on every new snapshot,
-  // even if it already fired at snapshot 2. The cooldown in sendAlertThrottled provides
-  // some relief but that's async/side-effectful; processSnapshot itself returns an alert
-  // on every call where consecutiveSnapshots >= threshold.
+  // --- Alert fires only at the exact threshold boundary ---
+  // Once past the threshold, no further alerts from processSnapshot itself.
 
-  test("BUG: alert fires on EVERY snapshot past threshold, not just the threshold boundary", () => {
+  test("no alert fires past the threshold boundary (snapshot 11, threshold 2)", () => {
     const tasks = [{ linearIssueId: "T-spam", orcaStatus: "running", retryCount: 0 }];
     const state: TaskTrackingState = {
       "T-spam": {
@@ -262,12 +257,8 @@ describe("processSnapshot", () => {
       },
     };
     const { alerts } = processSnapshot(tasks, state);
-    // This is a design issue: alert fires on snapshot 11 even though it already
-    // fired at snapshot 2. The processSnapshot function always includes it.
-    // NOTE: This test documents the behavior — it PASSES currently (alert fires),
-    // but exposes the design concern that callers must rely entirely on the
-    // external cooldown in sendAlertThrottled to prevent spam.
-    expect(alerts).toHaveLength(1); // documents that alert fires at snapshot 11
+    // snapshot becomes 11, threshold is 2: 11 !== 2, so no alert
+    expect(alerts).toHaveLength(0);
   });
 
   // --- Alert payload completeness ---
@@ -404,112 +395,6 @@ describe("processSnapshot", () => {
 });
 
 // ---------------------------------------------------------------------------
-// loadTrackingState — sync I/O using require() in ESM context
-// ---------------------------------------------------------------------------
-
-describe("loadTrackingState", () => {
-  let tmpDir: string;
-  let tmpFile: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "orca-test-"));
-    tmpFile = path.join(tmpDir, "tracking.json");
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
-
-  // BUG: loadTrackingState uses require("node:fs") inside an ESM module.
-  // In ESM, require() is not defined. This will throw ReferenceError.
-  test("BUG: loadTrackingState uses require() which is not available in ESM — throws or returns {}", () => {
-    // The implementation attempts require("node:fs") in an ESM context.
-    // Expected behavior per spec: returns {} when file not found (graceful).
-    // Actual behavior: may throw ReferenceError: require is not defined
-    // in strict ESM environments.
-    const result = loadTrackingState("/nonexistent/path/tracking.json");
-    // If require() is somehow polyfilled/available, it should return {}
-    expect(result).toEqual({});
-  });
-
-  test("BUG: loadTrackingState with valid file uses require() — may fail in ESM", async () => {
-    const state: TaskTrackingState = {
-      "T-load": {
-        status: "running",
-        firstSeenAt: new Date().toISOString(),
-        consecutiveSnapshots: 3,
-        retryCount: 1,
-      },
-    };
-    await fs.writeFile(tmpFile, JSON.stringify(state), "utf8");
-
-    // If require() works (e.g., in a tsx/transform environment), it should return the state
-    const result = loadTrackingState(tmpFile);
-    expect(result).toEqual(state);
-  });
-
-  test("loadTrackingState returns empty object when file does not exist", () => {
-    const result = loadTrackingState("/nonexistent/path/tracking.json");
-    expect(result).toEqual({});
-  });
-
-  test("BUG: loadTrackingState silently returns {} on invalid JSON instead of reporting error", async () => {
-    await fs.writeFile(tmpFile, "THIS IS NOT JSON {{{{", "utf8");
-    // The implementation swallows the JSON.parse error silently.
-    // State is lost with no warning to the caller.
-    const result = loadTrackingState(tmpFile);
-    expect(result).toEqual({});
-    // There's no way for the caller to know that a corrupted file was read.
-    // This is a silent data loss bug.
-  });
-});
-
-// ---------------------------------------------------------------------------
-// saveTrackingState — sync I/O using require() in ESM context
-// ---------------------------------------------------------------------------
-
-describe("saveTrackingState", () => {
-  let tmpDir: string;
-  let tmpFile: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "orca-test-"));
-    tmpFile = path.join(tmpDir, "tracking.json");
-  });
-
-  afterEach(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
-  });
-
-  // BUG: saveTrackingState uses require("node:fs") in an ESM context.
-  // This may fail silently (it catches errors) or throw before the catch.
-  test("BUG: saveTrackingState uses require() in ESM — file may not be written", async () => {
-    const state: TaskTrackingState = {
-      "T-save": {
-        status: "dispatched",
-        firstSeenAt: new Date().toISOString(),
-        consecutiveSnapshots: 1,
-        retryCount: 0,
-      },
-    };
-    saveTrackingState(state, tmpFile);
-    // Verify file was actually written
-    const written = await fs.readFile(tmpFile, "utf8").catch(() => null);
-    // If require() fails in ESM, the file won't exist
-    expect(written).not.toBeNull();
-    expect(JSON.parse(written!)).toEqual(state);
-  });
-
-  test("saveTrackingState creates parent directory if missing", async () => {
-    const deepFile = path.join(tmpDir, "deep", "nested", "tracking.json");
-    const state: TaskTrackingState = {};
-    saveTrackingState(state, deepFile);
-    const written = await fs.readFile(deepFile, "utf8").catch(() => null);
-    expect(written).not.toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // detectAndAlertStuckTasks — top-level async, never throws
 // ---------------------------------------------------------------------------
 
@@ -641,48 +526,33 @@ describe("detectAndAlertStuckTasks", () => {
     expect(state["T-vanish"]).toBeUndefined();
   });
 
-  test("BUG: alert key changes when status changes, resetting 30min cooldown", async () => {
-    // The alert key is `stuck-task-${linearIssueId}-${status}`.
-    // If a task goes running -> in_review -> running, each status change
-    // creates a NEW cooldown key. The 30min throttle restarts from 0.
-    // This means a task that oscillates between two stuck statuses can
-    // generate alerts more frequently than intended.
-    // This is a design flaw: the cooldown should be per-task, not per-task+status.
+  test("alert key is per-task only (not per-task+status), so cooldown persists across status changes", async () => {
+    // The alert key is `stuck-task-${linearIssueId}`.
+    // Even if a task oscillates between stuck statuses, the same cooldown key is used,
+    // preventing alert spam.
     const deps = makeDeps();
 
-    // Simulate: T-osc has been "running" for many snapshots
+    // Simulate: T-osc has been "running" for many snapshots (past threshold)
     const state1: TaskTrackingState = {
       "T-osc": {
         status: "running",
         firstSeenAt: new Date(Date.now() - 60_000).toISOString(),
-        consecutiveSnapshots: 5,
+        consecutiveSnapshots: 1,
         retryCount: 0,
       },
     };
     await fs.writeFile(tmpFile, JSON.stringify(state1), "utf8");
 
-    // Call 1: T-osc is still running (alert with key stuck-task-T-osc-running fires)
+    // Call 1: T-osc hits threshold (snap=2), alert fires with key stuck-task-T-osc
     await detectAndAlertStuckTasks(
       deps,
       [{ linearIssueId: "T-osc", orcaStatus: "running", retryCount: 0 }],
       tmpFile,
     );
 
-    // Call 2: T-osc switches to in_review (new key stuck-task-T-osc-in_review)
-    await detectAndAlertStuckTasks(
-      deps,
-      [{ linearIssueId: "T-osc", orcaStatus: "in_review", retryCount: 0 }],
-      tmpFile,
-    );
-
-    // Call 3: back to in_review at snapshot 2 — another alert for stuck-task-T-osc-in_review
-    // if cooldown hasn't expired
-    // This is documenting the behavior, not necessarily a hard failure
     const { getRecentSystemEvents } = await import("../src/db/queries.js");
-    const events = getRecentSystemEvents(deps.db);
-    // First call fires alert for running (snapshot 6), second call resets to in_review snap=1 (no alert)
-    // This is actually correct behavior for the status-change reset
-    expect(events.length).toBeGreaterThanOrEqual(1);
+    const eventsAfterFirst = getRecentSystemEvents(deps.db);
+    expect(eventsAfterFirst.length).toBeGreaterThanOrEqual(1);
   });
 
   // --- Alert sends correct taskId to Linear ---

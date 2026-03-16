@@ -1,5 +1,4 @@
 import * as fs from "node:fs/promises";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import * as path from "node:path";
 import { createLogger } from "../logger.js";
 import { sendAlertThrottled } from "./alerts.js";
@@ -61,33 +60,6 @@ export interface StuckTaskAlert {
 }
 
 // ---------------------------------------------------------------------------
-// State file I/O
-// ---------------------------------------------------------------------------
-
-export function loadTrackingState(filePath?: string): TaskTrackingState {
-  const targetPath = filePath ?? DEFAULT_TRACKING_FILE;
-  try {
-    const raw = readFileSync(targetPath, "utf8");
-    return JSON.parse(raw) as TaskTrackingState;
-  } catch {
-    return {};
-  }
-}
-
-export function saveTrackingState(
-  state: TaskTrackingState,
-  filePath?: string,
-): void {
-  const targetPath = filePath ?? DEFAULT_TRACKING_FILE;
-  try {
-    mkdirSync(path.dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, JSON.stringify(state, null, 2), "utf8");
-  } catch (err) {
-    logger.error(`saveTrackingState: failed to write ${targetPath}: ${err}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Core snapshot logic (pure)
 // ---------------------------------------------------------------------------
 
@@ -107,12 +79,8 @@ export function processSnapshot(
   // Build updated state
   const updatedState: TaskTrackingState = {};
 
-  // Track which issue IDs appear in this snapshot
-  const seenIds = new Set<string>();
-
   for (const task of currentTasks) {
     const { linearIssueId, orcaStatus, retryCount } = task;
-    seenIds.add(linearIssueId);
 
     // Terminal or uninteresting statuses: remove from tracking
     if (TERMINAL_STATUSES.has(orcaStatus)) {
@@ -148,10 +116,10 @@ export function processSnapshot(
       };
     }
 
-    // Check if we should alert
+    // Alert exactly at the threshold boundary (not on every snapshot past it)
     const entry = updatedState[linearIssueId]!;
     const threshold = STUCK_THRESHOLDS[orcaStatus];
-    if (threshold !== undefined && entry.consecutiveSnapshots >= threshold) {
+    if (threshold !== undefined && entry.consecutiveSnapshots === threshold) {
       const firstSeenMs = new Date(entry.firstSeenAt).getTime();
       const durationMinutes = Math.round((nowMs - firstSeenMs) / 60000);
       alerts.push({
@@ -215,7 +183,7 @@ export async function detectAndAlertStuckTasks(
       durationMinutes,
     } = alert;
 
-    const key = `stuck-task-${linearIssueId}-${status}`;
+    const key = `stuck-task-${linearIssueId}`;
     const message = `Task ${linearIssueId} has been in '${status}' for ${consecutiveSnapshots} consecutive snapshots (~${durationMinutes} min). Retry count: ${retryCount}.`;
 
     sendAlertThrottled(
