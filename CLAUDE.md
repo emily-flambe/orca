@@ -80,6 +80,23 @@ Orchestrated by Inngest durable workflows (replaced the legacy 10s tick-loop sch
 - **Error handling:** Try/catch with context. Fire-and-forget for non-critical async (Linear comments)
 - **File org:** One module per directory with `index.ts`, types co-located
 
+## Web Dashboard
+
+The Orca dashboard is a React SPA served at the root. It has multiple pages accessible via the sidebar navigation:
+
+| Route | Page |
+|-------|------|
+| `/` | Dashboard — active sessions, task overview |
+| `/metrics` | Metrics — cost, tokens, throughput |
+| `/tasks` | Tasks — full task list with status |
+| `/cron` | Cron — scheduled jobs (shell commands and Claude prompts on cron schedules) |
+| `/logs` | Logs — invocation logs |
+| `/settings` | Settings — configuration |
+
+**The `/cron` page shows Orca's built-in cron schedules** — these are Orca-managed crons (NOT Inngest crons, NOT OS-level crons). They persist across restarts and are visible/editable in the dashboard UI.
+
+When investigating dashboard features, **use Playwright to screenshot `http://localhost:<active-port>/` pages** rather than grepping source code. The active port is in `deploy-state.json`. External URL requires Cloudflare Access auth that Playwright can't pass — always use localhost.
+
 ## Deploying
 
 After pushing to main, **always deploy via the single script**. Never start orca manually.
