@@ -81,6 +81,7 @@ export function monitorSession(
             worktreePath: meta?.worktreePath ?? null,
             numTurns: result.numTurns,
             isMaxTurns,
+            isResumeNotFound: result.isResumeNotFound ?? false,
           },
         });
       } else {

@@ -38,6 +38,7 @@ export type OrcaEvents = {
       branchName: string | null;
       worktreePath: string | null;
       isMaxTurns: boolean;
+      isResumeNotFound: boolean;
     };
   };
   "session/failed": {

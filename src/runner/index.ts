@@ -52,6 +52,8 @@ export interface SessionResult {
   outputSummary: string;
   /** ISO timestamp when the rate limit resets, if subtype is "rate_limited". */
   rateLimitResetsAt?: string;
+  /** True when --resume was used but the session ID was not found by the CLI. */
+  isResumeNotFound: boolean;
 }
 
 /** Live handle to a running Claude CLI session. */
@@ -424,6 +426,9 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     // Track whether we received a result message from the CLI.
     let resultReceived = false;
 
+    // Track whether --resume failed because the session ID was not found.
+    let resumeNotFound = false;
+
     // Track rate limiting detected from the ndjson stream.
     let rateLimitDetected = false;
     let rateLimitType: string | null = null;
@@ -447,6 +452,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         // Attach exit code and signal to the already-parsed result.
         handle.result.exitCode = exitCode;
         handle.result.exitSignal = exitSignal?.toString() ?? null;
+        handle.result.isResumeNotFound = resumeNotFound;
         finalResult = handle.result;
       } else if (exitCode !== 0 || exitSignal) {
         // No result message and non-zero exit or signal -> process error.
@@ -464,6 +470,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             exitSignal: exitSignal?.toString() ?? null,
             outputSummary: `rate limited: ${limitTypeStr} quota exceeded, resets at ${resetsAtStr}`,
             rateLimitResetsAt: rateLimitResetsAt ?? undefined,
+            isResumeNotFound: resumeNotFound,
           };
           handle.result = finalResult;
         } else {
@@ -488,6 +495,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             exitCode,
             exitSignal: exitSignal?.toString() ?? null,
             outputSummary: parts.join(" "),
+            isResumeNotFound: resumeNotFound,
           };
           handle.result = finalResult;
         }
@@ -504,6 +512,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           exitCode: 0,
           exitSignal: null,
           outputSummary: "process exited cleanly with no result message",
+          isResumeNotFound: resumeNotFound,
         };
         handle.result = finalResult;
       }
@@ -659,6 +668,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
           exitCode: null, // Will be filled in on exit.
           exitSignal: null, // Will be filled in on exit.
           outputSummary,
+          isResumeNotFound: false, // Will be updated in tryResolve if stderr detected it.
         };
         return;
       }
@@ -681,6 +691,12 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         process.stderr.write(
           `[orca/runner][stderr][inv-${options.invocationId}] ${text}`,
         );
+        if (
+          options.resumeSessionId &&
+          text.includes("No conversation found with session ID")
+        ) {
+          resumeNotFound = true;
+        }
         // Write stderr to the log file as a structured JSON line so it's
         // preserved for post-mortem analysis.
         const stderrEntry = JSON.stringify({
@@ -761,6 +777,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         exitCode: null,
         exitSignal: null,
         outputSummary: `spawn error: ${err.message}`,
+        isResumeNotFound: resumeNotFound,
       };
       handle.result = result;
       logStream.end(() => {

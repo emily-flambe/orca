@@ -37,6 +37,7 @@ import {
   getLastCompletedImplementInvocation,
   insertSystemEvent,
   countActiveSessions,
+  clearSessionIds,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -181,6 +182,7 @@ export function bridgeSessionCompletion(
             branchName: branchName ?? null,
             worktreePath: worktreePath ?? null,
             isMaxTurns: result.subtype === "error_max_turns",
+            isResumeNotFound: result.isResumeNotFound ?? false,
           },
         })
         .catch((err) => {
@@ -215,6 +217,7 @@ export function bridgeSessionCompletion(
             branchName: null,
             worktreePath: null,
             isMaxTurns: false,
+            isResumeNotFound: false,
           },
         })
         .catch(() => {
@@ -788,6 +791,23 @@ export const taskLifecycle = inngest.createFunction(
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
+
+          // If the resume session ID was not found, clear the stale session ID and
+          // retry fresh without counting this against the retry budget.
+          if (implementEvent.data.isResumeNotFound) {
+            log(
+              `task ${taskId}: resume session not found — clearing stale session ID and retrying fresh (invocation ${invocationId})`,
+            );
+            clearSessionIds(db, taskId);
+            client
+              .createComment(
+                taskId,
+                `Resume session not found (stale session ID) — restarting as fresh session`,
+              )
+              .catch(() => {});
+            // Don't increment retry count — this is a setup failure, not a task failure
+            return { outcome: "retry" };
+          }
 
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -1486,7 +1506,7 @@ export const taskLifecycle = inngest.createFunction(
 
       const fixResult = await step.run(
         `process-fix-${cycle}`,
-        (): { ok: boolean; timedOut: boolean } => {
+        (): { ok: boolean; timedOut: boolean; resumeNotFound: boolean } => {
           const { invocationId, worktreePath } = fixCtx;
 
           if (!fixEvent) {
@@ -1510,7 +1530,7 @@ export const taskLifecycle = inngest.createFunction(
             } catch {
               /* ignore */
             }
-            return { ok: false, timedOut: true };
+            return { ok: false, timedOut: true, resumeNotFound: false };
           }
 
           const isSuccess =
@@ -1539,10 +1559,28 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           if (!isSuccess) {
+            // If the resume session ID was not found, clear the stale session ID
+            // so the next iteration starts fresh without burning a retry slot.
+            if (fixEvent.data.isResumeNotFound) {
+              log(
+                `task ${taskId}: fix resume session not found — clearing stale session ID, will retry fresh (invocation ${invocationId})`,
+              );
+              clearSessionIds(db, taskId);
+              client
+                .createComment(
+                  taskId,
+                  `Fix resume session not found (stale session ID) — restarting as fresh session`,
+                )
+                .catch(() => {});
+              updateTaskStatus(db, taskId, "in_review");
+              const updatedTask = getTask(db, taskId);
+              if (updatedTask) emitTaskUpdated(updatedTask);
+              return { ok: false, timedOut: false, resumeNotFound: true };
+            }
             updateTaskStatus(db, taskId, "in_review");
             const updatedTask = getTask(db, taskId);
             if (updatedTask) emitTaskUpdated(updatedTask);
-            return { ok: false, timedOut: false };
+            return { ok: false, timedOut: false, resumeNotFound: false };
           }
 
           // Fix succeeded — transition back to in_review for next review cycle
@@ -1552,11 +1590,17 @@ export const taskLifecycle = inngest.createFunction(
             () => {},
           );
           log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
-          return { ok: true, timedOut: false };
+          return { ok: true, timedOut: false, resumeNotFound: false };
         },
       );
 
       if (!fixResult.ok) {
+        // If the fix failed because the resume session ID was not found,
+        // continue the loop — session IDs were cleared so the next iteration
+        // will start a fresh fix session without --resume.
+        if (fixResult.resumeNotFound) {
+          continue;
+        }
         return {
           outcome: fixResult.timedOut ? "fix_timed_out" : "fix_failed",
         };
