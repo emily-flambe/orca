@@ -17,6 +17,7 @@ import {
   insertSystemEvent,
   updateTaskStatus,
 } from "../../db/queries.js";
+import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -162,6 +163,19 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("reconcile", async () => {
       const { db, config } = getSchedulerDeps();
       await runReconciliation({ db, config });
+    });
+
+    await step.run("detect-stuck-tasks", async () => {
+      const deps = getSchedulerDeps();
+      const tasks = getDispatchableTasks(deps.db, [
+        "dispatched",
+        "running",
+        "in_review",
+        "awaiting_ci",
+        "changes_requested",
+        "deploying",
+      ]);
+      await detectAndAlertStuckTasks(deps, tasks);
     });
   },
 );

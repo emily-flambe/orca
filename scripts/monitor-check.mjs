@@ -1,4 +1,6 @@
 // Monitoring helper — query orca API for ticket states
+import { loadState, saveState, updateState, formatAlerts } from './stuck-task-tracker.mjs';
+
 const PORT = process.argv[2] || '4000';
 const BASE = `http://localhost:${PORT}`;
 const IDS = ['EMI-214','EMI-222','EMI-223','EMI-224','EMI-230','EMI-231','EMI-232'];
@@ -30,6 +32,22 @@ async function main() {
       phase,
       invId,
     }));
+  }
+
+  // Stuck-task detection
+  const previousState = loadState();
+  const taskSnapshot = monitored.map(t => ({
+    taskId: t.linearIssueId,
+    status: t.orcaStatus,
+    retryCount: t.retryCount,
+  }));
+  const { newState, alerts } = updateState(previousState, taskSnapshot);
+  saveState(newState);
+  if (alerts.length > 0) {
+    console.log('STUCK_TASKS:');
+    for (const line of formatAlerts(alerts)) {
+      console.log(line);
+    }
   }
 
   // Missing tickets
