@@ -1246,8 +1246,7 @@ export const taskLifecycle = inngest.createFunction(
 
         // Emit event to trigger CI gate workflow
         {
-          const { db: awaitingDb, config: awaitingConfig } =
-            getSchedulerDeps();
+          const { db: awaitingDb, config: awaitingConfig } = getSchedulerDeps();
           await inngest.send({
             name: "task/awaiting-ci",
             data: {
