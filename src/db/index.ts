@@ -80,6 +80,17 @@ CREATE TABLE IF NOT EXISTS cron_schedules (
   updated_at TEXT NOT NULL
 )`;
 
+const CREATE_CRON_RUNS = `
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cron_schedule_id INTEGER NOT NULL,
+  started_at TEXT NOT NULL,
+  ended_at TEXT,
+  status TEXT NOT NULL,
+  output TEXT,
+  duration_ms INTEGER
+)`;
+
 /**
  * Check if a column exists in a table using PRAGMA table_info.
  */
@@ -382,6 +393,7 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_INVOCATIONS);
   sqlite.exec(CREATE_BUDGET_EVENTS);
   sqlite.exec(CREATE_CRON_SCHEDULES);
+  sqlite.exec(CREATE_CRON_RUNS);
   sqlite.exec(CREATE_SYSTEM_EVENTS);
 
   // Migrations for existing databases — add new columns if they don't exist.

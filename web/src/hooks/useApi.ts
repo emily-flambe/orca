@@ -3,6 +3,7 @@ import type {
   TaskWithInvocations,
   OrcaStatus,
   CronSchedule,
+  CronRun,
 } from "../types";
 
 const BASE = "/api";
@@ -237,6 +238,10 @@ export function createTask(data: {
 
 export function fetchCronSchedules(): Promise<CronSchedule[]> {
   return fetchJson<CronSchedule[]>("/cron");
+}
+
+export function fetchCronRuns(scheduleId: number): Promise<CronRun[]> {
+  return fetchJson<CronRun[]>(`/cron/${scheduleId}/runs`);
 }
 
 export function createCronSchedule(data: {

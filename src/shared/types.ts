@@ -72,6 +72,16 @@ export interface CronSchedule {
   updatedAt: string;
 }
 
+export interface CronRun {
+  id: number;
+  cronScheduleId: number;
+  startedAt: string;
+  endedAt: string | null;
+  status: string;
+  output: string | null;
+  durationMs: number | null;
+}
+
 export interface Invocation {
   id: number;
   linearIssueId: string;

@@ -43,6 +43,7 @@ import {
   deleteCronSchedule,
   incrementCronRunCount,
   getTasksByCronSchedule,
+  getCronRunsForSchedule,
   insertTask,
   deleteTask,
   insertSystemEvent,
@@ -1134,6 +1135,18 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
       .slice(0, 20);
     return c.json({ ...schedule, recentTasks });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/cron/:id/runs
+  // -----------------------------------------------------------------------
+  app.get("/api/cron/:id/runs", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const runs = getCronRunsForSchedule(db, id);
+    return c.json(runs);
   });
 
   // -----------------------------------------------------------------------

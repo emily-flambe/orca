@@ -21,6 +21,7 @@ import {
   invocations,
   budgetEvents,
   cronSchedules,
+  cronRuns,
   systemEvents,
   type TaskStatus,
 } from "./schema.js";
@@ -901,6 +902,66 @@ export function incrementCronRunCount(
     })
     .where(eq(cronSchedules.id, id))
     .run();
+}
+
+// ---------------------------------------------------------------------------
+// Cron run types
+// ---------------------------------------------------------------------------
+export type CronRun = typeof cronRuns.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Cron run queries
+// ---------------------------------------------------------------------------
+
+/** Insert a new cron run and return its auto-generated id. */
+export function insertCronRun(
+  db: OrcaDb,
+  run: { cronScheduleId: number; startedAt: string; status: string },
+): number {
+  const result = db
+    .insert(cronRuns)
+    .values(run)
+    .returning({ id: cronRuns.id })
+    .get();
+  return result.id;
+}
+
+/** Update a cron run with completion data. */
+export function completeCronRun(
+  db: OrcaDb,
+  id: number,
+  update: {
+    endedAt: string;
+    status: string;
+    output: string | null;
+    durationMs: number;
+  },
+): void {
+  db.update(cronRuns).set(update).where(eq(cronRuns.id, id)).run();
+}
+
+/** Get recent cron runs for a schedule, newest first. */
+export function getCronRunsForSchedule(
+  db: OrcaDb,
+  scheduleId: number,
+  limit = 50,
+): CronRun[] {
+  return db
+    .select()
+    .from(cronRuns)
+    .where(eq(cronRuns.cronScheduleId, scheduleId))
+    .orderBy(desc(cronRuns.id))
+    .limit(limit)
+    .all();
+}
+
+/** Delete cron runs older than the given date. Returns count of deleted rows. */
+export function deleteOldCronRuns(db: OrcaDb, beforeDate: string): number {
+  const result = db
+    .delete(cronRuns)
+    .where(lt(cronRuns.startedAt, beforeDate))
+    .run();
+  return result.changes;
 }
 
 /** Get all tasks spawned by a specific cron schedule. */

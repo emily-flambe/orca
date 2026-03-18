@@ -15,6 +15,8 @@ import {
   insertTask,
   incrementCronRunCount,
   updateCronLastRunStatus,
+  insertCronRun,
+  completeCronRun,
 } from "../../db/queries.js";
 import { computeNextRunAt } from "../../cron/index.js";
 import { createLogger } from "../../logger.js";
@@ -47,13 +49,32 @@ export const cronDispatchWorkflow = inngest.createFunction(
         // Shell cron: execute command directly, no task-lifecycle needed
         await step.run(`run-shell-cron-${schedule.id}`, () => {
           const { db } = getSchedulerDeps();
+          const startedAt = new Date().toISOString();
+          const startMs = Date.now();
+          const runId = insertCronRun(db, {
+            cronScheduleId: schedule.id,
+            startedAt,
+            status: "running",
+          });
           try {
             const cwd = schedule.repoPath || process.cwd();
-            execSync(schedule.prompt, {
+            const stdout = execSync(schedule.prompt, {
               cwd,
               timeout: 60_000,
               stdio: "pipe",
+              encoding: "utf8",
               shell: process.platform === "win32" ? "bash" : "/bin/sh",
+            });
+            const durationMs = Date.now() - startMs;
+            const output =
+              typeof stdout === "string"
+                ? stdout.slice(0, 10_000)
+                : null;
+            completeCronRun(db, runId, {
+              endedAt: new Date().toISOString(),
+              status: "success",
+              output,
+              durationMs,
             });
             incrementCronRunCount(
               db,
@@ -65,6 +86,23 @@ export const cronDispatchWorkflow = inngest.createFunction(
               `[cron-${schedule.id}] shell command succeeded for "${schedule.name}"`,
             );
           } catch (err) {
+            const durationMs = Date.now() - startMs;
+            let output: string | null = null;
+            if (err && typeof err === "object" && "stderr" in err) {
+              const stderr = (err as { stderr?: unknown }).stderr;
+              if (typeof stderr === "string") {
+                output = stderr.slice(0, 10_000);
+              }
+            }
+            if (!output && err instanceof Error) {
+              output = err.message.slice(0, 10_000);
+            }
+            completeCronRun(db, runId, {
+              endedAt: new Date().toISOString(),
+              status: "failed",
+              output,
+              durationMs,
+            });
             incrementCronRunCount(
               db,
               schedule.id,

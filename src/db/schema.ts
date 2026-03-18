@@ -115,3 +115,13 @@ export const cronSchedules = sqliteTable("cron_schedules", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const cronRuns = sqliteTable("cron_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  cronScheduleId: integer("cron_schedule_id").notNull(),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  status: text("status").notNull(), // "running", "success", "failed"
+  output: text("output"),
+  durationMs: integer("duration_ms"),
+});

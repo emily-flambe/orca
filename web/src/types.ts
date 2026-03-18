@@ -9,6 +9,7 @@ export {
   type InvocationStatus,
   type Task,
   type CronSchedule,
+  type CronRun,
   type Invocation,
   type TaskWithInvocations,
   type OrcaStatus,
