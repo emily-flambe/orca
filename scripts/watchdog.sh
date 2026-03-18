@@ -36,6 +36,33 @@ get_active_port() {
   fi
 }
 
+# Skip if a deploy is in progress or just completed (3-minute grace period)
+LOCKFILE="$PROJECT_DIR/.deploy.lock"
+if [[ -f "$LOCKFILE" ]]; then
+  LOCK_PID=$(cat "$LOCKFILE" 2>/dev/null || true)
+  if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+    log "deploy in progress (PID=$LOCK_PID) — skipping watchdog check"
+    trim_log
+    exit 0
+  fi
+fi
+
+if [[ -f "$STATE_FILE" ]]; then
+  DEPLOYED_AT=$(node -e "
+    var fs=require('fs');
+    try { console.log(JSON.parse(fs.readFileSync('$STATE_FILE','utf8')).deployedAt||'') }
+    catch(e) { console.log('') }
+  " 2>/dev/null || true)
+  if [[ -n "$DEPLOYED_AT" ]]; then
+    DEPLOY_AGE_S=$(node -e "console.log(Math.floor((Date.now()-new Date('$DEPLOYED_AT').getTime())/1000))" 2>/dev/null || echo "999")
+    if [[ "$DEPLOY_AGE_S" -lt 180 ]]; then
+      log "deploy completed ${DEPLOY_AGE_S}s ago — skipping watchdog check (3-min grace period)"
+      trim_log
+      exit 0
+    fi
+  fi
+fi
+
 FAILED=false
 FAILURES=""
 
@@ -60,8 +87,8 @@ fi
 
 if [[ "$FAILED" == "true" ]]; then
   log "FAILURE DETECTED: $FAILURES"
-  log "triggering recovery via deploy.sh..."
-  bash "$PROJECT_DIR/scripts/deploy.sh" >> "$LOG_FILE" 2>&1 || log "deploy.sh exited with error (exit code $?)"
+  log "triggering recovery via restart.sh..."
+  bash "$PROJECT_DIR/scripts/restart.sh" >> "$LOG_FILE" 2>&1 || log "restart.sh exited with error (exit code $?)"
   log "recovery attempt completed"
 fi
 
