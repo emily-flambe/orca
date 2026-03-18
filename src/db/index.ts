@@ -374,6 +374,27 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_system_events_type_created ON system_events(type, created_at)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 17 (performance indexes):
+  //   Indexes on frequently queried columns to avoid full table scans.
+  //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
+  // ---------------------------------------------------------------------------
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_tasks_orca_status ON tasks(orca_status)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_invocations_status ON invocations(status)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_invocations_linear_issue_id ON invocations(linear_issue_id)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_budget_events_recorded_at ON budget_events(recorded_at)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)",
+  );
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
