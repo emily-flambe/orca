@@ -9,7 +9,7 @@ Tasks are dispatched via Inngest events, not polling:
 - `task/ready` → triggers **task-lifecycle** workflow (implement → Gate 2 → review → fix loop)
 - `task/awaiting-ci` → triggers **ci-gate-merge** workflow (poll PR checks, merge on success)
 - `task/deploying` → triggers **deploy-monitor** workflow (poll GitHub Actions)
-- `session/completed` / `session/failed` → picked up by `step.waitForEvent()` in task-lifecycle
+- `session/completed` → picked up by `step.waitForEvent()` in task-lifecycle
 
 Events are defined in `src/inngest/events.ts`. All four workflows are registered in `src/inngest/functions.ts`.
 
@@ -19,10 +19,10 @@ Events are defined in `src/inngest/events.ts`. All four workflows are registered
 task/ready → task-lifecycle
   ├── step: budget check
   ├── step: spawn session (implement)
-  ├── waitForEvent: session/completed or session/failed
+  ├── waitForEvent: session/completed (exitCode indicates success/failure)
   ├── step: Gate 2 (verify PR)
   ├── step: spawn session (review)
-  ├── waitForEvent: session/completed or session/failed
+  ├── waitForEvent: session/completed (exitCode indicates success/failure)
   ├── step: parse review result
   ├── (if changes_requested) loop back to fix → review
   └── emit task/awaiting-ci → ci-gate-merge
@@ -48,8 +48,8 @@ Business logic needs access to DB, runner, Linear client, etc. These are injecte
 Claude sessions run 10-45 minutes. Inngest steps must not block that long.
 
 1. `step.run("start-session")` spawns the Claude process, returns immediately
-2. `monitorSession()` (fire-and-forget in `src/inngest/activities/session-bridge.ts`) watches the process
-3. When the session ends, `monitorSession` calls `inngest.send()` with `session/completed` or `session/failed`
+2. `bridgeSessionCompletion()` (fire-and-forget in `src/inngest/task-lifecycle.ts`) watches the process
+3. When the session ends (success or failure), `bridgeSessionCompletion` calls `inngest.send()` with a single `session/completed` event — the `exitCode` field indicates success (`0`) or failure (non-zero)
 4. The workflow picks up the result via `step.waitForEvent()` with a timeout
 
 ## Concurrency & Budget

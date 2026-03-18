@@ -19,8 +19,8 @@ import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { claimSessionSlot } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { getSchedulerDeps } from "../deps.js";
 import {
-  getDeps,
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
@@ -58,7 +58,6 @@ export const cronTaskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config } = getDeps();
 
     log(`cron workflow started for task ${taskId}`);
 
@@ -66,6 +65,7 @@ export const cronTaskLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string } => {
+        const { db } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -95,6 +95,7 @@ export const cronTaskLifecycle = inngest.createFunction(
         worktreePath: string;
         branchName: string;
       } => {
+        const { db, config } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -164,7 +165,7 @@ export const cronTaskLifecycle = inngest.createFunction(
     const succeeded = sessionEvent && sessionEvent.data.exitCode === 0;
 
     const result = await step.run("finalize-cron-task", () => {
-      const { db } = getDeps();
+      const { db } = getSchedulerDeps();
       const task = getTask(db, taskId);
       if (!task) return { outcome: "permanent_fail" as const };
 

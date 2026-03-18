@@ -28,7 +28,6 @@ import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
-import { initTaskLifecycle } from "../inngest/workflows/task-lifecycle.js";
 import { setSchedulerDeps } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
@@ -374,8 +373,7 @@ program
     });
     poller.start();
 
-    // Initialize Inngest task lifecycle deps (must happen before workflows fire)
-    initTaskLifecycle({ db, config, client, stateMap });
+    // Initialize Inngest workflow deps (must happen before workflows fire)
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
 
@@ -521,38 +519,7 @@ program
         new Promise((resolve) => setTimeout(resolve, 10_000)),
       ]);
 
-      // 2. Send session/failed events to Inngest so old workflows exit cleanly
-      for (const inv of running) {
-        try {
-          await inngest.send({
-            name: "session/failed",
-            data: {
-              invocationId: inv.id,
-              linearIssueId: inv.linearIssueId,
-              phase: (inv.phase as "implement" | "review") ?? "implement",
-              exitCode: 1,
-              errorMessage: deployInProgress
-                ? "interrupted_by_deploy"
-                : "interrupted by shutdown",
-              isRateLimited: false,
-              isContentFiltered: false,
-              isDllInit: false,
-              isMaxTurns: false,
-              sessionId: null,
-              worktreePath: inv.worktreePath ?? null,
-              costUsd: null,
-              inputTokens: null,
-              outputTokens: null,
-            },
-          });
-        } catch (err) {
-          logger.warn(
-            `failed to send session/failed event for inv ${inv.id}: ${err}`,
-          );
-        }
-      }
-
-      // 3. Update DB records (preserve worktrees for ALL phases during deploy)
+      // 2. Update DB records (preserve worktrees for ALL phases during deploy)
       for (const inv of running) {
         if (deployInProgress && inv.worktreePath) {
           // Preserve worktree for ALL phases during deploy (not just implement)
