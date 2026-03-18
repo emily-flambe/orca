@@ -80,7 +80,7 @@ async function emitAlert(alert) {
  * @returns {Promise<{ up: boolean, port: number|null, error: string|null }>}
  */
 async function checkHealth(port) {
-  const url = `http://localhost:${port}/api/status`;
+  const url = `http://localhost:${port}/api/health`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
   try {

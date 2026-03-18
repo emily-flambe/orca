@@ -294,6 +294,79 @@ describe("GET /api/status", () => {
   });
 });
 
+describe("GET /api/health", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({
+      db,
+      config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+      inngest: mockInngest,
+    });
+  });
+
+  it("returns 200 with healthy status when no issues", async () => {
+    const res = await app.request("/api/health");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("healthy");
+    expect(body.draining).toBe(false);
+    expect(body.budgetExhausted).toBe(false);
+    expect(typeof body.activeSessions).toBe("number");
+    expect(body.checks.db).toBe("ok");
+    expect(typeof body.version).toBe("string");
+  });
+
+  it("returns 503 with degraded status when budget is exhausted", async () => {
+    // Insert a budget event that exceeds the budget limit
+    const invId = insertInvocation(db, {
+      linearIssueId: "BUDGET-1",
+      startedAt: now(),
+      status: "completed",
+    });
+    insertTask(db, makeTask({ linearIssueId: "BUDGET-1" }));
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 15.0, // exceeds budgetMaxCostUsd: 10.0
+      recordedAt: now(),
+    });
+
+    const res = await app.request("/api/health");
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe("degraded");
+    expect(body.budgetExhausted).toBe(true);
+    expect(body.checks.db).toBe("ok");
+  });
+
+  it("includes uptime field", async () => {
+    const res = await app.request("/api/health");
+    const body = await res.json();
+    // uptime is null when no startup event exists, or a number
+    expect(body.uptime === null || typeof body.uptime === "number").toBe(true);
+  });
+
+  it("response shape matches spec", async () => {
+    const res = await app.request("/api/health");
+    const body = await res.json();
+    expect(body).toHaveProperty("status");
+    expect(body).toHaveProperty("version");
+    expect(body).toHaveProperty("uptime");
+    expect(body).toHaveProperty("draining");
+    expect(body).toHaveProperty("activeSessions");
+    expect(body).toHaveProperty("budgetExhausted");
+    expect(body).toHaveProperty("checks");
+    expect(body.checks).toHaveProperty("db");
+    expect(body.checks).toHaveProperty("inngest");
+  });
+});
+
 describe("GET /api/events (SSE)", () => {
   let db: OrcaDb;
   let app: Hono;
