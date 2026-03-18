@@ -736,6 +736,68 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/health
+  // -----------------------------------------------------------------------
+  app.get("/api/health", async (c) => {
+    // DB check: lightweight SELECT 1, then read dependent fields
+    let dbOk = true;
+    let lastStartup: ReturnType<typeof getLastStartup> = undefined;
+    let costInWindow = 0;
+    let activeSessions = 0;
+    try {
+      db.$client.prepare("SELECT 1").get();
+      lastStartup = getLastStartup(db);
+      const windowStart = budgetWindowStart(config.budgetWindowHours);
+      costInWindow = sumCostInWindow(db, windowStart);
+      activeSessions = countActiveSessions(db);
+    } catch {
+      dbOk = false;
+    }
+
+    // Uptime
+    const now = Date.now();
+    const uptimeSeconds = lastStartup
+      ? Math.floor((now - new Date(lastStartup.createdAt).getTime()) / 1000)
+      : null;
+
+    // Budget check
+    const budgetExhausted = costInWindow >= config.budgetMaxCostUsd;
+
+    // Draining
+    const draining = isDraining();
+
+    // Inngest check
+    const inngestOk = await checkInngestHealth();
+
+    // Determine overall status
+    let status: "healthy" | "degraded" | "draining";
+    if (!dbOk || budgetExhausted) {
+      status = "degraded";
+    } else if (draining) {
+      status = "draining";
+    } else {
+      status = "healthy";
+    }
+
+    const body = {
+      status,
+      version: ORCA_VERSION,
+      uptime: uptimeSeconds,
+      draining,
+      activeSessions,
+      budgetExhausted,
+      checks: {
+        db: dbOk ? "ok" : "error",
+        inngest: inngestOk ? "ok" : "unreachable",
+      },
+    };
+
+    // 503 when budget exhausted or DB unreachable
+    const httpStatus = !dbOk || budgetExhausted ? 503 : 200;
+    return c.json(body, httpStatus);
+  });
+
+  // -----------------------------------------------------------------------
   // GET /api/metrics
   // -----------------------------------------------------------------------
   app.get("/api/metrics", (c) => {
