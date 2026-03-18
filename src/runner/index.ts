@@ -11,6 +11,8 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
@@ -70,6 +72,11 @@ export interface SessionHandle {
   done: Promise<SessionResult>;
 }
 
+/** MCP server configuration entry. */
+export type McpServerConfig =
+  | { type: "http"; url: string; headers?: Record<string, string> }
+  | { command: string; args?: string[]; env?: Record<string, string> };
+
 /** Options accepted by {@link spawnSession}. */
 export interface SpawnSessionOptions {
   /** The agent prompt to send via `-p`. */
@@ -96,6 +103,8 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
+  /** Optional MCP servers to inject into this session via --mcp-config. */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +155,10 @@ function describeExitCode(code: number | null): string | null {
 /**
  * Build the argument array for the `claude` CLI invocation.
  */
-function buildArgs(opts: SpawnSessionOptions): string[] {
+function buildArgs(
+  opts: SpawnSessionOptions,
+  mcpConfigPath?: string,
+): string[] {
   const args: string[] = opts.claudeArgs ? [...opts.claudeArgs] : [];
 
   if (opts.resumeSessionId) {
@@ -174,6 +186,10 @@ function buildArgs(opts: SpawnSessionOptions): string[] {
 
   if (opts.model) {
     args.push("--model", opts.model);
+  }
+
+  if (mcpConfigPath) {
+    args.push("--mcp-config", mcpConfigPath, "--strict-mcp-config");
   }
 
   return args;
@@ -360,11 +376,23 @@ export function resolveClaudeBinary(requested: string): {
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const requested = options.claudePath ?? "claude";
   const { command: spawnCmd, prefixArgs } = resolveClaudeBinary(requested);
-  const args = [...prefixArgs, ...buildArgs(options)];
 
   // Ensure logs directory exists and open the log file for writing.
   const logsDir = ensureLogsDir(options.projectRoot);
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
+
+  // Write MCP config temp file if mcpServers are provided.
+  let mcpConfigPath: string | undefined;
+  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+    mcpConfigPath = join(logsDir, `${options.invocationId}-mcp.json`);
+    writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({ mcpServers: options.mcpServers }, null, 2),
+      "utf8",
+    );
+  }
+
+  const args = [...prefixArgs, ...buildArgs(options, mcpConfigPath)];
   const logStream = createWriteStream(logPath, { flags: "w" });
 
   // Create in-memory log state for SSE streaming.
@@ -531,6 +559,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+        // Clean up MCP config temp file.
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {
+            // Best-effort cleanup; ignore errors if file was already removed.
+          }
+        }
         resolve(finalResult);
       });
     }
@@ -790,6 +826,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+        // Clean up MCP config temp file.
+        if (mcpConfigPath) {
+          try {
+            unlinkSync(mcpConfigPath);
+          } catch {
+            // Best-effort cleanup; ignore errors if file was already removed.
+          }
+        }
         resolve(result);
       });
     });
