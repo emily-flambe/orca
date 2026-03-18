@@ -163,7 +163,7 @@ fi
 log "health checking Orca on port $ACTIVE_PORT..."
 ORCA_OK=false
 for i in $(seq 1 30); do
-  if curl -sf "http://localhost:$ACTIVE_PORT/api/status" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:$ACTIVE_PORT/api/health" > /dev/null 2>&1; then
     ORCA_OK=true
     log "Orca health check passed on attempt $i"
     break

@@ -673,61 +673,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
-  // GET /api/health
-  // -----------------------------------------------------------------------
-  app.get("/api/health", async (c) => {
-    // Lightweight DB check
-    let dbOk = true;
-    try {
-      db.$client.prepare("SELECT 1").get();
-    } catch {
-      dbOk = false;
-    }
-
-    // Uptime
-    const lastStartup = getLastStartup(db);
-    const now = new Date();
-    const uptime = lastStartup
-      ? Math.floor(
-          (now.getTime() - new Date(lastStartup.createdAt).getTime()) / 1000,
-        )
-      : null;
-
-    const activeSessions = countActiveSessions(db);
-    const draining = isDraining();
-    const windowStart = budgetWindowStart(config.budgetWindowHours);
-    const budgetExhausted =
-      sumCostInWindow(db, windowStart) >= config.budgetMaxCostUsd;
-    const inngestReachable = await checkInngestHealth();
-
-    let status: "healthy" | "degraded" | "draining";
-    if (draining) {
-      status = "draining";
-    } else if (budgetExhausted || !dbOk) {
-      status = "degraded";
-    } else {
-      status = "healthy";
-    }
-
-    const httpStatus = budgetExhausted || !dbOk ? 503 : 200;
-    return c.json(
-      {
-        status,
-        version: ORCA_VERSION,
-        uptime,
-        draining,
-        activeSessions,
-        budgetExhausted,
-        checks: {
-          db: dbOk ? "ok" : "error",
-          inngest: inngestReachable ? "ok" : "unreachable",
-        },
-      },
-      httpStatus as 200 | 503,
-    );
-  });
-
-  // -----------------------------------------------------------------------
   // GET /api/status
   // -----------------------------------------------------------------------
   app.get("/api/status", async (c) => {
