@@ -98,6 +98,7 @@ function emitTaskReady(inngest: InngestClient, task: Task): void {
         projectName: task.projectName ?? null,
         taskType: task.taskType ?? "standard",
         createdAt: task.createdAt,
+        cronScheduleId: task.cronScheduleId ?? null,
       },
     })
     .catch((err: unknown) =>

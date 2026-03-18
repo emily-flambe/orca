@@ -21,7 +21,7 @@ export const cronShellLifecycle = inngest.createFunction(
   {
     id: "cron-shell-lifecycle",
     retries: 0,
-    concurrency: [{ limit: 1, key: "event.data.linearIssueId" }],
+    concurrency: [{ limit: 1, key: "event.data.cronScheduleId" }],
     cancelOn: [
       {
         event: "task/cancelled" as const,
@@ -46,6 +46,14 @@ export const cronShellLifecycle = inngest.createFunction(
         const { db } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
+
+        // Idempotency: if Inngest retried the workflow after a crash (before the
+        // step result was persisted), the task may already be in running/dispatched
+        // state from the previous attempt. Treat this as already claimed so the
+        // shell command still executes rather than leaving the task permanently stuck.
+        if (task.orcaStatus === "running" || task.orcaStatus === "dispatched") {
+          return { claimed: true };
+        }
 
         const claimed = claimTaskForDispatch(db, taskId, ["ready"]);
         if (!claimed) {

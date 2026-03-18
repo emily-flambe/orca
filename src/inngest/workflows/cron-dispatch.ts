@@ -155,6 +155,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
                   projectName: cronTask.projectName ?? null,
                   taskType: cronTask.taskType ?? "standard",
                   createdAt: cronTask.createdAt,
+                  cronScheduleId: cronTask.cronScheduleId ?? null,
                 },
               });
             }

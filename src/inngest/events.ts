@@ -13,6 +13,7 @@ export type OrcaEvents = {
       projectName: string | null;
       taskType: string;
       createdAt: string;
+      cronScheduleId?: number | null;
     };
   };
   "task/cancelled": {

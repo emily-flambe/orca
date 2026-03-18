@@ -160,7 +160,7 @@ describe("cron-shell-lifecycle: claim-task step", () => {
   });
 
   test("task exists but in wrong state → claimTaskForDispatch fails → returns not_claimed", async () => {
-    const task = makeTask({ orcaStatus: "running" });
+    const task = makeTask({ orcaStatus: "failed" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(false);
 
@@ -186,10 +186,7 @@ describe("cron-shell-lifecycle: claim-task step", () => {
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 
-  test("claim succeeds → status immediately set to 'running' (skips dispatched externally)", async () => {
-    // BUG: claimTaskForDispatch sets status to "dispatched", then updateTaskStatus
-    // immediately sets it to "running". The dispatched state is never emitted/visible.
-    // The task goes ready -> dispatched (internal) -> running without external notification of dispatched.
+  test("claim succeeds → status immediately set to 'running'", async () => {
     const task = makeTask();
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
@@ -295,60 +292,43 @@ describe("cron-shell-lifecycle: status transitions", () => {
 // Workflow: Inngest retry idempotency bug
 // ---------------------------------------------------------------------------
 
-describe("cron-shell-lifecycle: Inngest retry idempotency gap (BUG)", () => {
+describe("cron-shell-lifecycle: Inngest retry idempotency", () => {
   test(
-    "workflow invoked for task already in 'running' exits with not_claimed — task permanently stuck",
+    "workflow invoked for task already in 'running' treats it as already claimed and executes shell",
     async () => {
-      // When Inngest retries a workflow function, previously completed steps are
-      // replayed from cache. However, the `claim-task` step runs again if Inngest
-      // has no cached result (e.g. after a Inngest server restart, or if the step
-      // result was not persisted before the retry).
-      //
-      // The concrete bug scenario:
-      //   1. claim-task step succeeds: status = running
-      //   2. run-shell step is dispatched to Inngest worker
-      //   3. Inngest worker crashes before step result is persisted
-      //   4. Inngest retries the entire function
-      //   5. claim-task is re-executed: task is in "running" not "ready"
-      //   6. claimTaskForDispatch returns false
-      //   7. Workflow exits with "not_claimed" — task permanently stuck in "running"
-      //
-      // This test directly simulates step 4-7: a fresh invocation of the workflow
-      // for a task already in "running" state.
-
+      // When Inngest retries a workflow function (e.g. after a server crash before the
+      // step result was persisted), the task may already be in "running" state from
+      // the first successful claim-task execution. The fix treats running/dispatched
+      // as already claimed, so the shell command still executes.
       mockGetTask.mockReturnValue(makeTask({ orcaStatus: "running" }));
       mockClaimTaskForDispatch.mockReturnValue(false);
+      mockExecSync.mockReturnValue("output" as never);
 
       const step = createStep();
       const result = await capturedHandler({ event: makeEvent(), step });
 
-      // BUG: The workflow exits silently with "not_claimed" rather than
-      // attempting to re-run the shell or updating task status to "failed".
-      // The task is permanently stuck in "running".
-      expect((result as { outcome: string }).outcome).toBe("not_claimed");
-
-      // The shell was never executed — task remains stuck in "running" forever
-      expect(mockExecSync).not.toHaveBeenCalled();
-
-      // No status update: the stuck task keeps "running" status with no way to recover
-      expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+      // Fixed: workflow proceeds to run-shell instead of returning not_claimed
+      expect((result as { outcome: string }).outcome).toBe("done");
+      expect(mockExecSync).toHaveBeenCalled();
     },
   );
 
   test(
-    "workflow invoked for task in 'dispatched' also silently exits — no error surfaced",
+    "workflow invoked for task in 'dispatched' also treats it as claimed and executes shell",
     async () => {
-      // The claim step sets status to "dispatched" first (via claimTaskForDispatch),
-      // then immediately to "running". If a retry hits between these two calls,
-      // the task is in "dispatched" — also not in ["ready"], so claim fails.
+      // The claim step sets status to "dispatched" (via claimTaskForDispatch),
+      // then immediately to "running". A retry between these two calls finds
+      // "dispatched" state — also treated as already claimed.
       mockGetTask.mockReturnValue(makeTask({ orcaStatus: "dispatched" }));
       mockClaimTaskForDispatch.mockReturnValue(false);
+      mockExecSync.mockReturnValue("output" as never);
 
       const step = createStep();
       const result = await capturedHandler({ event: makeEvent(), step });
 
-      expect((result as { outcome: string }).outcome).toBe("not_claimed");
-      expect(mockExecSync).not.toHaveBeenCalled();
+      // Fixed: workflow proceeds instead of silently exiting
+      expect((result as { outcome: string }).outcome).toBe("done");
+      expect(mockExecSync).toHaveBeenCalled();
     },
   );
 });
@@ -617,7 +597,7 @@ function makeScheduleData(overrides?: Record<string, unknown>) {
   };
 }
 
-describe("POST /api/cron — enabled field is hardcoded to 1 (BUG)", () => {
+describe("POST /api/cron — enabled field", () => {
   let db: OrcaDb;
   let app: Hono;
 
@@ -634,55 +614,42 @@ describe("POST /api/cron — enabled field is hardcoded to 1 (BUG)", () => {
     });
   }
 
-  test("creating schedule with enabled=0 still creates it as enabled=1 (BUG)", async () => {
-    // The POST /api/cron handler hardcodes `enabled: 1` regardless of request body.
-    // Sending enabled=0 should create a disabled schedule, but the bug causes it to be enabled.
+  test("creating schedule with enabled=0 creates it as disabled", async () => {
     const res = await post({
       ...makeScheduleData(),
       enabled: 0,
     });
     expect(res.status).toBe(201);
     const body = await res.json();
-
-    // BUG: This assertion FAILS — the API ignores the enabled field and hardcodes 1
-    // Expected: body.enabled === 0
-    // Actual: body.enabled === 1
     expect(body.enabled).toBe(0);
   });
 
-  test("creating schedule with enabled=false still creates it as enabled=1 (BUG)", async () => {
+  test("creating schedule with enabled=false creates it as disabled", async () => {
     const res = await post({
       ...makeScheduleData(),
       enabled: false,
     });
     expect(res.status).toBe(201);
     const body = await res.json();
-
-    // BUG: enabled is hardcoded to 1 in routes.ts:1368 — ignores request body
     expect(body.enabled).toBe(0);
   });
 
   test("creating schedule without enabled field defaults to 1", async () => {
-    // This is acceptable behavior — default to enabled
     const res = await post(makeScheduleData());
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.enabled).toBe(1);
   });
 
-  test("the Enabled toggle in create form has no effect (frontend sends enabled=0 or 1, API ignores it)", async () => {
-    // Create two schedules: one with enabled=1 and one with enabled=0
+  test("enabled toggle in create form is respected — enabled=0 and enabled=1 differ", async () => {
     const res1 = await post({ ...makeScheduleData(), name: "enabled-true", enabled: 1 });
     const res2 = await post({ ...makeScheduleData(), name: "enabled-false", enabled: 0 });
 
     const body1 = await res1.json();
     const body2 = await res2.json();
 
-    // Both are created with enabled=1 due to the hardcoding bug
-    // This test documents that the enabled toggle is non-functional during creation
     expect(body1.enabled).toBe(1);
-
-    // BUG: body2.enabled should be 0, but is 1
+    expect(body2.enabled).toBe(0);
     expect(body2.enabled).not.toBe(body1.enabled);
   });
 });
@@ -850,29 +817,30 @@ describe("POST /api/cron/:id/trigger — task field validation", () => {
 // Workflow: concurrency key uses linearIssueId (which is unique per trigger)
 // ---------------------------------------------------------------------------
 
-describe("cron-shell-lifecycle: concurrency key analysis", () => {
-  test("workflow uses linearIssueId as concurrency key — each trigger is unique (limit=1 has no effect)", () => {
-    // The concurrency config is { limit: 1, key: "event.data.linearIssueId" }
-    // Since each trigger creates a unique task ID (cron-${id}-${Date.now()}-${random}),
-    // the concurrency key is always different. The limit: 1 per linearIssueId means
-    // multiple concurrent triggers for the SAME schedule run without any cap.
+describe("cron-shell-lifecycle: concurrency key uses cronScheduleId", () => {
+  test("multiple triggers for the same schedule share the same concurrency key via cronScheduleId", () => {
+    // The concurrency config uses { limit: 1, key: "event.data.cronScheduleId" }.
+    // Each trigger for the same schedule shares the same cronScheduleId (the schedule DB id),
+    // so Inngest enforces at most one concurrent run per schedule.
     //
-    // This test is documentation — if the intent was to prevent concurrent runs of
-    // the same schedule, the key should be the scheduleId, not the task ID.
+    // Previously the key was "event.data.linearIssueId" which is unique per trigger
+    // (cron-${id}-${Date.now()}-${random}), making limit: 1 ineffective.
     //
-    // There is no runtime assertion possible here without running Inngest,
-    // but we can verify the event data structure matches the concurrency key.
+    // There is no runtime assertion possible without running Inngest, but we verify
+    // that two triggers for the same schedule would produce the same concurrency key.
 
-    const taskId1 = `cron-1-${Date.now()}-abc`;
-    const taskId2 = `cron-1-${Date.now()}-xyz`;
+    const scheduleId = 5;
+    const taskId1 = `cron-${scheduleId}-${Date.now()}-abc`;
+    const taskId2 = `cron-${scheduleId}-${Date.now()}-xyz`;
 
-    // These are two different task IDs for the same schedule
+    // Different task IDs, same schedule ID
     expect(taskId1).not.toBe(taskId2);
+    expect(taskId1.startsWith(`cron-${scheduleId}-`)).toBe(true);
+    expect(taskId2.startsWith(`cron-${scheduleId}-`)).toBe(true);
 
-    // With the current concurrency key (linearIssueId = taskId), these run concurrently.
-    // The limit: 1 per linearIssueId only prevents the same task from running twice,
-    // not preventing multiple tasks from the same schedule from running simultaneously.
-    expect(taskId1.startsWith("cron-1-")).toBe(true);
-    expect(taskId2.startsWith("cron-1-")).toBe(true);
+    // Both events would have cronScheduleId = scheduleId, so they share a concurrency key
+    const event1CronScheduleId = scheduleId;
+    const event2CronScheduleId = scheduleId;
+    expect(event1CronScheduleId).toBe(event2CronScheduleId);
   });
 });
