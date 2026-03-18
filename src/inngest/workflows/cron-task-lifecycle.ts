@@ -20,10 +20,10 @@ import { claimSessionSlot } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import {
-  getDeps,
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
+import { getSchedulerDeps } from "../deps.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -58,7 +58,7 @@ export const cronTaskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config } = getDeps();
+    const { db, config } = getSchedulerDeps();
 
     log(`cron workflow started for task ${taskId}`);
 
@@ -164,7 +164,7 @@ export const cronTaskLifecycle = inngest.createFunction(
     const succeeded = sessionEvent && sessionEvent.data.exitCode === 0;
 
     const result = await step.run("finalize-cron-task", () => {
-      const { db } = getDeps();
+      const { db } = getSchedulerDeps();
       const task = getTask(db, taskId);
       if (!task) return { outcome: "permanent_fail" as const };
 

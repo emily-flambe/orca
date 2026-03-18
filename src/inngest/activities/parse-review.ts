@@ -38,7 +38,7 @@ function extractFixReason(text: string): string | null {
  * Returns the marker result and, for CHANGES_REQUESTED, the text block that
  * contained the marker (used for fix reason extraction).
  */
-function extractMarkerFromLog(
+export function extractMarkerFromLog(
   logPath: string,
 ): { marker: "APPROVED" | "CHANGES_REQUESTED"; text: string } | null {
   try {

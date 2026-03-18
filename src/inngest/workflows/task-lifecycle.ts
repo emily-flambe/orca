@@ -11,7 +11,7 @@
 //         → transition to awaiting_ci
 // ---------------------------------------------------------------------------
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -48,15 +48,13 @@ import {
 } from "../../events.js";
 import { writeBackStatus } from "../../linear/sync.js";
 import { sendAlert } from "../../scheduler/alerts.js";
-import type { SchedulerDeps } from "../../scheduler/types.js";
-import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
+import type { LinearClient } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
   getPrCheckStatus,
 } from "../../github/index.js";
-import { git } from "../../git.js";
 import {
   activeHandles,
   claimSessionSlot,
@@ -65,6 +63,12 @@ import {
 } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { getSchedulerDeps } from "../deps.js";
+import {
+  worktreeHasNoChanges,
+  alreadyDonePatterns,
+} from "../activities/verify-pr.js";
+import { extractMarkerFromLog } from "../activities/parse-review.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency cap — read from env at module load time so it's available when
@@ -109,37 +113,6 @@ const logger = createLogger("inngest/lifecycle");
 
 function log(message: string): void {
   logger.info(message);
-}
-
-// ---------------------------------------------------------------------------
-// Dependencies injection
-//
-// Inngest functions are singletons created at module load time, but DB,
-// config, and Linear client are only available after initialization.
-// Callers must invoke initTaskLifecycle() before the workflow fires.
-// ---------------------------------------------------------------------------
-
-interface WorkflowDeps {
-  db: OrcaDb;
-  config: OrcaConfig;
-  client: LinearClient;
-  stateMap: WorkflowStateMap;
-}
-
-let _deps: WorkflowDeps | null = null;
-
-/** Call once during startup before the Inngest serve handler receives requests. */
-export function initTaskLifecycle(deps: WorkflowDeps): void {
-  _deps = deps;
-}
-
-export function getDeps(): WorkflowDeps {
-  if (!_deps) {
-    throw new Error(
-      "[orca/inngest] WorkflowDeps not initialized — call initTaskLifecycle() first",
-    );
-  }
-  return _deps;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,55 +226,6 @@ function recordBudgetEventFromEvent(
 }
 
 // ---------------------------------------------------------------------------
-// Shared: scan NDJSON session log for REVIEW_RESULT marker
-// ---------------------------------------------------------------------------
-
-function extractMarkerFromLog(invocationId: number): string | null {
-  try {
-    const logPath = join(process.cwd(), "logs", `${invocationId}.ndjson`);
-    if (!existsSync(logPath)) return null;
-    const lines = readFileSync(logPath, "utf8").split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line) as Record<string, unknown>;
-        if (msg.type !== "assistant") continue;
-        const message = msg.message as Record<string, unknown> | undefined;
-        const content = message?.content;
-        if (!Array.isArray(content)) continue;
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === "text" && typeof b.text === "string") {
-            if (b.text.includes("REVIEW_RESULT:APPROVED")) return "APPROVED";
-            if (b.text.includes("REVIEW_RESULT:CHANGES_REQUESTED"))
-              return "CHANGES_REQUESTED";
-          }
-        }
-      } catch {
-        /* malformed line — skip */
-      }
-    }
-  } catch {
-    /* log unreadable — skip */
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Shared: check if worktree has no commits ahead of origin/main
-// ---------------------------------------------------------------------------
-
-function worktreeHasNoChanges(worktreePath: string): boolean {
-  try {
-    if (!existsSync(worktreePath)) return false;
-    const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
-    return diff.trim() === "";
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Shared: build disallowed tools list
 // ---------------------------------------------------------------------------
 
@@ -361,7 +285,7 @@ export const taskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config, client, stateMap } = getDeps();
+    const { db, config, client, stateMap } = getSchedulerDeps();
 
     log(`workflow started for task ${taskId}`);
 
@@ -746,7 +670,7 @@ export const taskLifecycle = inngest.createFunction(
                   });
                   const rescuedTask = getTask(db, taskId);
                   if (rescuedTask) emitTaskUpdated(rescuedTask);
-                  sendAlert(getDeps() as unknown as SchedulerDeps, {
+                  sendAlert(getSchedulerDeps(), {
                     severity: "info",
                     title: "Rescued orphaned green PR",
                     message: `Task ${taskId} had a passing PR on branch ${guardBTask.prBranchName} — transitioning to awaiting_ci instead of failing`,
@@ -844,18 +768,6 @@ export const taskLifecycle = inngest.createFunction(
         if (!task) return { outcome: "permanent_fail" };
 
         const outputSummary = invRecord?.outputSummary?.toLowerCase() ?? "";
-        const alreadyDonePatterns = [
-          "already complete",
-          "already implemented",
-          "already merged",
-          "already on main",
-          "already exists",
-          "already satisfied",
-          "already done",
-          "nothing to do",
-          "no changes needed",
-          "acceptance criteria",
-        ];
         const isAlreadyDone = alreadyDonePatterns.some((p) =>
           outputSummary.includes(p),
         );
@@ -1257,9 +1169,14 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           if (!approved && !changesRequested) {
-            const markerFromLog = extractMarkerFromLog(invocationId);
-            if (markerFromLog === "APPROVED") approved = true;
-            else if (markerFromLog === "CHANGES_REQUESTED")
+            const logPath = join(
+              process.cwd(),
+              "logs",
+              `${invocationId}.ndjson`,
+            );
+            const logResult = extractMarkerFromLog(logPath);
+            if (logResult?.marker === "APPROVED") approved = true;
+            else if (logResult?.marker === "CHANGES_REQUESTED")
               changesRequested = true;
           }
 

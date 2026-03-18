@@ -56,7 +56,7 @@ export interface RepoLookupConfig {
 // Private helpers
 // ---------------------------------------------------------------------------
 
-const alreadyDonePatterns = [
+export const alreadyDonePatterns = [
   "already complete",
   "already implemented",
   "already merged",
@@ -76,7 +76,7 @@ const alreadyDonePatterns = [
  * `origin/main`. Used to objectively detect "already done" tasks where
  * Claude succeeded but made no changes (because none were needed).
  */
-function worktreeHasNoChanges(worktreePath: string): boolean {
+export function worktreeHasNoChanges(worktreePath: string): boolean {
   try {
     if (!existsSync(worktreePath)) return false;
     const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
