@@ -38,6 +38,12 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `INNGEST_SIGNING_KEY` | — | Signing key for request verification |
 | `INNGEST_BASE_URL` | `http://localhost:8288` | URL of the self-hosted Inngest server |
 
+## Monitor
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MONITOR_BURN_RATE_ALERT_USD_PER_HOUR` | 20 | Budget burn rate alert threshold in USD/hour |
+
 ## Deploy
 
 | Variable | Default | Description |

@@ -718,6 +718,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       queuedTasks,
       costInWindow,
       budgetLimit: config.budgetMaxCostUsd,
+      budgetPctUsed:
+        config.budgetMaxCostUsd > 0
+          ? (costInWindow / config.budgetMaxCostUsd) * 100
+          : 0,
       budgetWindowHours: config.budgetWindowHours,
       tokensInWindow,
       tokenBudgetLimit: config.budgetMaxTokens,
