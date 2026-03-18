@@ -4,7 +4,7 @@ import { createLogger } from "../logger.js";
 import { sendAlertThrottled } from "./alerts.js";
 import {
   isDraining,
-  getDrainDurationSeconds,
+  getDrainingForSeconds,
   clearDraining,
 } from "../deploy.js";
 import { activeHandles } from "../session-handles.js";
@@ -65,7 +65,7 @@ export async function checkDrainTimeout(
   }
 
   const activeSessions = activeHandles.size;
-  const drainDurationSec = getDrainDurationSeconds() ?? 0;
+  const drainDurationSec = getDrainingForSeconds() ?? 0;
   const drainTimeoutSec = config.drainTimeoutMin * 60;
 
   // Auto-clear drain if past timeout with no sessions

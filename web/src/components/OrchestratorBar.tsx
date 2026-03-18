@@ -5,6 +5,15 @@ import { formatTokens } from "../utils/formatTokens";
 
 const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
 
+function formatDrainDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remainingMins = mins % 60;
+  return remainingMins > 0 ? `${hrs}h ${remainingMins}m` : `${hrs}h`;
+}
+
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
@@ -271,21 +280,17 @@ export default function OrchestratorBar({
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
           </span>
           <span>
-            {status.drainSessionCount > 0 ? (
-              <>
-                Draining — waiting for {status.drainSessionCount} session
-                {status.drainSessionCount !== 1 ? "s" : ""} to finish before
-                deploy
-              </>
-            ) : status.drainingForSeconds != null ? (
-              <>
-                Draining — 0 sessions active (
-                {Math.floor(status.drainingForSeconds / 60)}m{" "}
-                {status.drainingForSeconds % 60}s)
-              </>
-            ) : (
-              <>Draining — waiting for sessions to finish before deploy</>
-            )}
+            {status.drainSessionCount > 0
+              ? `Draining — waiting for ${status.drainSessionCount} session${status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy`
+              : (status.drainingForSeconds ?? 0) > 120
+                ? "Draining — no active sessions (may be stuck)"
+                : "Draining — waiting for deploy to complete"}
+            {status.drainingForSeconds !== undefined &&
+              status.drainingForSeconds > 0 && (
+                <span className="ml-1 text-amber-400/70">
+                  ({formatDrainDuration(status.drainingForSeconds)})
+                </span>
+              )}
           </span>
         </div>
       )}

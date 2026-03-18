@@ -16,7 +16,7 @@ export function formatDuration(seconds) {
 
 /**
  * Default state for a fresh monitor-snapshot-state.json
- * @returns {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string }}
+ * @returns {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string, consecutiveStuckDrainCount: number, stuckDrainStartedAt: string|null }}
  */
 export function defaultState() {
   return {
@@ -24,14 +24,16 @@ export function defaultState() {
     consecutiveDownCount: 0,
     downtimeStartedAt: null,
     lastStatus: 'UP',
+    consecutiveStuckDrainCount: 0,
+    stuckDrainStartedAt: null,
   };
 }
 
 /**
  * Compute the new state and any alerts from a check result.
  *
- * @param {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string }} prevState
- * @param {{ up: boolean, port: number|null, error: string|null }} checkResult
+ * @param {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string, consecutiveStuckDrainCount: number, stuckDrainStartedAt: string|null }} prevState
+ * @param {{ up: boolean, port: number|null, error: string|null, draining?: boolean, drainingForSeconds?: number, activeSessions?: number }} checkResult
  * @param {string} nowIso - ISO timestamp for this snapshot
  * @returns {{
  *   snapshot: object,
@@ -40,16 +42,27 @@ export function defaultState() {
  * }}
  */
 export function processCheckResult(prevState, checkResult, nowIso) {
-  const { up, port, error } = checkResult;
+  const { up, port, error, draining, drainingForSeconds, activeSessions } = checkResult;
   const wasDown = prevState.lastStatus === 'DOWN';
 
   if (up) {
+    // Detect stuck drain: draining=true with zero active sessions
+    const isStuckDrain = draining === true && activeSessions === 0;
+    const consecutiveStuckDrainCount = isStuckDrain
+      ? (prevState.consecutiveStuckDrainCount ?? 0) + 1
+      : 0;
+    const stuckDrainStartedAt = isStuckDrain
+      ? (prevState.stuckDrainStartedAt ?? nowIso)
+      : null;
+
     // Compute new state first
     const newState = {
       lastKnownPort: port,
       consecutiveDownCount: 0,
       downtimeStartedAt: null,
       lastStatus: 'UP',
+      consecutiveStuckDrainCount,
+      stuckDrainStartedAt,
     };
 
     let snapshot;
@@ -83,6 +96,33 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       };
     }
 
+    // Include drain info in snapshot when draining
+    if (draining) {
+      snapshot.draining = true;
+      if (drainingForSeconds !== undefined) {
+        snapshot.drainingForSeconds = drainingForSeconds;
+      }
+      if (activeSessions !== undefined) {
+        snapshot.activeSessions = activeSessions;
+      }
+    }
+
+    // Alert on 2nd consecutive snapshot with drain+zero-sessions (and every subsequent one)
+    if (consecutiveStuckDrainCount >= 2) {
+      const stuckForSeconds = stuckDrainStartedAt
+        ? Math.floor((new Date(nowIso) - new Date(stuckDrainStartedAt)) / 1000)
+        : null;
+      const stuckDuration = stuckForSeconds !== null ? formatDuration(stuckForSeconds) : 'unknown';
+      alert = {
+        ts: nowIso,
+        type: 'stuck_drain_alert',
+        consecutiveStuckDrainCount,
+        stuckDrainStartedAt,
+        drainingForSeconds,
+        message: `Orca drain stuck: draining with zero active sessions for ${consecutiveStuckDrainCount} consecutive snapshots (~${stuckDuration})`,
+      };
+    }
+
     return { snapshot, newState, alert };
   } else {
     // DOWN
@@ -103,6 +143,8 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       consecutiveDownCount,
       downtimeStartedAt,
       lastStatus: 'DOWN',
+      consecutiveStuckDrainCount: 0,
+      stuckDrainStartedAt: null,
     };
 
     // Alert on 2nd DOWN and every subsequent DOWN

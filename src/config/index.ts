@@ -25,6 +25,7 @@ export interface OrcaConfig {
   deployStrategy: "none" | "github_actions";
   deployPollIntervalSec: number;
   deployTimeoutMin: number;
+  drainTimeoutMin: number;
   maxDeployPollAttempts: number;
   maxCiPollAttempts: number;
   cleanupIntervalMin: number;
@@ -52,7 +53,6 @@ export interface OrcaConfig {
   externalTunnel: boolean;
   cronRetentionDays: number;
   strandedTaskThresholdMin: number;
-  drainTimeoutMin: number;
   stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
@@ -322,6 +322,7 @@ Steps:
       30,
     ),
     deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
+    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
     maxDeployPollAttempts: readIntOrDefault(
       "ORCA_DEPLOY_MAX_POLL_ATTEMPTS",
       60,
@@ -359,7 +360,6 @@ Steps:
       "ORCA_STRANDED_TASK_THRESHOLD_MIN",
       30,
     ),
-    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
     stateMapOverrides: (() => {
       const raw = readEnv("ORCA_STATE_MAP");
       if (raw === undefined) return undefined;

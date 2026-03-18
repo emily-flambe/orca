@@ -83,7 +83,7 @@ async function emitAlert(alert) {
 
 /**
  * @param {number} port
- * @returns {Promise<{ up: boolean, port: number|null, error: string|null }>}
+ * @returns {Promise<{ up: boolean, port: number|null, error: string|null, draining?: boolean, drainingForSeconds?: number, activeSessions?: number }>}
  */
 async function checkHealth(port) {
   const url = `http://localhost:${port}/api/health`;
@@ -93,7 +93,16 @@ async function checkHealth(port) {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
     if (res.ok) {
-      return { up: true, port, error: null };
+      let body = {};
+      try { body = await res.json(); } catch { /* ignore parse errors */ }
+      return {
+        up: true,
+        port,
+        error: null,
+        draining: body.draining ?? false,
+        drainingForSeconds: body.drainingForSeconds,
+        activeSessions: body.activeSessions ?? 0,
+      };
     }
     return { up: false, port: null, error: `HTTP_${res.status}` };
   } catch (err) {

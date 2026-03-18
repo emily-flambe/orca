@@ -61,7 +61,11 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining, getDrainDurationSeconds } from "../deploy.js";
+import {
+  isDraining,
+  setDraining,
+  getDrainingForSeconds,
+} from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -727,7 +731,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       fixModel: config.fixModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
-      drainingForSeconds: getDrainDurationSeconds() ?? undefined,
+      drainingForSeconds: draining
+        ? (getDrainingForSeconds() ?? undefined)
+        : undefined,
       burnRatePerHour,
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
@@ -785,6 +791,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       version: ORCA_VERSION,
       uptime: uptimeSeconds,
       draining,
+      drainingForSeconds: draining ? (getDrainingForSeconds() ?? undefined) : undefined,
       activeSessions,
       budgetExhausted,
       checks: {
