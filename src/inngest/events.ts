@@ -59,14 +59,6 @@ export type OrcaEvents = {
       deployStartedAt: string;
     };
   };
-  "task/review-complete": {
-    data: {
-      linearIssueId: string;
-      prNumber: number | null;
-      result: "approved" | "changes_requested";
-      reviewCycleCount: number;
-    };
-  };
 };
 
 export const schemas = new EventSchemas().fromRecord<OrcaEvents>();

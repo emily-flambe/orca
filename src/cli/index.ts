@@ -373,7 +373,7 @@ program
     });
     poller.start();
 
-    // Initialize Inngest task lifecycle deps (must happen before workflows fire)
+    // Initialize Inngest workflow deps (must happen before workflows fire)
     setSchedulerDeps({ db, config, graph, client, stateMap });
     logger.info("task lifecycle deps initialized");
 

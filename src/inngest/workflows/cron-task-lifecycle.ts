@@ -19,11 +19,11 @@ import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { claimSessionSlot } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { getSchedulerDeps } from "../deps.js";
 import {
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
-import { getSchedulerDeps } from "../deps.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 

@@ -11,8 +11,7 @@
 //         → transition to awaiting_ci
 // ---------------------------------------------------------------------------
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
 import {
@@ -51,6 +50,12 @@ import {
   sendAlert,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
+import { getSchedulerDeps } from "../deps.js";
+import {
+  extractMarkerFromLog,
+  worktreeHasNoChanges,
+  alreadyDonePatterns,
+} from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
   findPrForBranch,
@@ -65,7 +70,6 @@ import {
   getPendingSessionCount,
 } from "../../session-handles.js";
 import { inngest } from "../client.js";
-import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -220,55 +224,6 @@ function recordBudgetEventFromEvent(
       outputTokens: eventData.outputTokens ?? 0,
       recordedAt: new Date().toISOString(),
     });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Shared: scan NDJSON session log for REVIEW_RESULT marker
-// ---------------------------------------------------------------------------
-
-function extractMarkerFromLog(invocationId: number): string | null {
-  try {
-    const logPath = join(process.cwd(), "logs", `${invocationId}.ndjson`);
-    if (!existsSync(logPath)) return null;
-    const lines = readFileSync(logPath, "utf8").split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line) as Record<string, unknown>;
-        if (msg.type !== "assistant") continue;
-        const message = msg.message as Record<string, unknown> | undefined;
-        const content = message?.content;
-        if (!Array.isArray(content)) continue;
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === "text" && typeof b.text === "string") {
-            if (b.text.includes("REVIEW_RESULT:APPROVED")) return "APPROVED";
-            if (b.text.includes("REVIEW_RESULT:CHANGES_REQUESTED"))
-              return "CHANGES_REQUESTED";
-          }
-        }
-      } catch {
-        /* malformed line — skip */
-      }
-    }
-  } catch {
-    /* log unreadable — skip */
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Shared: check if worktree has no commits ahead of origin/main
-// ---------------------------------------------------------------------------
-
-function worktreeHasNoChanges(worktreePath: string): boolean {
-  try {
-    if (!existsSync(worktreePath)) return false;
-    const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
-    return diff.trim() === "";
-  } catch {
-    return false;
   }
 }
 
@@ -825,22 +780,10 @@ export const taskLifecycle = inngest.createFunction(
         if (!task) return { outcome: "permanent_fail" };
 
         const outputSummary = invRecord?.outputSummary?.toLowerCase() ?? "";
-        const alreadyDonePatterns = [
-          "already complete",
-          "already implemented",
-          "already merged",
-          "already on main",
-          "already exists",
-          "already satisfied",
-          "already done",
-          "nothing to do",
-          "no changes needed",
-          "acceptance criteria",
-        ];
         const isAlreadyDone = alreadyDonePatterns.some((p) =>
           outputSummary.includes(p),
         );
-        const noChanges = worktreeHasNoChanges(worktreePath);
+        const noChanges = await worktreeHasNoChanges(worktreePath);
 
         if (!branchName) {
           if (isAlreadyDone || noChanges) {
@@ -1040,8 +983,8 @@ export const taskLifecycle = inngest.createFunction(
     // Step 6+: Review-fix loop (up to maxReviewCycles)
     // -------------------------------------------------------------------------
 
-    const { config: outerConfig } = getSchedulerDeps();
-    for (let cycle = 0; cycle < outerConfig.maxReviewCycles; cycle++) {
+    const { config: loopConfig } = getSchedulerDeps();
+    for (let cycle = 0; cycle < loopConfig.maxReviewCycles; cycle++) {
       // -----------------------------------------------------------------------
       // Guard A: abort if task is in a terminal state before review spawn
       // -----------------------------------------------------------------------
@@ -1183,7 +1126,7 @@ export const taskLifecycle = inngest.createFunction(
 
       const reviewResult = await step.run(
         `process-review-${cycle}`,
-        (): { outcome: ReviewOutcome } => {
+        async (): Promise<{ outcome: ReviewOutcome }> => {
           const { db } = getSchedulerDeps();
           const { invocationId, worktreePath } = reviewCtx;
 
@@ -1253,7 +1196,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           if (!approved && !changesRequested) {
-            const markerFromLog = extractMarkerFromLog(invocationId);
+            const markerFromLog = await extractMarkerFromLog(invocationId);
             if (markerFromLog === "APPROVED") approved = true;
             else if (markerFromLog === "CHANGES_REQUESTED")
               changesRequested = true;
@@ -1304,7 +1247,8 @@ export const taskLifecycle = inngest.createFunction(
 
         // Emit event to trigger CI gate workflow
         {
-          const { db: ciDb, config: ciConfig } = getSchedulerDeps();
+          const { db: awaitingDb, config: awaitingConfig } =
+            getSchedulerDeps();
           await inngest.send({
             name: "task/awaiting-ci",
             data: {
@@ -1312,7 +1256,9 @@ export const taskLifecycle = inngest.createFunction(
               prNumber: ciInfo.prNumber,
               prBranchName: ciInfo.prBranchName,
               repoPath:
-                getTask(ciDb, taskId)?.repoPath ?? ciConfig.defaultCwd ?? "",
+                getTask(awaitingDb, taskId)?.repoPath ??
+                awaitingConfig.defaultCwd ??
+                "",
               ciStartedAt: ciInfo.ciStartedAt,
             },
           });
@@ -1329,11 +1275,11 @@ export const taskLifecycle = inngest.createFunction(
       }
 
       // "no_marker" or "changes_requested" — check if we've exhausted cycles
-      const isLastCycle = cycle >= outerConfig.maxReviewCycles - 1;
+      const isLastCycle = cycle >= loopConfig.maxReviewCycles - 1;
 
       if (reviewResult.outcome === "no_marker" || isLastCycle) {
         await step.run(`cycles-exhausted-${cycle}`, () => {
-          const { db, config, client } = getSchedulerDeps();
+          const { db, client, config } = getSchedulerDeps();
           updateTaskStatus(db, taskId, "in_review");
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
