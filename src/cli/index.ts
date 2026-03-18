@@ -30,12 +30,16 @@ import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
-import { setSchedulerDeps } from "../inngest/deps.js";
+import { setSchedulerDeps, getSchedulerDeps } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
+import {
+  checkDrainTimeout,
+  DEFAULT_DRAIN_TRACKING_FILE,
+} from "../scheduler/drain-monitor.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
 
@@ -476,6 +480,16 @@ program
         }
       }
     }, 60_000);
+
+    // Drain timeout monitoring: runs every 5 minutes.
+    // Checks for stuck drain state (draining=true, activeSessions=0) and
+    // auto-clears after ORCA_DRAIN_TIMEOUT_MIN. Emits a warning alert after
+    // 2 consecutive zero-session snapshots.
+    setInterval(() => {
+      checkDrainTimeout(getSchedulerDeps(), DEFAULT_DRAIN_TRACKING_FILE).catch(
+        (err: unknown) => logger.warn(`drain monitor check failed: ${err}`),
+      );
+    }, 5 * 60_000);
 
     // Graceful shutdown
     let shuttingDown = false;
