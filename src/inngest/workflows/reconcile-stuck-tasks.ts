@@ -19,13 +19,7 @@ import {
   updateTaskStatus,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
-import {
-  activeHandles,
-  sweepExitedHandles,
-  getPendingSessionCount,
-  resetSessionSlots,
-  claimSessionSlot,
-} from "../../session-handles.js";
+import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
 import type { OrcaDb } from "../../db/index.js";
@@ -42,19 +36,6 @@ export async function runReconciliation(deps: {
   activeHandles?: Map<number, unknown>;
 }): Promise<{ reconciledCount: number }> {
   sweepExitedHandles();
-
-  // Reconcile _pendingSessionCount against actual active handles.
-  // If slots leaked (e.g. abort without releaseSessionSlot), this resets
-  // the counter to match reality so new tasks can dispatch.
-  const actualActive = activeHandles.size;
-  const pending = getPendingSessionCount();
-  if (pending > actualActive) {
-    logger.warn(
-      `session slot leak detected: pendingCount=${pending} but activeHandles=${actualActive} — resetting`,
-    );
-    resetSessionSlots();
-    for (let i = 0; i < actualActive; i++) claimSessionSlot();
-  }
 
   const { db, config } = deps;
   const handles = deps.activeHandles ?? activeHandles;

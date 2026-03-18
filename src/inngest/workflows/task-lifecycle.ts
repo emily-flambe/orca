@@ -35,7 +35,6 @@ import {
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
   insertSystemEvent,
-  countActiveSessions,
   clearSessionIds,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
@@ -62,12 +61,7 @@ import {
   closeSupersededPrs,
   getPrCheckStatus,
 } from "../../github/index.js";
-import {
-  activeHandles,
-  claimSessionSlot,
-  releaseSessionSlot,
-  getPendingSessionCount,
-} from "../../session-handles.js";
+import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 
@@ -80,18 +74,13 @@ const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
 
 /**
  * Process-level guard: throws if the number of active Claude sessions has
- * reached the concurrency cap. Uses THREE sources to prevent TOCTOU races:
- * 1. DB count of running invocations (survives deploys)
- * 2. pendingSessionCount (synchronous counter, incremented before spawn)
- * 3. activeHandles.size (in-memory handle registry)
+ * reached the concurrency cap. Uses activeHandles.size as the single source
+ * of truth — it reflects actually-running sessions in this process.
  */
-function assertSessionCapacity(db: OrcaDb): void {
-  const dbCount = countActiveSessions(db);
-  const pending = getPendingSessionCount();
-  const effective = Math.max(dbCount, activeHandles.size, pending);
-  if (effective >= CONCURRENCY_CAP) {
+function assertSessionCapacity(): void {
+  if (activeHandles.size >= CONCURRENCY_CAP) {
     throw new Error(
-      `session cap reached: ${effective} active sessions (cap=${CONCURRENCY_CAP}), db=${dbCount}, handles=${activeHandles.size}, pending=${pending}`,
+      `session cap reached: ${activeHandles.size} active sessions (cap=${CONCURRENCY_CAP})`,
     );
   }
 }
@@ -137,7 +126,6 @@ export function bridgeSessionCompletion(
       const invStatus = result.subtype === "success" ? "completed" : "failed";
 
       activeHandles.delete(invocationId);
-      releaseSessionSlot();
 
       inngest
         .send({
@@ -167,7 +155,6 @@ export function bridgeSessionCompletion(
     })
     .catch((err) => {
       activeHandles.delete(invocationId);
-      releaseSessionSlot();
 
       // Process-level error — send a synthetic failure event so the workflow
       // doesn't wait forever before timing out.
@@ -495,8 +482,7 @@ export const taskLifecycle = inngest.createFunction(
 
         // Check capacity BEFORE inserting invocation — inserting first would
         // leave a phantom "running" row in the DB if the check throws.
-        assertSessionCapacity(db);
-        claimSessionSlot();
+        assertSessionCapacity();
 
         const now = new Date().toISOString();
         const invocationId = insertInvocation(db, {
@@ -603,7 +589,6 @@ export const taskLifecycle = inngest.createFunction(
           if (timedOutHandle) {
             killSession(timedOutHandle).catch(() => {});
             activeHandles.delete(invocationId);
-            releaseSessionSlot();
           }
           updateInvocation(db, invocationId, {
             status: "timed_out",
@@ -1040,8 +1025,7 @@ export const taskLifecycle = inngest.createFunction(
             baseRef,
           });
 
-          assertSessionCapacity(db);
-          claimSessionSlot();
+          assertSessionCapacity();
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
@@ -1137,7 +1121,6 @@ export const taskLifecycle = inngest.createFunction(
             if (timedOutHandle) {
               killSession(timedOutHandle).catch(() => {});
               activeHandles.delete(invocationId);
-              releaseSessionSlot();
             }
             updateInvocation(db, invocationId, {
               status: "timed_out",
@@ -1371,8 +1354,7 @@ export const taskLifecycle = inngest.createFunction(
             updateTaskFixReason(db, taskId, null);
           }
 
-          assertSessionCapacity(db);
-          claimSessionSlot();
+          assertSessionCapacity();
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
@@ -1464,7 +1446,6 @@ export const taskLifecycle = inngest.createFunction(
             if (timedOutHandle) {
               killSession(timedOutHandle).catch(() => {});
               activeHandles.delete(invocationId);
-              releaseSessionSlot();
             }
             updateInvocation(db, invocationId, {
               status: "timed_out",

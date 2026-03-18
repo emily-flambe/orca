@@ -53,7 +53,6 @@ vi.mock("../src/db/queries.js", () => ({
   resetMergeAttemptCount: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
-  countActiveSessions: vi.fn().mockReturnValue(0),
   clearSessionIds: vi.fn(),
   budgetMaxTokens: 1000000,
 }));
@@ -126,7 +125,6 @@ import {
   sumCostInWindow,
   sumTokensInWindow,
   budgetWindowStart,
-  countActiveSessions,
   getLastMaxTurnsInvocation,
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
@@ -139,7 +137,7 @@ import { createWorktree } from "../src/worktree/index.js";
 import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
-import { activeHandles, resetSessionSlots } from "../src/session-handles.js";
+import { activeHandles } from "../src/session-handles.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
 const mockGetTask = vi.mocked(getTask);
@@ -242,7 +240,7 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
     run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
     waitForEvent: vi.fn(async (id: string, _opts: unknown) => {
       activeHandles.clear();
-      resetSessionSlots();
+      
       return waitForEventResponses.get(id) ?? null;
     }),
     sleep: vi.fn(async () => {}),
@@ -252,7 +250,6 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
 
 const mockSumTokensInWindow = vi.mocked(sumTokensInWindow);
 const mockBudgetWindowStart = vi.mocked(budgetWindowStart);
-const mockCountActiveSessions = vi.mocked(countActiveSessions);
 const mockGetLastMaxTurnsInvocation = vi.mocked(getLastMaxTurnsInvocation);
 const mockGetLastDeployInterruptedInvocation = vi.mocked(getLastDeployInterruptedInvocation);
 const mockGetLastCompletedImplementInvocation = vi.mocked(getLastCompletedImplementInvocation);
@@ -263,12 +260,12 @@ const mockCreateWorktree = vi.mocked(createWorktree);
 beforeEach(() => {
   vi.resetAllMocks();
   activeHandles.clear();
-  resetSessionSlots();
+  
 
   mockSumCostInWindow.mockReturnValue(0);
   mockSumTokensInWindow.mockReturnValue(0);
   mockBudgetWindowStart.mockReturnValue(new Date().toISOString());
-  mockCountActiveSessions.mockReturnValue(0);
+
   mockGetLastMaxTurnsInvocation.mockReturnValue(null);
   mockGetLastDeployInterruptedInvocation.mockReturnValue(null);
   mockGetLastCompletedImplementInvocation.mockReturnValue(null);

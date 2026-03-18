@@ -61,7 +61,6 @@ vi.mock("../src/db/queries.js", () => ({
   resetMergeAttemptCount: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
-  countActiveSessions: vi.fn().mockReturnValue(0),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
@@ -145,7 +144,7 @@ import { createWorktree } from "../src/worktree/index.js";
 import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
-import { activeHandles, resetSessionSlots } from "../src/session-handles.js";
+import { activeHandles } from "../src/session-handles.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
 
@@ -264,7 +263,7 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
       // Simulate session completion: clear activeHandles and pending count so
       // the next spawn doesn't hit the concurrency cap.
       activeHandles.clear();
-      resetSessionSlots();
+      
       return waitForEventResponses.get(id) ?? null;
     }),
     sleep: vi.fn(async () => {}),
@@ -286,7 +285,7 @@ function createStepPreserveHandlesOnTimeout(
       if (response !== undefined) {
         // Event received — clear handles as normal
         activeHandles.clear();
-        resetSessionSlots();
+        
         return response;
       }
       // Timeout (null) — leave handles in place so the kill path can find them
@@ -304,7 +303,7 @@ function createStepPreserveHandlesOnTimeout(
 beforeEach(() => {
   vi.resetAllMocks();
   activeHandles.clear();
-  resetSessionSlots();
+  
 
   // Re-apply defaults after reset
   mockSumCostInWindow.mockReturnValue(0);

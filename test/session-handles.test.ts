@@ -1,9 +1,5 @@
 import { describe, test, expect, beforeEach } from "vitest";
-import {
-  activeHandles,
-  sweepExitedHandles,
-  resetSessionSlots,
-} from "../src/session-handles.js";
+import { activeHandles, sweepExitedHandles } from "../src/session-handles.js";
 import type { ChildProcess } from "node:child_process";
 
 function makeHandle(procOverrides: Partial<ChildProcess> = {}) {
@@ -22,7 +18,6 @@ function makeHandle(procOverrides: Partial<ChildProcess> = {}) {
 
 beforeEach(() => {
   activeHandles.clear();
-  resetSessionSlots();
 });
 
 describe("sweepExitedHandles", () => {
