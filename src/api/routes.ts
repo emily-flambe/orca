@@ -57,7 +57,7 @@ import {
   type InvocationCompletedPayload,
   type StatusPayload,
 } from "../events.js";
-import { activeHandles, releaseSessionSlot } from "../session-handles.js";
+import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
@@ -390,7 +390,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         // Process may already be dead — that's fine
       }
       activeHandles.delete(id);
-      releaseSessionSlot();
     }
 
     const now = new Date().toISOString();
@@ -547,7 +546,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             outputSummary: `aborted by status change to ${newStatus}`,
           });
           activeHandles.delete(invId);
-          releaseSessionSlot();
           emitInvocationCompleted({
             taskId,
             invocationId: invId,

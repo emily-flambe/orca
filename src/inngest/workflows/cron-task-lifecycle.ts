@@ -16,11 +16,7 @@ import {
 import { spawnSession, killSession } from "../../runner/index.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
-import {
-  activeHandles,
-  claimSessionSlot,
-  releaseSessionSlot,
-} from "../../session-handles.js";
+import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -107,9 +103,6 @@ export const cronTaskLifecycle = inngest.createFunction(
         const wtResult = createWorktree(task.repoPath, taskId, 0);
         const { worktreePath, branchName } = wtResult;
 
-        // No assertSessionCapacity — cron tasks bypass concurrency
-        claimSessionSlot();
-
         const now = new Date().toISOString();
         const invocationId = insertInvocation(db, {
           linearIssueId: taskId,
@@ -184,7 +177,6 @@ export const cronTaskLifecycle = inngest.createFunction(
         if (handle) {
           killSession(handle).catch(() => {});
           activeHandles.delete(invocationId);
-          releaseSessionSlot();
         }
         updateInvocation(db, invocationId, {
           status: "timed_out",
