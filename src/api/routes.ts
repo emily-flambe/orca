@@ -47,6 +47,7 @@ import {
   insertTask,
   deleteTask,
   insertSystemEvent,
+  getInvocationCountsByTask,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -198,9 +199,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     });
     // Attach invocation count so the frontend can filter out done tasks with no history
+    const invocationCounts = getInvocationCountsByTask(db);
     const withCounts = tasks.map((t) => ({
       ...t,
-      invocationCount: getInvocationsByTask(db, t.linearIssueId).length,
+      invocationCount: invocationCounts.get(t.linearIssueId) ?? 0,
     }));
     return c.json(withCounts);
   });

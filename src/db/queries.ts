@@ -355,6 +355,22 @@ export function getInvocationsByTask(db: OrcaDb, taskId: string): Invocation[] {
 }
 
 /**
+ * Count invocations per task using a single GROUP BY query.
+ * Returns a map of linear_issue_id → count.
+ */
+export function getInvocationCountsByTask(db: OrcaDb): Map<string, number> {
+  const rows = db
+    .select({
+      linearIssueId: invocations.linearIssueId,
+      count: count(),
+    })
+    .from(invocations)
+    .groupBy(invocations.linearIssueId)
+    .all();
+  return new Map(rows.map((r) => [r.linearIssueId, r.count]));
+}
+
+/**
  * Find the most recent completed implement-phase invocation for a task that
  * has a valid session ID. Used to resume the implement session during fix phase.
  */
