@@ -394,7 +394,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const now = new Date().toISOString();
     const taskId = invocation.linearIssueId;
-    const oldStatus = (getTask(db, taskId)?.orcaStatus ?? "running") as TaskStatus;
+    const oldStatus = (getTask(db, taskId)?.orcaStatus ??
+      "running") as TaskStatus;
 
     // Mark invocation as failed
     updateInvocation(db, id, {

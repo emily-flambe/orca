@@ -222,7 +222,18 @@ export default function OrchestratorBar({
                 <span className="text-gray-500 text-xs">{phase}</span>
                 <select
                   value={status[field]}
-                  onChange={(e) => onConfigUpdate({ [field]: e.target.value })}
+                  onChange={(e) => {
+                    const newModel = e.target.value;
+                    if (
+                      newModel === "opus" &&
+                      !window.confirm(
+                        "Switching to opus will significantly increase costs. Continue?",
+                      )
+                    ) {
+                      return;
+                    }
+                    onConfigUpdate({ [field]: newModel });
+                  }}
                   className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
                 >
                   {MODEL_OPTIONS.map((m) => (

@@ -9,10 +9,16 @@ import Badge from "./ui/Badge";
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
 
+interface ToastCallbacks {
+  success: (msg: string) => void;
+  error: (msg: string) => void;
+}
+
 interface Props {
   tasks: Task[];
   selectedTaskId: string | null;
   onSelect: (id: string) => void;
+  onToast?: ToastCallbacks;
 }
 
 const STATUS_FILTERS = [
@@ -88,7 +94,12 @@ interface SortState {
   direction: SortDirection;
 }
 
-export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
+export default function TaskList({
+  tasks,
+  selectedTaskId,
+  onSelect,
+  onToast,
+}: Props) {
   const [selectedStatuses, setSelectedStatuses] = useState<Set<FilterStatus>>(
     () => new Set(ALL_FILTER_VALUES.filter((v) => v !== "backlog")),
   );
@@ -567,9 +578,19 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                           onClick={(e) => {
                             e.stopPropagation();
                             setStatusMenuTaskId(null);
-                            updateTaskStatus(task.linearIssueId, s.value).catch(
-                              console.error,
-                            );
+                            updateTaskStatus(task.linearIssueId, s.value)
+                              .then(() => {
+                                onToast?.success(
+                                  `Status updated to ${s.label}`,
+                                );
+                              })
+                              .catch((err: unknown) => {
+                                onToast?.error(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Failed to update status",
+                                );
+                              });
                           }}
                           className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
                         >

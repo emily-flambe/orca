@@ -561,25 +561,22 @@ program
       // 3. Send task/cancelled events to Inngest so orphaned workflow runs
       // unblock per-task concurrency instead of waiting for timeout.
       if (running.length > 0) {
-        const cancelEvents = running
-          .map((inv) => {
-            const task = getTask(db, inv.linearIssueId);
-            return {
-              name: "task/cancelled" as const,
-              data: {
-                linearIssueId: inv.linearIssueId,
-                reason: deployInProgress
-                  ? "interrupted_by_deploy"
-                  : "interrupted_by_shutdown",
-                retryCount: task?.retryCount ?? 0,
-                previousStatus: (task?.orcaStatus ?? "running") as TaskStatus,
-              },
-            };
-          });
+        const cancelEvents = running.map((inv) => {
+          const task = getTask(db, inv.linearIssueId);
+          return {
+            name: "task/cancelled" as const,
+            data: {
+              linearIssueId: inv.linearIssueId,
+              reason: deployInProgress
+                ? "interrupted_by_deploy"
+                : "interrupted_by_shutdown",
+              retryCount: task?.retryCount ?? 0,
+              previousStatus: (task?.orcaStatus ?? "running") as TaskStatus,
+            },
+          };
+        });
         await Promise.allSettled(
-          cancelEvents.map((evt) =>
-            inngest.send(evt).catch(() => {}),
-          ),
+          cancelEvents.map((evt) => inngest.send(evt).catch(() => {})),
         ).catch(() => {});
         logger.info(
           `sent ${cancelEvents.length} task/cancelled event(s) to Inngest`,
