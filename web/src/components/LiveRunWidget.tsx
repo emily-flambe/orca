@@ -50,11 +50,6 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         .trim() || null
     : null;
 
-  const handleCostUpdate = useCallback((_c: number) => {
-    // Cost updates are ignored — we show tokens instead, which are only
-    // available in the final result event. Duration is the live indicator.
-  }, []);
-
   const handleCancel = useCallback(async () => {
     if (
       !window.confirm("Abort this invocation? The task will be reset to ready.")
@@ -179,7 +174,6 @@ export default function LiveRunWidget({ invocation, onCancelled }: Props) {
         isRunning={effectivelyRunning}
         outputSummary={invocation.outputSummary}
         compact
-        onCostUpdate={handleCostUpdate}
       />
     </div>
   );
