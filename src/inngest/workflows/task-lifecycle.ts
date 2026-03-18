@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
 import {
@@ -38,7 +39,7 @@ import {
   clearSessionIds,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
-import type { SessionHandle } from "../../runner/index.js";
+import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
 import {
   emitTaskUpdated,
   emitInvocationStarted,
@@ -226,6 +227,34 @@ export function buildDisallowedTools(config: OrcaConfig): string[] {
         .filter(Boolean)
     : [];
   return [...new Set([...ALWAYS_DISALLOWED, ...userDisallowed])];
+}
+
+// ---------------------------------------------------------------------------
+// Shared: build Orca MCP server config for per-session injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns an mcpServers map that injects the Orca state MCP server into every
+ * agent session. The server exposes read-only tools for querying Orca's DB
+ * (task metadata, invocation history, sibling tasks, parent issue).
+ *
+ * Uses the built `dist/mcp-server.js` artifact. Skips injection if that file
+ * does not exist (e.g. during development before a build).
+ */
+export function buildOrcaMcpServers(
+  config: OrcaConfig,
+): Record<string, McpServerConfig> | undefined {
+  const mcpServerPath = join(process.cwd(), "dist", "mcp-server.js");
+  if (!existsSync(mcpServerPath)) {
+    return undefined;
+  }
+  return {
+    orca: {
+      command: process.execPath,
+      args: [mcpServerPath],
+      env: { ORCA_DB_PATH: config.dbPath },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +541,7 @@ export const taskLifecycle = inngest.createFunction(
           resumeSessionId: fixPhaseResumeSessionId ?? resumeSessionId,
           repoPath: task.repoPath,
           model,
+          mcpServers: buildOrcaMcpServers(config),
         });
 
         bridgeSessionCompletion(
@@ -1054,6 +1084,7 @@ export const taskLifecycle = inngest.createFunction(
             disallowedTools: buildDisallowedTools(config),
             repoPath: task.repoPath,
             model: config.reviewModel,
+            mcpServers: buildOrcaMcpServers(config),
           });
 
           bridgeSessionCompletion(
@@ -1384,6 +1415,7 @@ export const taskLifecycle = inngest.createFunction(
             resumeSessionId,
             repoPath: task.repoPath,
             model: config.fixModel,
+            mcpServers: buildOrcaMcpServers(config),
           });
 
           bridgeSessionCompletion(
