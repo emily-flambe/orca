@@ -131,31 +131,16 @@ function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
 }
 
 /**
- * Check whether a branch exists locally OR as a remote-tracking ref on origin.
+ * Check whether a branch exists locally (refs/heads only).
  */
-function branchExists(repoPath: string, branchName: string): boolean {
-  // Check local branch first
+function localBranchExists(repoPath: string, branchName: string): boolean {
   try {
     git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
       cwd: repoPath,
     });
     return true;
   } catch {
-    // Also check remote-tracking ref (branch may exist on origin but not checked out locally)
-    try {
-      git(
-        [
-          "show-ref",
-          "--verify",
-          "--quiet",
-          `refs/remotes/origin/${branchName}`,
-        ],
-        { cwd: repoPath },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
@@ -288,7 +273,7 @@ export function createWorktree(
   if (baseRef) {
     // Use the same branch name as the PR branch so pushes update the existing PR
     // instead of creating a new remote branch.
-    if (branchExists(repoPath, baseRef)) {
+    if (localBranchExists(repoPath, baseRef)) {
       // Branch already exists locally — check it out directly (no -b) to avoid
       // "branch is checked out" errors, then sync to origin.
       git(["worktree", "add", worktreePath, baseRef], { cwd: repoPath });
