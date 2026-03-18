@@ -16,40 +16,107 @@ export function formatDuration(seconds) {
 
 /**
  * Default state for a fresh monitor-snapshot-state.json
- * @returns {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string }}
+ * @returns {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string, prevBudgetUsed: number|null, prevSnapshotTs: string|null }}
  */
 export function defaultState() {
   return {
     lastKnownPort: 4000,
     consecutiveDownCount: 0,
     downtimeStartedAt: null,
-    lastStatus: 'UP',
+    lastStatus: "UP",
+    prevBudgetUsed: null,
+    prevSnapshotTs: null,
   };
 }
 
 /**
  * Compute the new state and any alerts from a check result.
  *
- * @param {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string }} prevState
+ * @param {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string, prevBudgetUsed: number|null, prevSnapshotTs: string|null }} prevState
  * @param {{ up: boolean, port: number|null, error: string|null }} checkResult
  * @param {string} nowIso - ISO timestamp for this snapshot
+ * @param {{ used: number, limit: number }|null} budgetData
+ * @param {{ burnRateAlertThreshold?: number }} config
  * @returns {{
  *   snapshot: object,
  *   newState: object,
  *   alert: object|null,
+ *   budgetAlerts: object[],
  * }}
  */
-export function processCheckResult(prevState, checkResult, nowIso) {
+export function processCheckResult(
+  prevState,
+  checkResult,
+  nowIso,
+  budgetData = null,
+  config = {},
+) {
   const { up, port, error } = checkResult;
-  const wasDown = prevState.lastStatus === 'DOWN';
+  const wasDown = prevState.lastStatus === "DOWN";
+  const threshold = config.burnRateAlertThreshold ?? 20;
 
   if (up) {
-    // Compute new state first
+    // Compute burn rate and budget alerts if budget data provided
+    let burnRatePerHour = null;
+    let projectedCapHitAt = null;
+    const budgetAlerts = [];
+
+    if (budgetData != null) {
+      if (
+        prevState.prevBudgetUsed != null &&
+        prevState.prevSnapshotTs != null
+      ) {
+        const timeDeltaHours =
+          (new Date(nowIso) - new Date(prevState.prevSnapshotTs)) / 3600000;
+        if (timeDeltaHours > 0 && budgetData.used >= prevState.prevBudgetUsed) {
+          burnRatePerHour =
+            (budgetData.used - prevState.prevBudgetUsed) / timeDeltaHours;
+          if (
+            burnRatePerHour > 0 &&
+            budgetData.limit > 0 &&
+            budgetData.used < budgetData.limit
+          ) {
+            projectedCapHitAt = new Date(
+              new Date(nowIso).getTime() +
+                ((budgetData.limit - budgetData.used) / burnRatePerHour) *
+                  3600000,
+            ).toISOString();
+          }
+        }
+      }
+
+      if (burnRatePerHour != null && burnRatePerHour > threshold) {
+        budgetAlerts.push({
+          ts: nowIso,
+          type: "budget_burn_rate_high",
+          burnRatePerHour,
+          threshold,
+          projectedCapHitAt,
+          message: `Budget burn rate $${burnRatePerHour.toFixed(2)}/hr exceeds threshold $${threshold}/hr`,
+        });
+      }
+
+      if (budgetData.limit > 0 && budgetData.used / budgetData.limit > 0.7) {
+        budgetAlerts.push({
+          ts: nowIso,
+          type: "budget_window_high",
+          used: budgetData.used,
+          limit: budgetData.limit,
+          pct: Math.round((budgetData.used / budgetData.limit) * 100),
+          message: `Budget window is ${Math.round((budgetData.used / budgetData.limit) * 100)}% consumed ($${budgetData.used.toFixed(2)} of $${budgetData.limit.toFixed(2)})`,
+        });
+      }
+    }
+
+    // Compute new state
     const newState = {
       lastKnownPort: port,
       consecutiveDownCount: 0,
       downtimeStartedAt: null,
-      lastStatus: 'UP',
+      lastStatus: "UP",
+      prevBudgetUsed:
+        budgetData != null ? budgetData.used : prevState.prevBudgetUsed,
+      prevSnapshotTs: budgetData != null ? nowIso : prevState.prevSnapshotTs,
     };
 
     let snapshot;
@@ -57,11 +124,12 @@ export function processCheckResult(prevState, checkResult, nowIso) {
 
     if (wasDown && prevState.downtimeStartedAt) {
       // Recovery
-      const downtimeMs = new Date(nowIso) - new Date(prevState.downtimeStartedAt);
+      const downtimeMs =
+        new Date(nowIso) - new Date(prevState.downtimeStartedAt);
       const downtimeDuration = formatDuration(Math.floor(downtimeMs / 1000));
       snapshot = {
         ts: nowIso,
-        status: 'UP',
+        status: "UP",
         port,
         recoveredFromDowntime: true,
         downtimeDuration,
@@ -69,7 +137,7 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       };
       alert = {
         ts: nowIso,
-        type: 'recovery',
+        type: "recovery",
         downtimeDuration,
         downtimeStartedAt: prevState.downtimeStartedAt,
         message: `Orca recovered after ${downtimeDuration} downtime`,
@@ -78,12 +146,21 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       // Normal UP
       snapshot = {
         ts: nowIso,
-        status: 'UP',
+        status: "UP",
         port,
       };
     }
 
-    return { snapshot, newState, alert };
+    if (budgetData != null) {
+      snapshot.budget = {
+        used: budgetData.used,
+        limit: budgetData.limit,
+        burnRatePerHour: burnRatePerHour ?? null,
+        projectedCapHitAt: projectedCapHitAt ?? null,
+      };
+    }
+
+    return { snapshot, newState, alert, budgetAlerts };
   } else {
     // DOWN
     const consecutiveDownCount = prevState.consecutiveDownCount + 1;
@@ -92,8 +169,8 @@ export function processCheckResult(prevState, checkResult, nowIso) {
 
     const snapshot = {
       ts: nowIso,
-      status: 'DOWN',
-      error: error ?? 'UNKNOWN',
+      status: "DOWN",
+      error: error ?? "UNKNOWN",
       lastKnownPort,
       consecutiveDownCount,
     };
@@ -102,7 +179,9 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       lastKnownPort,
       consecutiveDownCount,
       downtimeStartedAt,
-      lastStatus: 'DOWN',
+      lastStatus: "DOWN",
+      prevBudgetUsed: prevState.prevBudgetUsed,
+      prevSnapshotTs: prevState.prevSnapshotTs,
     };
 
     // Alert on 2nd DOWN and every subsequent DOWN
@@ -110,7 +189,7 @@ export function processCheckResult(prevState, checkResult, nowIso) {
     if (consecutiveDownCount >= 2) {
       alert = {
         ts: nowIso,
-        type: 'downtime_alert',
+        type: "downtime_alert",
         consecutiveDownCount,
         lastKnownPort,
         downtimeStartedAt,
@@ -118,6 +197,6 @@ export function processCheckResult(prevState, checkResult, nowIso) {
       };
     }
 
-    return { snapshot, newState, alert };
+    return { snapshot, newState, alert, budgetAlerts: [] };
   }
 }
