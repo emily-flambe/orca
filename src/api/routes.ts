@@ -198,7 +198,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       if (a.priority !== b.priority) return a.priority - b.priority;
       return (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
     });
-    // Single GROUP BY query instead of N+1
+    // Attach invocation count so the frontend can filter out done tasks with no history
     const invocationCounts = getInvocationCountsByTask(db);
     const withCounts = tasks.map((t) => ({
       ...t,

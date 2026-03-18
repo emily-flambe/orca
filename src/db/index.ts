@@ -377,11 +377,7 @@ function migrateSchema(sqlite: DatabaseType): void {
 
   // ---------------------------------------------------------------------------
   // Migration 17 (performance indexes):
-  //   - idx_tasks_orca_status: speeds up getDispatchableTasks, status filters
-  //   - idx_invocations_status: speeds up getRunningInvocations, countActiveSessions
-  //   - idx_invocations_linear_issue_id: speeds up getInvocationsByTask (N+1 in task list)
-  //   - idx_budget_events_recorded_at: speeds up sumCostInWindow, sumTokensInWindow
-  //   - idx_budget_events_invocation_id: speeds up budget event lookups
+  //   Indexes on frequently queried columns to avoid full table scans.
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
   // ---------------------------------------------------------------------------
   sqlite.exec(

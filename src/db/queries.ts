@@ -355,8 +355,9 @@ export function getInvocationsByTask(db: OrcaDb, taskId: string): Invocation[] {
 }
 
 /**
- * Returns a map of linear_issue_id → invocation count for all tasks.
- * Used to replace the N+1 in GET /api/tasks.
+ * Get the count of invocations grouped by linear_issue_id.
+ * Returns a Map from taskId -> count.
+ * Used by GET /api/tasks to avoid N+1 queries.
  */
 export function getInvocationCountsByTask(db: OrcaDb): Map<string, number> {
   const rows = db
