@@ -13,10 +13,14 @@ import {
   insertInvocation,
   updateInvocation,
 } from "../../db/queries.js";
-import { spawnSession } from "../../runner/index.js";
+import { spawnSession, killSession } from "../../runner/index.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
-import { claimSessionSlot } from "../../session-handles.js";
+import {
+  activeHandles,
+  claimSessionSlot,
+  releaseSessionSlot,
+} from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -162,12 +166,35 @@ export const cronTaskLifecycle = inngest.createFunction(
     });
 
     // Step 4: Finalize
+    const timedOut = !sessionEvent;
     const succeeded = sessionEvent && sessionEvent.data.exitCode === 0;
 
     const result = await step.run("finalize-cron-task", () => {
       const { db } = getSchedulerDeps();
+      const { invocationId } = implementCtx;
       const task = getTask(db, taskId);
       if (!task) return { outcome: "permanent_fail" as const };
+
+      // On timeout, kill the orphaned Claude process and release resources
+      if (timedOut) {
+        log(
+          `cron task ${taskId}: session timed out (invocation ${invocationId})`,
+        );
+        const handle = activeHandles.get(invocationId);
+        if (handle) {
+          killSession(handle).catch(() => {});
+          activeHandles.delete(invocationId);
+          releaseSessionSlot();
+        }
+        updateInvocation(db, invocationId, {
+          status: "timed_out",
+          endedAt: new Date().toISOString(),
+          outputSummary: `cron session timed out after ${SESSION_TIMEOUT}`,
+        });
+        updateTaskStatus(db, taskId, "failed");
+        emitTaskUpdated(getTask(db, taskId)!);
+        return { outcome: "permanent_fail" as const };
+      }
 
       if (succeeded) {
         updateTaskStatus(db, taskId, "done");

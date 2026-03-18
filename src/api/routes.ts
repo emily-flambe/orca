@@ -57,7 +57,7 @@ import {
   type InvocationCompletedPayload,
   type StatusPayload,
 } from "../events.js";
-import { activeHandles } from "../session-handles.js";
+import { activeHandles, releaseSessionSlot } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining } from "../deploy.js";
@@ -390,9 +390,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         // Process may already be dead — that's fine
       }
       activeHandles.delete(id);
+      releaseSessionSlot();
     }
 
     const now = new Date().toISOString();
+    const taskId = invocation.linearIssueId;
+    const oldStatus = (getTask(db, taskId)?.orcaStatus ?? "running") as TaskStatus;
 
     // Mark invocation as failed
     updateInvocation(db, id, {
@@ -402,7 +405,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Reset task to ready with zeroed counters
-    const taskId = invocation.linearIssueId;
     updateTaskStatus(db, taskId, "ready");
     updateTaskFields(db, taskId, {
       retryCount: 0,
@@ -419,6 +421,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inputTokens: 0,
       outputTokens: 0,
     });
+
+    // Cancel the old Inngest workflow so per-task concurrency unblocks
+    inngest
+      .send({
+        name: "task/cancelled",
+        data: {
+          linearIssueId: taskId,
+          reason: "Aborted by user via invocation abort",
+          retryCount: 0,
+          previousStatus: oldStatus,
+        },
+      })
+      .catch((err: unknown) =>
+        logger.warn("Inngest task/cancelled send failed:", err),
+      );
 
     // Write back Linear state to "Todo"
     writeBackStatus(client, taskId, "retry", stateMap).catch((err) =>
@@ -530,6 +547,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
             outputSummary: `aborted by status change to ${newStatus}`,
           });
           activeHandles.delete(invId);
+          releaseSessionSlot();
           emitInvocationCompleted({
             taskId,
             invocationId: invId,

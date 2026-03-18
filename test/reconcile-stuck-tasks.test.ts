@@ -22,6 +22,9 @@ vi.mock("../src/inngest/client.js", () => ({
 vi.mock("../src/session-handles.js", () => ({
   activeHandles: new Map(),
   sweepExitedHandles: vi.fn(),
+  getPendingSessionCount: vi.fn(() => 0),
+  resetSessionSlots: vi.fn(),
+  claimSessionSlot: vi.fn(),
 }));
 
 const { runReconciliation } = await import(
