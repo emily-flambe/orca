@@ -836,7 +836,301 @@ describe("resolveClaudeBinary", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. shell.ts spawnShellCommand
+// 6. MCP config per-session
+// ---------------------------------------------------------------------------
+
+describe("MCP config per-session", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "orca-mcp-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("--mcp-config and --strict-mcp-config appear in args when mcpServers is set", async () => {
+    const script = join(tmpDir, "argv-mcp.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers: {
+        myServer: { type: "http", url: "http://localhost:9000" },
+      },
+    });
+
+    const result = await handle.done;
+    const argv: string[] = JSON.parse(result.outputSummary);
+    expect(argv).toContain("--mcp-config");
+    expect(argv).toContain("--strict-mcp-config");
+  });
+
+  test("mcp config file is written with correct JSON content before session runs", async () => {
+    const script = join(tmpDir, "argv-mcp-content.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const mcpServers = {
+      myHttpServer: {
+        type: "http" as const,
+        url: "http://localhost:9000",
+        headers: { Authorization: "Bearer token123" },
+      },
+    };
+
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers,
+    });
+
+    // Check the file exists on disk before the session completes
+    const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    // The file should exist immediately after spawnSession returns (before done)
+    const { existsSync, readFileSync } = await import("node:fs");
+    expect(existsSync(expectedMcpPath)).toBe(true);
+
+    const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+    expect(fileContent).toEqual({ mcpServers });
+
+    await handle.done;
+  });
+
+  test("mcp config file is deleted after session ends", async () => {
+    const script = join(tmpDir, "argv-mcp-cleanup.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers: {
+        myServer: { type: "http", url: "http://localhost:9000" },
+      },
+    });
+
+    const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+
+    await handle.done;
+
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(expectedMcpPath)).toBe(false);
+  });
+
+  test("no --mcp-config in args when mcpServers is not provided", async () => {
+    const script = join(tmpDir, "argv-no-mcp.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      // No mcpServers
+    });
+
+    const result = await handle.done;
+    const argv: string[] = JSON.parse(result.outputSummary);
+    expect(argv).not.toContain("--mcp-config");
+    expect(argv).not.toContain("--strict-mcp-config");
+
+    // Verify no mcp file was written
+    const unexpectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(unexpectedMcpPath)).toBe(false);
+  });
+
+  test("no --mcp-config in args when mcpServers is an empty object", async () => {
+    const script = join(tmpDir, "argv-empty-mcp.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers: {}, // empty object — should NOT trigger mcp config
+    });
+
+    const result = await handle.done;
+    const argv: string[] = JSON.parse(result.outputSummary);
+    expect(argv).not.toContain("--mcp-config");
+    expect(argv).not.toContain("--strict-mcp-config");
+
+    // Verify no mcp file was written
+    const unexpectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(unexpectedMcpPath)).toBe(false);
+  });
+
+  test("--mcp-config path arg references a file in logs dir with -mcp.json suffix", async () => {
+    const script = join(tmpDir, "argv-mcp-path.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers: {
+        myServer: { type: "http", url: "http://localhost:9000" },
+      },
+    });
+
+    const result = await handle.done;
+    const argv: string[] = JSON.parse(result.outputSummary);
+    const mcpIdx = argv.indexOf("--mcp-config");
+    expect(mcpIdx).toBeGreaterThanOrEqual(0);
+    const mcpPath = argv[mcpIdx + 1];
+    expect(mcpPath).toMatch(/-mcp\.json$/);
+    expect(mcpPath).toContain(String(id));
+    // Should be inside the logs dir of the project root
+    expect(mcpPath).toContain("logs");
+  });
+
+  test("stdio-type mcp server config is written correctly", async () => {
+    const script = join(tmpDir, "argv-mcp-stdio.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const mcpServers = {
+      myStdioServer: {
+        command: "npx",
+        args: ["@modelcontextprotocol/server-everything"],
+        env: { MY_ENV: "value" },
+      },
+    };
+
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers,
+    });
+
+    const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    const { existsSync, readFileSync } = await import("node:fs");
+    expect(existsSync(expectedMcpPath)).toBe(true);
+    const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+    expect(fileContent).toEqual({ mcpServers });
+
+    await handle.done;
+  });
+
+  test("multiple mcp servers are all written to the config file", async () => {
+    const script = join(tmpDir, "argv-mcp-multi.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    const id = nextInvocationId();
+    const mcpServers = {
+      server1: { type: "http" as const, url: "http://localhost:9001" },
+      server2: { command: "npx", args: ["some-mcp-server"] },
+      server3: {
+        type: "http" as const,
+        url: "http://localhost:9003",
+        headers: { "X-Api-Key": "abc" },
+      },
+    };
+
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers,
+    });
+
+    const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    const { existsSync, readFileSync } = await import("node:fs");
+    expect(existsSync(expectedMcpPath)).toBe(true);
+    const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+    expect(Object.keys(fileContent.mcpServers)).toHaveLength(3);
+    expect(fileContent.mcpServers).toEqual(mcpServers);
+
+    await handle.done;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. shell.ts spawnShellCommand
 // ---------------------------------------------------------------------------
 
 describe("shell.ts spawnShellCommand", () => {

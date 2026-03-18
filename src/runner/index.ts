@@ -11,6 +11,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
@@ -70,6 +71,11 @@ export interface SessionHandle {
   done: Promise<SessionResult>;
 }
 
+/** MCP server configuration for per-session injection via --mcp-config. */
+export type McpServerConfig =
+  | { type: "http"; url: string; headers?: Record<string, string> }
+  | { command: string; args?: string[]; env?: Record<string, string> };
+
 /** Options accepted by {@link spawnSession}. */
 export interface SpawnSessionOptions {
   /** The agent prompt to send via `-p`. */
@@ -96,6 +102,8 @@ export interface SpawnSessionOptions {
   repoPath?: string;
   /** Model to use for this session (e.g. "opus", "sonnet", "haiku", or a full model ID). */
   model?: string;
+  /** Optional MCP server configurations to inject per-session via --mcp-config. */
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,11 +368,27 @@ export function resolveClaudeBinary(requested: string): {
 export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const requested = options.claudePath ?? "claude";
   const { command: spawnCmd, prefixArgs } = resolveClaudeBinary(requested);
-  const args = [...prefixArgs, ...buildArgs(options)];
 
   // Ensure logs directory exists and open the log file for writing.
   const logsDir = ensureLogsDir(options.projectRoot);
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
+
+  // Write MCP config temp file if mcpServers are provided.
+  let mcpConfigPath: string | null = null;
+  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+    mcpConfigPath = join(logsDir, `${options.invocationId}-mcp.json`);
+    writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({ mcpServers: options.mcpServers }, null, 2),
+    );
+  }
+
+  const args = [...prefixArgs, ...buildArgs(options)];
+  // Append MCP config args if a temp file was written.
+  if (mcpConfigPath) {
+    args.push("--mcp-config", mcpConfigPath, "--strict-mcp-config");
+  }
+
   const logStream = createWriteStream(logPath, { flags: "w" });
 
   // Create in-memory log state for SSE streaming.
@@ -407,6 +431,18 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
 
   // Claude one-shot `-p` sessions hang if stdin stays open; close it immediately.
   proc.stdin?.end();
+
+  // Clean up the MCP config temp file if one was written.
+  function cleanupMcpConfig(): void {
+    if (mcpConfigPath) {
+      try {
+        rmSync(mcpConfigPath, { force: true });
+      } catch {
+        // ignore
+      }
+      mcpConfigPath = null;
+    }
+  }
 
   // Mutable handle state — mutated by the stream parser and exit handler.
   const handle: SessionHandle = {
@@ -531,6 +567,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+        cleanupMcpConfig();
         resolve(finalResult);
       });
     }
@@ -790,6 +827,7 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             invocationLogs.delete(options.invocationId);
           }
         }, 60_000).unref();
+        cleanupMcpConfig();
         resolve(result);
       });
     });
