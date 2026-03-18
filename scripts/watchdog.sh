@@ -74,7 +74,7 @@ fi
 
 # Check 2: Orca health on active port
 ACTIVE_PORT=$(get_active_port)
-if ! curl -sf "http://localhost:$ACTIVE_PORT/api/status" > /dev/null 2>&1; then
+if ! curl -sf "http://localhost:$ACTIVE_PORT/api/health" > /dev/null 2>&1; then
   FAILED=true
   FAILURES="${FAILURES:+$FAILURES; }Orca not responding on port $ACTIVE_PORT"
 fi

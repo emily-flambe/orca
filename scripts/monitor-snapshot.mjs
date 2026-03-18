@@ -1,15 +1,21 @@
 // Monitor snapshot — health-checks orca and writes JSONL snapshots + alerts
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { defaultState, processCheckResult } from './monitor-snapshot-logic.mjs';
+import {
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defaultState, processCheckResult } from "./monitor-snapshot-logic.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_DIR = join(__dirname, '..');
-const TMP_DIR = join(PROJECT_DIR, 'tmp');
-const DEPLOY_STATE_FILE = join(PROJECT_DIR, 'deploy-state.json');
-const MONITOR_STATE_FILE = join(TMP_DIR, 'monitor-snapshot-state.json');
-const ALERTS_FILE = join(TMP_DIR, 'alerts.jsonl');
+const PROJECT_DIR = join(__dirname, "..");
+const TMP_DIR = join(PROJECT_DIR, "tmp");
+const DEPLOY_STATE_FILE = join(PROJECT_DIR, "deploy-state.json");
+const MONITOR_STATE_FILE = join(TMP_DIR, "monitor-snapshot-state.json");
+const ALERTS_FILE = join(TMP_DIR, "alerts.jsonl");
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 function ensureTmpDir() {
@@ -19,7 +25,7 @@ function ensureTmpDir() {
 function readActivePort() {
   if (!existsSync(DEPLOY_STATE_FILE)) return 4000;
   try {
-    const data = JSON.parse(readFileSync(DEPLOY_STATE_FILE, 'utf8'));
+    const data = JSON.parse(readFileSync(DEPLOY_STATE_FILE, "utf8"));
     return data.activePort || 4000;
   } catch {
     return 4000;
@@ -29,14 +35,14 @@ function readActivePort() {
 function loadMonitorState() {
   if (!existsSync(MONITOR_STATE_FILE)) return defaultState();
   try {
-    return JSON.parse(readFileSync(MONITOR_STATE_FILE, 'utf8'));
+    return JSON.parse(readFileSync(MONITOR_STATE_FILE, "utf8"));
   } catch {
     return defaultState();
   }
 }
 
 function saveMonitorState(state) {
-  writeFileSync(MONITOR_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  writeFileSync(MONITOR_STATE_FILE, JSON.stringify(state, null, 2), "utf8");
 }
 
 function snapshotFile(nowIso) {
@@ -46,7 +52,7 @@ function snapshotFile(nowIso) {
 }
 
 function appendJsonl(filePath, obj) {
-  appendFileSync(filePath, JSON.stringify(obj) + '\n', 'utf8');
+  appendFileSync(filePath, JSON.stringify(obj) + "\n", "utf8");
 }
 
 async function postWebhook(url, payload) {
@@ -54,8 +60,8 @@ async function postWebhook(url, payload) {
   const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
   try {
     await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
@@ -80,7 +86,7 @@ async function emitAlert(alert) {
  * @returns {Promise<{ up: boolean, port: number|null, error: string|null }>}
  */
 async function checkHealth(port) {
-  const url = `http://localhost:${port}/api/status`;
+  const url = `http://localhost:${port}/api/health`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
   try {
@@ -96,8 +102,8 @@ async function checkHealth(port) {
     const code =
       (err.cause && err.cause.code) ||
       err.code ||
-      (err.name === 'AbortError' ? 'ETIMEDOUT' : err.name) ||
-      'UNKNOWN';
+      (err.name === "AbortError" ? "ETIMEDOUT" : err.name) ||
+      "UNKNOWN";
     return { up: false, port: null, error: code };
   }
 }
@@ -110,11 +116,18 @@ async function main() {
   const prevState = loadMonitorState();
 
   // Carry forward lastKnownPort from actual port read (even if DOWN, we know which port we checked)
-  const stateWithPort = { ...prevState, lastKnownPort: prevState.lastKnownPort || port };
+  const stateWithPort = {
+    ...prevState,
+    lastKnownPort: prevState.lastKnownPort || port,
+  };
 
   const checkResult = await checkHealth(port);
 
-  const { snapshot, newState, alert } = processCheckResult(stateWithPort, checkResult, nowIso);
+  const { snapshot, newState, alert } = processCheckResult(
+    stateWithPort,
+    checkResult,
+    nowIso,
+  );
 
   // Write snapshot
   const snapshotPath = snapshotFile(nowIso);
@@ -131,11 +144,11 @@ async function main() {
   // Log to stdout
   console.log(JSON.stringify(snapshot));
   if (alert) {
-    console.log('[monitor-snapshot] ALERT:', JSON.stringify(alert));
+    console.log("[monitor-snapshot] ALERT:", JSON.stringify(alert));
   }
 }
 
 main().catch((e) => {
-  console.error('[monitor-snapshot] fatal:', e.message);
+  console.error("[monitor-snapshot] fatal:", e.message);
   process.exit(1);
 });
