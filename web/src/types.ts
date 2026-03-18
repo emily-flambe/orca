@@ -13,6 +13,7 @@ export {
   type Invocation,
   type TaskWithInvocations,
   type OrcaStatus,
+  type FailedTaskSummary,
 } from "../../src/shared/types.ts";
 
 export interface InngestWorkflow {

@@ -59,6 +59,29 @@ export function updateTaskStatus(
 }
 
 /**
+ * Set a task to "failed" status and record the failure reason, phase, and timestamp.
+ * Truncates reason to 500 chars to keep the DB tidy.
+ */
+export function updateTaskFailure(
+  db: OrcaDb,
+  taskId: string,
+  reason: string,
+  phase: "implement" | "review" | "fix" | "ci" | "deploy",
+): void {
+  db.update(tasks)
+    .set({
+      orcaStatus: "failed" as TaskStatus,
+      lastFailureReason: reason.slice(0, 500),
+      lastFailedPhase: phase,
+      lastFailedAt: new Date().toISOString(),
+      doneAt: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
+/**
  * Atomically claim a task for dispatch using compare-and-swap.
  * Only updates the status to "dispatched" if the task is currently in one of
  * the provided `fromStatuses`. Returns true if exactly one row was updated.

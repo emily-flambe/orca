@@ -394,7 +394,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const now = new Date().toISOString();
     const taskId = invocation.linearIssueId;
-    const oldStatus = (getTask(db, taskId)?.orcaStatus ?? "running") as TaskStatus;
+    const oldStatus = (getTask(db, taskId)?.orcaStatus ??
+      "running") as TaskStatus;
 
     // Mark invocation as failed
     updateInvocation(db, id, {
@@ -708,10 +709,23 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Check Inngest connectivity with retry/backoff and caching.
     const inngestReachable = await checkInngestHealth();
 
+    const failedTasks = allTasks
+      .filter((t) => t.orcaStatus === "failed")
+      .map((t) => ({
+        id: t.linearIssueId,
+        lastFailureReason: t.lastFailureReason
+          ? t.lastFailureReason.slice(0, 80)
+          : null,
+        lastFailedPhase: t.lastFailedPhase,
+        lastFailedAt: t.lastFailedAt,
+        retryCount: t.retryCount,
+      }));
+
     const draining = isDraining();
     return c.json({
       activeSessions,
       activeTaskIds,
+      failedTasks,
       queuedTasks,
       costInWindow,
       budgetLimit: config.budgetMaxCostUsd,

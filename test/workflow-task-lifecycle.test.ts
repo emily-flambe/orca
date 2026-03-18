@@ -43,6 +43,7 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocation: vi.fn(),
   claimTaskForDispatch: vi.fn(),
   updateTaskStatus: vi.fn(),
+  updateTaskFailure: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
   insertBudgetEvent: vi.fn(),
@@ -130,6 +131,7 @@ import {
   getInvocation,
   claimTaskForDispatch,
   updateTaskStatus,
+  updateTaskFailure,
   insertInvocation,
   updateInvocation,
   sumCostInWindow,
@@ -152,6 +154,7 @@ const mockInngestSend = vi.mocked(inngest.send);
 const mockGetTask = vi.mocked(getTask);
 const mockClaimTaskForDispatch = vi.mocked(claimTaskForDispatch);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+const mockUpdateTaskFailure = vi.mocked(updateTaskFailure);
 const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
@@ -392,10 +395,11 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "timed_out" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.stringContaining("timed out"),
+      "implement",
     );
   });
 
@@ -728,10 +732,11 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.any(String),
+      "implement",
     );
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
   });
@@ -1158,10 +1163,11 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.any(String),
+      "implement",
     );
   });
 
@@ -1195,10 +1201,11 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.any(String),
+      "implement",
     );
   });
 
@@ -1232,10 +1239,11 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.any(String),
+      "implement",
     );
   });
 });

@@ -586,6 +586,20 @@ export default function TaskList({ tasks, selectedTaskId, onSelect }: Props) {
                   ? task.agentPrompt.slice(0, 300)
                   : "No prompt"}
               </span>
+              {task.orcaStatus === "failed" && task.lastFailureReason && (
+                <div className="flex items-start gap-1.5 pl-[18px] mt-0.5">
+                  {task.lastFailedPhase && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-800/40 font-mono">
+                      {task.lastFailedPhase === "implement"
+                        ? "impl"
+                        : task.lastFailedPhase}
+                    </span>
+                  )}
+                  <span className="text-[11px] text-red-400/80 leading-snug line-clamp-2">
+                    {task.lastFailureReason.slice(0, 80)}
+                  </span>
+                </div>
+              )}
             </div>
           );
         })}

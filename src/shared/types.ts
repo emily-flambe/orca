@@ -50,6 +50,9 @@ export interface Task {
   updatedAt: string;
   taskType: TaskType;
   cronScheduleId: number | null;
+  lastFailureReason: string | null;
+  lastFailedPhase: string | null;
+  lastFailedAt: string | null;
 }
 
 export interface CronSchedule {
@@ -106,9 +109,18 @@ export interface TaskWithInvocations extends Task {
   invocations: Invocation[];
 }
 
+export interface FailedTaskSummary {
+  id: string;
+  lastFailureReason: string | null;
+  lastFailedPhase: string | null;
+  lastFailedAt: string | null;
+  retryCount: number;
+}
+
 export interface OrcaStatus {
   activeSessions: number;
   activeTaskIds: string[];
+  failedTasks: FailedTaskSummary[];
   queuedTasks: number;
   costInWindow: number;
   budgetLimit: number;

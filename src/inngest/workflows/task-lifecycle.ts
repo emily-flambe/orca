@@ -19,6 +19,7 @@ import {
   getInvocation,
   claimTaskForDispatch,
   updateTaskStatus,
+  updateTaskFailure,
   insertInvocation,
   updateInvocation,
   insertBudgetEvent,
@@ -595,7 +596,12 @@ export const taskLifecycle = inngest.createFunction(
             endedAt: new Date().toISOString(),
             outputSummary: "session timed out after 45 minutes",
           });
-          updateTaskStatus(db, taskId, "failed");
+          updateTaskFailure(
+            db,
+            taskId,
+            "session timed out after 45 minutes",
+            "implement",
+          );
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
           try {
@@ -700,7 +706,12 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          updateTaskStatus(db, taskId, "failed");
+          updateTaskFailure(
+            db,
+            taskId,
+            invRecord?.outputSummary ?? "implement session failed",
+            "implement",
+          );
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
 
@@ -795,7 +806,12 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: "Post-implementation gate failed: no branch name",
           });
-          updateTaskStatus(db, taskId, "failed");
+          updateTaskFailure(
+            db,
+            taskId,
+            "Post-implementation gate failed: no branch name",
+            "implement",
+          );
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -851,7 +867,12 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
-          updateTaskStatus(db, taskId, "failed");
+          updateTaskFailure(
+            db,
+            taskId,
+            `Post-implementation gate failed: no PR found for branch ${branchName}`,
+            "implement",
+          );
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {

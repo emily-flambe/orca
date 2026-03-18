@@ -1,7 +1,11 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
-import { getTask, updateTaskStatus } from "../../db/queries.js";
+import {
+  getTask,
+  updateTaskStatus,
+  updateTaskFailure,
+} from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
@@ -57,7 +61,12 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (startedAt + timeoutMs < Date.now()) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
+          updateTaskFailure(
+            db,
+            linearIssueId,
+            `Deploy timed out after ${config.deployTimeoutMin}min`,
+            "deploy",
+          );
           emitTaskUpdated(getTask(db, linearIssueId)!);
 
           await writeBackStatus(
@@ -148,7 +157,12 @@ export const deployMonitorWorkflow = inngest.createFunction(
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
+          updateTaskFailure(
+            db,
+            linearIssueId,
+            `Deploy CI failed for commit ${mergeCommitSha}`,
+            "deploy",
+          );
           emitTaskUpdated(getTask(db, linearIssueId)!);
 
           await writeBackStatus(
@@ -187,7 +201,12 @@ export const deployMonitorWorkflow = inngest.createFunction(
       await step.run("deploy-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateTaskStatus(db, linearIssueId, "failed");
+        updateTaskFailure(
+          db,
+          linearIssueId,
+          `Deploy status never resolved after ${maxPollAttempts} poll attempts`,
+          "deploy",
+        );
         emitTaskUpdated(getTask(db, linearIssueId)!);
 
         await writeBackStatus(

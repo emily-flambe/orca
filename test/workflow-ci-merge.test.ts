@@ -68,6 +68,7 @@ vi.mock("../src/inngest/deps.js", () => ({
 vi.mock("../src/db/queries.js", () => ({
   getTask: vi.fn(),
   updateTaskStatus: vi.fn(),
+  updateTaskFailure: vi.fn(),
   updateTaskDeployInfo: vi.fn(),
   updateTaskFixReason: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
@@ -133,6 +134,7 @@ vi.mock("node:fs", () => ({
 import {
   getTask,
   updateTaskStatus,
+  updateTaskFailure,
   incrementReviewCycleCount,
 } from "../src/db/queries.js";
 import { writeBackStatus } from "../src/linear/sync.js";
@@ -152,6 +154,7 @@ import "../src/inngest/workflows/ci-merge.js";
 
 const mockGetTask = vi.mocked(getTask);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+const mockUpdateTaskFailure = vi.mocked(updateTaskFailure);
 const mockIncrementReviewCycleCount = vi.mocked(incrementReviewCycleCount);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
@@ -407,10 +410,11 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "ci_failure" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "failed",
+      expect.any(String),
+      "ci",
     );
     expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
   });
@@ -577,7 +581,12 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      expect.stringContaining("poll attempts"),
+      "ci",
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -619,7 +628,7 @@ describe("ci-merge workflow", () => {
     expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
   });
 
-  test("poll exhaustion → updateTaskStatus called with 'failed'", async () => {
+  test("poll exhaustion → updateTaskFailure called with 'failed' + reason", async () => {
     mockGetTask.mockReturnValue(makeTask());
     mockGetPrCheckStatus.mockResolvedValue("pending");
 
@@ -629,7 +638,12 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskFailure).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      expect.stringContaining("poll attempts"),
+      "ci",
+    );
   });
 
   test("poll exhaustion → writeBackStatus called with 'failed_permanent'", async () => {

@@ -17,6 +17,7 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  updateTaskFailure,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
@@ -108,7 +109,11 @@ export async function runReconciliation(deps: {
     const totalAttempts = retryCount + newStaleCount;
     const targetStatus = totalAttempts > maxRetries ? "failed" : "ready";
 
-    updateTaskStatus(db, linearIssueId, targetStatus);
+    if (targetStatus === "failed") {
+      updateTaskFailure(db, linearIssueId, reason, "implement");
+    } else {
+      updateTaskStatus(db, linearIssueId, targetStatus);
+    }
 
     insertSystemEvent(db, {
       type: "health_check",
