@@ -75,7 +75,7 @@ PM2="$PROJECT_DIR/node_modules/.bin/pm2"
 # Ensure Inngest dev server is running (shared service, not restarted on deploy)
 # ---------------------------------------------------------------------------
 # Kill any stale process holding port 8288 (e.g., orphaned inngest.exe after PM2 crash)
-STALE_PID=$(netstat -ano 2>/dev/null | grep ':8288 ' | grep LISTENING | awk '{print $NF}' | head -1)
+STALE_PID=$(netstat -ano 2>/dev/null | grep ':8288 ' | grep LISTENING | awk '{print $NF}' | head -1 || true)
 if [[ -n "$STALE_PID" && "$STALE_PID" != "0" ]]; then
   log "found stale process (PID=$STALE_PID) on port 8288 — killing..."
   taskkill //PID "$STALE_PID" //F 2>/dev/null || true
