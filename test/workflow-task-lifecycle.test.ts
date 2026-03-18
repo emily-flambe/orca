@@ -43,6 +43,7 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocation: vi.fn(),
   claimTaskForDispatch: vi.fn(),
   updateTaskStatus: vi.fn(),
+  failTask: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
   insertBudgetEvent: vi.fn(),
@@ -130,6 +131,7 @@ import {
   getInvocation,
   claimTaskForDispatch,
   updateTaskStatus,
+  failTask,
   insertInvocation,
   updateInvocation,
   sumCostInWindow,
@@ -152,6 +154,7 @@ const mockInngestSend = vi.mocked(inngest.send);
 const mockGetTask = vi.mocked(getTask);
 const mockClaimTaskForDispatch = vi.mocked(claimTaskForDispatch);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+const mockFailTask = vi.mocked(failTask);
 const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
@@ -392,11 +395,7 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "timed_out" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
   });
 
   test("implement succeeds, PR found → transitions to in_review", async () => {
@@ -728,11 +727,7 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
   });
 
@@ -1158,11 +1153,7 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
   });
 
   test("failed implement with no PR → falls through to normal failure", async () => {
@@ -1195,11 +1186,7 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
   });
 
   test("gh CLI error → try/catch catches, falls through to normal failure", async () => {
@@ -1232,10 +1219,6 @@ describe("Guard B — orphaned green PR recovery", () => {
     });
 
     expect(result).toMatchObject({ outcome: "retry" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
   });
 });

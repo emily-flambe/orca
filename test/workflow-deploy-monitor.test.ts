@@ -69,6 +69,7 @@ vi.mock("../src/inngest/deps.js", () => ({
 vi.mock("../src/db/queries.js", () => ({
   getTask: vi.fn(),
   updateTaskStatus: vi.fn(),
+  failTask: vi.fn(),
   updateTaskDeployInfo: vi.fn(),
   updateTaskFixReason: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
@@ -121,7 +122,7 @@ vi.mock("node:fs", () => ({
 // Imports
 // ---------------------------------------------------------------------------
 
-import { getTask, updateTaskStatus } from "../src/db/queries.js";
+import { getTask, updateTaskStatus, failTask } from "../src/db/queries.js";
 import { writeBackStatus } from "../src/linear/sync.js";
 import { getWorkflowRunStatus } from "../src/github/index.js";
 import { sendPermanentFailureAlert } from "../src/scheduler/alerts.js";
@@ -131,6 +132,7 @@ import "../src/inngest/workflows/deploy-monitor.js";
 
 const mockGetTask = vi.mocked(getTask);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+const mockFailTask = vi.mocked(failTask);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockGetWorkflowRunStatus = vi.mocked(getWorkflowRunStatus);
 const mockSendPermanentFailureAlert = vi.mocked(sendPermanentFailureAlert);
@@ -235,7 +237,7 @@ describe("deploy-monitor workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "failed", reason: "deploy_timeout" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -299,11 +301,7 @@ describe("deploy-monitor workflow", () => {
       status: "failed",
       reason: "deploy_ci_failure",
     });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "failed",
-    );
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -365,7 +363,7 @@ describe("deploy-monitor workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -408,7 +406,7 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockFailTask).toHaveBeenCalledWith(mockDb, "TEST-1", expect.any(String), expect.any(String));
   });
 
   test("poll exhaustion → writeBackStatus called with 'failed_permanent'", async () => {

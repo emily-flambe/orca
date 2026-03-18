@@ -15,6 +15,7 @@ import {
   getAllTasks,
   getTask,
   updateTaskStatus,
+  failTask,
   incrementRetryCount,
   insertInvocation,
   insertBudgetEvent,
@@ -337,7 +338,7 @@ describe("9.4 - Retry logic", () => {
     const taskId = seedTask(db, { linearIssueId: "RETRY-1", retryCount: 0 });
 
     // Simulate failure
-    updateTaskStatus(db, taskId, "failed");
+    failTask(db, taskId, "test failure reason", "implement");
     let task = getTask(db, taskId)!;
     expect(task.orcaStatus).toBe("failed");
     expect(task.retryCount).toBe(0);
@@ -354,7 +355,7 @@ describe("9.4 - Retry logic", () => {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       // Simulate failure
-      updateTaskStatus(db, taskId, "failed");
+      failTask(db, taskId, "test failure reason", "implement");
       const task = getTask(db, taskId)!;
 
       if (task.retryCount < maxRetries) {
@@ -366,7 +367,7 @@ describe("9.4 - Retry logic", () => {
     }
 
     // Now fail one more time -- retryCount is at maxRetries
-    updateTaskStatus(db, taskId, "failed");
+    failTask(db, taskId, "test failure reason", "implement");
     const finalTask = getTask(db, taskId)!;
     expect(finalTask.retryCount).toBe(maxRetries);
     expect(finalTask.orcaStatus).toBe("failed");
@@ -384,7 +385,7 @@ describe("9.4 - Retry logic", () => {
 
   test("getDispatchableTasks returns tasks reset by incrementRetryCount", () => {
     const taskId = seedTask(db, { linearIssueId: "RETRY-QUEUE" });
-    updateTaskStatus(db, taskId, "failed");
+    failTask(db, taskId, "test failure reason", "implement");
 
     // No ready tasks (it's failed)
     expect(getDispatchableTasks(db, ["ready"])).toHaveLength(0);
