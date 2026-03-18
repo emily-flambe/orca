@@ -82,6 +82,26 @@ After an implement phase completes successfully, Gate 2 determines what happened
 - Max-turns failures preserve the worktree for `--resume` on next dispatch
 - Exhausted retries → permanent `failed`, Linear write-back to "Canceled"
 
+## Drain State During Blue/Green Deploy
+
+The drain flag (`isDraining()` in `src/deploy.ts`) is **informational only — it does NOT block task dispatch**.
+
+During a blue/green deploy:
+1. `deploy.sh` sets drain on the OLD instance via `POST /api/deploy/drain`
+2. The OLD instance waits for in-progress Claude sessions to finish, then shuts down
+3. The NEW instance starts fresh with no drain flag
+4. On startup, the new instance re-emits `task/ready` for all tasks in `ready`, `changes_requested`, and `in_review` states
+
+Ready tasks are NOT blocked during the drain window because:
+- The drain flag exists only on the old instance, which is going to die anyway
+- The new instance handles dispatch immediately on startup via the re-emit loop
+- Blocking dispatch on the old instance would delay work without benefit
+
+The drain flag is used for:
+- **Monitoring**: `drainingForSeconds` in status snapshots, stuck-drain alerts
+- **Graceful shutdown**: worktrees are preserved for running sessions so the new instance can resume them with `--resume`
+- **Auto-clear**: if `draining=true` and `activeSessions=0` for longer than `ORCA_DRAIN_TIMEOUT_MIN` (default 10 min), the flag is automatically cleared to prevent ready tasks from being blocked on a stuck drain
+
 ## Linear Write-back
 
 Orca writes status changes back to Linear with echo prevention (registers expected changes, ignores webhook echoes within 10s). Conflict resolution handles user-initiated Linear state changes (Todo resets, Done overrides, Canceled kills sessions).

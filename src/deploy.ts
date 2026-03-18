@@ -2,10 +2,13 @@
 // Deploy drain state
 //
 // Tracks whether the old instance is being drained before a blue/green deploy.
-// deploy.sh posts to /api/deploy/drain to set this flag, which stops the
-// scheduler from dispatching new jobs. On shutdown, if draining is active,
-// in-progress Claude sessions have their worktrees preserved so the new
-// instance can resume them.
+// deploy.sh posts to /api/deploy/drain to set this flag. This is INFORMATIONAL —
+// it does NOT block task dispatch. New tasks can still be dispatched during drain
+// because this flag lives on the old instance only; the new instance starts fresh
+// with no drain flag and re-emits task/ready for all pending tasks on startup.
+// The flag is used for monitoring (drain duration tracking, stuck-drain alerts)
+// and for graceful shutdown: when draining is active, in-progress Claude sessions
+// have their worktrees preserved so the new instance can resume them.
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from "node:child_process";
