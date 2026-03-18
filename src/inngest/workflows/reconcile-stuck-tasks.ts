@@ -19,6 +19,7 @@ import {
   updateTaskStatus,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
+import { checkDrainTimeout } from "../../scheduler/drain-monitor.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -177,6 +178,11 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         "deploying",
       ]);
       await detectAndAlertStuckTasks(deps, tasks);
+    });
+
+    await step.run("check-drain-timeout", async () => {
+      const deps = getSchedulerDeps();
+      await checkDrainTimeout(deps);
     });
 
     await step.run("auto-retry-failed-tasks", async () => {

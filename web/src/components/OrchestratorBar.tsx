@@ -271,8 +271,21 @@ export default function OrchestratorBar({
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
           </span>
           <span>
-            Draining — waiting for {status.drainSessionCount} session
-            {status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy
+            {status.drainSessionCount > 0 ? (
+              <>
+                Draining — waiting for {status.drainSessionCount} session
+                {status.drainSessionCount !== 1 ? "s" : ""} to finish before
+                deploy
+              </>
+            ) : status.drainingForSeconds != null ? (
+              <>
+                Draining — 0 sessions active (
+                {Math.floor(status.drainingForSeconds / 60)}m{" "}
+                {status.drainingForSeconds % 60}s)
+              </>
+            ) : (
+              <>Draining — waiting for sessions to finish before deploy</>
+            )}
           </span>
         </div>
       )}

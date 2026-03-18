@@ -121,6 +121,7 @@ export interface OrcaStatus {
   fixModel: string;
   draining: boolean;
   drainSessionCount: number;
+  drainingForSeconds?: number;
   // Session metrics (cc-statusline style)
   burnRatePerHour: number | null;
   tokensPerMinute: number | null;

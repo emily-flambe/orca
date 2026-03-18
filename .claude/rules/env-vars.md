@@ -21,6 +21,7 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_BUDGET_MAX_COST_USD` | 100 | Rolling budget cap |
 | `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
 | `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix loops |
+| `ORCA_DRAIN_TIMEOUT_MIN` | 10 | Auto-clear drain flag if stuck with 0 sessions |
 
 ## Models
 
