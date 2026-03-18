@@ -1283,6 +1283,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       maxTurns,
       timeoutMin,
       maxRuns,
+      enabled,
     } = body as Record<string, unknown>;
 
     if (!name || typeof name !== "string" || name.trim() === "") {
@@ -1365,7 +1366,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       maxTurns: typeof maxTurns === "number" ? maxTurns : null,
       timeoutMin: typeof timeoutMin === "number" ? timeoutMin : 30,
       maxRuns: typeof maxRuns === "number" ? maxRuns : null,
-      enabled: 1,
+      enabled: enabled != null ? (enabled ? 1 : 0) : 1,
       nextRunAt,
       runCount: 0,
       createdAt: now,

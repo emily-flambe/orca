@@ -6,6 +6,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  triggerCronSchedule,
 } from "../hooks/useApi";
 
 // ---------------------------------------------------------------------------
@@ -481,6 +482,16 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
     }
   }
 
+  async function handleTrigger(s: CronSchedule) {
+    try {
+      await triggerCronSchedule(s.id);
+      onToast?.success("Triggered");
+      load();
+    } catch (err) {
+      onToast?.error(err instanceof Error ? err.message : "Failed to trigger");
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
@@ -564,6 +575,13 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                   </button>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleTrigger(s)}
+                    className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                    title="Run now"
+                  >
+                    &#9654; Run
+                  </button>
                   <button
                     onClick={() => setEditingId(s.id)}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
