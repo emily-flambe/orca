@@ -752,6 +752,24 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
 }
 
 /**
+ * Count budget_events rows where cost_usd = 0 AND recorded_at >= windowStart.
+ * Used by the zero-cost circuit breaker to detect rapid broken-CLI failures.
+ */
+export function countZeroCostFailuresInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): number {
+  const result = db
+    .select({ value: count() })
+    .from(budgetEvents)
+    .where(
+      and(eq(budgetEvents.costUsd, 0), gte(budgetEvents.recordedAt, windowStart)),
+    )
+    .get();
+  return result?.value ?? 0;
+}
+
+/**
  * Sum cost_usd from budget_events where recorded_at is within [windowStart, windowEnd).
  * Returns 0 if no events match.
  */

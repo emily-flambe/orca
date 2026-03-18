@@ -37,6 +37,7 @@ import {
   insertSystemEvent,
   countActiveSessions,
   clearSessionIds,
+  countZeroCostFailuresInWindow,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -48,6 +49,7 @@ import {
 import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
+  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -215,15 +217,13 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +295,7 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
         const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
@@ -312,14 +312,89 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
+        // Zero-cost circuit breaker: detect rapid broken-CLI failures
+        const cbWindowStart = new Date(
+          Date.now() - config.zeroCostCircuitBreakerWindowMin * 60 * 1000,
+        ).toISOString();
+        const zeroCostCount = countZeroCostFailuresInWindow(db, cbWindowStart);
+        if (zeroCostCount >= config.zeroCostCircuitBreakerThreshold) {
+          const cbReason = `circuit_breaker: ${zeroCostCount} zero-cost failures in last ${config.zeroCostCircuitBreakerWindowMin} minutes`;
+          const deps = getSchedulerDeps();
+          sendAlertThrottled(
+            deps,
+            "zero-cost-circuit-breaker",
+            {
+              severity: "critical",
+              title: "Zero-Cost Circuit Breaker Tripped",
+              message: `Detected ${zeroCostCount} zero-cost failures in the last ${config.zeroCostCircuitBreakerWindowMin} minutes. This may indicate a broken CLI installation. Tasks will be held for 60 minutes.`,
+              taskId,
+              fields: [
+                { title: "Zero-cost failures", value: String(zeroCostCount), short: true },
+                { title: "Window", value: `${config.zeroCostCircuitBreakerWindowMin} min`, short: true },
+                { title: "Task ID", value: taskId, short: true },
+              ],
+            },
+            30 * 60 * 1000, // 30-minute cooldown
+          );
+          return { ok: false, reason: cbReason, isCircuitBreaker: true };
+        }
         return { ok: true };
       },
     );
 
     if (!budgetCheck.ok) {
-      log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
-      );
+      const reason = budgetCheck.reason ?? "budget exceeded";
+      log(`task ${taskId}: ${reason} — requeueing`);
+
+      // Send alert and Linear comment for budget exhaustion (skip if circuit
+      // breaker already fired its own more specific alert inside check-budget)
+      if (!budgetCheck.isCircuitBreaker) {
+        await step.run("alert-budget-exceeded", () => {
+          const deps = getSchedulerDeps();
+          const { config } = deps;
+          const windowClearsAt = new Date(
+            Date.now() + config.budgetWindowHours * 60 * 60 * 1000,
+          ).toISOString();
+          const message = `Task is on budget hold. Reason: ${reason}. The budget window (${config.budgetWindowHours}h) will clear around ${windowClearsAt}. The task will be retried automatically.`;
+          sendAlert(deps, {
+            severity: "warning",
+            title: "Budget Exhausted",
+            message,
+            taskId,
+            fields: [
+              { title: "Task ID", value: taskId, short: true },
+              { title: "Reason", value: reason, short: false },
+              {
+                title: "Window clears around",
+                value: windowClearsAt,
+                short: false,
+              },
+            ],
+          });
+          deps.client
+            .createComment(taskId, `**[Orca] Budget Hold**\n\n${message}`)
+            .catch((err: unknown) => {
+              log(`task ${taskId}: Linear comment failed: ${err}`);
+            });
+          return { alerted: true };
+        });
+      }
+
+      // Exponential backoff: base 5 min, doubles per retry, capped at 60 min
+      // Circuit breaker always uses 60 min fixed delay
+      const backoffDelay = await step.run("calculate-backoff", () => {
+        const { db } = getSchedulerDeps();
+        if (budgetCheck.isCircuitBreaker) return "60m";
+        const task = getTask(db, taskId);
+        const retryCount = task?.retryCount ?? 0;
+        const baseMin = 5;
+        const maxMin = 60;
+        const delayMin = Math.min(baseMin * Math.pow(2, retryCount), maxMin);
+        return `${delayMin}m`;
+      });
+
+      await step.sleep("budget-backoff", backoffDelay as string);
+
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");

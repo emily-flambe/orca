@@ -62,6 +62,8 @@ vi.mock("../src/db/queries.js", () => ({
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  clearSessionIds: vi.fn(),
+  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
@@ -190,6 +192,8 @@ const mockConfig = {
   disallowedTools: "",
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  zeroCostCircuitBreakerThreshold: 5,
+  zeroCostCircuitBreakerWindowMin: 10,
 };
 
 const mockLinearClient = {
