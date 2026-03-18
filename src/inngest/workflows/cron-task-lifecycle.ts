@@ -58,7 +58,6 @@ export const cronTaskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config } = getSchedulerDeps();
 
     log(`cron workflow started for task ${taskId}`);
 
@@ -66,6 +65,7 @@ export const cronTaskLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string } => {
+        const { db } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -95,6 +95,7 @@ export const cronTaskLifecycle = inngest.createFunction(
         worktreePath: string;
         branchName: string;
       } => {
+        const { db, config } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
