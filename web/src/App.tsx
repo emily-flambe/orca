@@ -19,6 +19,7 @@ import SystemLog from "./components/SystemLog";
 import Dashboard from "./components/Dashboard";
 import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
+import InngestPage from "./components/InngestPage";
 import MetricsPage from "./components/MetricsPage";
 
 // Apply dark mode before first render to avoid flash
@@ -271,6 +272,7 @@ export default function App() {
     if (path.startsWith("/tasks")) return "tasks";
     if (path === "/metrics") return "metrics";
     if (path === "/cron") return "cron";
+    if (path === "/inngest") return "inngest";
     if (path === "/settings") return "settings";
     if (path === "/logs") return "logs";
     return "dashboard";
@@ -425,6 +427,7 @@ export default function App() {
         tasks: "/tasks",
         metrics: "/metrics",
         cron: "/cron",
+        inngest: "/inngest",
         settings: "/settings",
         logs: "/logs",
       };
@@ -508,6 +511,8 @@ export default function App() {
         )}
 
         {activePage === "cron" && <CronPage />}
+
+        {activePage === "inngest" && <InngestPage />}
 
         {/* Version footer */}
         {version && (

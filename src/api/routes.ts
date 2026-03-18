@@ -1498,6 +1498,104 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/inngest/workflows
+  // -----------------------------------------------------------------------
+  app.get("/api/inngest/workflows", async (c) => {
+    const inngestBaseUrl =
+      process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
+    const gqlUrl = `${inngestBaseUrl}/v0/gql`;
+    const timeoutMs = 5000;
+
+    try {
+      const controller = new AbortController();
+      const timerId = setTimeout(() => controller.abort(), timeoutMs);
+
+      // Fetch functions list
+      const functionsRes = await fetch(gqlUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `query { functions { id name slug triggers { type value } } }`,
+        }),
+        signal: controller.signal,
+      });
+      const functionsBody = (await functionsRes.json()) as {
+        data?: {
+          functions?: Array<{
+            id: string;
+            name: string;
+            slug: string;
+            triggers: Array<{ type: string; value: string }>;
+          }>;
+        };
+      };
+      const functions = functionsBody.data?.functions ?? [];
+
+      // Fetch recent runs (last 24h)
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const runsRes = await fetch(gqlUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `query($from: Time!) {
+            runs(
+              filter: { from: $from }
+              orderBy: [{ field: QUEUED_AT, direction: DESC }]
+              first: 100
+            ) {
+              edges { node { id functionID status startedAt endedAt } }
+            }
+          }`,
+          variables: { from },
+        }),
+        signal: controller.signal,
+      });
+      const runsBody = (await runsRes.json()) as {
+        data?: {
+          runs?: {
+            edges?: Array<{
+              node: {
+                id: string;
+                functionID: string;
+                status: string;
+                startedAt: string;
+                endedAt: string | null;
+              };
+            }>;
+          };
+        };
+      };
+      clearTimeout(timerId);
+
+      const runs = (runsBody.data?.runs?.edges ?? []).map((e) => e.node);
+
+      // Join: for each function, attach its recent runs and compute stats
+      const result = functions.map((fn) => {
+        const fnRuns = runs.filter((r) => r.functionID === fn.id);
+        const completed = fnRuns.filter((r) => r.status === "COMPLETED").length;
+        const failed = fnRuns.filter((r) => r.status === "FAILED").length;
+        return {
+          id: fn.id,
+          name: fn.name,
+          slug: fn.slug,
+          triggers: fn.triggers,
+          recentRuns: fnRuns.map((r) => ({
+            id: r.id,
+            status: r.status,
+            startedAt: r.startedAt,
+            endedAt: r.endedAt,
+          })),
+          stats: { total: fnRuns.length, completed, failed },
+        };
+      });
+
+      return c.json({ functions: result });
+    } catch {
+      return c.json({ functions: [], error: "Inngest unreachable" });
+    }
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/deploy/drain
   // -----------------------------------------------------------------------
   app.post("/api/deploy/drain", (c) => {

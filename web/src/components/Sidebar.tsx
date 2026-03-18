@@ -8,7 +8,8 @@ export type Page =
   | "tasks"
   | "logs"
   | "settings"
-  | "cron";
+  | "cron"
+  | "inngest";
 
 const MIN_WIDTH = 150;
 const MAX_WIDTH = 400;
@@ -269,6 +270,14 @@ export default function Sidebar({
             onClick={() => onNavigate("cron")}
           >
             <span>Cron</span>
+          </button>
+
+          {/* Inngest */}
+          <button
+            className={navItemClass("inngest")}
+            onClick={() => onNavigate("inngest")}
+          >
+            <span>Inngest</span>
           </button>
 
           {/* Logs */}

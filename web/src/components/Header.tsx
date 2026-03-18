@@ -9,6 +9,7 @@ const PAGE_TITLES: Record<Page, string> = {
   logs: "Logs",
   settings: "Settings",
   cron: "Cron",
+  inngest: "Inngest",
 };
 
 function useHealthStatus(): boolean | null {

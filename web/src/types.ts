@@ -14,3 +14,17 @@ export {
   type TaskWithInvocations,
   type OrcaStatus,
 } from "../../src/shared/types.ts";
+
+export interface InngestWorkflow {
+  id: string;
+  name: string;
+  slug: string;
+  triggers: Array<{ type: string; value: string }>;
+  recentRuns: Array<{
+    id: string;
+    status: string;
+    startedAt: string;
+    endedAt: string | null;
+  }>;
+  stats: { total: number; completed: number; failed: number };
+}

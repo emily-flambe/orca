@@ -289,4 +289,14 @@ export function deleteCronSchedule(id: number): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/cron/${id}`, { method: "DELETE" });
 }
 
+export async function fetchInngestWorkflows(): Promise<
+  import("../types").InngestWorkflow[]
+> {
+  const res = await fetchJson<{
+    functions: import("../types").InngestWorkflow[];
+    error?: string;
+  }>("/inngest/workflows");
+  return res.functions;
+}
+
 export type { CronSchedule };
