@@ -5,6 +5,7 @@ import PriorityDot from "./ui/PriorityDot";
 import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
 import Badge from "./ui/Badge";
+import { MANUAL_STATUSES } from "../constants.js";
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -79,14 +80,6 @@ const STATUS_ORDER: Record<string, number> = {
   done: 8,
   backlog: 9,
 };
-
-const MANUAL_STATUSES = [
-  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
-  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
-  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
-  { value: "canceled", label: "cancel", bg: "bg-gray-500/20 text-gray-400" },
-  { value: "failed", label: "failed", bg: "bg-red-500/20 text-red-400" },
-] as const;
 
 type SortDirection = "asc" | "desc";
 interface SortState {

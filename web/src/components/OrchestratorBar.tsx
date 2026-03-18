@@ -2,8 +2,7 @@ import { useState } from "react";
 import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 import { formatTokens } from "../utils/formatTokens";
-
-const MODEL_OPTIONS = ["opus", "sonnet", "haiku"] as const;
+import { MODEL_OPTIONS } from "../constants.js";
 
 interface Props {
   status: OrcaStatus | null;

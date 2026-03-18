@@ -13,18 +13,13 @@ import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
 import { formatTokens } from "../utils/formatTokens";
+import { MANUAL_STATUSES } from "../constants.js";
+import { timeAgo } from "../utils/time.js";
 
 interface Props {
   taskId: string;
   initialInvocationId?: number;
   refreshTrigger?: number;
-}
-
-function timeAgo(date: Date): string {
-  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (secs < 5) return "just now";
-  if (secs < 60) return `${secs}s ago`;
-  return `${Math.floor(secs / 60)}m ago`;
 }
 
 function formatDuration(start: string, end: string | null): string {
@@ -40,14 +35,6 @@ function formatDuration(start: string, end: string | null): string {
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
-
-const MANUAL_STATUSES = [
-  { value: "backlog", label: "backlog", bg: "bg-gray-500/20 text-gray-500" },
-  { value: "ready", label: "queued", bg: "bg-cyan-500/20 text-cyan-400" },
-  { value: "done", label: "done", bg: "bg-green-500/20 text-green-400" },
-  { value: "canceled", label: "cancel", bg: "bg-gray-500/20 text-gray-400" },
-  { value: "failed", label: "failed", bg: "bg-red-500/20 text-red-400" },
-] as const;
 
 export default function TaskDetail({
   taskId,

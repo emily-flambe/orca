@@ -4,16 +4,7 @@ import { fetchRunningInvocations } from "../hooks/useApi";
 import { useSSE } from "../hooks/useSSE";
 import LiveRunWidget from "./LiveRunWidget";
 import { formatTokens } from "../utils/formatTokens";
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h ago`;
-}
+import { timeAgo } from "../utils/time.js";
 
 export default function ActiveSessionsGrid() {
   const [running, setRunning] = useState<Invocation[]>([]);
