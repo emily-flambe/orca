@@ -377,18 +377,28 @@ function migrateSchema(sqlite: DatabaseType): void {
 
   // ---------------------------------------------------------------------------
   // Migration 17 (performance indexes):
-  //   - idx_tasks_orca_status: speeds up getDispatchableTasks, getAllTasks filtering
+  //   - idx_tasks_orca_status: speeds up getDispatchableTasks, status filters
   //   - idx_invocations_status: speeds up getRunningInvocations, countActiveSessions
-  //   - idx_invocations_linear_issue_id: speeds up getInvocationsByTask (per-task lookups)
+  //   - idx_invocations_linear_issue_id: speeds up getInvocationsByTask (N+1 in task list)
   //   - idx_budget_events_recorded_at: speeds up sumCostInWindow, sumTokensInWindow
-  //   - idx_budget_events_invocation_id: speeds up budget event lookups by invocation
+  //   - idx_budget_events_invocation_id: speeds up budget event lookups
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
   // ---------------------------------------------------------------------------
-  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_tasks_orca_status ON tasks(orca_status)");
-  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_invocations_status ON invocations(status)");
-  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_invocations_linear_issue_id ON invocations(linear_issue_id)");
-  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_budget_events_recorded_at ON budget_events(recorded_at)");
-  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)");
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_tasks_orca_status ON tasks(orca_status)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_invocations_status ON invocations(status)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_invocations_linear_issue_id ON invocations(linear_issue_id)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_budget_events_recorded_at ON budget_events(recorded_at)",
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)",
+  );
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
