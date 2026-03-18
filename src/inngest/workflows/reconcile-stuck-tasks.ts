@@ -192,8 +192,7 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       }
 
       for (const task of failedTasks) {
-        const totalAttempts =
-          task.retryCount + task.staleSessionRetryCount;
+        const totalAttempts = task.retryCount + task.staleSessionRetryCount;
         updateTaskStatus(db, task.linearIssueId, "ready");
         insertSystemEvent(db, {
           type: "auto_retry",

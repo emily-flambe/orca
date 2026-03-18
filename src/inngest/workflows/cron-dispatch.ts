@@ -67,9 +67,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
             });
             const durationMs = Date.now() - startMs;
             const output =
-              typeof stdout === "string"
-                ? stdout.slice(0, 10_000)
-                : null;
+              typeof stdout === "string" ? stdout.slice(0, 10_000) : null;
             completeCronRun(db, runId, {
               endedAt: new Date().toISOString(),
               status: "success",
