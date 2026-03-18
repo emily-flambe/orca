@@ -1111,6 +1111,47 @@ export function countSystemEventsSince(
   return result?.count ?? 0;
 }
 
+/** Count system_events with a given type since a timestamp. */
+export function countSystemEventsOfTypeSince(
+  db: OrcaDb,
+  type: string,
+  since: string,
+): number {
+  const result = db
+    .select({ cnt: sql<number>`count(*)` })
+    .from(systemEvents)
+    .where(
+      and(eq(systemEvents.type, type as SystemEventType), gte(systemEvents.createdAt, since)),
+    )
+    .get();
+  return result?.cnt ?? 0;
+}
+
+/**
+ * Count completed or failed invocations with costUsd = 0 or null
+ * that started at or after `since`.
+ */
+export function countZeroCostInvocationsSince(
+  db: OrcaDb,
+  since: string,
+): number {
+  const result = db
+    .select({ cnt: sql<number>`count(*)` })
+    .from(invocations)
+    .where(
+      and(
+        or(eq(invocations.costUsd, 0), isNull(invocations.costUsd)),
+        gte(invocations.startedAt, since),
+        or(
+          eq(invocations.status, "completed"),
+          eq(invocations.status, "failed"),
+        ),
+      ),
+    )
+    .get();
+  return result?.cnt ?? 0;
+}
+
 /** Get uptime info: time since last startup event. */
 export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
   return db

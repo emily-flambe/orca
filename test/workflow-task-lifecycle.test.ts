@@ -62,6 +62,8 @@ vi.mock("../src/db/queries.js", () => ({
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
+  countZeroCostInvocationsSince: vi.fn().mockReturnValue(0),
+  countSystemEventsOfTypeSince: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -189,6 +191,8 @@ const mockConfig = {
   disallowedTools: "",
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  zeroCostCircuitBreakerThreshold: 5,
+  zeroCostCircuitBreakerWindowMin: 10,
 };
 
 const mockLinearClient = {

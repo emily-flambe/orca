@@ -36,6 +36,8 @@ import {
   getLastCompletedImplementInvocation,
   insertSystemEvent,
   clearSessionIds,
+  countSystemEventsOfTypeSince,
+  countZeroCostInvocationsSince,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -47,6 +49,7 @@ import {
 import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
+  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -202,15 +205,13 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -282,8 +283,25 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
         const { db, config } = getSchedulerDeps();
+
+        // Circuit breaker: rapid zero-cost failures
+        const circuitWindowStart = new Date(
+          Date.now() - config.zeroCostCircuitBreakerWindowMin * 60 * 1000,
+        ).toISOString();
+        const zeroCostCount = countZeroCostInvocationsSince(
+          db,
+          circuitWindowStart,
+        );
+        if (zeroCostCount >= config.zeroCostCircuitBreakerThreshold) {
+          return {
+            ok: false,
+            reason: `circuit breaker: ${zeroCostCount} zero-cost failures in ${config.zeroCostCircuitBreakerWindowMin}min window`,
+            isCircuitBreaker: true,
+          };
+        }
+
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
         if (spentUsd >= config.budgetMaxCostUsd) {
@@ -307,12 +325,91 @@ export const taskLifecycle = inngest.createFunction(
       log(
         `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
       );
+
+      // Alert
+      await step.run("alert-budget-exhausted", () => {
+        const deps = getSchedulerDeps();
+        const isCircuitBreaker = budgetCheck.isCircuitBreaker ?? false;
+        if (isCircuitBreaker) {
+          sendAlertThrottled(
+            deps,
+            "circuit-breaker",
+            {
+              severity: "critical",
+              title: "Circuit Breaker Tripped",
+              message: `Dispatching paused: ${budgetCheck.reason}. Claude CLI may be broken — check logs.`,
+            },
+            30 * 60 * 1000,
+          );
+        } else {
+          sendAlertThrottled(
+            deps,
+            "budget-exhausted",
+            {
+              severity: "warning",
+              title: "Budget Exhausted",
+              message: `Task ${taskId} on hold: ${budgetCheck.reason}. Dispatching resumes when budget window clears.`,
+              taskId,
+            },
+            15 * 60 * 1000,
+          );
+          // Linear comment
+          deps.client
+            .createComment(
+              taskId,
+              `**[Orca] Budget Hold**\n\nThis task is on hold: ${budgetCheck.reason ?? "budget exceeded"}.\n\nDispatching will resume automatically when the rolling budget window clears.`,
+            )
+            .catch((err: unknown) => {
+              log(`budget alert: Linear comment failed: ${err}`);
+            });
+        }
+      });
+
+      // Requeue
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
       });
+
+      // Backoff: count recent budget-related self_heal events to pick delay tier
+      const backoffResult = await step.run(
+        "compute-budget-backoff",
+        (): { delay: string } => {
+          const { db } = getSchedulerDeps();
+          const since = new Date(
+            Date.now() - 60 * 60 * 1000,
+          ).toISOString();
+          const count = countSystemEventsOfTypeSince(db, "self_heal", since);
+          if (count === 0) return { delay: "5m" };
+          if (count === 1) return { delay: "10m" };
+          if (count === 2) return { delay: "20m" };
+          return { delay: "30m" };
+        },
+      );
+
+      await step.sleep("budget-backoff", backoffResult.delay);
+
+      // Re-emit task/ready for pickup after backoff (inside step.run for idempotency)
+      await step.run("requeue-after-backoff", async () => {
+        const { db: requeueDb } = getSchedulerDeps();
+        const requeueTask = getTask(requeueDb, taskId);
+        if (requeueTask) {
+          await inngest.send({
+            name: "task/ready",
+            data: {
+              linearIssueId: taskId,
+              repoPath: requeueTask.repoPath,
+              priority: requeueTask.priority,
+              projectName: requeueTask.projectName ?? null,
+              taskType: requeueTask.taskType ?? "standard",
+              createdAt: requeueTask.createdAt,
+            },
+          });
+        }
+      });
+
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }
 

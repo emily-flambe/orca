@@ -53,6 +53,8 @@ export interface OrcaConfig {
   cronRetentionDays: number;
   strandedTaskThresholdMin: number;
   stateMapOverrides: Record<string, string> | undefined;
+  zeroCostCircuitBreakerThreshold: number;
+  zeroCostCircuitBreakerWindowMin: number;
 
   logLevel: string;
 }
@@ -357,6 +359,14 @@ Steps:
     strandedTaskThresholdMin: readIntOrDefault(
       "ORCA_STRANDED_TASK_THRESHOLD_MIN",
       30,
+    ),
+    zeroCostCircuitBreakerThreshold: readIntOrDefault(
+      "ORCA_ZERO_COST_CIRCUIT_BREAKER_THRESHOLD",
+      5,
+    ),
+    zeroCostCircuitBreakerWindowMin: readIntOrDefault(
+      "ORCA_ZERO_COST_CIRCUIT_BREAKER_WINDOW_MIN",
+      10,
     ),
     stateMapOverrides: (() => {
       const raw = readEnv("ORCA_STATE_MAP");
