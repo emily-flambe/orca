@@ -2,11 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "../logger.js";
 import { sendAlertThrottled } from "./alerts.js";
-import {
-  isDraining,
-  getDrainingForSeconds,
-  clearDraining,
-} from "../deploy.js";
+import { isDraining, getDrainingForSeconds, clearDraining } from "../deploy.js";
 import { activeHandles } from "../session-handles.js";
 import { insertSystemEvent } from "../db/queries.js";
 import type { SchedulerDeps } from "./types.js";
