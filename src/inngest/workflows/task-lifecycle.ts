@@ -62,7 +62,6 @@ import {
   closeSupersededPrs,
   getPrCheckStatus,
 } from "../../github/index.js";
-import { git } from "../../git.js";
 import {
   activeHandles,
   claimSessionSlot,
