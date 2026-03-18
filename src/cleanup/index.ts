@@ -126,11 +126,20 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
       .filter((p): p is string => p != null),
   );
 
-  // Branches referenced by tasks not in terminal states
-  const TERMINAL_STATUSES = new Set(["done", "failed"]);
+  // Branches referenced by tasks where a workflow is actively using the PR.
+  // Tasks in backlog/ready/done/failed have no workflow watching their PR,
+  // so those PRs are eligible for orphan cleanup.
+  const PR_ACTIVE_STATUSES = new Set([
+    "dispatched",
+    "running",
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+    "deploying",
+  ]);
   const activeBranches = new Set(
     allTasks
-      .filter((t) => !TERMINAL_STATUSES.has(t.orcaStatus))
+      .filter((t) => PR_ACTIVE_STATUSES.has(t.orcaStatus))
       .map((t) => t.prBranchName)
       .filter((b): b is string => b != null),
   );
