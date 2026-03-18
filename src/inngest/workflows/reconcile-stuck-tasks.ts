@@ -11,6 +11,7 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
+  failTask,
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
@@ -108,7 +109,11 @@ export async function runReconciliation(deps: {
     const totalAttempts = retryCount + newStaleCount;
     const targetStatus = totalAttempts > maxRetries ? "failed" : "ready";
 
-    updateTaskStatus(db, linearIssueId, targetStatus);
+    if (targetStatus === "failed") {
+      failTask(db, linearIssueId, `Stranded task: ${reason}`, "implement");
+    } else {
+      updateTaskStatus(db, linearIssueId, targetStatus);
+    }
 
     insertSystemEvent(db, {
       type: "health_check",

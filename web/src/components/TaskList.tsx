@@ -607,6 +607,17 @@ export default function TaskList({
                   ? task.agentPrompt.slice(0, 300)
                   : "No prompt"}
               </span>
+              {task.orcaStatus === "failed" && task.lastFailureReason && (
+                <div
+                  className="pl-[18px] text-xs text-red-400/80 line-clamp-2 leading-snug"
+                  title={task.lastFailureReason}
+                >
+                  {task.lastFailedPhase && (
+                    <span className="text-red-500/60 mr-1">[{task.lastFailedPhase}]</span>
+                  )}
+                  {task.lastFailureReason}
+                </div>
+              )}
             </div>
           );
         })}

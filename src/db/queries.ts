@@ -58,6 +58,26 @@ export function updateTaskStatus(
     .run();
 }
 
+/** Set a task to failed status and record failure metadata. */
+export function failTask(
+  db: OrcaDb,
+  taskId: string,
+  reason: string,
+  phase: "implement" | "review" | "fix" | "ci" | "deploy",
+): void {
+  db.update(tasks)
+    .set({
+      orcaStatus: "failed" as TaskStatus,
+      doneAt: null,
+      lastFailureReason: reason.slice(0, 500),
+      lastFailedPhase: phase,
+      lastFailedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /**
  * Atomically claim a task for dispatch using compare-and-swap.
  * Only updates the status to "dispatched" if the task is currently in one of

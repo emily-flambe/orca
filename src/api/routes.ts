@@ -711,6 +711,16 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Check Inngest connectivity with retry/backoff and caching.
     const inngestReachable = await checkInngestHealth();
 
+    const failedTasks = allTasks
+      .filter((t) => t.orcaStatus === "failed" && t.lastFailureReason)
+      .slice(0, 20)
+      .map((t) => ({
+        id: t.linearIssueId,
+        reason: (t.lastFailureReason ?? "").slice(0, 80),
+        phase: t.lastFailedPhase,
+        failedAt: t.lastFailedAt,
+      }));
+
     const draining = isDraining();
     return c.json({
       activeSessions,
@@ -732,6 +742,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
       inngestReachable,
+      failedTasks,
     });
   });
 

@@ -15,6 +15,7 @@ import {
   getParentTasks,
   insertTask,
   updateTaskStatus,
+  failTask,
   updateTaskFields,
   updateInvocation,
   getRunningInvocations,
@@ -231,7 +232,7 @@ function upsertTask(
   if (issue.state.type === "canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      updateTaskStatus(db, issue.identifier, "failed");
+      failTask(db, issue.identifier, "Task canceled in Linear", "implement");
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
     }
@@ -692,7 +693,7 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed");
+    failTask(db, taskId, "Task canceled in Linear (conflict resolution)", "implement");
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     closePrsForCanceledTask(taskId, task.repoPath);
     return;
