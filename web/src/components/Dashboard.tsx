@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { fetchMetrics } from "../hooks/useApi";
 import type { MetricsData } from "../hooks/useApi";
+import type { Invocation } from "../types";
 import { timeAgo } from "../utils/time.js";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
@@ -16,11 +17,17 @@ interface DashboardProps {
     invocationId: number,
   ) => void;
   refreshTrigger?: number;
+  running: Invocation[];
+  lastCompleted: Invocation | null;
+  onReloadSessions: () => void;
 }
 
 export default function Dashboard({
   onNavigateToInvocation,
   refreshTrigger,
+  running,
+  lastCompleted,
+  onReloadSessions,
 }: DashboardProps) {
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +69,11 @@ export default function Dashboard({
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* Active sessions */}
-      <ActiveSessionsGrid />
+      <ActiveSessionsGrid
+        running={running}
+        lastCompleted={lastCompleted}
+        onReload={onReloadSessions}
+      />
 
       {/* Activity feed */}
       <Card>
