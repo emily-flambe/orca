@@ -9,6 +9,7 @@ import {
   fetchVersion,
 } from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
+import { useToast } from "./hooks/useToast";
 import Sidebar from "./components/Sidebar";
 import { formatTokens } from "./utils/formatTokens";
 import type { Page } from "./components/Sidebar";
@@ -38,6 +39,7 @@ function SettingsPage({
   status: OrcaStatus | null;
   onConfigUpdate: (config: {
     concurrencyCap?: number;
+    tokenBudgetLimit?: number;
     implementModel?: string;
     reviewModel?: string;
     fixModel?: string;
@@ -175,7 +177,17 @@ function SettingsPage({
               </span>
               <select
                 value={status[field]}
-                onChange={(e) => onConfigUpdate({ [field]: e.target.value })}
+                onChange={(e) => {
+                  const newModel = e.target.value;
+                  if (
+                    newModel === "opus" &&
+                    !window.confirm(
+                      "Switching to opus will significantly increase costs. Continue?",
+                    )
+                  )
+                    return;
+                  onConfigUpdate({ [field]: newModel });
+                }}
                 className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
               >
                 {MODEL_OPTIONS.map((m) => (
@@ -205,6 +217,7 @@ function TasksPage({
   detailRefreshTrigger,
   onSelect,
   onMobileBack,
+  onToast,
 }: {
   tasks: Task[];
   selectedTaskId: string | null;
@@ -214,6 +227,7 @@ function TasksPage({
   detailRefreshTrigger: number;
   onSelect: (id: string) => void;
   onMobileBack: () => void;
+  onToast: { success: (msg: string) => void; error: (msg: string) => void };
 }) {
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -227,6 +241,7 @@ function TasksPage({
           tasks={tasks}
           selectedTaskId={selectedTaskId}
           onSelect={onSelect}
+          onToast={onToast}
         />
       </div>
       {/* Task detail */}
@@ -284,9 +299,12 @@ export default function App() {
     return match ? decodeURIComponent(match[1]!) : null;
   }, [location.pathname]);
 
+  const toast = useToast();
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  const [backendDown, setBackendDown] = useState(false);
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
@@ -299,11 +317,20 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    fetchTasks().then(setTasks).catch(console.error);
-    fetchStatus().then(setStatus).catch(console.error);
-    fetchVersion()
-      .then((v) => setVersion(v.version))
-      .catch(console.error);
+    let failed = false;
+    const onFail = () => {
+      failed = true;
+      setBackendDown(true);
+    };
+    Promise.all([
+      fetchTasks().then(setTasks).catch(onFail),
+      fetchStatus().then(setStatus).catch(onFail),
+      fetchVersion()
+        .then((v) => setVersion(v.version))
+        .catch(onFail),
+    ]).then(() => {
+      if (!failed) setBackendDown(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -356,32 +383,50 @@ export default function App() {
   }, []);
 
   const handleReconnect = useCallback(() => {
-    fetchTasks().then(setTasks).catch(console.error);
-    fetchStatus().then(setStatus).catch(console.error);
+    Promise.all([fetchTasks(), fetchStatus()])
+      .then(([newTasks, newStatus]) => {
+        setTasks(newTasks);
+        setStatus(newStatus);
+        setBackendDown(false);
+      })
+      .catch(console.error);
   }, []);
 
   const handleSync = useCallback(async () => {
-    await triggerSync();
-    const [newTasks, newStatus] = await Promise.all([
-      fetchTasks(),
-      fetchStatus(),
-    ]);
-    setTasks(newTasks);
-    setStatus(newStatus);
-  }, []);
+    try {
+      await triggerSync();
+      const [newTasks, newStatus] = await Promise.all([
+        fetchTasks(),
+        fetchStatus(),
+      ]);
+      setTasks(newTasks);
+      setStatus(newStatus);
+      toast.success("Synced with Linear");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sync failed");
+    }
+  }, [toast]);
 
   const handleConfigUpdate = useCallback(
     async (config: {
       concurrencyCap?: number;
+      tokenBudgetLimit?: number;
       implementModel?: string;
       reviewModel?: string;
       fixModel?: string;
     }) => {
-      await updateConfig(config);
-      const newStatus = await fetchStatus();
-      setStatus(newStatus);
+      try {
+        await updateConfig(config);
+        const newStatus = await fetchStatus();
+        setStatus(newStatus);
+        toast.success("Config updated");
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Config update failed",
+        );
+      }
     },
-    [],
+    [toast],
   );
 
   const handleNewTicket = useCallback(
@@ -474,6 +519,17 @@ export default function App() {
           onNewTicket={handleNewTicket}
         />
 
+        {/* Backend-down banner */}
+        {backendDown && (
+          <div className="shrink-0 bg-amber-900/50 border-b border-amber-700/60 px-4 py-2 text-sm text-amber-200 flex items-center gap-2">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+            </span>
+            Backend is unreachable — retrying...
+          </div>
+        )}
+
         {/* Page content */}
         {activePage === "tasks" && (
           <TasksPage
@@ -488,6 +544,7 @@ export default function App() {
               navigate("/tasks");
               setMobileView("list");
             }}
+            onToast={toast}
           />
         )}
 
@@ -510,7 +567,7 @@ export default function App() {
           <SettingsPage status={status} onConfigUpdate={handleConfigUpdate} />
         )}
 
-        {activePage === "cron" && <CronPage />}
+        {activePage === "cron" && <CronPage onToast={toast} />}
 
         {activePage === "inngest" && <InngestPage />}
 

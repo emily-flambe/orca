@@ -390,7 +390,12 @@ function RunHistory({ scheduleId }: { scheduleId: number }) {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function CronPage() {
+interface ToastCallbacks {
+  success: (msg: string) => void;
+  error: (msg: string) => void;
+}
+
+export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
   const [schedules, setSchedules] = useState<CronSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -427,6 +432,7 @@ export default function CronPage() {
     });
     setSchedules((prev) => [...prev, schedule]);
     setShowNew(false);
+    onToast?.success("Schedule created");
   }
 
   async function handleUpdate(id: number, form: FormState) {
@@ -444,19 +450,35 @@ export default function CronPage() {
     });
     setSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
     setEditingId(null);
+    onToast?.success("Schedule updated");
   }
 
   async function handleToggleEnabled(s: CronSchedule) {
-    const updated = await updateCronSchedule(s.id, {
-      enabled: s.enabled === 1 ? 0 : 1,
-    });
-    setSchedules((prev) => prev.map((x) => (x.id === s.id ? updated : x)));
+    try {
+      const updated = await updateCronSchedule(s.id, {
+        enabled: s.enabled === 1 ? 0 : 1,
+      });
+      setSchedules((prev) => prev.map((x) => (x.id === s.id ? updated : x)));
+      onToast?.success(
+        updated.enabled === 1 ? "Schedule enabled" : "Schedule disabled",
+      );
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to update schedule",
+      );
+    }
   }
 
   async function handleDelete(id: number) {
-    await deleteCronSchedule(id);
-    setSchedules((prev) => prev.filter((s) => s.id !== id));
-    setDeletingId(null);
+    try {
+      await deleteCronSchedule(id);
+      setSchedules((prev) => prev.filter((s) => s.id !== id));
+      setDeletingId(null);
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to delete schedule",
+      );
+    }
   }
 
   if (loading) {
