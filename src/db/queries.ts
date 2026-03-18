@@ -999,6 +999,30 @@ export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
   return oldTasks.length;
 }
 
+/**
+ * Get tasks in 'failed' status that still have retries remaining.
+ * Excludes cron tasks (cron_claude, cron_shell) — those have their own lifecycle.
+ */
+export function getFailedTasksWithRetriesRemaining(
+  db: OrcaDb,
+  maxRetries: number,
+): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.orcaStatus, "failed"),
+        sql`(${tasks.retryCount} + ${tasks.staleSessionRetryCount}) < ${maxRetries}`,
+        or(
+          isNull(tasks.taskType),
+          sql`${tasks.taskType} NOT IN ('cron_claude', 'cron_shell')`,
+        ),
+      ),
+    )
+    .all();
+}
+
 // ---------------------------------------------------------------------------
 // System event types
 // ---------------------------------------------------------------------------

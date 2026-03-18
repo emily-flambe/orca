@@ -12,6 +12,7 @@ import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
   getDispatchableTasks,
+  getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
   incrementStaleSessionRetryCount,
   insertSystemEvent,
@@ -176,6 +177,56 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         "deploying",
       ]);
       await detectAndAlertStuckTasks(deps, tasks);
+    });
+
+    await step.run("auto-retry-failed-tasks", async () => {
+      const { db, config } = getSchedulerDeps();
+      const failedTasks = getFailedTasksWithRetriesRemaining(
+        db,
+        config.maxRetries,
+      );
+
+      if (failedTasks.length === 0) {
+        logger.debug("no failed tasks with retries remaining");
+        return;
+      }
+
+      for (const task of failedTasks) {
+        const totalAttempts =
+          task.retryCount + task.staleSessionRetryCount;
+        updateTaskStatus(db, task.linearIssueId, "ready");
+        insertSystemEvent(db, {
+          type: "auto_retry",
+          message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${totalAttempts}/${config.maxRetries})`,
+          metadata: {
+            linearIssueId: task.linearIssueId,
+            retryCount: task.retryCount,
+            staleSessionRetryCount: task.staleSessionRetryCount,
+            totalAttempts,
+            maxRetries: config.maxRetries,
+          },
+        });
+
+        await inngest.send({
+          name: "task/ready",
+          data: {
+            linearIssueId: task.linearIssueId,
+            repoPath: task.repoPath,
+            priority: task.priority,
+            projectName: task.projectName ?? null,
+            taskType: task.taskType,
+            createdAt: task.createdAt,
+          },
+        });
+
+        logger.info(
+          `[${task.linearIssueId}] auto-retrying failed task (${totalAttempts}/${config.maxRetries})`,
+        );
+      }
+
+      logger.info(
+        `auto-retried ${failedTasks.length} failed task(s) with retries remaining`,
+      );
     });
   },
 );

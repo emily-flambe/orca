@@ -122,6 +122,46 @@ function readPackageVersion(): string {
 const ORCA_VERSION = readPackageVersion();
 
 // ---------------------------------------------------------------------------
+// Inngest health check with retry + caching
+// ---------------------------------------------------------------------------
+
+let _inngestHealthCache: { value: boolean; expiresAt: number } | null = null;
+
+async function checkInngestHealth(): Promise<boolean> {
+  const now = Date.now();
+  if (_inngestHealthCache && now < _inngestHealthCache.expiresAt) {
+    return _inngestHealthCache.value;
+  }
+
+  const inngestBaseUrl =
+    process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
+  const maxAttempts = 3;
+  const delayMs = 500;
+  const timeoutMs = 1500;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timerId = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(inngestBaseUrl, { signal: controller.signal });
+      clearTimeout(timerId);
+      if (res.status < 500) {
+        _inngestHealthCache = { value: true, expiresAt: now + 10_000 };
+        return true;
+      }
+    } catch {
+      // Retry after delay unless this is the last attempt
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  _inngestHealthCache = { value: false, expiresAt: now + 10_000 };
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
@@ -649,19 +689,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       }
     }
 
-    // Check Inngest connectivity with a short timeout.
-    const inngestBaseUrl =
-      process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
-    let inngestReachable = false;
-    try {
-      const controller = new AbortController();
-      const timerId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(inngestBaseUrl, { signal: controller.signal });
-      clearTimeout(timerId);
-      inngestReachable = res.status < 500;
-    } catch {
-      inngestReachable = false;
-    }
+    // Check Inngest connectivity with retry/backoff and caching.
+    const inngestReachable = await checkInngestHealth();
 
     const draining = isDraining();
     return c.json({

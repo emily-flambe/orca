@@ -62,6 +62,7 @@ vi.mock("../src/db/queries.js", () => ({
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -105,6 +106,16 @@ vi.mock("../src/github/index.js", () => ({
 vi.mock("../src/git.js", () => ({
   git: vi.fn().mockReturnValue(""),
 }));
+
+vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../src/scheduler/alerts.js")
+  >();
+  return {
+    ...actual,
+    sendPermanentFailureAlert: vi.fn(),
+  };
+});
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn().mockReturnValue(false),

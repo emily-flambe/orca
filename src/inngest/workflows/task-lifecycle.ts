@@ -47,7 +47,10 @@ import {
   emitInvocationCompleted,
 } from "../../events.js";
 import { writeBackStatus } from "../../linear/sync.js";
-import { sendAlert } from "../../scheduler/alerts.js";
+import {
+  sendAlert,
+  sendPermanentFailureAlert,
+} from "../../scheduler/alerts.js";
 import type { SchedulerDeps } from "../../scheduler/types.js";
 import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
@@ -819,6 +822,11 @@ export const taskLifecycle = inngest.createFunction(
                 retries: config.maxRetries,
               },
             });
+            sendPermanentFailureAlert(
+              getDeps() as unknown as SchedulerDeps,
+              taskId,
+              `Session failed after ${config.maxRetries} retries (implement phase)`,
+            );
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );
@@ -900,6 +908,11 @@ export const taskLifecycle = inngest.createFunction(
                 retries: config.maxRetries,
               },
             });
+            sendPermanentFailureAlert(
+              getDeps() as unknown as SchedulerDeps,
+              taskId,
+              `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
+            );
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );
@@ -951,6 +964,11 @@ export const taskLifecycle = inngest.createFunction(
                 retries: config.maxRetries,
               },
             });
+            sendPermanentFailureAlert(
+              getDeps() as unknown as SchedulerDeps,
+              taskId,
+              `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
+            );
             writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
               () => {},
             );
