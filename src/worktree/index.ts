@@ -131,9 +131,9 @@ function worktreeExistsAtPath(repoPath: string, worktreePath: string): boolean {
 }
 
 /**
- * Check whether a local branch exists in the repo.
+ * Check whether a branch exists locally (refs/heads only).
  */
-function branchExists(repoPath: string, branchName: string): boolean {
+function localBranchExists(repoPath: string, branchName: string): boolean {
   try {
     git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
       cwd: repoPath,
@@ -273,7 +273,7 @@ export function createWorktree(
   if (baseRef) {
     // Use the same branch name as the PR branch so pushes update the existing PR
     // instead of creating a new remote branch.
-    if (branchExists(repoPath, baseRef)) {
+    if (localBranchExists(repoPath, baseRef)) {
       // Branch already exists locally — check it out directly (no -b) to avoid
       // "branch is checked out" errors, then sync to origin.
       git(["worktree", "add", worktreePath, baseRef], { cwd: repoPath });
@@ -296,14 +296,39 @@ export function createWorktree(
       });
     }
   } else {
-    // If branch already exists, delete it first
-    if (branchExists(repoPath, branchName)) {
+    // If branch exists locally, delete it so we can create fresh from origin/main.
+    // We only delete local branches here; remote-tracking refs are handled below.
+    try {
+      git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
+        cwd: repoPath,
+      });
+      // Local branch exists — delete it
       git(["branch", "-D", branchName], { cwd: repoPath });
+    } catch {
+      // No local branch to delete
     }
-    // Create worktree with new branch based on origin/main
-    git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
-      cwd: repoPath,
-    });
+    // Create worktree with new branch based on origin/main.
+    // If -b fails because the branch name conflicts with a remote-tracking ref
+    // (e.g., from a previous invocation that was pushed to origin), recover by
+    // creating the local branch explicitly at origin/main and checking it out.
+    try {
+      git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
+        cwd: repoPath,
+      });
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      if (msg.includes("already exists")) {
+        logger.warn(
+          `git worktree add -b failed (branch already exists on remote), recovering: ${branchName}`,
+        );
+        // Create local branch at origin/main (ignoring remote-tracking ref content),
+        // then checkout in the worktree.
+        git(["branch", branchName, "origin/main"], { cwd: repoPath });
+        git(["worktree", "add", worktreePath, branchName], { cwd: repoPath });
+      } else {
+        throw err;
+      }
+    }
   }
 
   // Copy .env* files from base repo

@@ -242,9 +242,12 @@ describe("createWorktree — stale directory removal", () => {
     });
 
     // rmSync fails with EBUSY (file held by another process)
-    const ebusyErr = Object.assign(new Error("EBUSY: resource busy or locked"), {
-      code: "EBUSY",
-    });
+    const ebusyErr = Object.assign(
+      new Error("EBUSY: resource busy or locked"),
+      {
+        code: "EBUSY",
+      },
+    );
     mockRmSync.mockImplementation(() => {
       throw ebusyErr;
     });
@@ -258,7 +261,9 @@ describe("createWorktree — stale directory removal", () => {
     }
     expect(caught).toBeDefined();
     expect((caught as Error).name).toBe("WorktreeLockedError");
-    expect((caught as Error).message).toContain("processes killed but EPERM persists");
+    expect((caught as Error).message).toContain(
+      "processes killed but EPERM persists",
+    );
     expect((caught as { cause: unknown }).cause).toBe(ebusyErr);
   });
 
@@ -327,5 +332,131 @@ describe("createWorktree — stale directory removal", () => {
     expect(caught).toBeDefined();
     expect((caught as Error).message).toBe("ENOENT: no such file");
     expect((caught as Error).name).not.toBe("WorktreeLockedError");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createWorktree — non-baseRef branch exists on remote only
+// ---------------------------------------------------------------------------
+
+describe("createWorktree — non-baseRef branch exists on remote only", () => {
+  let mockGit: ReturnType<typeof vi.fn>;
+  let mockExistsSync: ReturnType<typeof vi.fn>;
+  let mockReaddirSync: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const gitModule = await import("../src/git.js");
+    mockGit = vi.mocked(gitModule.git);
+
+    const fsModule = await import("node:fs");
+    mockExistsSync = vi.mocked(fsModule.existsSync);
+    mockReaddirSync = vi.mocked(fsModule.readdirSync);
+
+    mockReaddirSync.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("recovers when worktree add -b fails because branch already exists on remote", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const branchName = "orca/EMI-227-inv-874";
+    const worktreePath = join(PARENT, "orca-EMI-227");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      // repo exists; worktree path does NOT exist
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      // worktree list: no existing worktree
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      // show-ref refs/heads/...: no local branch
+      if (args[0] === "show-ref" && args[3] === `refs/heads/${branchName}`) {
+        throw new Error("fatal: not a valid ref");
+      }
+      // show-ref refs/remotes/origin/...: remote-tracking ref exists
+      if (
+        args[0] === "show-ref" &&
+        args[3] === `refs/remotes/origin/${branchName}`
+      ) {
+        return "abc123 refs/remotes/origin/" + branchName;
+      }
+      // worktree add -b: fails because branch name conflicts with remote-tracking ref
+      if (args[0] === "worktree" && args[1] === "add" && args[2] === "-b") {
+        throw new Error(`fatal: A branch named '${branchName}' already exists`);
+      }
+      // All other git calls succeed
+      return "";
+    });
+
+    const result = createWorktree(repoPath, "EMI-227", 874);
+
+    expect(result.worktreePath).toBe(worktreePath);
+    expect(result.branchName).toBe(branchName);
+
+    // Recovery: git branch branchName origin/main must have been called
+    const branchCreateCalls = mockGit.mock.calls.filter(
+      (call) =>
+        call[0][0] === "branch" &&
+        call[0][1] === branchName &&
+        call[0][2] === "origin/main",
+    );
+    expect(branchCreateCalls).toHaveLength(1);
+
+    // Recovery: git worktree add <path> <branchName> (without -b) must have been called
+    const worktreeAddNoBCalls = mockGit.mock.calls.filter(
+      (call) =>
+        call[0][0] === "worktree" &&
+        call[0][1] === "add" &&
+        !call[0].includes("-b") &&
+        call[0].includes(worktreePath) &&
+        call[0].includes(branchName),
+    );
+    expect(worktreeAddNoBCalls).toHaveLength(1);
+  });
+
+  test("does not delete local branch when only remote-tracking ref exists", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const branchName = "orca/EMI-227-inv-874";
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      // Local ref: does not exist
+      if (args[0] === "show-ref" && args[3] === `refs/heads/${branchName}`) {
+        throw new Error("fatal: not a valid ref");
+      }
+      // Remote-tracking ref: exists
+      if (
+        args[0] === "show-ref" &&
+        args[3] === `refs/remotes/origin/${branchName}`
+      ) {
+        return "abc123 refs/remotes/origin/" + branchName;
+      }
+      // worktree add -b fails
+      if (args[0] === "worktree" && args[1] === "add" && args[2] === "-b") {
+        throw new Error(`fatal: A branch named '${branchName}' already exists`);
+      }
+      return "";
+    });
+
+    await createWorktree(repoPath, "EMI-227", 874);
+
+    // Must NOT call git branch -D (no local branch to delete)
+    const branchDCalls = mockGit.mock.calls.filter(
+      (call) => call[0][0] === "branch" && call[0][1] === "-D",
+    );
+    expect(branchDCalls).toHaveLength(0);
   });
 });
