@@ -21,6 +21,13 @@ import type { Hono } from "hono";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import * as deployModule from "../src/deploy.js";
+
+vi.mock("../src/deploy.js", () => ({
+  isDraining: vi.fn().mockReturnValue(false),
+  setDraining: vi.fn(),
+  initDeployState: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -324,13 +331,13 @@ describe("GET /api/health", () => {
   });
 
   it("returns 503 with degraded status when budget is exhausted", async () => {
-    // Insert a budget event that exceeds the budget limit
+    // Insert task first (FK constraint requires task before invocation)
+    insertTask(db, makeTask({ linearIssueId: "BUDGET-1" }));
     const invId = insertInvocation(db, {
       linearIssueId: "BUDGET-1",
       startedAt: now(),
       status: "completed",
     });
-    insertTask(db, makeTask({ linearIssueId: "BUDGET-1" }));
     insertBudgetEvent(db, {
       invocationId: invId,
       costUsd: 15.0, // exceeds budgetMaxCostUsd: 10.0
@@ -364,6 +371,24 @@ describe("GET /api/health", () => {
     expect(body).toHaveProperty("checks");
     expect(body.checks).toHaveProperty("db");
     expect(body.checks).toHaveProperty("inngest");
+  });
+
+  it("returns 200 with draining status when draining", async () => {
+    vi.mocked(deployModule.isDraining).mockReturnValueOnce(true);
+    const res = await app.request("/api/health");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("draining");
+    expect(body.draining).toBe(true);
+  });
+
+  it("returns 503 with degraded status when DB fails", async () => {
+    db.$client.close();
+    const res = await app.request("/api/health");
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe("degraded");
+    expect(body.checks.db).toBe("error");
   });
 });
 
