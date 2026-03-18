@@ -125,9 +125,7 @@ export default function InngestPage() {
               <span className="text-sm font-medium text-gray-200 truncate">
                 {wf.name}
               </span>
-              <span className="text-xs text-gray-500 font-mono">
-                {wf.slug}
-              </span>
+              <span className="text-xs text-gray-500 font-mono">{wf.slug}</span>
             </div>
           </div>
 
@@ -158,9 +156,7 @@ export default function InngestPage() {
           {/* Expandable recent runs */}
           {wf.recentRuns.length > 0 && (
             <button
-              onClick={() =>
-                setExpandedId(expandedId === wf.id ? null : wf.id)
-              }
+              onClick={() => setExpandedId(expandedId === wf.id ? null : wf.id)}
               className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
             >
               {expandedId === wf.id

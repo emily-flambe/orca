@@ -95,9 +95,7 @@ vi.mock("../src/worktree/index.js", () => ({ removeWorktree: vi.fn() }));
 vi.mock("../src/inngest/client.js", () => ({ inngest: {} }));
 vi.mock("inngest/hono", () => ({ serve: vi.fn(() => vi.fn()) }));
 vi.mock("../src/inngest/functions.js", () => ({ functions: [] }));
-vi.mock("../src/inngest/workflows/task-lifecycle.js", () => ({
-  initTaskLifecycle: vi.fn(),
-}));
+vi.mock("../src/inngest/workflows/task-lifecycle.js", () => ({}));
 vi.mock("../src/inngest/deps.js", () => ({ setSchedulerDeps: vi.fn() }));
 vi.mock("../src/logger.js", () => ({
   initFileLogger: vi.fn(),
@@ -436,17 +434,6 @@ describe("orca start", () => {
     mockGetAllTasks.mockReturnValue([]);
   });
 
-  test("start command initializes Inngest task lifecycle", async () => {
-    await runCli(["start"]);
-
-    const { initTaskLifecycle } = await import(
-      "../src/inngest/workflows/task-lifecycle.js"
-    );
-    await vi.waitFor(() => {
-      expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
-    });
-  });
-
   test("start command initializes scheduler deps", async () => {
     await runCli(["start"]);
 
@@ -467,11 +454,9 @@ describe("orca start", () => {
 
     await runCli(["start"]);
 
-    const { initTaskLifecycle } = await import(
-      "../src/inngest/workflows/task-lifecycle.js"
-    );
+    const { setSchedulerDeps } = await import("../src/inngest/deps.js");
     await vi.waitFor(() => {
-      expect(vi.mocked(initTaskLifecycle)).toHaveBeenCalled();
+      expect(vi.mocked(setSchedulerDeps)).toHaveBeenCalled();
     });
 
     expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(

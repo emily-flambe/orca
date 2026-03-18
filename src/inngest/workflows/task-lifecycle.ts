@@ -51,8 +51,6 @@ import {
   sendAlert,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
-import type { SchedulerDeps } from "../../scheduler/types.js";
-import type { LinearClient, WorkflowStateMap } from "../../linear/client.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
   findPrForBranch,
@@ -67,6 +65,7 @@ import {
   getPendingSessionCount,
 } from "../../session-handles.js";
 import { inngest } from "../client.js";
+import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -112,37 +111,6 @@ const logger = createLogger("inngest/lifecycle");
 
 function log(message: string): void {
   logger.info(message);
-}
-
-// ---------------------------------------------------------------------------
-// Dependencies injection
-//
-// Inngest functions are singletons created at module load time, but DB,
-// config, and Linear client are only available after initialization.
-// Callers must invoke initTaskLifecycle() before the workflow fires.
-// ---------------------------------------------------------------------------
-
-interface WorkflowDeps {
-  db: OrcaDb;
-  config: OrcaConfig;
-  client: LinearClient;
-  stateMap: WorkflowStateMap;
-}
-
-let _deps: WorkflowDeps | null = null;
-
-/** Call once during startup before the Inngest serve handler receives requests. */
-export function initTaskLifecycle(deps: WorkflowDeps): void {
-  _deps = deps;
-}
-
-export function getDeps(): WorkflowDeps {
-  if (!_deps) {
-    throw new Error(
-      "[orca/inngest] WorkflowDeps not initialized — call initTaskLifecycle() first",
-    );
-  }
-  return _deps;
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +332,6 @@ export const taskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
-    const { db, config, client, stateMap } = getDeps();
 
     log(`workflow started for task ${taskId}`);
 
@@ -375,6 +342,7 @@ export const taskLifecycle = inngest.createFunction(
     const budgetCheck = await step.run(
       "check-budget",
       (): { ok: boolean; reason?: string } => {
+        const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
         if (spentUsd >= config.budgetMaxCostUsd) {
@@ -399,6 +367,7 @@ export const taskLifecycle = inngest.createFunction(
         `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
       );
       await step.run("requeue-budget-exceeded", () => {
+        const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
@@ -413,6 +382,7 @@ export const taskLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string; phase?: string } => {
+        const { db, client, stateMap } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -454,6 +424,7 @@ export const taskLifecycle = inngest.createFunction(
     const guardAImplement = await step.run(
       "guard-a-implement",
       (): { aborted: boolean } => {
+        const { db } = getSchedulerDeps();
         const freshTask = getTask(db, taskId);
         if (
           !freshTask ||
@@ -491,6 +462,7 @@ export const taskLifecycle = inngest.createFunction(
         isFixPhase: boolean;
         startedAt: number;
       } => {
+        const { db, config, client } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -666,6 +638,7 @@ export const taskLifecycle = inngest.createFunction(
         prBranch?: string;
         prNumber?: number | null;
       }> => {
+        const { db, config, client, stateMap } = getSchedulerDeps();
         const { invocationId, worktreePath, branchName } = implementCtx;
 
         if (!implementEvent) {
@@ -749,7 +722,7 @@ export const taskLifecycle = inngest.createFunction(
                   });
                   const rescuedTask = getTask(db, taskId);
                   if (rescuedTask) emitTaskUpdated(rescuedTask);
-                  sendAlert(getDeps() as unknown as SchedulerDeps, {
+                  sendAlert(getSchedulerDeps(), {
                     severity: "info",
                     title: "Rescued orphaned green PR",
                     message: `Task ${taskId} had a passing PR on branch ${guardBTask.prBranchName} — transitioning to awaiting_ci instead of failing`,
@@ -823,7 +796,7 @@ export const taskLifecycle = inngest.createFunction(
               },
             });
             sendPermanentFailureAlert(
-              getDeps() as unknown as SchedulerDeps,
+              getSchedulerDeps(),
               taskId,
               `Session failed after ${config.maxRetries} retries (implement phase)`,
             );
@@ -909,7 +882,7 @@ export const taskLifecycle = inngest.createFunction(
               },
             });
             sendPermanentFailureAlert(
-              getDeps() as unknown as SchedulerDeps,
+              getSchedulerDeps(),
               taskId,
               `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
             );
@@ -965,7 +938,7 @@ export const taskLifecycle = inngest.createFunction(
               },
             });
             sendPermanentFailureAlert(
-              getDeps() as unknown as SchedulerDeps,
+              getSchedulerDeps(),
               taskId,
               `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
             );
@@ -1045,7 +1018,8 @@ export const taskLifecycle = inngest.createFunction(
     // Retry: task was reset to "ready" by incrementRetryCount — re-emit
     // task/ready so a new workflow picks it up.
     if (gate2.outcome === "retry") {
-      const retryTask = getTask(db, taskId);
+      const { db: retryDb } = getSchedulerDeps();
+      const retryTask = getTask(retryDb, taskId);
       if (retryTask) {
         await inngest.send({
           name: "task/ready",
@@ -1066,7 +1040,8 @@ export const taskLifecycle = inngest.createFunction(
     // Step 6+: Review-fix loop (up to maxReviewCycles)
     // -------------------------------------------------------------------------
 
-    for (let cycle = 0; cycle < config.maxReviewCycles; cycle++) {
+    const { config: outerConfig } = getSchedulerDeps();
+    for (let cycle = 0; cycle < outerConfig.maxReviewCycles; cycle++) {
       // -----------------------------------------------------------------------
       // Guard A: abort if task is in a terminal state before review spawn
       // -----------------------------------------------------------------------
@@ -1074,6 +1049,7 @@ export const taskLifecycle = inngest.createFunction(
       const guardAReview = await step.run(
         `guard-a-review-${cycle}`,
         (): { aborted: boolean } => {
+          const { db } = getSchedulerDeps();
           const freshTask = getTask(db, taskId);
           if (
             !freshTask ||
@@ -1110,6 +1086,7 @@ export const taskLifecycle = inngest.createFunction(
           worktreePath: string;
           startedAt: number;
         } => {
+          const { db, config, client } = getSchedulerDeps();
           const task = getTask(db, taskId);
           if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -1207,6 +1184,7 @@ export const taskLifecycle = inngest.createFunction(
       const reviewResult = await step.run(
         `process-review-${cycle}`,
         (): { outcome: ReviewOutcome } => {
+          const { db } = getSchedulerDeps();
           const { invocationId, worktreePath } = reviewCtx;
 
           if (!reviewEvent) {
@@ -1299,6 +1277,7 @@ export const taskLifecycle = inngest.createFunction(
 
       if (reviewResult.outcome === "approved") {
         const ciInfo = await step.run(`transition-awaiting-ci-${cycle}`, () => {
+          const { db, client, stateMap } = getSchedulerDeps();
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
           updateTaskStatus(db, taskId, "awaiting_ci");
@@ -1324,16 +1303,20 @@ export const taskLifecycle = inngest.createFunction(
         });
 
         // Emit event to trigger CI gate workflow
-        await inngest.send({
-          name: "task/awaiting-ci",
-          data: {
-            linearIssueId: taskId,
-            prNumber: ciInfo.prNumber,
-            prBranchName: ciInfo.prBranchName,
-            repoPath: getTask(db, taskId)?.repoPath ?? config.defaultCwd ?? "",
-            ciStartedAt: ciInfo.ciStartedAt,
-          },
-        });
+        {
+          const { db: ciDb, config: ciConfig } = getSchedulerDeps();
+          await inngest.send({
+            name: "task/awaiting-ci",
+            data: {
+              linearIssueId: taskId,
+              prNumber: ciInfo.prNumber,
+              prBranchName: ciInfo.prBranchName,
+              repoPath:
+                getTask(ciDb, taskId)?.repoPath ?? ciConfig.defaultCwd ?? "",
+              ciStartedAt: ciInfo.ciStartedAt,
+            },
+          });
+        }
 
         return { outcome: "awaiting_ci" };
       }
@@ -1346,10 +1329,11 @@ export const taskLifecycle = inngest.createFunction(
       }
 
       // "no_marker" or "changes_requested" — check if we've exhausted cycles
-      const isLastCycle = cycle >= config.maxReviewCycles - 1;
+      const isLastCycle = cycle >= outerConfig.maxReviewCycles - 1;
 
       if (reviewResult.outcome === "no_marker" || isLastCycle) {
         await step.run(`cycles-exhausted-${cycle}`, () => {
+          const { db, config, client } = getSchedulerDeps();
           updateTaskStatus(db, taskId, "in_review");
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
@@ -1377,6 +1361,7 @@ export const taskLifecycle = inngest.createFunction(
       const guardAFix = await step.run(
         `guard-a-fix-${cycle}`,
         (): { aborted: boolean } => {
+          const { db } = getSchedulerDeps();
           const freshTask = getTask(db, taskId);
           if (
             !freshTask ||
@@ -1413,6 +1398,7 @@ export const taskLifecycle = inngest.createFunction(
           worktreePath: string;
           startedAt: number;
         } => {
+          const { db, config, client, stateMap } = getSchedulerDeps();
           const task = getTask(db, taskId);
           if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -1525,6 +1511,7 @@ export const taskLifecycle = inngest.createFunction(
       const fixResult = await step.run(
         `process-fix-${cycle}`,
         (): { ok: boolean; timedOut: boolean; resumeNotFound: boolean } => {
+          const { db, client, stateMap } = getSchedulerDeps();
           const { invocationId, worktreePath } = fixCtx;
 
           if (!fixEvent) {
