@@ -14,12 +14,12 @@ import type { OrcaConfig } from "../src/config/index.js";
 // ---------------------------------------------------------------------------
 
 const mockIsDraining = vi.fn<() => boolean>();
-const mockGetDrainDurationSeconds = vi.fn<() => number | null>();
+const mockGetDrainingForSeconds = vi.fn<() => number | null>();
 const mockClearDraining = vi.fn<() => void>();
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: mockIsDraining,
-  getDrainDurationSeconds: mockGetDrainDurationSeconds,
+  getDrainingForSeconds: mockGetDrainingForSeconds,
   clearDraining: mockClearDraining,
 }));
 
@@ -138,7 +138,7 @@ describe("checkDrainTimeout — not draining", () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "drain-test-"));
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     mockIsDraining.mockReturnValue(false);
-    mockGetDrainDurationSeconds.mockReturnValue(null);
+    mockGetDrainingForSeconds.mockReturnValue(null);
     mockActiveHandles.clear();
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(false);
@@ -185,7 +185,7 @@ describe("checkDrainTimeout — draining with active sessions", () => {
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(30); // 30 seconds
+    mockGetDrainingForSeconds.mockReturnValue(30); // 30 seconds
     // Put 2 active sessions
     mockActiveHandles.clear();
     mockActiveHandles.set(1, {} as any);
@@ -205,7 +205,7 @@ describe("checkDrainTimeout — draining with active sessions", () => {
 
   test("does NOT auto-clear drain when sessions are active AND past timeout", async () => {
     // Past timeout, but sessions are still active — should NOT clear
-    mockGetDrainDurationSeconds.mockReturnValue(700); // > 10 min timeout
+    mockGetDrainingForSeconds.mockReturnValue(700); // > 10 min timeout
     const deps = makeDeps({ drainTimeoutMin: 10 });
     await checkDrainTimeout(deps, stateFile);
     expect(mockClearDraining).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe("checkDrainTimeout — auto-clear (past timeout, no sessions)", () => {
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(700); // > 10 min timeout
+    mockGetDrainingForSeconds.mockReturnValue(700); // > 10 min timeout
     mockActiveHandles.clear(); // 0 sessions
   });
 
@@ -287,7 +287,7 @@ describe("checkDrainTimeout — consecutive zero-session snapshot alerting", () 
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(30); // well under 10-min timeout
+    mockGetDrainingForSeconds.mockReturnValue(30); // well under 10-min timeout
     mockActiveHandles.clear(); // 0 sessions
   });
 
@@ -388,7 +388,7 @@ describe("checkDrainTimeout — state file does not exist", () => {
     stateFile = path.join(tmpDir, "subdir", "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(30);
+    mockGetDrainingForSeconds.mockReturnValue(30);
     mockActiveHandles.clear();
   });
 
@@ -429,21 +429,21 @@ describe("checkDrainTimeout — exact timeout boundary", () => {
   });
 
   test("does NOT auto-clear when drainDurationSec is exactly 1 second under timeout", async () => {
-    mockGetDrainDurationSeconds.mockReturnValue(599); // 1s under 10-min (600s)
+    mockGetDrainingForSeconds.mockReturnValue(599); // 1s under 10-min (600s)
     const deps = makeDeps({ drainTimeoutMin: 10 });
     await checkDrainTimeout(deps, stateFile);
     expect(mockClearDraining).not.toHaveBeenCalled();
   });
 
   test("auto-clears when drainDurationSec equals the timeout exactly", async () => {
-    mockGetDrainDurationSeconds.mockReturnValue(600); // exactly 10 min
+    mockGetDrainingForSeconds.mockReturnValue(600); // exactly 10 min
     const deps = makeDeps({ drainTimeoutMin: 10 });
     await checkDrainTimeout(deps, stateFile);
     expect(mockClearDraining).toHaveBeenCalledOnce();
   });
 
   test("auto-clears when drainDurationSec is 1 second over timeout", async () => {
-    mockGetDrainDurationSeconds.mockReturnValue(601);
+    mockGetDrainingForSeconds.mockReturnValue(601);
     const deps = makeDeps({ drainTimeoutMin: 10 });
     await checkDrainTimeout(deps, stateFile);
     expect(mockClearDraining).toHaveBeenCalledOnce();
@@ -459,7 +459,7 @@ describe("checkDrainTimeout — state file not reset after auto-clear", () => {
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(700);
+    mockGetDrainingForSeconds.mockReturnValue(700);
     mockActiveHandles.clear();
   });
 
@@ -493,7 +493,7 @@ describe("checkDrainTimeout — getDrainDurationSeconds returns null while drain
     stateFile = path.join(tmpDir, "drain-state-tracking.json");
     vi.clearAllMocks();
     mockIsDraining.mockReturnValue(true);
-    mockGetDrainDurationSeconds.mockReturnValue(null); // unusual: draining=true but no timestamp
+    mockGetDrainingForSeconds.mockReturnValue(null); // unusual: draining=true but no timestamp
     mockActiveHandles.clear();
   });
 
