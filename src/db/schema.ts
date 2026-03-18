@@ -33,6 +33,7 @@ export const tasks = sqliteTable("tasks", {
   staleSessionRetryCount: integer("stale_session_retry_count")
     .notNull()
     .default(0),
+  budgetRequeueCount: integer("budget_requeue_count").notNull().default(0),
   doneAt: text("done_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),

@@ -366,7 +366,19 @@ function migrateSchema(sqlite: DatabaseType): void {
   }
 
   // ---------------------------------------------------------------------------
-  // Migration 16 (self-monitoring composite index):
+  // Migration 16 (budget requeue tracking):
+  //   - Add budget_requeue_count column to tasks (tracks budget hold requeueues
+  //     for exponential backoff calculation)
+  //   Sentinel: budget_requeue_count column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "budget_requeue_count")) {
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN budget_requeue_count INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 17 (self-monitoring composite index):
   //   - Add composite index on system_events(type, created_at) for efficient
   //     startup reconstruction of healing counters.
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.

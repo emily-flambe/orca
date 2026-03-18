@@ -38,6 +38,7 @@ import {
   countActiveSessions,
   clearSessionIds,
   countZeroCostFailuresInWindow,
+  incrementBudgetRequeueCount,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle } from "../../runner/index.js";
@@ -293,9 +294,18 @@ export const taskLifecycle = inngest.createFunction(
     // Step 1: Budget check — fail fast if rolling budget is exhausted
     // -------------------------------------------------------------------------
 
+    // Compute circuit breaker window start BEFORE step.run() so it's a
+    // deterministic closure value (not re-evaluated on Inngest replay).
+    const cbWindowStartTs = new Date(
+      Date.now() - (() => {
+        const { config } = getSchedulerDeps();
+        return config.zeroCostCircuitBreakerWindowMin * 60 * 1000;
+      })(),
+    ).toISOString();
+
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
+      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean; zeroCostCount?: number } => {
         const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
@@ -312,14 +322,33 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
-        // Zero-cost circuit breaker: detect rapid broken-CLI failures
-        const cbWindowStart = new Date(
-          Date.now() - config.zeroCostCircuitBreakerWindowMin * 60 * 1000,
-        ).toISOString();
-        const zeroCostCount = countZeroCostFailuresInWindow(db, cbWindowStart);
+        // Zero-cost circuit breaker: detect rapid broken-CLI failures.
+        // cbWindowStartTs is captured from outside this step to avoid
+        // non-determinism (Date.now() would differ on replay).
+        const zeroCostCount = countZeroCostFailuresInWindow(db, cbWindowStartTs);
         if (zeroCostCount >= config.zeroCostCircuitBreakerThreshold) {
-          const cbReason = `circuit_breaker: ${zeroCostCount} zero-cost failures in last ${config.zeroCostCircuitBreakerWindowMin} minutes`;
+          return {
+            ok: false,
+            reason: `circuit_breaker: ${zeroCostCount} zero-cost failures in last ${config.zeroCostCircuitBreakerWindowMin} minutes`,
+            isCircuitBreaker: true,
+            zeroCostCount,
+          };
+        }
+        return { ok: true };
+      },
+    );
+
+    if (!budgetCheck.ok) {
+      const reason = budgetCheck.reason ?? "budget exceeded";
+      log(`task ${taskId}: ${reason} — requeueing`);
+
+      if (budgetCheck.isCircuitBreaker) {
+        // Circuit breaker alert: fires in its own step so sendAlertThrottled's
+        // in-memory cooldown state is not re-executed on Inngest replay.
+        await step.run("alert-circuit-breaker", () => {
           const deps = getSchedulerDeps();
+          const { config } = deps;
+          const zeroCostCount = budgetCheck.zeroCostCount ?? 0;
           sendAlertThrottled(
             deps,
             "zero-cost-circuit-breaker",
@@ -336,19 +365,10 @@ export const taskLifecycle = inngest.createFunction(
             },
             30 * 60 * 1000, // 30-minute cooldown
           );
-          return { ok: false, reason: cbReason, isCircuitBreaker: true };
-        }
-        return { ok: true };
-      },
-    );
-
-    if (!budgetCheck.ok) {
-      const reason = budgetCheck.reason ?? "budget exceeded";
-      log(`task ${taskId}: ${reason} — requeueing`);
-
-      // Send alert and Linear comment for budget exhaustion (skip if circuit
-      // breaker already fired its own more specific alert inside check-budget)
-      if (!budgetCheck.isCircuitBreaker) {
+          return { alerted: true };
+        });
+      } else {
+        // Budget exhaustion alert + Linear comment
         await step.run("alert-budget-exceeded", () => {
           const deps = getSchedulerDeps();
           const { config } = deps;
@@ -380,17 +400,24 @@ export const taskLifecycle = inngest.createFunction(
         });
       }
 
-      // Exponential backoff: base 5 min, doubles per retry, capped at 60 min
-      // Circuit breaker always uses 60 min fixed delay
+      // Exponential backoff: base 5 min, doubles per budget requeue, capped at 60 min.
+      // budgetRequeueCount tracks how many times THIS task has been held for budget,
+      // so backoff escalates across requeues: 5m → 10m → 20m → 40m → 60m.
+      // Circuit breaker always uses 60 min fixed delay.
       const backoffDelay = await step.run("calculate-backoff", () => {
         const { db } = getSchedulerDeps();
         if (budgetCheck.isCircuitBreaker) return "60m";
         const task = getTask(db, taskId);
-        const retryCount = task?.retryCount ?? 0;
+        const requeueCount = task?.budgetRequeueCount ?? 0;
         const baseMin = 5;
         const maxMin = 60;
-        const delayMin = Math.min(baseMin * Math.pow(2, retryCount), maxMin);
+        const delayMin = Math.min(baseMin * Math.pow(2, requeueCount), maxMin);
         return `${delayMin}m`;
+      });
+
+      await step.run("increment-budget-requeue-count", () => {
+        const { db } = getSchedulerDeps();
+        incrementBudgetRequeueCount(db, taskId);
       });
 
       await step.sleep("budget-backoff", backoffDelay as string);

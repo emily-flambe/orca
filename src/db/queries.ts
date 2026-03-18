@@ -138,6 +138,17 @@ export function updateTaskFixReason(
     .run();
 }
 
+/** Increment budget_requeue_count by 1. Used to escalate exponential backoff on budget holds. */
+export function incrementBudgetRequeueCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({
+      budgetRequeueCount: sql`${tasks.budgetRequeueCount} + 1`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Reset merge_attempt_count to 0. Used when dispatching a conflict-resolution fix session. */
 export function resetMergeAttemptCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)

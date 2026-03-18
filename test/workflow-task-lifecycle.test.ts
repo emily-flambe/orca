@@ -64,6 +64,7 @@ vi.mock("../src/db/queries.js", () => ({
   countActiveSessions: vi.fn().mockReturnValue(0),
   clearSessionIds: vi.fn(),
   countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
+  incrementBudgetRequeueCount: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
@@ -115,6 +116,7 @@ vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {
   >();
   return {
     ...actual,
+    sendAlertThrottled: vi.fn(),
     sendPermanentFailureAlert: vi.fn(),
   };
 });
@@ -138,7 +140,10 @@ import {
   sumCostInWindow,
   incrementRetryCount,
   insertSystemEvent,
+  countZeroCostFailuresInWindow,
+  incrementBudgetRequeueCount,
 } from "../src/db/queries.js";
+import { sendAlertThrottled } from "../src/scheduler/alerts.js";
 import { spawnSession, killSession } from "../src/runner/index.js";
 import { findPrForBranch, getPrCheckStatus } from "../src/github/index.js";
 import { existsSync } from "node:fs";
@@ -168,6 +173,11 @@ const mockInsertSystemEvent = vi.mocked(insertSystemEvent);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
+const mockCountZeroCostFailuresInWindow = vi.mocked(
+  countZeroCostFailuresInWindow,
+);
+const mockIncrementBudgetRequeueCount = vi.mocked(incrementBudgetRequeueCount);
+const mockSendAlertThrottled = vi.mocked(sendAlertThrottled);
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -217,6 +227,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     reviewCycleCount: 0,
     fixReason: null,
     mergeAttemptCount: 0,
+    budgetRequeueCount: 0,
     ...overrides,
   };
 }
@@ -312,6 +323,7 @@ beforeEach(() => {
 
   // Re-apply defaults after reset
   mockSumCostInWindow.mockReturnValue(0);
+  mockCountZeroCostFailuresInWindow.mockReturnValue(0);
   mockLinearClient.createComment.mockResolvedValue({});
   mockLinearClient.createAttachment.mockResolvedValue({});
   mockExistsSync.mockReturnValue(false);
@@ -354,6 +366,72 @@ describe("task-lifecycle workflow", () => {
     expect(result).toMatchObject({ outcome: "budget_exceeded" });
     // Should NOT have claimed the task
     expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();
+  });
+
+  test("circuit breaker trips at threshold → returns budget_exceeded, does not claim task", async () => {
+    mockCountZeroCostFailuresInWindow.mockReturnValue(5); // at threshold
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "budget_exceeded" });
+    expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();
+  });
+
+  test("circuit breaker trips → sendAlertThrottled called with critical severity", async () => {
+    mockCountZeroCostFailuresInWindow.mockReturnValue(7); // above threshold
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockSendAlertThrottled).toHaveBeenCalledWith(
+      expect.anything(),
+      "zero-cost-circuit-breaker",
+      expect.objectContaining({
+        severity: "critical",
+        taskId: "TEST-1",
+      }),
+      expect.any(Number),
+    );
+  });
+
+  test("circuit breaker trips → step.sleep called with 60m", async () => {
+    mockCountZeroCostFailuresInWindow.mockReturnValue(5); // at threshold
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", "60m");
+  });
+
+  test("circuit breaker not tripped below threshold → proceeds to claim task", async () => {
+    mockCountZeroCostFailuresInWindow.mockReturnValue(4); // below threshold of 5
+    mockGetTask.mockReturnValue(makeTask());
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockClaimTaskForDispatch).toHaveBeenCalled();
+  });
+
+  test("budget-exceeded path → incrementBudgetRequeueCount called for exponential backoff", async () => {
+    mockSumCostInWindow.mockReturnValue(150); // exceeds limit
+    mockGetTask.mockReturnValue(makeTask({ budgetRequeueCount: 2 }));
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockIncrementBudgetRequeueCount).toHaveBeenCalledWith(
+      expect.anything(),
+      "TEST-1",
+    );
+    // budgetRequeueCount=2 → delay = min(5 * 2^2, 60) = 20m
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", "20m");
   });
 
   test("claim fails (task not in DB) → returns not_claimed outcome", async () => {

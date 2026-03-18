@@ -56,6 +56,7 @@ vi.mock("../src/db/queries.js", () => ({
   countActiveSessions: vi.fn().mockReturnValue(0),
   clearSessionIds: vi.fn(),
   countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
+  incrementBudgetRequeueCount: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
 }));
 
@@ -249,8 +250,8 @@ beforeEach(() => {
 // check-budget returns a value that a subsequent step uses to fire the alert.
 // ---------------------------------------------------------------------------
 
-describe("BUG 1: sendAlertThrottled called inside step.run() — not safe for Inngest replay", () => {
-  test("circuit breaker alert fires inside check-budget step.run, not in its own step", async () => {
+describe("FIX 1: sendAlertThrottled moved to its own step — safe for Inngest replay", () => {
+  test("circuit breaker alert fires in its own alert-circuit-breaker step, not inside check-budget", async () => {
     // Arrange: circuit breaker is tripped
     mockCountZeroCostFailuresInWindow.mockReturnValue(10); // above threshold of 5
 
@@ -283,12 +284,11 @@ describe("BUG 1: sendAlertThrottled called inside step.run() — not safe for In
       30 * 60 * 1000,
     );
 
-    // The first step that called sendAlertThrottled should be "check-budget"
-    // This documents the bug: the alert is a side effect inside check-budget,
-    // not in its own isolated step. On Inngest replay of check-budget (e.g.
-    // after a process restart), the alert fires again, bypassing in-memory
-    // throttling (alertCooldowns is reset on restart).
-    expect(stepsCallingSendAlertThrottled[0]).toBe("check-budget");
+    // FIX: the alert now fires in its own "alert-circuit-breaker" step, not
+    // inside "check-budget". This is safe for Inngest replay because the step
+    // result is memoized — on replay, Inngest returns the cached result and
+    // does NOT re-execute the fn(), so sendAlertThrottled is not called again.
+    expect(stepsCallingSendAlertThrottled[0]).toBe("alert-circuit-breaker");
   });
 
   test("Inngest replay of check-budget (process restart) fires the alert again despite throttle cooldown", async () => {
@@ -488,8 +488,8 @@ describe("BUG 3 (fixed): circuit breaker path skips alert-budget-exceeded, no mi
 // between the original execution and a replay.
 // ---------------------------------------------------------------------------
 
-describe("BUG 5: circuit breaker window uses Date.now() inside step.run() — non-deterministic", () => {
-  test("cbWindowStart passed to countZeroCostFailuresInWindow varies between calls within same step", async () => {
+describe("FIX 5: circuit breaker window computed outside step.run() — deterministic on replay", () => {
+  test("cbWindowStart passed to countZeroCostFailuresInWindow is stable across step.run() re-executions", async () => {
     const windowsObserved: string[] = [];
 
     // Capture the windowStart argument passed to countZeroCostFailuresInWindow
@@ -503,7 +503,7 @@ describe("BUG 5: circuit breaker window uses Date.now() inside step.run() — no
     step.run.mockImplementation(async (id: string, fn: () => unknown) => {
       if (id === "check-budget") {
         const result1 = fn();
-        // Small delay to make timestamps differ
+        // Small delay to simulate Inngest replay at a later time
         await new Promise((r) => setTimeout(r, 5));
         const result2 = fn();
         return result2;
@@ -513,14 +513,12 @@ describe("BUG 5: circuit breaker window uses Date.now() inside step.run() — no
 
     await capturedHandler({ event: makeTaskReadyEvent(), step });
 
-    // If both replay calls happen, countZeroCostFailuresInWindow is called twice.
-    // The two windowStart values will differ because Date.now() advances.
-    // In a real Inngest replay (different process restart), they could differ
-    // by minutes or hours, potentially changing whether the circuit breaker trips.
+    // FIX: cbWindowStart is now computed ONCE outside step.run() as a closure
+    // variable. When check-budget replays, both calls receive the same stable
+    // timestamp — the circuit breaker window is deterministic regardless of
+    // when the replay happens.
     if (windowsObserved.length >= 2) {
-      // Document that the values CAN differ (they differ by a few ms in the test)
-      // In production replays they can differ by much more
-      expect(windowsObserved[0]).not.toBe(windowsObserved[1]);
+      expect(windowsObserved[0]).toBe(windowsObserved[1]);
     }
     // At minimum, the function is called once per check-budget execution
     expect(mockCountZeroCostFailuresInWindow).toHaveBeenCalled();
