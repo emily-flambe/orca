@@ -23,13 +23,16 @@ trim_log() {
   fi
 }
 
-# Read active port from deploy-state.json
+# Read active port from deploy-state.json (use pipe pattern matching restart.sh)
 get_active_port() {
   if [[ -f "$STATE_FILE" ]]; then
-    node -e "
-      var fs=require('fs');
-      try { console.log(JSON.parse(fs.readFileSync('$STATE_FILE','utf8')).activePort||4000) }
-      catch(e) { console.log(4000) }
+    cat "$STATE_FILE" | node -e "
+      var d='';
+      process.stdin.on('data',function(c){d+=c});
+      process.stdin.on('end',function(){
+        try { var v=JSON.parse(d).activePort; console.log(v!==undefined&&v!==null?v:4000) }
+        catch(e) { console.log(4000) }
+      })
     "
   else
     echo "4000"
@@ -72,11 +75,17 @@ if ! $PM2 ping &>/dev/null; then
   FAILURES="PM2 daemon not responsive"
 fi
 
-# Check 2: Orca health on active port
+# Check 2: Orca health on active port (try both ports before declaring failure)
 ACTIVE_PORT=$(get_active_port)
+if [[ "$ACTIVE_PORT" == "4000" ]]; then ALT_PORT=4001; else ALT_PORT=4000; fi
 if ! curl -sf "http://localhost:$ACTIVE_PORT/api/health" > /dev/null 2>&1; then
-  FAILED=true
-  FAILURES="${FAILURES:+$FAILURES; }Orca not responding on port $ACTIVE_PORT"
+  # Active port failed — try alternate port before declaring failure
+  if curl -sf "http://localhost:$ALT_PORT/api/health" > /dev/null 2>&1; then
+    log "active port $ACTIVE_PORT not responding but alt port $ALT_PORT is healthy — likely stale deploy-state.json"
+  else
+    FAILED=true
+    FAILURES="${FAILURES:+$FAILURES; }Orca not responding on port $ACTIVE_PORT (alt port $ALT_PORT also down)"
+  fi
 fi
 
 # Check 3: Inngest health
