@@ -153,6 +153,61 @@ export async function runReconciliation(deps: {
   return { reconciledCount };
 }
 
+/**
+ * Auto-retry logic — extracted for testability.
+ * Finds failed tasks with retries remaining and resets them to ready.
+ */
+export async function runAutoRetryFailedTasks(deps: {
+  db: OrcaDb;
+  config: OrcaConfig;
+}): Promise<{ retriedCount: number }> {
+  const { db, config } = deps;
+  const failedTasks = getFailedTasksWithRetriesRemaining(db, config.maxRetries);
+
+  if (failedTasks.length === 0) {
+    logger.debug("no failed tasks with retries remaining");
+    return { retriedCount: 0 };
+  }
+
+  for (const task of failedTasks) {
+    const totalAttempts = task.retryCount + task.staleSessionRetryCount;
+    updateTaskStatus(db, task.linearIssueId, "ready");
+    insertSystemEvent(db, {
+      type: "auto_retry",
+      message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${totalAttempts}/${config.maxRetries})`,
+      metadata: {
+        linearIssueId: task.linearIssueId,
+        retryCount: task.retryCount,
+        staleSessionRetryCount: task.staleSessionRetryCount,
+        totalAttempts,
+        maxRetries: config.maxRetries,
+      },
+    });
+
+    await inngest.send({
+      name: "task/ready",
+      data: {
+        linearIssueId: task.linearIssueId,
+        repoPath: task.repoPath,
+        priority: task.priority,
+        projectName: task.projectName ?? null,
+        taskType: task.taskType,
+        createdAt: task.createdAt,
+      },
+    });
+
+    logger.info(
+      `[${task.linearIssueId}] auto-retrying failed task (${totalAttempts}/${config.maxRetries})`,
+    );
+  }
+
+  logger.info(
+    `auto-retried ${failedTasks.length} failed task(s) with retries remaining`,
+  );
+
+  return { retriedCount: failedTasks.length };
+}
+
 export const reconcileStuckTasksWorkflow = inngest.createFunction(
   {
     id: "reconcile-stuck-tasks",
@@ -179,51 +234,7 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
 
     await step.run("auto-retry-failed-tasks", async () => {
       const { db, config } = getSchedulerDeps();
-      const failedTasks = getFailedTasksWithRetriesRemaining(
-        db,
-        config.maxRetries,
-      );
-
-      if (failedTasks.length === 0) {
-        logger.debug("no failed tasks with retries remaining");
-        return;
-      }
-
-      for (const task of failedTasks) {
-        const totalAttempts = task.retryCount + task.staleSessionRetryCount;
-        updateTaskStatus(db, task.linearIssueId, "ready");
-        insertSystemEvent(db, {
-          type: "auto_retry",
-          message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${totalAttempts}/${config.maxRetries})`,
-          metadata: {
-            linearIssueId: task.linearIssueId,
-            retryCount: task.retryCount,
-            staleSessionRetryCount: task.staleSessionRetryCount,
-            totalAttempts,
-            maxRetries: config.maxRetries,
-          },
-        });
-
-        await inngest.send({
-          name: "task/ready",
-          data: {
-            linearIssueId: task.linearIssueId,
-            repoPath: task.repoPath,
-            priority: task.priority,
-            projectName: task.projectName ?? null,
-            taskType: task.taskType,
-            createdAt: task.createdAt,
-          },
-        });
-
-        logger.info(
-          `[${task.linearIssueId}] auto-retrying failed task (${totalAttempts}/${config.maxRetries})`,
-        );
-      }
-
-      logger.info(
-        `auto-retried ${failedTasks.length} failed task(s) with retries remaining`,
-      );
+      await runAutoRetryFailedTasks({ db, config });
     });
 
     // Step 4: Re-emit task/ready for orphaned ready tasks.

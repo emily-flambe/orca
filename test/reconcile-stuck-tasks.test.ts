@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import { insertTask, insertInvocation, getTask, resetStaleSessionRetryCount, updateTaskFields } from "../src/db/queries.js";
+import { insertTask, insertInvocation, getTask, resetStaleSessionRetryCount, updateTaskFields, getRecentSystemEvents } from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
@@ -24,7 +24,7 @@ vi.mock("../src/session-handles.js", () => ({
   sweepExitedHandles: vi.fn(),
 }));
 
-const { runReconciliation } = await import(
+const { runReconciliation, runAutoRetryFailedTasks } = await import(
   "../src/inngest/workflows/reconcile-stuck-tasks.js"
 );
 
@@ -512,5 +512,126 @@ describe("runReconciliation — stale count reset prevents premature death", () 
       activeHandles: new Map(),
     });
     expect(getTask(dbWithReset, resetId)?.orcaStatus).toBe("ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("runAutoRetryFailedTasks — failed tasks with retries remaining", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("failed task with retries remaining is reset to ready and task/ready emitted", async () => {
+    const db = freshDb();
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 1, staleSessionRetryCount: 0 });
+
+    const result = await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    expect(result.retriedCount).toBe(1);
+    expect(getTask(db, id)?.orcaStatus).toBe("ready");
+    expect(mockInngestSend).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "task/ready", data: expect.objectContaining({ linearIssueId: id }) }),
+    );
+  });
+
+  test("failed task at max retries is left in failed", async () => {
+    const db = freshDb();
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 3, staleSessionRetryCount: 0 });
+
+    const result = await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    expect(result.retriedCount).toBe(0);
+    expect(getTask(db, id)?.orcaStatus).toBe("failed");
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  test("failed task where combined retry counts equal max retries is left in failed", async () => {
+    const db = freshDb();
+    // retryCount=1 + staleSessionRetryCount=2 = 3 = maxRetries → not eligible
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 1, staleSessionRetryCount: 2 });
+
+    const result = await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    expect(result.retriedCount).toBe(0);
+    expect(getTask(db, id)?.orcaStatus).toBe("failed");
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  test("a system event is logged for each auto-retried task", async () => {
+    const db = freshDb();
+    seedTask(db, { orcaStatus: "failed", retryCount: 0, staleSessionRetryCount: 0 });
+
+    await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    const events = getRecentSystemEvents(db, 10);
+    const autoRetryEvent = events.find((e) => e.type === "auto_retry");
+    expect(autoRetryEvent).toBeDefined();
+    expect(autoRetryEvent?.message).toMatch(/auto-retrying failed task/i);
+  });
+
+  test("multiple failed tasks are all retried in one pass", async () => {
+    const db = freshDb();
+    const id1 = seedTask(db, { orcaStatus: "failed", retryCount: 0 });
+    const id2 = seedTask(db, { orcaStatus: "failed", retryCount: 1 });
+    // This one is at max retries — should stay failed
+    const id3 = seedTask(db, { orcaStatus: "failed", retryCount: 3 });
+
+    const result = await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    expect(result.retriedCount).toBe(2);
+    expect(getTask(db, id1)?.orcaStatus).toBe("ready");
+    expect(getTask(db, id2)?.orcaStatus).toBe("ready");
+    expect(getTask(db, id3)?.orcaStatus).toBe("failed");
+    expect(mockInngestSend).toHaveBeenCalledTimes(2);
+  });
+
+  test("no failed tasks returns retriedCount=0 without error", async () => {
+    const db = freshDb();
+
+    const result = await runAutoRetryFailedTasks({ db, config: makeConfig() });
+
+    expect(result.retriedCount).toBe(0);
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  test("done and running tasks are not touched", async () => {
+    const db = freshDb();
+    const doneId = seedTask(db, { orcaStatus: "done" });
+    const runningId = seedTask(db, { orcaStatus: "running" });
+
+    await runAutoRetryFailedTasks({ db, config: makeConfig() });
+
+    expect(getTask(db, doneId)?.orcaStatus).toBe("done");
+    expect(getTask(db, runningId)?.orcaStatus).toBe("running");
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  test("task/ready event contains correct repoPath and priority", async () => {
+    const db = freshDb();
+    insertTask(db, {
+      linearIssueId: "PROJ-99",
+      agentPrompt: "fix it",
+      repoPath: "/home/user/myrepo",
+      orcaStatus: "failed",
+      priority: 2,
+      retryCount: 1,
+      staleSessionRetryCount: 0,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+
+    await runAutoRetryFailedTasks({ db, config: makeConfig({ maxRetries: 3 }) });
+
+    expect(mockInngestSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "task/ready",
+        data: expect.objectContaining({
+          linearIssueId: "PROJ-99",
+          repoPath: "/home/user/myrepo",
+          priority: 2,
+        }),
+      }),
+    );
   });
 });
