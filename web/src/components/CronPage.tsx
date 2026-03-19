@@ -418,39 +418,51 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
   }, [load]);
 
   async function handleCreate(form: FormState) {
-    const schedule = await createCronSchedule({
-      name: form.name,
-      type: form.type,
-      schedule: form.schedule,
-      prompt: form.prompt,
-      repoPath: form.repoPath || undefined,
-      model: form.model || undefined,
-      maxTurns: form.maxTurns ? parseInt(form.maxTurns, 10) : undefined,
-      timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : undefined,
-      maxRuns: form.maxRuns ? parseInt(form.maxRuns, 10) : undefined,
-      enabled: form.enabled ? 1 : 0,
-    });
-    setSchedules((prev) => [...prev, schedule]);
-    setShowNew(false);
-    onToast?.success("Schedule created");
+    try {
+      const schedule = await createCronSchedule({
+        name: form.name,
+        type: form.type,
+        schedule: form.schedule,
+        prompt: form.prompt,
+        repoPath: form.repoPath || undefined,
+        model: form.model || undefined,
+        maxTurns: form.maxTurns ? parseInt(form.maxTurns, 10) : undefined,
+        timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : undefined,
+        maxRuns: form.maxRuns ? parseInt(form.maxRuns, 10) : undefined,
+        enabled: form.enabled ? 1 : 0,
+      });
+      setSchedules((prev) => [...prev, schedule]);
+      setShowNew(false);
+      onToast?.success("Schedule created");
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to create schedule",
+      );
+    }
   }
 
   async function handleUpdate(id: number, form: FormState) {
-    const schedule = await updateCronSchedule(id, {
-      name: form.name,
-      type: form.type,
-      schedule: form.schedule,
-      prompt: form.prompt,
-      repoPath: form.repoPath || null,
-      model: form.model || null,
-      maxTurns: form.maxTurns ? parseInt(form.maxTurns, 10) : null,
-      timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : 60,
-      maxRuns: form.maxRuns ? parseInt(form.maxRuns, 10) : null,
-      enabled: form.enabled ? 1 : 0,
-    });
-    setSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
-    setEditingId(null);
-    onToast?.success("Schedule updated");
+    try {
+      const schedule = await updateCronSchedule(id, {
+        name: form.name,
+        type: form.type,
+        schedule: form.schedule,
+        prompt: form.prompt,
+        repoPath: form.repoPath || null,
+        model: form.model || null,
+        maxTurns: form.maxTurns ? parseInt(form.maxTurns, 10) : null,
+        timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : 60,
+        maxRuns: form.maxRuns ? parseInt(form.maxRuns, 10) : null,
+        enabled: form.enabled ? 1 : 0,
+      });
+      setSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
+      setEditingId(null);
+      onToast?.success("Schedule updated");
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to update schedule",
+      );
+    }
   }
 
   async function handleToggleEnabled(s: CronSchedule) {
@@ -474,6 +486,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
       await deleteCronSchedule(id);
       setSchedules((prev) => prev.filter((s) => s.id !== id));
       setDeletingId(null);
+      onToast?.success("Schedule deleted");
     } catch (err) {
       onToast?.error(
         err instanceof Error ? err.message : "Failed to delete schedule",
