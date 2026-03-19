@@ -144,7 +144,6 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     const statuses: TaskStatus[] = [
       "backlog",
       "ready",
-      "dispatched",
       "running",
       "done",
       "failed",

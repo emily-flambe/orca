@@ -684,12 +684,12 @@ describe("Cleanup - task status edge cases", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 
-  // "dispatched" is a transient state -- branches should be protected
-  test("branches from dispatched tasks are NOT deleted", () => {
+  // "running" includes the claim-to-spawn window -- branches should be protected
+  test("branches from running tasks are NOT deleted", () => {
     seedTask(db, {
       linearIssueId: "T-DISPATCH",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "dispatched",
+      orcaStatus: "running",
       prBranchName: "orca/T-DISPATCH-inv-1",
     });
 

@@ -4,7 +4,7 @@
  * Runs every 5 minutes to detect and recover tasks that are stranded in
  * intermediate states with no active session or have been idle too long:
  *
- * - dispatched/running with no active session handle → stranded, reset to ready/failed
+ * - running with no active session handle → stranded, reset to ready/failed
  * - awaiting_ci/deploying/in_review older than strandedTaskThresholdMin → timed-out, reset to ready/failed
  */
 
@@ -44,7 +44,6 @@ export async function runReconciliation(deps: {
 
   // Get all tasks in intermediate states that could be stranded.
   const intermediateTasks = getDispatchableTasks(db, [
-    "dispatched",
     "running",
     "awaiting_ci",
     "deploying",
@@ -76,9 +75,9 @@ export async function runReconciliation(deps: {
     let isStranded = false;
     let reason = "";
 
-    if (orcaStatus === "dispatched" || orcaStatus === "running") {
+    if (orcaStatus === "running") {
       // Apply a minimum age grace period before declaring stranded.
-      // A task may have just been dispatched and not yet spawned a session.
+      // A task may have just been claimed and not yet spawned a session.
       const gracePeriodMs = 2 * 60 * 1000; // 2 minutes
       const updatedMs = updatedAt ? new Date(updatedAt).getTime() : 0;
       const ageMs = now - updatedMs;
@@ -169,7 +168,6 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("detect-stuck-tasks", async () => {
       const deps = getSchedulerDeps();
       const tasks = getDispatchableTasks(deps.db, [
-        "dispatched",
         "running",
         "in_review",
         "awaiting_ci",

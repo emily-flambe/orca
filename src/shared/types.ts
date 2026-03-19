@@ -10,7 +10,6 @@ export type TaskType = (typeof TASK_TYPES)[number];
 export const TASK_STATUSES = [
   "backlog",
   "ready",
-  "dispatched",
   "running",
   "done",
   "failed",

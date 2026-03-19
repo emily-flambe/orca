@@ -26,7 +26,6 @@ const STATUS_FILTERS = [
   { value: "backlog", label: "backlog" },
   { value: "ready", label: "queued" },
   { value: "running", label: "running" },
-  { value: "dispatched", label: "dispatched" },
   { value: "in_review", label: "in review" },
   { value: "awaiting_ci", label: "awaiting CI" },
   { value: "deploying", label: "deploying" },
@@ -51,8 +50,6 @@ function statusFilterActiveStyle(value: FilterStatus): string {
       return "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
     case "failed":
       return "bg-red-500/20 text-red-400 border border-red-500/30";
-    case "dispatched":
-      return "bg-gray-500/20 text-gray-400 border border-gray-600";
     case "in_review":
       return "bg-purple-500/20 text-purple-400 border border-purple-500/30";
     case "changes_requested":
@@ -70,15 +67,14 @@ function statusFilterActiveStyle(value: FilterStatus): string {
 
 const STATUS_ORDER: Record<string, number> = {
   running: 0,
-  dispatched: 1,
-  in_review: 2,
-  awaiting_ci: 3,
-  deploying: 4,
-  changes_requested: 5,
-  ready: 6,
-  failed: 7,
-  done: 8,
-  backlog: 9,
+  in_review: 1,
+  awaiting_ci: 2,
+  deploying: 3,
+  changes_requested: 4,
+  ready: 5,
+  failed: 6,
+  done: 7,
+  backlog: 8,
 };
 
 type SortDirection = "asc" | "desc";

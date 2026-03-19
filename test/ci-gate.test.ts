@@ -657,7 +657,6 @@ describe("Edge cases - awaiting_ci", () => {
     const statuses: TaskStatus[] = [
       "backlog",
       "ready",
-      "dispatched",
       "running",
       "done",
       "failed",

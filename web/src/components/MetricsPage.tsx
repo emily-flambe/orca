@@ -430,7 +430,6 @@ function SystemConfiguration({
 const PIPELINE_ORDER = [
   "backlog",
   "ready",
-  "dispatched",
   "running",
   "in_review",
   "changes_requested",
@@ -443,7 +442,6 @@ const PIPELINE_ORDER = [
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   backlog: { bg: "bg-gray-600", text: "text-gray-400" },
   ready: { bg: "bg-yellow-500", text: "text-yellow-400" },
-  dispatched: { bg: "bg-blue-500", text: "text-blue-400" },
   running: { bg: "bg-blue-500", text: "text-blue-400" },
   in_review: { bg: "bg-purple-500", text: "text-purple-400" },
   changes_requested: { bg: "bg-purple-500", text: "text-purple-400" },

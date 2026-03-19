@@ -960,7 +960,7 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Edge case: moving from active states (running/dispatched/in_review)
+  // Edge case: moving from active states (running/in_review)
   // -----------------------------------------------------------------------
 
   it("running -> done: succeeds (kills session logic does not crash without active handles)", async () => {
@@ -985,12 +985,12 @@ describe("POST /api/tasks/:id/status", () => {
     expect(task!.orcaStatus).toBe("done");
   });
 
-  it("dispatched -> backlog: succeeds", async () => {
+  it("running -> backlog: succeeds", async () => {
     insertTask(
       db,
       makeTask({
         linearIssueId: "T-DISPATCHED",
-        orcaStatus: "dispatched" as const,
+        orcaStatus: "running" as const,
       }),
     );
 

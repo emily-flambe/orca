@@ -45,7 +45,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed";
+    orcaStatus: "ready" | "running" | "done" | "failed";
     priority: number;
     retryCount: number;
   }> = {},

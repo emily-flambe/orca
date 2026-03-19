@@ -528,7 +528,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     let sessionKilled = false;
     if (
       task.orcaStatus === "running" ||
-      task.orcaStatus === "dispatched" ||
       task.orcaStatus === "in_review"
     ) {
       const runningInvocations = getRunningInvocations(db);

@@ -117,9 +117,9 @@ describe("findStateByType", () => {
       ["Custom In Progress", { id: "s2", type: "started" }],
     ]);
     const overrides: Record<string, string> = {
-      "Custom In Progress": "dispatched",
+      "Custom In Progress": "running",
     };
-    const result = findStateByType(stateMap, "started", false, overrides, "dispatched");
+    const result = findStateByType(stateMap, "started", false, overrides, "running");
     expect(result).toEqual({ id: "s2", type: "started", name: "Custom In Progress" });
   });
 
@@ -129,9 +129,9 @@ describe("findStateByType", () => {
       ["Custom In Progress", { id: "s2", type: "started" }],
     ]);
     const overrides: Record<string, string> = {
-      "Custom In Progress": "dispatched",
+      "Custom In Progress": "running",
     };
-    // orcaStatus is "in_review", not "dispatched" — override should NOT apply
+    // orcaStatus is "in_review", not "running" — override should NOT apply
     const result = findStateByType(stateMap, "started", true, overrides, "in_review");
     // Should fall through to matchReview logic — no review-named state, falls back to first
     expect(result?.id).toBe("s1");

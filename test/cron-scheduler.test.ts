@@ -289,25 +289,25 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     expect(deleted).toBe(0); // FAILS with current implementation
   });
 
-  test("deleteOldCronTasks removes a dispatched cron task", () => {
+  test("deleteOldCronTasks skips a running cron task", () => {
     const db = freshDb();
 
     const scheduleId = seedCronSchedule(db, { type: "shell" });
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000);
     const taskId = seedTask(db, {
       linearIssueId: "CRON-2-1",
-      orcaStatus: "dispatched",
+      orcaStatus: "running",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
     });
 
-    expect(getTask(db, taskId)?.orcaStatus).toBe("dispatched");
+    expect(getTask(db, taskId)?.orcaStatus).toBe("running");
 
     const cutoff = pastIso(7 * 24 * 60 * 60 * 1000);
     const deleted = deleteOldCronTasks(db, cutoff);
 
-    // Bug: dispatched task gets deleted while it's still being worked on
+    // Running task should not be deleted while it's still being worked on
     expect(deleted).toBe(0); // FAILS with current implementation
   });
 

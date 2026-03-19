@@ -9,8 +9,6 @@ export function getStatusBadgeClasses(status: string): string {
       return "bg-cyan-500/20 text-cyan-400";
     case "failed":
       return "bg-red-500/20 text-red-400";
-    case "dispatched":
-      return "bg-gray-500/20 text-gray-400";
     case "in_review":
       return "bg-purple-500/20 text-purple-400";
     case "changes_requested":

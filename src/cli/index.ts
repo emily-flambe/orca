@@ -178,8 +178,8 @@ program
       );
     }
 
-    // Now recover orphaned tasks: any task stuck in "running" or
-    // "dispatched" with no running invocation is dead.
+    // Now recover orphaned tasks: any task stuck in "running"
+    // with no running invocation is dead.
     const allTasks = getAllTasks(db);
     const runningInvIssueIds = new Set(
       getRunningInvocations(db).map((inv) => inv.linearIssueId),
@@ -187,7 +187,7 @@ program
     let recovered = 0;
     for (const t of allTasks) {
       if (
-        (t.orcaStatus === "running" || t.orcaStatus === "dispatched") &&
+        t.orcaStatus === "running" &&
         !runningInvIssueIds.has(t.linearIssueId)
       ) {
         updateTaskStatus(db, t.linearIssueId, "ready");

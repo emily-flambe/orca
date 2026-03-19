@@ -162,7 +162,6 @@ export default function Sidebar({
 
   const ACTIVE_STATUSES = new Set([
     "ready",
-    "dispatched",
     "running",
     "in_review",
     "changes_requested",

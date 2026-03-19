@@ -34,7 +34,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: "ready" | "dispatched" | "running" | "done" | "failed";
+    orcaStatus: "ready" | "running" | "done" | "failed";
     priority: number;
     retryCount: number;
   }> = {},
@@ -549,17 +549,17 @@ describe("10.3 - Conflict resolution", () => {
     expect(task!.orcaStatus).toBe("running"); // NOT killed
   });
 
-  test("dispatched task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
+  test("running task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1c",
-      orcaStatus: "dispatched" as "running",
+      orcaStatus: "running",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("dispatched"); // NOT reset to ready
+    expect(task!.orcaStatus).toBe("running"); // NOT reset to ready
   });
 
   test("ready task, Linear says Done -> task becomes done", () => {
@@ -681,7 +681,7 @@ describe("10.4 - Write-back loop prevention", () => {
     registerExpectedChange("TASK-6", "In Progress");
     registerExpectedChange("TASK-6", "In Review");
 
-    // First webhook arrives (dispatched echo)
+    // First webhook arrives (running echo)
     expect(isExpectedChange("TASK-6", "In Progress")).toBe(true);
 
     // Second webhook arrives (running echo) — must still match
@@ -1210,7 +1210,7 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
     );
   }
 
-  test("dispatched → finds first non-review started state", async () => {
+  test("running → finds first non-review started state", async () => {
     const { client, writeBackStatus } = await getWriteBack();
     mockSuccess();
 
@@ -1219,7 +1219,7 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
       ["In Progress", { id: "s-progress", type: "started" }],
     ]);
 
-    await writeBackStatus(client, "TASK-1", "dispatched", stateMap);
+    await writeBackStatus(client, "TASK-1", "running", stateMap);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);

@@ -188,7 +188,7 @@ describe("processSnapshot", () => {
 
   // retryCount change with same status does NOT reset consecutiveSnapshots.
   // This is intentional: in practice, a retried task transitions through
-  // ready → dispatched → running, resetting the counter via status change.
+  // ready → running, resetting the counter via status change.
   // If status stays the same but retryCount changes, the task is still stuck
   // in the same state and the counter should keep accumulating.
 
@@ -313,13 +313,13 @@ describe("processSnapshot", () => {
     const originalTime = new Date(Date.now() - 300_000).toISOString();
     const state: TaskTrackingState = {
       "T-preserve": {
-        status: "dispatched",
+        status: "running",
         firstSeenAt: originalTime,
         consecutiveSnapshots: 1,
         retryCount: 0,
       },
     };
-    const tasks = [{ linearIssueId: "T-preserve", orcaStatus: "dispatched", retryCount: 0 }];
+    const tasks = [{ linearIssueId: "T-preserve", orcaStatus: "running", retryCount: 0 }];
     const { updatedState } = processSnapshot(tasks, state);
     expect(updatedState["T-preserve"]!.firstSeenAt).toBe(originalTime);
   });
@@ -588,7 +588,7 @@ describe("detectAndAlertStuckTasks", () => {
 
 describe("constants", () => {
   test("all expected active statuses have thresholds", () => {
-    const expectedStatuses = ["running", "dispatched", "in_review", "awaiting_ci", "changes_requested", "deploying"];
+    const expectedStatuses = ["running", "in_review", "awaiting_ci", "changes_requested", "deploying"];
     for (const status of expectedStatuses) {
       expect(STUCK_THRESHOLDS[status]).toBeDefined();
     }
@@ -603,6 +603,5 @@ describe("constants", () => {
   test("awaiting_ci threshold is higher than others (4 vs 2)", () => {
     expect(STUCK_THRESHOLDS["awaiting_ci"]).toBe(4);
     expect(STUCK_THRESHOLDS["running"]).toBe(2);
-    expect(STUCK_THRESHOLDS["dispatched"]).toBe(2);
   });
 });

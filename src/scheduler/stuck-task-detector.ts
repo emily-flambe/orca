@@ -18,7 +18,6 @@ export const DEFAULT_TRACKING_FILE = path.join(
 
 export const STUCK_THRESHOLDS: Record<string, number> = {
   running: 2,
-  dispatched: 2,
   in_review: 2,
   awaiting_ci: 4,
   changes_requested: 2,

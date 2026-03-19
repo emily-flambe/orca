@@ -44,8 +44,8 @@ describe("TaskList", () => {
     const tasks = [
       makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready" }),
       makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
-      makeTask({ linearIssueId: "ENG-3", orcaStatus: "dispatched" }),
-      makeTask({ linearIssueId: "ENG-4", orcaStatus: "in_review" }),
+      makeTask({ linearIssueId: "ENG-3", orcaStatus: "in_review" }),
+      makeTask({ linearIssueId: "ENG-4", orcaStatus: "awaiting_ci" }),
       makeTask({ linearIssueId: "ENG-5", orcaStatus: "failed" }),
     ];
     render(<TaskList {...defaultProps} tasks={tasks} />);
@@ -165,12 +165,12 @@ describe("TaskList", () => {
       const tasks = [
         makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready" }),
         makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
-        makeTask({ linearIssueId: "ENG-3", orcaStatus: "dispatched" }),
+        makeTask({ linearIssueId: "ENG-3", orcaStatus: "in_review" }),
       ];
       render(<TaskList {...defaultProps} tasks={tasks} />);
 
       const ids = getTaskIds();
-      // running (0) < dispatched (1) < ready (6) in STATUS_ORDER
+      // running (0) < in_review (1) < ready (5) in STATUS_ORDER
       expect(ids.indexOf("ENG-2")).toBeLessThan(ids.indexOf("ENG-3"));
       expect(ids.indexOf("ENG-3")).toBeLessThan(ids.indexOf("ENG-1"));
     });

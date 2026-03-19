@@ -39,7 +39,7 @@ function now(): string {
 function seedTask(
   db: OrcaDb,
   id: string,
-  status: "ready" | "dispatched" | "running" | "failed" | "in_review" | "changes_requested" = "ready",
+  status: "ready" | "running" | "failed" | "in_review" | "changes_requested" = "ready",
   staleSessionRetryCount = 0,
 ): void {
   const ts = now();
@@ -79,7 +79,7 @@ function runStartupRecovery(db: OrcaDb): { orphanCount: number; recoveredCount: 
     updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
   }
 
-  // Step 3: Recover stuck tasks (running/dispatched with no running invocation)
+  // Step 3: Recover stuck tasks (running with no running invocation)
   const allTasks = getAllTasks(db);
   const runningInvIssueIds = new Set(
     getRunningInvocations(db).map((inv) => inv.linearIssueId),
@@ -87,7 +87,7 @@ function runStartupRecovery(db: OrcaDb): { orphanCount: number; recoveredCount: 
   let recovered = 0;
   for (const t of allTasks) {
     if (
-      (t.orcaStatus === "running" || t.orcaStatus === "dispatched") &&
+      t.orcaStatus === "running" &&
       !runningInvIssueIds.has(t.linearIssueId)
     ) {
       updateTaskStatus(db, t.linearIssueId, "ready");
@@ -378,22 +378,22 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bug 2: Tasks stuck in "dispatched" state (no running invocation) don't get
+// Bug 2: Tasks stuck in "running" state (no running invocation) don't get
 // clearSessionIds called — only staleSessionRetryCount is reset.
 // ---------------------------------------------------------------------------
 
-describe("BUG: dispatched tasks without running invocations skip clearSessionIds", () => {
+describe("BUG: running tasks without running invocations skip clearSessionIds", () => {
   let db: OrcaDb;
 
   beforeEach(() => {
     db = freshDb();
   });
 
-  test("dispatched task with no running invocation gets session IDs cleared", () => {
-    // Scenario: orca crashed between claiming a task (updating to "dispatched")
+  test("running task with no running invocation gets session IDs cleared", () => {
+    // Scenario: orca crashed between claiming a task (updating to "running")
     // and inserting the new invocation. Or: crash happened while the task was
-    // dispatched but a previous completed invocation has a session ID.
-    seedTask(db, "TASK-DISPATCH-CRASH", "dispatched");
+    // running but a previous completed invocation has a session ID.
+    seedTask(db, "TASK-DISPATCH-CRASH", "running");
 
     // Previously completed implement invocation with a session ID
     const prevInvId = insertInvocation(db, {
@@ -408,9 +408,9 @@ describe("BUG: dispatched tasks without running invocations skip clearSessionIds
 
     const { orphanCount, recoveredCount } = runStartupRecovery(db);
     expect(orphanCount).toBe(0); // No running invocations
-    expect(recoveredCount).toBe(1); // Task was dispatched → reset to ready
+    expect(recoveredCount).toBe(1); // Task was running → reset to ready
 
-    // The dispatched-task recovery now calls clearSessionIds
+    // The running-task recovery now calls clearSessionIds
     // in addition to resetting staleSessionRetryCount.
     const invocations = getInvocationsByTask(db, "TASK-DISPATCH-CRASH");
     const prevInv = invocations.find((i) => i.id === prevInvId);
