@@ -280,33 +280,36 @@ if [[ "$POST_SWITCH_OK" != "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Drain old instance: signal it to stop accepting new work, then wait for
-# in-flight sessions to complete before killing the process.
+# Stop old instance: signal drain, wait for active sessions to finish, then kill.
 # ---------------------------------------------------------------------------
+DRAIN_TIMEOUT_S=120  # Max seconds to wait for sessions to finish
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
-  log "draining old instance on port $ACTIVE_PORT..."
+  log "signaling drain on old instance (port $ACTIVE_PORT)..."
   curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
 
-  DRAIN_TIMEOUT=30
-  DRAIN_ELAPSED=0
-  log "waiting for active sessions to finish (timeout=${DRAIN_TIMEOUT}s)..."
-  while [[ $DRAIN_ELAPSED -lt $DRAIN_TIMEOUT ]]; do
+  # Poll active sessions — wait for them to finish before killing
+  DRAIN_START=$(date +%s)
+  while true; do
     ACTIVE_SESSIONS=$(curl -sf "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-      | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" \
-      2>/dev/null || echo "0")
+      | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
+      || echo "0")
+
     if [[ "$ACTIVE_SESSIONS" == "0" ]]; then
-      log "all sessions drained"
+      log "all sessions drained — stopping old instance"
       break
     fi
-    log "waiting... active sessions: $ACTIVE_SESSIONS"
-    sleep 5
-    DRAIN_ELAPSED=$((DRAIN_ELAPSED + 5))
-  done
-  if [[ $DRAIN_ELAPSED -ge $DRAIN_TIMEOUT ]]; then
-    log "WARNING: drain timeout after ${DRAIN_TIMEOUT}s — forcing shutdown with $ACTIVE_SESSIONS active sessions"
-  fi
 
-  log "stopping old instance via PM2..."
+    ELAPSED=$(( $(date +%s) - DRAIN_START ))
+    if [[ "$ELAPSED" -ge "$DRAIN_TIMEOUT_S" ]]; then
+      log "drain timeout after ${ELAPSED}s with $ACTIVE_SESSIONS active session(s) — force stopping"
+      break
+    fi
+
+    log "waiting for $ACTIVE_SESSIONS active session(s) to finish (${ELAPSED}s/${DRAIN_TIMEOUT_S}s)..."
+    sleep 10
+  done
+
+  log "stopping old instance..."
   $PM2 delete "orca-${ACTIVE_PORT}" 2>/dev/null || true
 fi
 
