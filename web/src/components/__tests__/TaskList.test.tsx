@@ -1,7 +1,8 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import TaskList from "../TaskList";
 import type { Task } from "../../types";
+import { updateTaskStatus } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
   updateTaskStatus: vi.fn().mockResolvedValue({ ok: true }),
@@ -244,6 +245,52 @@ describe("TaskList", () => {
       expect(statusBtn.textContent).toBe("status");
       expect(statusBtn.textContent).not.toContain("↑");
       expect(statusBtn.textContent).not.toContain("↓");
+    });
+  });
+
+  describe("status update toasts", () => {
+    const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
+
+    it("calls onToast.success with status label when updateTaskStatus resolves", async () => {
+      mockUpdateTaskStatus.mockResolvedValue({ ok: true });
+      const onToast = { success: vi.fn(), error: vi.fn() };
+      const task = makeTask({ linearIssueId: "ENG-42", orcaStatus: "ready" });
+
+      render(<TaskList {...defaultProps} tasks={[task]} onToast={onToast} />);
+
+      // Click the status badge button to open the menu
+      const statusBadge = screen.getByText(/queued/);
+      fireEvent.click(statusBadge);
+
+      // Click "cancel" from the dropdown (excludes current status "ready")
+      const cancelOption = screen.getByText("cancel");
+      fireEvent.click(cancelOption);
+
+      await waitFor(() => {
+        expect(onToast.success).toHaveBeenCalledWith(
+          "Status updated to cancel",
+        );
+      });
+      expect(onToast.error).not.toHaveBeenCalled();
+    });
+
+    it("calls onToast.error when updateTaskStatus rejects", async () => {
+      mockUpdateTaskStatus.mockRejectedValue(new Error("Server error"));
+      const onToast = { success: vi.fn(), error: vi.fn() };
+      const task = makeTask({ linearIssueId: "ENG-42", orcaStatus: "ready" });
+
+      render(<TaskList {...defaultProps} tasks={[task]} onToast={onToast} />);
+
+      const statusBadge = screen.getByText(/queued/);
+      fireEvent.click(statusBadge);
+
+      const cancelOption = screen.getByText("cancel");
+      fireEvent.click(cancelOption);
+
+      await waitFor(() => {
+        expect(onToast.error).toHaveBeenCalledWith("Server error");
+      });
+      expect(onToast.success).not.toHaveBeenCalled();
     });
   });
 });
