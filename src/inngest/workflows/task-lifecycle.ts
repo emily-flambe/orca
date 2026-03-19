@@ -39,6 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  countZeroCostFailuresSince,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -245,15 +246,16 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  // Record all invocations (including zero-cost failures) for visibility.
+  // costUsd = 0 for zero-cost failures — they do NOT count toward budget
+  // (sumCostInWindow queries use these events, but $0 entries don't change the sum).
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +355,7 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
         const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
@@ -370,6 +372,16 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
+        // Circuit breaker: if too many zero-cost failures recently, pause dispatching
+        const ZERO_COST_FAILURE_THRESHOLD = 5;
+        const zeroCostFailures = countZeroCostFailuresSince(db, windowStart);
+        if (zeroCostFailures >= ZERO_COST_FAILURE_THRESHOLD) {
+          return {
+            ok: false,
+            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in ${config.budgetWindowHours}h window — Claude CLI may be broken`,
+            isCircuitBreaker: true,
+          };
+        }
         return { ok: true };
       },
     );
@@ -378,6 +390,25 @@ export const taskLifecycle = inngest.createFunction(
       log(
         `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
       );
+      await step.run("send-budget-alert", () => {
+        const deps = getSchedulerDeps();
+        if (budgetCheck.isCircuitBreaker) {
+          sendAlert(deps, {
+            severity: "critical",
+            title: "Circuit Breaker Tripped — Zero-Cost Failures",
+            message: `Task ${taskId} paused: ${budgetCheck.reason ?? "circuit breaker"}. This suggests the Claude CLI is broken. Investigate before tasks retry.`,
+            taskId,
+          });
+        } else {
+          sendAlert(deps, {
+            severity: "warning",
+            title: "Budget Exhausted — Task Held",
+            message: `Task ${taskId} is on hold: ${budgetCheck.reason ?? "budget exceeded"}. It will be requeued automatically when the budget window clears.`,
+            taskId,
+          });
+        }
+      });
+      await step.sleep("budget-exceeded-backoff", "5m");
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateAndEmit(db, taskId, "ready");

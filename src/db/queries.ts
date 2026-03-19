@@ -777,6 +777,30 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
 }
 
 /**
+ * Count failed invocations with zero cost within the budget window.
+ * Used for the circuit breaker. Only counts invocations with status='failed'
+ * to avoid false positives from cheap-but-successful sessions.
+ */
+export function countZeroCostFailuresSince(
+  db: OrcaDb,
+  windowStart: string,
+): number {
+  const result = db
+    .select({ cnt: count() })
+    .from(budgetEvents)
+    .innerJoin(invocations, eq(budgetEvents.invocationId, invocations.id))
+    .where(
+      and(
+        gte(budgetEvents.recordedAt, windowStart),
+        eq(budgetEvents.costUsd, 0),
+        eq(invocations.status, "failed"),
+      ),
+    )
+    .get();
+  return result?.cnt ?? 0;
+}
+
+/**
  * Sum cost_usd from budget_events where recorded_at is within [windowStart, windowEnd).
  * Returns 0 if no events match.
  */

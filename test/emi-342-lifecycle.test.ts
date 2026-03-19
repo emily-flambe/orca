@@ -59,6 +59,7 @@ vi.mock("../src/db/queries.js", () => ({
   insertSystemEvent: vi.fn(),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  countZeroCostFailuresSince: vi.fn().mockReturnValue(0),
   budgetMaxTokens: 1000000,
 }));
 
