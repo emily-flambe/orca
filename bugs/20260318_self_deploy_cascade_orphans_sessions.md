@@ -2,8 +2,8 @@
 
 **Date:** 2026-03-18
 **Severity:** High
-**Status:** Open
-**Fixed in:** TBD
+**Status:** Fixed
+**Fixed in:** Auto-deploy removed (prior), drain wait added (`c6851ea`), cooldown + 10-min drain (`93402ac`+)
 
 ## Summary
 
