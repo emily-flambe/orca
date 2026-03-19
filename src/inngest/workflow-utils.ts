@@ -8,8 +8,10 @@ import { join } from "node:path";
 import { git } from "../git.js";
 import { updateTaskStatus, getTask } from "../db/queries.js";
 import { emitTaskUpdated } from "../events.js";
+import { writeBackStatus } from "../linear/sync.js";
 import type { OrcaDb } from "../db/index.js";
 import type { TaskStatus } from "../shared/types.js";
+import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 
 // ---------------------------------------------------------------------------
 // alreadyDonePatterns — patterns in output summary indicating task is complete
@@ -130,4 +132,26 @@ export function hasPollingTimedOut(
 ): boolean {
   const timeoutMs = timeoutMin * 60 * 1000;
   return new Date(startedAt).getTime() + timeoutMs < Date.now();
+}
+
+// ---------------------------------------------------------------------------
+// transitionToFinalState — write back Linear status and post a comment
+// ---------------------------------------------------------------------------
+
+/**
+ * Write back Linear status and optionally post a comment, swallowing errors
+ * on both. Consolidates the repeated `writeBackStatus + createComment` pattern.
+ */
+export async function transitionToFinalState(
+  deps: { client: LinearClient; stateMap: WorkflowStateMap },
+  taskId: string,
+  targetStatus: Parameters<typeof writeBackStatus>[2],
+  comment?: string,
+): Promise<void> {
+  await writeBackStatus(deps.client, taskId, targetStatus, deps.stateMap).catch(
+    () => {},
+  );
+  if (comment !== undefined) {
+    await deps.client.createComment(taskId, comment).catch(() => {});
+  }
 }

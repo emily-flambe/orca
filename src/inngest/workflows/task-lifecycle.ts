@@ -47,7 +47,6 @@ import {
   emitInvocationStarted,
   emitInvocationCompleted,
 } from "../../events.js";
-import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
   sendPermanentFailureAlert,
@@ -58,6 +57,7 @@ import {
   worktreeHasNoChanges,
   alreadyDonePatterns,
   updateAndEmit,
+  transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
@@ -423,9 +423,9 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         emitTaskUpdated(getTask(db, taskId)!);
-        writeBackStatus(client, taskId, "running", stateMap).catch((err) => {
-          log(`write-back failed on claim for task ${taskId}: ${err}`);
-        });
+        transitionToFinalState({ client, stateMap }, taskId, "running").catch(
+          () => {},
+        );
 
         return { claimed: true, phase: task.orcaStatus as string };
       },
@@ -674,7 +674,9 @@ export const taskLifecycle = inngest.createFunction(
       });
       const doneTask = getTask(db, taskId);
       if (doneTask) emitTaskUpdated(doneTask);
-      writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
+      transitionToFinalState({ client, stateMap }, taskId, "done").catch(
+        () => {},
+      );
       try {
         removeWorktree(worktreePath);
       } catch {
@@ -847,15 +849,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Session failed after ${config.maxRetries} retries (implement phase)`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
-            client
-              .createComment(
-                taskId,
-                `Task permanently failed after ${config.maxRetries} retries`,
-              )
-              .catch(() => {});
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+              `Task permanently failed after ${config.maxRetries} retries`,
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
 
@@ -910,9 +909,11 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -959,9 +960,11 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -997,13 +1000,12 @@ export const taskLifecycle = inngest.createFunction(
 
         resetStaleSessionRetryCount(db, taskId);
         updateAndEmit(db, taskId, "in_review");
-        writeBackStatus(client, taskId, "in_review", stateMap).catch(() => {});
-        client
-          .createComment(
-            taskId,
-            `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-          )
-          .catch(() => {});
+        transitionToFinalState(
+          { client, stateMap },
+          taskId,
+          "in_review",
+          `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
+        ).catch(() => {});
 
         try {
           removeWorktree(worktreePath);
@@ -1293,16 +1295,13 @@ export const taskLifecycle = inngest.createFunction(
           updateTaskCiInfo(db, taskId, { ciStartedAt });
           resetStaleSessionRetryCount(db, taskId);
           updateAndEmit(db, taskId, "awaiting_ci");
-          writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
-            () => {},
-          );
           const task = getTask(db, taskId);
-          client
-            .createComment(
-              taskId,
-              `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
-            )
-            .catch(() => {});
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "awaiting_ci",
+            `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
+          ).catch(() => {});
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
@@ -1415,9 +1414,11 @@ export const taskLifecycle = inngest.createFunction(
 
           incrementReviewCycleCount(db, taskId);
           updateAndEmit(db, taskId, "changes_requested");
-          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-            () => {},
-          );
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "changes_requested",
+          ).catch(() => {});
 
           let resumeSessionId: string | undefined;
           if (config.resumeOnFix) {
@@ -1593,9 +1594,11 @@ export const taskLifecycle = inngest.createFunction(
           // Fix succeeded — transition back to in_review for next review cycle
           resetStaleSessionRetryCount(db, taskId);
           updateAndEmit(db, taskId, "in_review");
-          writeBackStatus(client, taskId, "in_review", stateMap).catch(
-            () => {},
-          );
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "in_review",
+          ).catch(() => {});
           log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
           return { ok: true, timedOut: false, resumeNotFound: false };
         },
