@@ -400,7 +400,13 @@ export const taskLifecycle = inngest.createFunction(
 
         // Check capacity BEFORE claiming — if we claim first and capacity is
         // full, the DB row transitions to "running" with no session (zombie).
-        assertSessionCapacity(db);
+        // Return gracefully instead of throwing — with retries: 0, a throw
+        // kills the workflow permanently and the task is never re-dispatched.
+        try {
+          assertSessionCapacity(db);
+        } catch {
+          return { claimed: false, reason: "session cap reached" };
+        }
 
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };

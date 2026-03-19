@@ -755,10 +755,17 @@ describe("claim-task capacity rejection", () => {
 
     const step = createStep();
 
-    // The claim-task step throws, which propagates as an error
-    await expect(
-      capturedHandler({ event: makeTaskReadyEvent(), step }),
-    ).rejects.toThrow(/session cap reached/);
+    // The claim-task step returns gracefully with { claimed: false } instead
+    // of throwing — with retries: 0, a throw would kill the workflow permanently.
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "not_claimed",
+      reason: "session cap reached",
+    });
 
     // claimTaskForDispatch was never called - DB is clean
     expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();

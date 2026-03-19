@@ -225,5 +225,37 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         `auto-retried ${failedTasks.length} failed task(s) with retries remaining`,
       );
     });
+
+    // Step 4: Re-emit task/ready for orphaned ready tasks.
+    // Tasks can get stuck in "ready" when their task-lifecycle workflow fails
+    // (e.g. capacity check) and no mechanism re-emits the event. This step
+    // ensures every ready task has a workflow trying to pick it up.
+    await step.run("re-dispatch-ready-tasks", async () => {
+      const { db } = getSchedulerDeps();
+      const readyTasks = getDispatchableTasks(db, ["ready"]);
+
+      if (readyTasks.length === 0) {
+        logger.debug("no orphaned ready tasks to re-dispatch");
+        return;
+      }
+
+      for (const task of readyTasks) {
+        await inngest.send({
+          name: "task/ready",
+          data: {
+            linearIssueId: task.linearIssueId,
+            repoPath: task.repoPath,
+            priority: task.priority,
+            projectName: task.projectName ?? null,
+            taskType: task.taskType,
+            createdAt: task.createdAt,
+          },
+        });
+      }
+
+      logger.info(
+        `re-dispatched ${readyTasks.length} orphaned ready task(s): ${readyTasks.map((t) => t.linearIssueId).join(", ")}`,
+      );
+    });
   },
 );
