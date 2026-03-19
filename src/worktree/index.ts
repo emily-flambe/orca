@@ -49,24 +49,24 @@ function npmInstall(cwd: string): void {
 }
 
 /**
- * rmSync with retry for Windows EPERM errors.
+ * rmSync with retry for Windows EPERM/EBUSY errors.
  *
  * On Windows, antivirus / indexing services can hold brief locks on files,
- * causing EPERM when deleting a directory tree. Retry up to 3 times with
- * a 2-second synchronous pause between attempts.
+ * causing EPERM or EBUSY when deleting a directory tree. Retry up to 5 times
+ * with exponential backoff (2s → 4s → 8s → 16s, ~30s total).
  */
-function rmSyncWithRetry(dirPath: string, maxAttempts = 3): void {
+export function rmSyncWithRetry(dirPath: string, maxAttempts = 5): void {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       rmSync(dirPath, { recursive: true, force: true });
       return;
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "EPERM" || attempt === maxAttempts) {
+      if ((code !== "EPERM" && code !== "EBUSY") || attempt === maxAttempts) {
         throw err;
       }
-      // Synchronous sleep via Atomics.wait — avoids spinning the CPU
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+      const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
     }
   }
 }
@@ -207,7 +207,7 @@ export function createWorktree(
 
   const repoDirname = basename(repoPath);
   const parentDir = dirname(repoPath);
-  const worktreePath = join(parentDir, `${repoDirname}-${taskId}`);
+  let worktreePath = join(parentDir, `${repoDirname}-${taskId}`);
   const baseRef = options?.baseRef;
   const branchName = baseRef ?? `orca/${taskId}-inv-${invocationId}`;
 
@@ -264,9 +264,33 @@ export function createWorktree(
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "EPERM" || code === "EBUSY") {
-        throw new WorktreeLockedError(worktreePath, err);
+        // Path is locked by an external process (antivirus, indexer, etc.).
+        // Use an alternate path instead of blocking the task.
+        for (let alt = 1; alt <= 3; alt++) {
+          const altPath = `${worktreePath}-retry-${alt}`;
+          if (!existsSync(altPath)) {
+            logger.warn(
+              `worktree path locked (${code}), using alternate: ${altPath}`,
+            );
+            worktreePath = altPath;
+            break;
+          }
+          // Alt path also exists — try to remove it
+          try {
+            killProcessesInDirectory(altPath);
+            rmSyncWithRetry(altPath);
+            logger.warn(
+              `worktree path locked (${code}), using alternate: ${altPath}`,
+            );
+            worktreePath = altPath;
+            break;
+          } catch {
+            if (alt === 3) throw new WorktreeLockedError(worktreePath, err);
+          }
+        }
+      } else {
+        throw err;
       }
-      throw err;
     }
   }
 

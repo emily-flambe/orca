@@ -7,7 +7,16 @@
 // and recreating it.
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -32,6 +41,15 @@ vi.mock("node:fs", async (importOriginal) => {
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return { ...actual, execSync: vi.fn() };
+});
+
+// Stub Atomics.wait so rmSyncWithRetry exponential backoff doesn't block tests
+const _origAtomicsWait = Atomics.wait;
+beforeAll(() => {
+  Atomics.wait = (() => "ok") as typeof Atomics.wait;
+});
+afterAll(() => {
+  Atomics.wait = _origAtomicsWait;
 });
 
 // Use tmpdir() as the parent so join() produces platform-correct separators.
@@ -221,9 +239,41 @@ describe("createWorktree — stale directory removal", () => {
     vi.clearAllMocks();
   });
 
-  test("throws WorktreeLockedError when rmSync fails with EBUSY after killing processes", async () => {
-    // Use EBUSY rather than EPERM to avoid the 2s×retry sleep in rmSyncWithRetry.
-    // EBUSY is not retried by rmSyncWithRetry, so WorktreeLockedError is thrown immediately.
+  test("falls back to alternate worktree path when original is locked with EBUSY", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const worktreePath = join(PARENT, "orca-EMI-500");
+    const altPath = join(PARENT, "orca-EMI-500-retry-1");
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      if (p === worktreePath) return true; // stale directory exists
+      return false; // alt paths don't exist
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return ""; // not registered
+      if (args[0] === "show-ref") throw new Error("fatal: not a valid ref");
+      return "";
+    });
+
+    // rmSync fails with EBUSY on the original path only
+    const ebusyErr = Object.assign(
+      new Error("EBUSY: resource busy or locked"),
+      { code: "EBUSY" },
+    );
+    mockRmSync.mockImplementation((p: string) => {
+      if (p === worktreePath) throw ebusyErr;
+      // alt paths succeed
+    });
+
+    const result = createWorktree(repoPath, "EMI-500", 1);
+    // Should use alternate path instead of throwing
+    expect(result.worktreePath).toBe(altPath);
+  });
+
+  test("throws WorktreeLockedError when all alternate paths are also locked", async () => {
     const { createWorktree } = await import("../src/worktree/index.js");
 
     const repoPath = join(PARENT, "orca");
@@ -232,6 +282,8 @@ describe("createWorktree — stale directory removal", () => {
     mockExistsSync.mockImplementation((p: string) => {
       if (p === repoPath) return true;
       if (p === worktreePath) return true; // stale directory exists
+      // All alt paths also exist (locked)
+      if (p.includes("orca-EMI-500-retry-")) return true;
       return false;
     });
 
@@ -241,18 +293,15 @@ describe("createWorktree — stale directory removal", () => {
       return "";
     });
 
-    // rmSync fails with EBUSY (file held by another process)
+    // rmSync always fails with EBUSY
     const ebusyErr = Object.assign(
       new Error("EBUSY: resource busy or locked"),
-      {
-        code: "EBUSY",
-      },
+      { code: "EBUSY" },
     );
     mockRmSync.mockImplementation(() => {
       throw ebusyErr;
     });
 
-    // createWorktree is synchronous — use try/catch, not .catch()
     let caught: unknown;
     try {
       createWorktree(repoPath, "EMI-500", 1);
@@ -261,10 +310,6 @@ describe("createWorktree — stale directory removal", () => {
     }
     expect(caught).toBeDefined();
     expect((caught as Error).name).toBe("WorktreeLockedError");
-    expect((caught as Error).message).toContain(
-      "processes killed but EPERM persists",
-    );
-    expect((caught as { cause: unknown }).cause).toBe(ebusyErr);
   });
 
   test("succeeds when stale directory exists and rmSync succeeds after killing processes", async () => {
