@@ -1704,6 +1704,41 @@ export const taskLifecycle = inngest.createFunction(
           });
           recordBudgetEventFromEvent(db, invocationId, fixEvent.data);
 
+          // Track zero-cost failures for circuit breaker
+          if (
+            !isSuccess &&
+            (fixEvent.data.costUsd === null || fixEvent.data.costUsd === 0)
+          ) {
+            const { config } = getSchedulerDeps();
+            const failCount = recordZeroCostFailure(
+              config.zeroCostFailureWindowMin,
+            );
+            log(
+              `task ${taskId}: zero-cost failure #${failCount} in circuit breaker window (fix)`,
+            );
+            if (failCount === config.zeroCostFailureThreshold) {
+              sendAlert(getSchedulerDeps(), {
+                severity: "critical",
+                title: "Circuit Breaker Triggered",
+                message: `${failCount} zero-cost failures in ${config.zeroCostFailureWindowMin} minutes — Claude CLI may be broken. Dispatching is paused for all tasks.`,
+                taskId,
+                fields: [
+                  {
+                    title: "Failure count",
+                    value: String(failCount),
+                    short: true,
+                  },
+                  {
+                    title: "Window",
+                    value: `${config.zeroCostFailureWindowMin} min`,
+                    short: true,
+                  },
+                  { title: "Task ID", value: taskId, short: false },
+                ],
+              });
+            }
+          }
+
           try {
             removeWorktree(worktreePath);
           } catch {
