@@ -60,6 +60,7 @@ vi.mock("../src/db/queries.js", () => ({
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
   budgetMaxTokens: 1000000,
+  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({

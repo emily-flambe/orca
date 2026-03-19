@@ -39,6 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  countZeroCostFailuresInWindow,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -49,6 +50,7 @@ import {
 } from "../../events.js";
 import {
   sendAlert,
+  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -245,15 +247,14 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  // Always record — zero-cost events are tracked for circuit breaker visibility
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -370,14 +371,74 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
+        const zeroCostWindowStart = new Date(
+          Date.now() - 10 * 60 * 1000,
+        ).toISOString();
+        const zeroCostFailures = countZeroCostFailuresInWindow(
+          db,
+          zeroCostWindowStart,
+        );
+        const zeroCostThreshold = 5;
+        if (zeroCostFailures >= zeroCostThreshold) {
+          return {
+            ok: false,
+            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in 10 min window`,
+          };
+        }
         return { ok: true };
       },
     );
 
     if (!budgetCheck.ok) {
       log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
+        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — alerting and requeueing`,
       );
+
+      // Determine alert severity/title based on reason
+      const isCircuitBreaker =
+        budgetCheck.reason?.includes("circuit breaker") ?? false;
+      const alertTitle = isCircuitBreaker
+        ? "Circuit Breaker Triggered"
+        : "Budget Exhausted";
+      const alertSeverity = isCircuitBreaker ? "critical" : "warning";
+
+      // Send alert inside step.run so it's memoized on replay
+      await step.run("send-budget-alert", () => {
+        const alertDeps = getSchedulerDeps();
+        sendAlertThrottled(
+          alertDeps,
+          isCircuitBreaker ? "circuit_breaker" : "budget_exhausted",
+          {
+            severity: alertSeverity,
+            title: alertTitle,
+            message: budgetCheck.reason ?? "Budget limit reached",
+            taskId,
+            fields: [
+              { title: "Task ID", value: taskId, short: true },
+              {
+                title: "Reason",
+                value: budgetCheck.reason ?? "unknown",
+                short: false,
+              },
+            ],
+          },
+          3_600_000, // 1-hour cooldown
+        );
+      });
+
+      // Exponential backoff before requeue — use zero-cost failure count as
+      // proxy for how many budget-exceeded cycles have occurred. This avoids
+      // consuming the task's maxRetries budget for budget-hold situations.
+      const backoffResult = await step.run("compute-budget-backoff", () => {
+        const { db, config } = getSchedulerDeps();
+        const windowStart = budgetWindowStart(config.budgetWindowHours);
+        const zeroCostCount = countZeroCostFailuresInWindow(db, windowStart);
+        return {
+          delayMs: Math.min(Math.pow(2, zeroCostCount) * 60_000, 3_600_000),
+        };
+      });
+      await step.sleep("budget-backoff", backoffResult.delayMs);
+
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateAndEmit(db, taskId, "ready");
