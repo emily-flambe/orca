@@ -58,6 +58,24 @@ export function updateTaskStatus(
     .run();
 }
 
+/** Record why a task failed (reason, phase, timestamp). */
+export function updateTaskFailureMetadata(
+  db: OrcaDb,
+  taskId: string,
+  reason: string,
+  phase: string,
+): void {
+  db.update(tasks)
+    .set({
+      lastFailureReason: reason.slice(0, 500), // cap length
+      lastFailedPhase: phase,
+      lastFailedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /**
  * Atomically claim a task for dispatch using compare-and-swap.
  * Only updates the status to "running" if the task is currently in one of

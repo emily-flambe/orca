@@ -150,6 +150,26 @@ export default function TaskDetail({
         )}
       </div>
 
+      {/* Failure reason banner */}
+      {detail.orcaStatus === "failed" && detail.lastFailureReason && (
+        <div className="bg-red-900/20 border border-red-800/40 rounded-lg p-3 text-sm space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-red-400 font-medium">Failure reason</span>
+            {detail.lastFailedPhase && (
+              <span className="text-xs font-mono text-red-500 bg-red-900/30 px-1.5 py-0.5 rounded">
+                {detail.lastFailedPhase}
+              </span>
+            )}
+            {detail.lastFailedAt && (
+              <span className="text-xs text-gray-500 ml-auto">
+                {new Date(detail.lastFailedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <p className="text-red-300">{detail.lastFailureReason}</p>
+        </div>
+      )}
+
       {/* Live run widget — shown when task has an active invocation */}
       {runningInvocation && (
         <LiveRunWidget

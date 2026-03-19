@@ -39,6 +39,9 @@ export const tasks = sqliteTable("tasks", {
   projectName: text("project_name"),
   taskType: text("task_type").notNull().default("linear"),
   cronScheduleId: integer("cron_schedule_id"),
+  lastFailureReason: text("last_failure_reason"),
+  lastFailedPhase: text("last_failed_phase"),
+  lastFailedAt: text("last_failed_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

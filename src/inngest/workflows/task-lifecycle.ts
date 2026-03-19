@@ -39,6 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  updateTaskFailureMetadata,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -680,6 +681,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "session timed out after 45 minutes",
           });
           updateTaskStatus(db, taskId, "failed");
+          updateTaskFailureMetadata(db, taskId, "Session timed out after 45 minutes", "implement");
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
           try {
@@ -785,6 +787,12 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           updateTaskStatus(db, taskId, "failed");
+          updateTaskFailureMetadata(
+            db,
+            taskId,
+            `Session failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns reached" : ""})`,
+            "implement",
+          );
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
 
@@ -880,6 +888,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "Post-implementation gate failed: no branch name",
           });
           updateTaskStatus(db, taskId, "failed");
+          updateTaskFailureMetadata(db, taskId, "Gate 2 failed: no branch name after session completed", "gate2");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -936,6 +945,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
           updateTaskStatus(db, taskId, "failed");
+          updateTaskFailureMetadata(db, taskId, `Gate 2 failed: no PR found for branch ${branchName}`, "gate2");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {

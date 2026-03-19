@@ -48,6 +48,7 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocation: vi.fn(),
   claimTaskForDispatch: vi.fn(),
   updateTaskStatus: vi.fn(),
+  updateTaskFailureMetadata: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
   insertBudgetEvent: vi.fn(),

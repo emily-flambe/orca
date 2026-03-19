@@ -17,6 +17,7 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  updateTaskFailureMetadata,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
@@ -108,6 +109,10 @@ export async function runReconciliation(deps: {
     const targetStatus = totalAttempts > maxRetries ? "failed" : "ready";
 
     updateTaskStatus(db, linearIssueId, targetStatus);
+
+    if (targetStatus === "failed") {
+      updateTaskFailureMetadata(db, linearIssueId, `Stranded task exhausted retries: ${reason}`, orcaStatus);
+    }
 
     insertSystemEvent(db, {
       type: "health_check",
@@ -201,6 +206,8 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
             staleSessionRetryCount: task.staleSessionRetryCount,
             totalAttempts,
             maxRetries: config.maxRetries,
+            lastFailureReason: task.lastFailureReason?.slice(0, 80) ?? null,
+            lastFailedPhase: task.lastFailedPhase ?? null,
           },
         });
 

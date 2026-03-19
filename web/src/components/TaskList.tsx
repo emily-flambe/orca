@@ -596,6 +596,18 @@ export default function TaskList({
                   ? task.agentPrompt.slice(0, 300)
                   : "No prompt"}
               </span>
+              {/* Failure reason badge */}
+              {task.orcaStatus === "failed" && task.lastFailureReason && (
+                <span
+                  className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded px-2 py-0.5 ml-[18px] line-clamp-1"
+                  title={`${task.lastFailedPhase ? `[${task.lastFailedPhase}] ` : ""}${task.lastFailureReason}`}
+                >
+                  {task.lastFailedPhase && (
+                    <span className="text-red-500 font-mono mr-1">[{task.lastFailedPhase}]</span>
+                  )}
+                  {task.lastFailureReason.slice(0, 80)}
+                </span>
+              )}
             </div>
           );
         })}
