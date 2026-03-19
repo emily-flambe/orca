@@ -244,6 +244,14 @@ export function fetchCronRuns(scheduleId: number): Promise<CronRun[]> {
   return fetchJson<CronRun[]>(`/cron/${scheduleId}/runs`);
 }
 
+export function fetchCronTasks(
+  scheduleId: number,
+): Promise<import("../types").TaskWithInvocations[]> {
+  return fetchJson<import("../types").TaskWithInvocations[]>(
+    `/cron/${scheduleId}/tasks`,
+  );
+}
+
 export function createCronSchedule(data: {
   name: string;
   type: "claude" | "shell";

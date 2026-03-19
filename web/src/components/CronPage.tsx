@@ -1,12 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import type { CronSchedule, CronRun } from "../types";
+import type {
+  CronSchedule,
+  CronRun,
+  TaskWithInvocations,
+  Invocation,
+} from "../types";
 import {
   fetchCronSchedules,
   fetchCronRuns,
+  fetchCronTasks,
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
 } from "../hooks/useApi";
+import LogViewer from "./LogViewer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -314,7 +321,8 @@ function statusBadge(status: string) {
   );
 }
 
-function RunHistory({ scheduleId }: { scheduleId: number }) {
+// Shell run history (cron_shell)
+function ShellRunHistory({ scheduleId }: { scheduleId: number }) {
   const [runs, setRuns] = useState<CronRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAll, setShowAll] = useState(false);
@@ -384,6 +392,161 @@ function RunHistory({ scheduleId }: { scheduleId: number }) {
       )}
     </div>
   );
+}
+
+// Invocation row for a claude task
+function InvocationRow({ inv }: { inv: Invocation }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const durationMs =
+    inv.startedAt && inv.endedAt
+      ? new Date(inv.endedAt).getTime() - new Date(inv.startedAt).getTime()
+      : null;
+
+  return (
+    <div className="bg-gray-900 rounded px-2 py-1.5 space-y-1 border border-gray-800">
+      <div className="flex items-center gap-2 text-xs">
+        {statusBadge(inv.status)}
+        <span className="text-gray-500 font-mono">{inv.phase ?? "—"}</span>
+        <span className="text-gray-400">{formatTimestamp(inv.startedAt)}</span>
+        <span className="text-gray-500">{formatDuration(durationMs)}</span>
+        {inv.costUsd != null && (
+          <span className="text-gray-500">${inv.costUsd.toFixed(4)}</span>
+        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-gray-500 hover:text-gray-300 transition-colors ml-auto"
+        >
+          {expanded ? "hide logs" : "view logs"}
+        </button>
+      </div>
+      {expanded && (
+        <div className="mt-1">
+          <LogViewer
+            invocationId={inv.id}
+            isRunning={inv.status === "running"}
+            outputSummary={inv.outputSummary}
+            compact
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Claude task row with expandable invocations
+function ClaudeTaskRow({ task }: { task: TaskWithInvocations }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const taskStatusColors: Record<string, string> = {
+    done: "bg-green-900/40 text-green-400 border-green-700/40",
+    failed: "bg-red-900/40 text-red-400 border-red-700/40",
+    running: "bg-blue-900/40 text-blue-400 border-blue-700/40",
+    ready: "bg-yellow-900/40 text-yellow-400 border-yellow-700/40",
+    canceled: "bg-gray-800 text-gray-500 border-gray-700",
+  };
+  const statusCls =
+    taskStatusColors[task.orcaStatus] ??
+    "bg-gray-800 text-gray-400 border-gray-700";
+
+  const durationMs =
+    task.createdAt && task.doneAt
+      ? new Date(task.doneAt).getTime() - new Date(task.createdAt).getTime()
+      : null;
+
+  return (
+    <div className="bg-gray-800/50 rounded px-2 py-1.5 space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded-full border ${statusCls}`}
+        >
+          {task.orcaStatus}
+        </span>
+        <span
+          className="text-gray-500 font-mono truncate max-w-[160px]"
+          title={task.linearIssueId}
+        >
+          {task.linearIssueId}
+        </span>
+        <span className="text-gray-400">{formatTimestamp(task.createdAt)}</span>
+        <span className="text-gray-500">{formatDuration(durationMs)}</span>
+        {task.invocations.length > 0 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="text-gray-500 hover:text-gray-300 transition-colors ml-auto"
+          >
+            {expanded
+              ? "hide"
+              : `${task.invocations.length} invocation${task.invocations.length !== 1 ? "s" : ""}`}
+          </button>
+        )}
+      </div>
+      {expanded && task.invocations.length > 0 && (
+        <div className="space-y-1 pl-2 border-l border-gray-700">
+          {task.invocations.map((inv) => (
+            <InvocationRow key={inv.id} inv={inv} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Claude invocation history (cron_claude)
+function ClaudeRunHistory({ scheduleId }: { scheduleId: number }) {
+  const [tasks, setTasks] = useState<TaskWithInvocations[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    fetchCronTasks(scheduleId)
+      .then(setTasks)
+      .catch(() => setTasks([]))
+      .finally(() => setLoading(false));
+  }, [scheduleId]);
+
+  if (loading) {
+    return <div className="text-xs text-gray-500 py-2">Loading history...</div>;
+  }
+
+  if (tasks.length === 0) {
+    return (
+      <div className="text-xs text-gray-500 italic py-2">
+        No run history yet.
+      </div>
+    );
+  }
+
+  const displayTasks = showAll ? tasks : tasks.slice(0, 20);
+
+  return (
+    <div className="space-y-1">
+      {displayTasks.map((task) => (
+        <ClaudeTaskRow key={task.linearIssueId} task={task} />
+      ))}
+      {!showAll && tasks.length > 20 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          Show {tasks.length - 20} more...
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RunHistory({
+  scheduleId,
+  scheduleType,
+}: {
+  scheduleId: number;
+  scheduleType: "claude" | "shell";
+}) {
+  if (scheduleType === "claude") {
+    return <ClaudeRunHistory scheduleId={scheduleId} />;
+  }
+  return <ShellRunHistory scheduleId={scheduleId} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -637,7 +800,9 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                   : "Run history"}
               </button>
 
-              {expandedHistoryId === s.id && <RunHistory scheduleId={s.id} />}
+              {expandedHistoryId === s.id && (
+                <RunHistory scheduleId={s.id} scheduleType={s.type} />
+              )}
             </div>
           )}
         </div>

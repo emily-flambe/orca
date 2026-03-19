@@ -1260,6 +1260,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/cron/:id/tasks — tasks spawned by a cron_claude schedule
+  // -----------------------------------------------------------------------
+  app.get("/api/cron/:id/tasks", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const schedule = getCronSchedule(db, id);
+    if (!schedule) {
+      return c.json({ error: "schedule not found" }, 404);
+    }
+    const cronTasks = getTasksByCronSchedule(db, id);
+    const sorted = [...cronTasks].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const result = sorted.map((task) => ({
+      ...task,
+      invocations: getInvocationsByTask(db, task.linearIssueId),
+    }));
+    return c.json(result);
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/cron
   // -----------------------------------------------------------------------
   app.post("/api/cron", async (c) => {
