@@ -42,6 +42,23 @@ export function insertTask(db: OrcaDb, task: NewTask): void {
   db.insert(tasks).values(task).run();
 }
 
+/** Record failure metadata when a task transitions to failed. */
+export function updateTaskFailureInfo(
+  db: OrcaDb,
+  taskId: string,
+  info: { reason: string; phase: string | null },
+): void {
+  db.update(tasks)
+    .set({
+      lastFailureReason: info.reason.slice(0, 500),
+      lastFailedPhase: info.phase,
+      lastFailedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Update a task's orca_status and set updated_at to now. */
 export function updateTaskStatus(
   db: OrcaDb,

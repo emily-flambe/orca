@@ -39,7 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
-  updateTaskFailureMetadata,
+  updateTaskFailureInfo,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -172,12 +172,10 @@ export function bridgeSessionCompletion(
               outputTokens: result.outputTokens ?? null,
             });
             updateTaskStatus(db, linearIssueId, "failed");
-            updateTaskFailureMetadata(
-              db,
-              linearIssueId,
-              "Inngest event send failed — session marked failed via DB fallback",
+            updateTaskFailureInfo(db, linearIssueId, {
+              reason: result.outputSummary ?? "Session failed",
               phase,
-            );
+            });
             log(
               `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
             );
@@ -227,12 +225,10 @@ export function bridgeSessionCompletion(
               endedAt: new Date().toISOString(),
             });
             updateTaskStatus(db, linearIssueId, "failed");
-            updateTaskFailureMetadata(
-              db,
-              linearIssueId,
-              "Runner process error — both Inngest sends failed, task failed via DB fallback",
+            updateTaskFailureInfo(db, linearIssueId, {
+              reason: "Session failed",
               phase,
-            );
+            });
             log(
               `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
             );
@@ -693,7 +689,10 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "session timed out after 45 minutes",
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(db, taskId, "Session timed out after 45 minutes", "implement");
+          updateTaskFailureInfo(db, taskId, {
+            reason: "Session timed out after 45 minutes",
+            phase: implementCtx.isFixPhase ? "fix" : "implement",
+          });
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
           try {
@@ -799,12 +798,12 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(
-            db,
-            taskId,
-            `Session failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns reached" : ""})`,
-            "implement",
-          );
+          updateTaskFailureInfo(db, taskId, {
+            reason:
+              implementEvent.data.summary ??
+              `Session failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns" : ""})`,
+            phase: implementCtx.isFixPhase ? "fix" : "implement",
+          });
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
 
@@ -900,7 +899,10 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "Post-implementation gate failed: no branch name",
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(db, taskId, "Gate 2 failed: no branch name after session completed", "implement");
+          updateTaskFailureInfo(db, taskId, {
+            reason: "Post-implementation gate: no branch name",
+            phase: "implement",
+          });
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -908,7 +910,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Task ${taskId} permanently failed`,
               metadata: {
                 taskId,
-                phase: "implement",
+                phase: "gate2",
                 reason: "no_branch_name",
                 retries: config.maxRetries,
               },
@@ -957,7 +959,10 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(db, taskId, `Gate 2 failed: no PR found for branch ${branchName}`, "implement");
+          updateTaskFailureInfo(db, taskId, {
+            reason: `Post-implementation gate: no PR found for branch ${branchName}`,
+            phase: "implement",
+          });
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -965,7 +970,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Task ${taskId} permanently failed`,
               metadata: {
                 taskId,
-                phase: "implement",
+                phase: "gate2",
                 reason: "no_pr_found",
                 retries: config.maxRetries,
               },

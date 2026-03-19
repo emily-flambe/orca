@@ -83,6 +83,35 @@ async function emitAlert(alert) {
 
 /**
  * @param {number} port
+ * @returns {Promise<Array<{id: string, reason: string|null, phase: string|null, failedAt: string|null}>>}
+ */
+async function fetchFailedTasks(port) {
+  const url = `http://localhost:${port}/api/tasks`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const tasks = await res.json();
+    return tasks
+      .filter((t) => t.orcaStatus === "failed")
+      .map((t) => ({
+        id: t.linearIssueId,
+        reason: t.lastFailureReason
+          ? t.lastFailureReason.slice(0, 80)
+          : null,
+        phase: t.lastFailedPhase,
+        failedAt: t.lastFailedAt,
+      }));
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+/**
+ * @param {number} port
  * @returns {Promise<{ costInWindow: number, budgetLimit: number }|null>}
  */
 async function fetchStatus(port) {
@@ -150,6 +179,7 @@ async function main() {
   const checkResult = await checkHealth(port);
 
   let budgetData = null;
+  let failedTasks = [];
   if (checkResult.up) {
     const statusData = await fetchStatus(port);
     if (statusData != null) {
@@ -158,6 +188,7 @@ async function main() {
         limit: statusData.budgetLimit,
       };
     }
+    failedTasks = await fetchFailedTasks(port);
   }
 
   const burnRateAlertThreshold = Number(
@@ -172,6 +203,10 @@ async function main() {
     budgetData,
     config,
   );
+
+  if (failedTasks.length > 0) {
+    snapshot.failedTasks = failedTasks;
+  }
 
   // Write snapshot
   const snapshotPath = snapshotFile(nowIso);

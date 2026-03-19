@@ -43,6 +43,9 @@ export interface Task {
   deployStartedAt: string | null;
   ciStartedAt: string | null;
   doneAt: string | null;
+  lastFailureReason: string | null;
+  lastFailedPhase: string | null;
+  lastFailedAt: string | null;
   projectName: string | null;
   invocationCount: number;
   createdAt: string;

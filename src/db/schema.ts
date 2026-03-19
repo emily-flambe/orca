@@ -34,6 +34,9 @@ export const tasks = sqliteTable("tasks", {
     .notNull()
     .default(0),
   doneAt: text("done_at"),
+  lastFailureReason: text("last_failure_reason"),
+  lastFailedPhase: text("last_failed_phase"),
+  lastFailedAt: text("last_failed_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),
   projectName: text("project_name"),
