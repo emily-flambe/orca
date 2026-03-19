@@ -549,6 +549,59 @@ describe("CronPage", () => {
     expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
   });
 
+  it("calls onToast.success when schedule is updated", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" }),
+    ]);
+    const updated = makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" });
+    mockUpdateCronSchedule.mockResolvedValue(updated);
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Edit"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. Nightly sync")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule updated");
+    });
+  });
+
+  it("calls onToast.error when schedule update fails", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" }),
+    ]);
+    mockUpdateCronSchedule.mockRejectedValue(new Error("Update failed"));
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Edit"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. Nightly sync")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Update failed");
+    });
+  });
+
   it("opens CronForm pre-filled with schedule data when Edit is clicked", async () => {
     mockFetchCronSchedules.mockResolvedValue([
       makeSchedule({ id: 3, name: "Edit me", schedule: "0 6 * * *" }),
