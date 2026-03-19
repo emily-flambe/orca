@@ -113,8 +113,7 @@ describe("CronPage - delete success toast", () => {
     // Make the update slow to ensure overlap
     mockFetchCronSchedules.mockResolvedValue([schedule]);
     mockUpdateCronSchedule.mockImplementation(
-      () =>
-        new Promise((resolve) => setTimeout(() => resolve(updated), 100)),
+      () => new Promise((resolve) => setTimeout(() => resolve(updated), 100)),
     );
 
     const onToast = { success: vi.fn(), error: vi.fn() };
@@ -165,7 +164,9 @@ describe("CronPage - delete success toast", () => {
     fireEvent.click(screen.getByText("Edit"));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("e.g. Nightly sync")).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText("e.g. Nightly sync"),
+      ).toBeInTheDocument();
     });
 
     // Submit the form

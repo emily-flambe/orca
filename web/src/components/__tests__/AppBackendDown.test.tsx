@@ -16,11 +16,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import App from "../../App";
 import { ToastProvider } from "../../hooks/useToast";
-import {
-  fetchTasks,
-  fetchStatus,
-  fetchVersion,
-} from "../../hooks/useApi";
+import { fetchTasks, fetchStatus, fetchVersion } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
   fetchTasks: vi.fn(),
@@ -122,9 +118,7 @@ describe("App - backendDown state", () => {
     renderApp();
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Backend is unreachable/i),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Backend is unreachable/i)).toBeInTheDocument();
     });
   });
 

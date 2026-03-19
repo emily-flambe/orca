@@ -1,7 +1,13 @@
 /**
  * Tests targeting bugs in the useToast hook and toast system.
  */
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ToastProvider, useToast } from "../useToast";
 
@@ -14,11 +20,7 @@ function ToastTrigger({
   message: string;
 }) {
   const toast = useToast();
-  return (
-    <button onClick={() => toast[type](message)}>
-      fire-{type}
-    </button>
-  );
+  return <button onClick={() => toast[type](message)}>fire-{type}</button>;
 }
 
 function renderWithProvider(ui: React.ReactNode) {
@@ -199,9 +201,7 @@ describe("useToast - MAX_TOASTS eviction timer leak", () => {
 describe("useToast - used outside provider", () => {
   it("throws with a descriptive error when useToast is used without ToastProvider", () => {
     // Suppress React's own error boundary console output during this test
-    const consoleSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     expect(() => {
       render(<ToastTrigger type="success" message="test" />);

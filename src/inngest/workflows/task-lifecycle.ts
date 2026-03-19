@@ -536,7 +536,9 @@ export const taskLifecycle = inngest.createFunction(
         try {
           assertSessionCapacity(db);
         } catch {
-          log(`task ${taskId}: implement spawn blocked by capacity, resetting to ready`);
+          log(
+            `task ${taskId}: implement spawn blocked by capacity, resetting to ready`,
+          );
           updateTaskStatus(db, taskId, "ready");
           emitTaskUpdated(getTask(db, taskId)!);
           return null;
@@ -558,7 +560,9 @@ export const taskLifecycle = inngest.createFunction(
               baseRef,
             });
           } catch (err) {
-            log(`task ${taskId}: implement spawn blocked by worktree error: ${err}`);
+            log(
+              `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
+            );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
@@ -1133,7 +1137,9 @@ export const taskLifecycle = inngest.createFunction(
               baseRef,
             });
           } catch (err) {
-            log(`task ${taskId}: review spawn blocked by worktree error: ${err}`);
+            log(
+              `task ${taskId}: review spawn blocked by worktree error: ${err}`,
+            );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
@@ -1142,10 +1148,16 @@ export const taskLifecycle = inngest.createFunction(
           try {
             assertSessionCapacity(db);
           } catch {
-            log(`task ${taskId}: review spawn blocked by capacity, resetting to ready`);
+            log(
+              `task ${taskId}: review spawn blocked by capacity, resetting to ready`,
+            );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);
-            try { removeWorktree(wtResult.worktreePath); } catch { /* ignore */ }
+            try {
+              removeWorktree(wtResult.worktreePath);
+            } catch {
+              /* ignore */
+            }
             return null;
           }
 
@@ -1483,10 +1495,16 @@ export const taskLifecycle = inngest.createFunction(
           try {
             assertSessionCapacity(db);
           } catch {
-            log(`task ${taskId}: fix spawn blocked by capacity, resetting to ready`);
+            log(
+              `task ${taskId}: fix spawn blocked by capacity, resetting to ready`,
+            );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);
-            try { removeWorktree(wtResult.worktreePath); } catch { /* ignore */ }
+            try {
+              removeWorktree(wtResult.worktreePath);
+            } catch {
+              /* ignore */
+            }
             return null;
           }
 
