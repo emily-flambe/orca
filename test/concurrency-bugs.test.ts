@@ -189,6 +189,7 @@ const mockGetLastCompletedImplementInvocation = vi.mocked(
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
+  concurrencyCap: 1,
   budgetMaxCostUsd: 100,
   budgetMaxTokens: 10_000_000,
   budgetWindowHours: 4,
