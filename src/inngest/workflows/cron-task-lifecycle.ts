@@ -1,7 +1,7 @@
 /**
  * Cron task lifecycle — handles cron_claude tasks independently from the main
- * task-lifecycle, with NO concurrency limit so cron tasks always run
- * immediately regardless of how many Linear tasks are in flight.
+ * task-lifecycle. Cron tasks respect the global concurrency cap just like
+ * Linear tasks; if the cap is reached the workflow exits gracefully.
  *
  * Steps: claim → spawn implement → wait → done/fail → cleanup worktree
  */
@@ -21,6 +21,7 @@ import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
+  assertSessionCapacity,
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
@@ -38,7 +39,7 @@ export const cronTaskLifecycle = inngest.createFunction(
   {
     id: "cron-task-lifecycle",
 
-    // No global concurrency limit — cron tasks bypass the cap.
+    // Cron tasks respect the global concurrency cap (checked in claim + spawn steps).
     // Per-task dedup only.
     concurrency: [{ limit: 1, key: "event.data.linearIssueId" }],
 
@@ -66,6 +67,14 @@ export const cronTaskLifecycle = inngest.createFunction(
       "claim-task",
       (): { claimed: boolean; reason?: string } => {
         const { db } = getSchedulerDeps();
+
+        // Enforce concurrency cap — exit gracefully if full
+        try {
+          assertSessionCapacity(db);
+        } catch {
+          return { claimed: false, reason: "session cap reached" };
+        }
+
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -98,6 +107,9 @@ export const cronTaskLifecycle = inngest.createFunction(
         const { db, config } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
+
+        // Second capacity check — guards against TOCTOU race between claim and spawn
+        assertSessionCapacity(db);
 
         const model = config.implementModel;
         const wtResult = createWorktree(task.repoPath, taskId, 0);
@@ -141,7 +153,6 @@ export const cronTaskLifecycle = inngest.createFunction(
         );
 
         emitInvocationStarted({ taskId, invocationId });
-        updateTaskStatus(db, taskId, "running");
         emitTaskUpdated(getTask(db, taskId)!);
 
         log(

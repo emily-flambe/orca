@@ -12,7 +12,10 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line no-var
-var capturedHandler: (ctx: { event: unknown; step: unknown }) => Promise<unknown>;
+var capturedHandler: (ctx: {
+  event: unknown;
+  step: unknown;
+}) => Promise<unknown>;
 
 vi.mock("../src/inngest/client.js", () => ({
   inngest: {
@@ -55,6 +58,7 @@ vi.mock("../src/db/queries.js", () => ({
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   clearSessionIds: vi.fn(),
+  countActiveSessions: vi.fn().mockReturnValue(0),
   budgetMaxTokens: 1000000,
 }));
 
@@ -241,7 +245,7 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
     run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
     waitForEvent: vi.fn(async (id: string, _opts: unknown) => {
       activeHandles.clear();
-      
+
       return waitForEventResponses.get(id) ?? null;
     }),
     sleep: vi.fn(async () => {}),
@@ -252,8 +256,12 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
 const mockSumTokensInWindow = vi.mocked(sumTokensInWindow);
 const mockBudgetWindowStart = vi.mocked(budgetWindowStart);
 const mockGetLastMaxTurnsInvocation = vi.mocked(getLastMaxTurnsInvocation);
-const mockGetLastDeployInterruptedInvocation = vi.mocked(getLastDeployInterruptedInvocation);
-const mockGetLastCompletedImplementInvocation = vi.mocked(getLastCompletedImplementInvocation);
+const mockGetLastDeployInterruptedInvocation = vi.mocked(
+  getLastDeployInterruptedInvocation,
+);
+const mockGetLastCompletedImplementInvocation = vi.mocked(
+  getLastCompletedImplementInvocation,
+);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
@@ -261,7 +269,6 @@ const mockCreateWorktree = vi.mocked(createWorktree);
 beforeEach(() => {
   vi.resetAllMocks();
   activeHandles.clear();
-  
 
   mockSumCostInWindow.mockReturnValue(0);
   mockSumTokensInWindow.mockReturnValue(0);
@@ -300,7 +307,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("EMI-342: isResumeNotFound in task-lifecycle (implement phase)", () => {
-
   // -------------------------------------------------------------------------
   // BUG CANDIDATE A: retry must NOT increment the retry counter
   // -------------------------------------------------------------------------
@@ -447,7 +453,6 @@ describe("EMI-342: isResumeNotFound in task-lifecycle (implement phase)", () => 
 });
 
 describe("EMI-342: isResumeNotFound in task-lifecycle (fix phase)", () => {
-
   // -------------------------------------------------------------------------
   // When isResumeNotFound fires in the fix phase, the workflow should clear
   // the stale session ID and continue the review loop (retry fresh) without
@@ -464,7 +469,9 @@ describe("EMI-342: isResumeNotFound in task-lifecycle (fix phase)", () => {
       .mockReturnValueOnce(3);
     mockGetInvocation
       .mockReturnValueOnce({ outputSummary: "" })
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" });
+      .mockReturnValueOnce({
+        outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED",
+      });
     mockFindPrForBranch.mockReturnValue({
       exists: true,
       number: 42,
@@ -505,7 +512,9 @@ describe("EMI-342: isResumeNotFound in task-lifecycle (fix phase)", () => {
     expect(result).not.toMatchObject({ outcome: "fix_failed" });
 
     // task/ready is NOT re-sent — the loop continues internally
-    const allSendCalls = mockInngestSend.mock.calls.map((c) => (c[0] as { name: string }).name);
+    const allSendCalls = mockInngestSend.mock.calls.map(
+      (c) => (c[0] as { name: string }).name,
+    );
     expect(allSendCalls).not.toContain("task/ready");
   });
 });

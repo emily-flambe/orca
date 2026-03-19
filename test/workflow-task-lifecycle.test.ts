@@ -63,6 +63,8 @@ vi.mock("../src/db/queries.js", () => ({
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
+  clearSessionIds: vi.fn(),
+  countActiveSessions: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -108,9 +110,8 @@ vi.mock("../src/git.js", () => ({
 }));
 
 vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import("../src/scheduler/alerts.js")
-  >();
+  const actual =
+    await importOriginal<typeof import("../src/scheduler/alerts.js")>();
   return {
     ...actual,
     sendPermanentFailureAlert: vi.fn(),
@@ -266,7 +267,7 @@ function createStep(waitForEventResponses: Map<string, unknown> = new Map()) {
       // Simulate session completion: clear activeHandles and pending count so
       // the next spawn doesn't hit the concurrency cap.
       activeHandles.clear();
-      
+
       return waitForEventResponses.get(id) ?? null;
     }),
     sleep: vi.fn(async () => {}),
@@ -288,7 +289,7 @@ function createStepPreserveHandlesOnTimeout(
       if (response !== undefined) {
         // Event received — clear handles as normal
         activeHandles.clear();
-        
+
         return response;
       }
       // Timeout (null) — leave handles in place so the kill path can find them
@@ -306,7 +307,6 @@ function createStepPreserveHandlesOnTimeout(
 beforeEach(() => {
   vi.resetAllMocks();
   activeHandles.clear();
-  
 
   // Re-apply defaults after reset
   mockSumCostInWindow.mockReturnValue(0);

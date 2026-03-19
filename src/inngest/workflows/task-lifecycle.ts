@@ -38,6 +38,7 @@ import {
   insertSystemEvent,
   clearSessionIds,
   resetStaleSessionRetryCount,
+  countActiveSessions,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -75,14 +76,20 @@ import { createLogger } from "../../logger.js";
 const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
 
 /**
- * Process-level guard: throws if the number of active Claude sessions has
- * reached the concurrency cap. Uses activeHandles.size as the single source
- * of truth — it reflects actually-running sessions in this process.
+ * Guard: throws if the number of active Claude sessions has reached the
+ * concurrency cap. Checks both the process-local activeHandles map AND the
+ * DB running invocation count (survives restarts where activeHandles is empty).
+ * Uses Math.max to be conservative — if either source says we're full, we're full.
  */
-function assertSessionCapacity(): void {
-  if (activeHandles.size >= CONCURRENCY_CAP) {
+export function assertSessionCapacity(
+  db: import("../../db/index.js").OrcaDb,
+): void {
+  const handleCount = activeHandles.size;
+  const dbCount = countActiveSessions(db);
+  const effectiveCount = Math.max(handleCount, dbCount);
+  if (effectiveCount >= CONCURRENCY_CAP) {
     throw new Error(
-      `session cap reached: ${activeHandles.size} active sessions (cap=${CONCURRENCY_CAP})`,
+      `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${CONCURRENCY_CAP})`,
     );
   }
 }
@@ -151,8 +158,27 @@ export function bridgeSessionCompletion(
         })
         .catch((err) => {
           log(
-            `failed to send session/completed for invocation ${invocationId}: ${err}`,
+            `failed to send session/completed for invocation ${invocationId}: ${err} — falling back to DB update`,
           );
+          // DB fallback: update invocation and reset task so it gets re-dispatched
+          try {
+            const { db } = getSchedulerDeps();
+            updateInvocation(db, invocationId, {
+              status: invStatus,
+              endedAt: new Date().toISOString(),
+              costUsd: result.costUsd ?? null,
+              inputTokens: result.inputTokens ?? null,
+              outputTokens: result.outputTokens ?? null,
+            });
+            updateTaskStatus(db, linearIssueId, "failed");
+            log(
+              `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
+            );
+          } catch (dbErr) {
+            log(
+              `DB fallback also failed for invocation ${invocationId}: ${dbErr}`,
+            );
+          }
         });
     })
     .catch((err) => {
@@ -183,8 +209,25 @@ export function bridgeSessionCompletion(
             isResumeNotFound: false,
           },
         })
-        .catch(() => {
-          /* ignore secondary send failure */
+        .catch((sendErr) => {
+          log(
+            `secondary send also failed for invocation ${invocationId}: ${sendErr} — falling back to DB update`,
+          );
+          try {
+            const { db } = getSchedulerDeps();
+            updateInvocation(db, invocationId, {
+              status: "failed",
+              endedAt: new Date().toISOString(),
+            });
+            updateTaskStatus(db, linearIssueId, "failed");
+            log(
+              `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
+            );
+          } catch (dbErr) {
+            log(
+              `DB fallback also failed for invocation ${invocationId}: ${dbErr}`,
+            );
+          }
         });
     });
 }
@@ -354,6 +397,11 @@ export const taskLifecycle = inngest.createFunction(
       "claim-task",
       (): { claimed: boolean; reason?: string; phase?: string } => {
         const { db, client, stateMap } = getSchedulerDeps();
+
+        // Check capacity BEFORE claiming — if we claim first and capacity is
+        // full, the DB row transitions to "running" with no session (zombie).
+        assertSessionCapacity(db);
+
         const task = getTask(db, taskId);
         if (!task) return { claimed: false, reason: "task not found" };
 
@@ -479,6 +527,10 @@ export const taskLifecycle = inngest.createFunction(
 
         const model = isFixPhase ? config.fixModel : config.implementModel;
 
+        // Check capacity BEFORE creating worktree or inserting invocation —
+        // creating resources first would leak them if the check throws.
+        assertSessionCapacity(db);
+
         let worktreePath: string;
         let branchName: string;
 
@@ -509,10 +561,6 @@ export const taskLifecycle = inngest.createFunction(
         } else {
           appendSystemPrompt = config.implementSystemPrompt || undefined;
         }
-
-        // Check capacity BEFORE inserting invocation — inserting first would
-        // leave a phantom "running" row in the DB if the check throws.
-        assertSessionCapacity();
 
         const now = new Date().toISOString();
         const invocationId = insertInvocation(db, {
@@ -1056,7 +1104,7 @@ export const taskLifecycle = inngest.createFunction(
             baseRef,
           });
 
-          assertSessionCapacity();
+          assertSessionCapacity(db);
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
@@ -1387,7 +1435,7 @@ export const taskLifecycle = inngest.createFunction(
             updateTaskFixReason(db, taskId, null);
           }
 
-          assertSessionCapacity();
+          assertSessionCapacity(db);
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
