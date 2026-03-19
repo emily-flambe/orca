@@ -61,7 +61,12 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining, getDrainingStartedAt } from "../deploy.js";
+import {
+  isDraining,
+  setDraining,
+  getDrainingStartedAt,
+  clearDraining,
+} from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -1709,6 +1714,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       message,
       metadata: { status },
     });
+    // Clear drain flag on successful deploy — the new instance is live and
+    // this old instance is being shut down, so no need to stay in drain state.
+    if (status === "success" && isDraining()) {
+      clearDraining();
+      logger.info("audit: drain flag cleared after successful deploy");
+    }
     logger.info(`audit: deploy event status=${status}`);
     return c.json({ ok: true });
   });

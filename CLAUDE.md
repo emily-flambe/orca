@@ -107,6 +107,20 @@ bash /c/Users/emily/Documents/Github/orca/scripts/deploy.sh
 
 Blue/green zero-downtime: new instance on standby port → health check → switch Cloudflare tunnel → drain old → kill old. Port alternates 4000/4001 (`deploy-state.json`).
 
+### Drain State and Task Dispatch
+
+**Tasks are NOT dispatched during drain.** When `draining=true`, Inngest's concurrency config still allows new `task/ready` events to trigger workflows — but the reconciler's re-dispatch logic is gated by `isDraining()` and will not re-queue stuck tasks while draining.
+
+However, new Inngest task-lifecycle workflows can still be triggered by `task/ready` events emitted before the drain started. This is intentional: tasks already in-flight should complete, and the drain is meant to prevent *new* dispatches, not kill active ones.
+
+**Drain flag lifecycle:**
+1. `POST /api/deploy/drain` — sets `draining=true` at the start of a blue/green deploy
+2. Sessions complete naturally (or time out); no new tasks start
+3. `POST /api/deploy/event` with `status=success` — explicitly clears the drain flag
+4. Auto-clear fallback: if `draining=true` with 0 active sessions for `ORCA_DRAIN_TIMEOUT_MIN` (default: 10 min), drain is auto-cleared with a warning
+
+The `/api/deploy/unpause` endpoint is a no-op legacy stub — drain is cleared via deploy event or auto-timeout, not via unpause.
+
 Deploy after: backend changes (`src/**/*.ts`), frontend rebuild (`web/dist/`), `.env`/config changes.
 
 ### Post-Deploy Verification (MANDATORY)
