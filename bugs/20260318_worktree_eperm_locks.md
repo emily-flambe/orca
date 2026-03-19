@@ -2,8 +2,8 @@
 
 **Date:** 2026-03-18
 **Severity:** Medium
-**Status:** Open
-**Fixed in:** TBD
+**Status:** Fixed
+**Fixed in:** `93402ac` (2026-03-18)
 
 ## Summary
 
