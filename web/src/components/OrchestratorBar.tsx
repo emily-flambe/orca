@@ -4,6 +4,11 @@ import CreateTicketModal from "./CreateTicketModal";
 import { formatTokens } from "../utils/formatTokens";
 import { MODEL_OPTIONS } from "../constants.js";
 
+interface ToastCallbacks {
+  success: (msg: string) => void;
+  error: (msg: string) => void;
+}
+
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
@@ -15,6 +20,7 @@ interface Props {
     fixModel?: string;
   }) => Promise<void>;
   onNewTicket: (identifier: string) => void;
+  onToast?: ToastCallbacks;
 }
 
 export default function OrchestratorBar({
@@ -22,6 +28,7 @@ export default function OrchestratorBar({
   onSync,
   onConfigUpdate,
   onNewTicket,
+  onToast,
 }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [editingConcurrency, setEditingConcurrency] = useState(false);
@@ -63,7 +70,16 @@ export default function OrchestratorBar({
   const saveConcurrency = async () => {
     const val = parseInt(concurrencyInput, 10);
     if (!Number.isNaN(val) && val >= 1 && val !== status.concurrencyCap) {
-      await onConfigUpdate({ concurrencyCap: val });
+      try {
+        await onConfigUpdate({ concurrencyCap: val });
+        onToast?.success("Concurrency cap updated");
+      } catch (err) {
+        onToast?.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to update concurrency cap",
+        );
+      }
     }
     setEditingConcurrency(false);
   };
@@ -84,7 +100,16 @@ export default function OrchestratorBar({
   const saveTokenLimit = async () => {
     const val = parseInt(tokenLimitInput, 10);
     if (!Number.isNaN(val) && val >= 1 && val !== status.tokenBudgetLimit) {
-      await onConfigUpdate({ tokenBudgetLimit: val });
+      try {
+        await onConfigUpdate({ tokenBudgetLimit: val });
+        onToast?.success("Token budget limit updated");
+      } catch (err) {
+        onToast?.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to update token budget limit",
+        );
+      }
     }
     setEditingTokenLimit(false);
   };
@@ -221,7 +246,7 @@ export default function OrchestratorBar({
                 <span className="text-gray-500 text-xs">{phase}</span>
                 <select
                   value={status[field]}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const newModel = e.target.value;
                     if (
                       newModel === "opus" &&
@@ -231,7 +256,16 @@ export default function OrchestratorBar({
                     ) {
                       return;
                     }
-                    onConfigUpdate({ [field]: newModel });
+                    try {
+                      await onConfigUpdate({ [field]: newModel });
+                      onToast?.success(`${phase} model updated to ${newModel}`);
+                    } catch (err) {
+                      onToast?.error(
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to update model",
+                      );
+                    }
                   }}
                   className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
                 >

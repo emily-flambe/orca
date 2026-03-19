@@ -313,10 +313,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    let failed = false;
+    let failCount = 0;
     const onFail = () => {
-      failed = true;
-      setBackendDown(true);
+      failCount++;
     };
     Promise.all([
       fetchTasks().then(setTasks).catch(onFail),
@@ -325,7 +324,8 @@ export default function App() {
         .then((v) => setVersion(v.version))
         .catch(onFail),
     ]).then(() => {
-      if (!failed) setBackendDown(false);
+      // Only show banner when the two critical endpoints both fail (fetchVersion is cosmetic)
+      setBackendDown(failCount >= 2);
     });
   }, []);
 
@@ -513,6 +513,7 @@ export default function App() {
           onSync={handleSync}
           onConfigUpdate={handleConfigUpdate}
           onNewTicket={handleNewTicket}
+          onToast={toast}
         />
 
         {/* Backend-down banner */}

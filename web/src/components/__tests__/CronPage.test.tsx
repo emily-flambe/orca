@@ -274,6 +274,137 @@ describe("CronPage", () => {
     });
   });
 
+  it("calls onToast.success('Schedule deleted') after successful delete", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 7, name: "Toast me" }),
+    ]);
+    mockDeleteCronSchedule.mockResolvedValue({ ok: true });
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Toast me")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Delete"));
+    fireEvent.click(screen.getByText("Yes"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule deleted");
+    });
+  });
+
+  it("calls onToast.error when delete fails", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 8 })]);
+    mockDeleteCronSchedule.mockRejectedValue(new Error("Server error"));
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Delete"));
+    fireEvent.click(screen.getByText("Yes"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Server error");
+    });
+  });
+
+  it("calls onToast.success with 'Schedule disabled' when toggling enabled→disabled succeeds", async () => {
+    const schedule = makeSchedule({ id: 1, enabled: 1 });
+    const updated = makeSchedule({ id: 1, enabled: 0 });
+    mockFetchCronSchedules.mockResolvedValue([schedule]);
+    mockUpdateCronSchedule.mockResolvedValue(updated);
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Disable"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule disabled");
+    });
+    expect(onToast.error).not.toHaveBeenCalled();
+  });
+
+  it("calls onToast.success with 'Schedule enabled' when toggling disabled→enabled succeeds", async () => {
+    const schedule = makeSchedule({ id: 1, enabled: 0 });
+    const updated = makeSchedule({ id: 1, enabled: 1 });
+    mockFetchCronSchedules.mockResolvedValue([schedule]);
+    mockUpdateCronSchedule.mockResolvedValue(updated);
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Enable")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Enable"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule enabled");
+    });
+    expect(onToast.error).not.toHaveBeenCalled();
+  });
+
+  it("calls onToast.error when toggle fails", async () => {
+    const schedule = makeSchedule({ id: 1, enabled: 1 });
+    mockFetchCronSchedules.mockResolvedValue([schedule]);
+    mockUpdateCronSchedule.mockRejectedValue(new Error("Network error"));
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Disable"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Network error");
+    });
+    expect(onToast.success).not.toHaveBeenCalled();
+  });
+
+  it("calls onToast.success with 'Schedule created' after successful create", async () => {
+    const newSchedule = makeSchedule({ id: 10, name: "Toast test" });
+    mockFetchCronSchedules.mockResolvedValue([]);
+    mockCreateCronSchedule.mockResolvedValue(newSchedule);
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New schedule")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("New schedule"));
+    fireEvent.change(screen.getByPlaceholderText("e.g. Nightly sync"), {
+      target: { value: "Toast test" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("0 2 * * *"), {
+      target: { value: "*/5 * * * *" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Describe the task..."), {
+      target: { value: "Do something" },
+    });
+    fireEvent.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule created");
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // formatLastRun — via rendered output
   // ---------------------------------------------------------------------------
