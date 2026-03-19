@@ -15,6 +15,7 @@ import {
   getCronSchedule,
   getTasksByCronSchedule,
   insertTask,
+  insertInvocation,
   updateCronLastRunStatus,
 } from "../src/db/queries.js";
 import type { OrcaDb } from "../src/db/index.js";
@@ -1175,5 +1176,180 @@ describe("updateCronLastRunStatus", () => {
     updateCronLastRunStatus(db, id1, "failed");
     const schedule2 = getCronSchedule(db, id2);
     expect(schedule2?.lastRunStatus).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/cron/:id/tasks — cron task history with invocations
+// ---------------------------------------------------------------------------
+
+describe("GET /api/cron/:id/tasks", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = makeApp(db);
+  });
+
+  it("returns 400 for non-numeric id", async () => {
+    const res = await app.request("/api/cron/abc/tasks");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
+
+  it("returns 404 for non-existent schedule id", async () => {
+    const res = await app.request("/api/cron/9999/tasks");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBeDefined();
+  });
+
+  it("returns empty array when schedule has no tasks", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const res = await app.request(`/api/cron/${id}/tasks`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(0);
+  });
+
+  it("returns tasks with invocations array attached", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const taskId = `cron-${id}-task-1`;
+    insertTask(db, {
+      linearIssueId: taskId,
+      agentPrompt: "do something",
+      repoPath: "/tmp",
+      orcaStatus: "done",
+      taskType: "cron_claude",
+      cronScheduleId: id,
+      createdAt: "2026-01-01T10:00:00.000Z",
+      updatedAt: "2026-01-01T10:05:00.000Z",
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+    const invId = insertInvocation(db, {
+      linearIssueId: taskId,
+      startedAt: "2026-01-01T10:00:00.000Z",
+      status: "completed",
+      costUsd: 0.1,
+      numTurns: 3,
+      outputSummary: "Done",
+    });
+
+    const res = await app.request(`/api/cron/${id}/tasks`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].linearIssueId).toBe(taskId);
+    expect(Array.isArray(body[0].invocations)).toBe(true);
+    expect(body[0].invocations).toHaveLength(1);
+    expect(body[0].invocations[0].id).toBe(invId);
+    expect(body[0].invocations[0].status).toBe("completed");
+  });
+
+  it("returns tasks sorted by createdAt descending (newest first)", async () => {
+    const id = insertCronSchedule(db, makeSchedule());
+    const taskId1 = `cron-${id}-old`;
+    const taskId2 = `cron-${id}-new`;
+    insertTask(db, {
+      linearIssueId: taskId1,
+      agentPrompt: "old task",
+      repoPath: "/tmp",
+      orcaStatus: "done",
+      taskType: "cron_claude",
+      cronScheduleId: id,
+      createdAt: "2026-01-01T08:00:00.000Z",
+      updatedAt: "2026-01-01T08:05:00.000Z",
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+    insertTask(db, {
+      linearIssueId: taskId2,
+      agentPrompt: "new task",
+      repoPath: "/tmp",
+      orcaStatus: "running",
+      taskType: "cron_claude",
+      cronScheduleId: id,
+      createdAt: "2026-01-02T10:00:00.000Z",
+      updatedAt: "2026-01-02T10:05:00.000Z",
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+
+    const res = await app.request(`/api/cron/${id}/tasks`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(2);
+    // Newest first
+    expect(body[0].linearIssueId).toBe(taskId2);
+    expect(body[1].linearIssueId).toBe(taskId1);
+  });
+
+  it("attaches empty invocations array for tasks with no invocation records", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ type: "shell" }));
+    const taskId = `cron-${id}-shell-1`;
+    insertTask(db, {
+      linearIssueId: taskId,
+      agentPrompt: "echo hello",
+      repoPath: "",
+      orcaStatus: "done",
+      taskType: "cron_shell",
+      cronScheduleId: id,
+      createdAt: now(),
+      updatedAt: now(),
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+
+    const res = await app.request(`/api/cron/${id}/tasks`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].invocations).toEqual([]);
+  });
+
+  it("only returns tasks belonging to the requested schedule", async () => {
+    const id1 = insertCronSchedule(db, makeSchedule({ name: "sched-1" }));
+    const id2 = insertCronSchedule(db, makeSchedule({ name: "sched-2" }));
+    insertTask(db, {
+      linearIssueId: `cron-${id1}-task`,
+      agentPrompt: "task for sched 1",
+      repoPath: "/tmp",
+      orcaStatus: "done",
+      taskType: "cron_claude",
+      cronScheduleId: id1,
+      createdAt: now(),
+      updatedAt: now(),
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+
+    const res = await app.request(`/api/cron/${id2}/tasks`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveLength(0);
   });
 });
