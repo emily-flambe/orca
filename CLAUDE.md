@@ -109,7 +109,7 @@ Blue/green zero-downtime: new instance on standby port → health check → swit
 
 ### Drain State and Task Dispatch
 
-**Tasks are NOT dispatched during drain.** When `draining=true`, Inngest's concurrency config still allows new `task/ready` events to trigger workflows — but the reconciler's re-dispatch logic is gated by `isDraining()` and will not re-queue stuck tasks while draining.
+**Tasks are NOT dispatched during drain.** When `draining=true`, both the `re-dispatch-ready-tasks` and `auto-retry-failed-tasks` reconciler steps are gated by `isDraining()` and will not re-queue tasks while draining.
 
 However, new Inngest task-lifecycle workflows can still be triggered by `task/ready` events emitted before the drain started. This is intentional: tasks already in-flight should complete, and the drain is meant to prevent *new* dispatches, not kill active ones.
 

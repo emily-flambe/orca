@@ -252,6 +252,12 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
 
     await step.run("auto-retry-failed-tasks", async () => {
       const { db, config } = getSchedulerDeps();
+
+      if (isDraining()) {
+        logger.debug("skipping auto-retry while draining");
+        return;
+      }
+
       const failedTasks = getFailedTasksWithRetriesRemaining(
         db,
         config.maxRetries,
@@ -303,8 +309,15 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     // Tasks can get stuck in "ready" when their task-lifecycle workflow fails
     // (e.g. capacity check) and no mechanism re-emits the event. This step
     // ensures every ready task has a workflow trying to pick it up.
+    // Skipped while draining — new dispatches should not start during a deploy.
     await step.run("re-dispatch-ready-tasks", async () => {
       const { db } = getSchedulerDeps();
+
+      if (isDraining()) {
+        logger.debug("skipping re-dispatch of ready tasks while draining");
+        return;
+      }
+
       const readyTasks = getDispatchableTasks(db, ["ready"]);
 
       if (readyTasks.length === 0) {
