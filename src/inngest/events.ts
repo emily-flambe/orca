@@ -13,6 +13,8 @@ export type OrcaEvents = {
       projectName: string | null;
       taskType: string;
       createdAt: string;
+      /** Number of times this task has been held due to budget exhaustion. Used for exponential backoff. */
+      budgetHoldCount?: number;
     };
   };
   "task/cancelled": {

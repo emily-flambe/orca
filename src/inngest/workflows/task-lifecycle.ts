@@ -353,6 +353,8 @@ export const taskLifecycle = inngest.createFunction(
     // Step 1: Budget check — fail fast if rolling budget is exhausted
     // -------------------------------------------------------------------------
 
+    const budgetHoldCount = event.data.budgetHoldCount ?? 0;
+
     const budgetCheck = await step.run(
       "check-budget",
       (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
@@ -372,13 +374,16 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
-        // Circuit breaker: if too many zero-cost failures recently, pause dispatching
-        const ZERO_COST_FAILURE_THRESHOLD = 5;
-        const zeroCostFailures = countZeroCostFailuresSince(db, windowStart);
-        if (zeroCostFailures >= ZERO_COST_FAILURE_THRESHOLD) {
+        // Circuit breaker: if too many zero-cost failures within the circuit breaker
+        // window (configurable, default 30 min), pause dispatching.
+        const cbWindowStart = budgetWindowStart(
+          config.zeroCostCircuitBreakerWindowMin / 60,
+        );
+        const zeroCostFailures = countZeroCostFailuresSince(db, cbWindowStart);
+        if (zeroCostFailures >= config.zeroCostCircuitBreakerThreshold) {
           return {
             ok: false,
-            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in ${config.budgetWindowHours}h window — Claude CLI may be broken`,
+            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in ${config.zeroCostCircuitBreakerWindowMin}m window — Claude CLI may be broken`,
             isCircuitBreaker: true,
           };
         }
@@ -388,7 +393,7 @@ export const taskLifecycle = inngest.createFunction(
 
     if (!budgetCheck.ok) {
       log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
+        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing (hold #${budgetHoldCount + 1})`,
       );
       await step.run("send-budget-alert", () => {
         const deps = getSchedulerDeps();
@@ -408,10 +413,24 @@ export const taskLifecycle = inngest.createFunction(
           });
         }
       });
-      await step.sleep("budget-exceeded-backoff", "5m");
+      // Exponential backoff: 5m → 10m → 20m → 40m → 80m → 160m (cap)
+      const backoffMinutes = Math.min(5 * Math.pow(2, budgetHoldCount), 160);
+      await step.sleep("budget-exceeded-backoff", `${backoffMinutes}m`);
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateAndEmit(db, taskId, "ready");
+      });
+      await inngest.send({
+        name: "task/ready",
+        data: {
+          linearIssueId: taskId,
+          repoPath: event.data.repoPath,
+          priority: event.data.priority,
+          projectName: event.data.projectName,
+          taskType: event.data.taskType,
+          createdAt: event.data.createdAt,
+          budgetHoldCount: budgetHoldCount + 1,
+        },
       });
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }

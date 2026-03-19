@@ -10,6 +10,8 @@ export interface OrcaConfig {
   budgetWindowHours: number;
   budgetMaxCostUsd: number;
   budgetMaxTokens: number;
+  zeroCostCircuitBreakerThreshold: number;
+  zeroCostCircuitBreakerWindowMin: number;
 
   claudePath: string;
   defaultMaxTurns: number;
@@ -282,6 +284,14 @@ Steps:
     budgetMaxTokens: readPositiveNumberOrDefault(
       "ORCA_BUDGET_MAX_TOKENS",
       1_000_000_000,
+    ),
+    zeroCostCircuitBreakerThreshold: readIntOrDefault(
+      "ORCA_ZERO_COST_CIRCUIT_BREAKER_THRESHOLD",
+      5,
+    ),
+    zeroCostCircuitBreakerWindowMin: readIntOrDefault(
+      "ORCA_ZERO_COST_CIRCUIT_BREAKER_WINDOW_MIN",
+      30,
     ),
 
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
