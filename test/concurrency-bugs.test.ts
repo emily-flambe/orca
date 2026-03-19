@@ -71,6 +71,7 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  setTaskFailureMetadata: vi.fn(),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
