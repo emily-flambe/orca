@@ -330,6 +330,54 @@ export function sendPermanentFailureAlert(
 }
 
 // ---------------------------------------------------------------------------
+// Zero-cost failure circuit breaker
+// ---------------------------------------------------------------------------
+
+/** In-memory log of zero-cost failure timestamps. */
+const zeroCostFailures: number[] = [];
+
+const ZERO_COST_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Record a zero-cost failure (session completed with $0 cost and non-zero exit).
+ * Prunes entries older than the window.
+ */
+export function trackZeroCostFailure(): void {
+  const now = Date.now();
+  // Prune old entries
+  const cutoff = now - ZERO_COST_WINDOW_MS;
+  while (zeroCostFailures.length > 0 && zeroCostFailures[0] < cutoff) {
+    zeroCostFailures.shift();
+  }
+  zeroCostFailures.push(now);
+}
+
+/**
+ * Count zero-cost failures within the rolling window.
+ */
+export function countZeroCostFailuresInWindow(): number {
+  const cutoff = Date.now() - ZERO_COST_WINDOW_MS;
+  return zeroCostFailures.filter((t) => t >= cutoff).length;
+}
+
+/**
+ * Returns true if the circuit breaker should trip (threshold failures in window).
+ */
+export function isCircuitBreakerTripped(threshold: number): boolean {
+  return countZeroCostFailuresInWindow() >= threshold;
+}
+
+/** Reset for tests. */
+export function resetZeroCostFailures(): void {
+  zeroCostFailures.length = 0;
+}
+
+/** @internal */
+export function _getZeroCostFailures(): number[] {
+  return zeroCostFailures;
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 

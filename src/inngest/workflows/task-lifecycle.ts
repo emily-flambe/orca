@@ -51,6 +51,9 @@ import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
   sendPermanentFailureAlert,
+  sendAlertThrottled,
+  trackZeroCostFailure,
+  isCircuitBreakerTripped,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
@@ -247,15 +250,15 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  // Always record budget events, even zero-cost failures, for visibility.
+  // The budget SUM query is unaffected by $0 entries.
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -355,8 +358,20 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; isCircuitBreaker?: boolean } => {
         const { db, config } = getSchedulerDeps();
+
+        // Circuit breaker: too many consecutive zero-cost failures means
+        // the Claude CLI itself is broken. Pause dispatching and alert.
+        const CIRCUIT_BREAKER_THRESHOLD = 3;
+        if (isCircuitBreakerTripped(CIRCUIT_BREAKER_THRESHOLD)) {
+          return {
+            ok: false,
+            reason: `circuit breaker tripped: ${CIRCUIT_BREAKER_THRESHOLD}+ consecutive zero-cost failures in 30min window — Claude CLI may be broken`,
+            isCircuitBreaker: true,
+          };
+        }
+
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
         if (spentUsd >= config.budgetMaxCostUsd) {
@@ -377,16 +392,49 @@ export const taskLifecycle = inngest.createFunction(
     );
 
     if (!budgetCheck.ok) {
-      log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
-      );
+      const reason = budgetCheck.reason ?? "budget exceeded";
+      log(`task ${taskId}: ${reason} — requeueing with backoff`);
+
+      // Fire alert (throttled to 1 per 30min to avoid spam).
+      await step.run("alert-budget-exceeded", () => {
+        const deps = getSchedulerDeps();
+        // Use per-task key for budget-exhausted so each task gets its own
+        // Linear comment. Circuit breaker is a global condition — single key.
+        const alertKey = budgetCheck.isCircuitBreaker
+          ? "circuit-breaker"
+          : `budget-exhausted-${taskId}`;
+        sendAlertThrottled(
+          deps,
+          alertKey,
+          {
+            severity: budgetCheck.isCircuitBreaker ? "critical" : "warning",
+            title: budgetCheck.isCircuitBreaker
+              ? "Circuit Breaker Tripped"
+              : "Budget Hold",
+            message: reason,
+            taskId,
+            fields: [
+              { title: "Task ID", value: taskId, short: true },
+              { title: "Reason", value: reason, short: false },
+            ],
+          },
+          30 * 60 * 1000, // 30-minute cooldown
+        );
+      });
+
+      // Exponential backoff: sleep before requeue to break tight dispatch loops.
+      // Tasks re-enter ready and the reconciler re-fires them every 5 min,
+      // so without sleep they could cycle instantly. The sleep ensures at least
+      // 10 minutes between budget check attempts.
+      await step.sleep("budget-backoff", "10m");
+
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
       });
-      return { outcome: "budget_exceeded", reason: budgetCheck.reason };
+      return { outcome: "budget_exceeded", reason };
     }
 
     // -------------------------------------------------------------------------
@@ -696,6 +744,12 @@ export const taskLifecycle = inngest.createFunction(
         const isMaxTurns = implementEvent.data.isMaxTurns;
 
         recordBudgetEventFromEvent(db, invocationId, implementEvent.data);
+
+        // Track zero-cost failures for circuit breaker.
+        // Exclude maxTurns: the CLI ran but hit iteration limit — not a spawn failure.
+        if (!isSuccess && !isMaxTurns && !((implementEvent.data.costUsd ?? 0) > 0)) {
+          trackZeroCostFailure();
+        }
 
         emitInvocationCompleted({
           taskId,
@@ -1243,6 +1297,16 @@ export const taskLifecycle = inngest.createFunction(
           });
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
+          // Track zero-cost failures for circuit breaker.
+          // Exclude maxTurns: the CLI ran but hit iteration limit — not a spawn failure.
+          if (
+            !isSuccess &&
+            !reviewEvent.data.isMaxTurns &&
+            !((reviewEvent.data.costUsd ?? 0) > 0)
+          ) {
+            trackZeroCostFailure();
+          }
+
           if (!isSuccess) {
             updateTaskStatus(db, taskId, "in_review");
             const updatedTask = getTask(db, taskId);
@@ -1569,6 +1633,16 @@ export const taskLifecycle = inngest.createFunction(
             outputTokens: fixEvent.data.outputTokens ?? null,
           });
           recordBudgetEventFromEvent(db, invocationId, fixEvent.data);
+
+          // Track zero-cost failures for circuit breaker.
+          // Exclude maxTurns: the CLI ran but hit iteration limit — not a spawn failure.
+          if (
+            !isSuccess &&
+            !fixEvent.data.isMaxTurns &&
+            !((fixEvent.data.costUsd ?? 0) > 0)
+          ) {
+            trackZeroCostFailure();
+          }
 
           try {
             removeWorktree(worktreePath);

@@ -91,6 +91,9 @@ vi.mock("../src/linear/sync.js", () => ({
 
 vi.mock("../src/scheduler/alerts.js", () => ({
   sendAlert: vi.fn(),
+  sendAlertThrottled: vi.fn(),
+  trackZeroCostFailure: vi.fn(),
+  isCircuitBreakerTripped: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../src/github/index.js", () => ({

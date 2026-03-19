@@ -115,6 +115,9 @@ vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {
   return {
     ...actual,
     sendPermanentFailureAlert: vi.fn(),
+    sendAlertThrottled: vi.fn(),
+    trackZeroCostFailure: vi.fn(),
+    isCircuitBreakerTripped: vi.fn().mockReturnValue(false),
   };
 });
 
@@ -148,6 +151,10 @@ import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
 import { activeHandles } from "../src/session-handles.js";
+import {
+  sendAlertThrottled,
+  isCircuitBreakerTripped,
+} from "../src/scheduler/alerts.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
 
@@ -169,6 +176,8 @@ const mockResetStaleSessionRetryCount = vi.mocked(resetStaleSessionRetryCount);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
+const mockSendAlertThrottled = vi.mocked(sendAlertThrottled);
+const mockIsCircuitBreakerTripped = vi.mocked(isCircuitBreakerTripped);
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -352,6 +361,77 @@ describe("task-lifecycle workflow", () => {
     expect(result).toMatchObject({ outcome: "budget_exceeded" });
     // Should NOT have claimed the task
     expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();
+  });
+
+  test("budget exceeded → fires sendAlertThrottled with warning + per-task key", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockSendAlertThrottled).toHaveBeenCalledOnce();
+    const [, alertKey, payload] = mockSendAlertThrottled.mock.calls[0];
+    expect(alertKey).toBe("budget-exhausted-TEST-1");
+    expect(payload.severity).toBe("warning");
+    expect(payload.title).toBe("Budget Hold");
+    expect(payload.taskId).toBe("TEST-1");
+  });
+
+  test("budget exceeded → step.sleep called with 10m backoff", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", "10m");
+  });
+
+  test("budget exceeded → requeues task to ready after backoff", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "ready",
+    );
+  });
+
+  test("circuit breaker tripped → returns budget_exceeded with critical alert", async () => {
+    mockIsCircuitBreakerTripped.mockReturnValue(true);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "budget_exceeded" });
+    expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();
+
+    expect(mockSendAlertThrottled).toHaveBeenCalledOnce();
+    const [, alertKey, payload] = mockSendAlertThrottled.mock.calls[0];
+    expect(alertKey).toBe("circuit-breaker");
+    expect(payload.severity).toBe("critical");
+    expect(payload.title).toBe("Circuit Breaker Tripped");
+  });
+
+  test("circuit breaker checked before budget — skips budget query when tripped", async () => {
+    mockIsCircuitBreakerTripped.mockReturnValue(true);
+    // Even though budget is within limits, circuit breaker takes priority
+    mockSumCostInWindow.mockReturnValue(0);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "budget_exceeded" });
+    // sumCostInWindow should NOT have been called (circuit breaker short-circuits)
+    expect(mockSumCostInWindow).not.toHaveBeenCalled();
   });
 
   test("claim fails (task not in DB) → returns not_claimed outcome", async () => {
