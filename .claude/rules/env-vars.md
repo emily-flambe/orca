@@ -21,6 +21,8 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_BUDGET_MAX_COST_USD` | 100 | Rolling budget cap |
 | `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
 | `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix loops |
+| `ORCA_ZERO_COST_CIRCUIT_BREAKER_THRESHOLD` | 5 | Zero-cost failures threshold before circuit breaker trips |
+| `ORCA_ZERO_COST_CIRCUIT_BREAKER_WINDOW_MIN` | 30 | Circuit breaker window duration in minutes |
 
 ## Models
 
