@@ -208,6 +208,7 @@ const mockConfig = {
   disallowedTools: "",
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  concurrencyCap: 1,
 };
 
 const mockLinearClient = {

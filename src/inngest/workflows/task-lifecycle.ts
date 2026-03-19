@@ -84,12 +84,14 @@ const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
 export function assertSessionCapacity(
   db: import("../../db/index.js").OrcaDb,
 ): void {
+  const { config } = getSchedulerDeps();
+  const cap = config.concurrencyCap;
   const handleCount = activeHandles.size;
   const dbCount = countActiveSessions(db);
   const effectiveCount = Math.max(handleCount, dbCount);
-  if (effectiveCount >= CONCURRENCY_CAP) {
+  if (effectiveCount >= cap) {
     throw new Error(
-      `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${CONCURRENCY_CAP})`,
+      `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${cap})`,
     );
   }
 }
