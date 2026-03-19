@@ -141,6 +141,8 @@ export default function TaskList({
 
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const statusFilterTriggerRef = useRef<HTMLButtonElement>(null);
+  const statusFilterMenuRef = useRef<HTMLDivElement>(null);
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -313,6 +315,7 @@ export default function TaskList({
           </span>
           <div className="relative flex-1">
             <button
+              ref={statusFilterTriggerRef}
               onClick={() => setStatusDropdownOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={statusDropdownOpen}
@@ -344,13 +347,42 @@ export default function TaskList({
               </svg>
             </button>
             {statusDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48">
+              <div
+                ref={statusFilterMenuRef}
+                role="menu"
+                className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setStatusDropdownOpen(false);
+                    statusFilterTriggerRef.current?.focus();
+                    return;
+                  }
+                  const items =
+                    statusFilterMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                      '[role="menuitem"]',
+                    ) ?? [];
+                  const arr = Array.from(items);
+                  const idx = arr.indexOf(
+                    document.activeElement as HTMLButtonElement,
+                  );
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    arr[(idx + 1) % arr.length]?.focus();
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    arr[(idx - 1 + arr.length) % arr.length]?.focus();
+                  }
+                }}
+              >
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
                   <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
                     Filter by status
                   </span>
                   <div className="flex items-center gap-2">
                     <button
+                      role="menuitem"
+                      tabIndex={0}
                       onClick={() =>
                         setSelectedStatuses(new Set(ALL_FILTER_VALUES))
                       }
@@ -360,6 +392,8 @@ export default function TaskList({
                       all
                     </button>
                     <button
+                      role="menuitem"
+                      tabIndex={-1}
                       onClick={() => setSelectedStatuses(new Set())}
                       className={`text-[10px] transition-colors ${selectedStatuses.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
                       disabled={selectedStatuses.size === 0}
@@ -374,6 +408,8 @@ export default function TaskList({
                   return (
                     <button
                       key={f.value}
+                      role="menuitem"
+                      tabIndex={-1}
                       onClick={() => toggleStatus(f.value)}
                       className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
                     >
