@@ -111,7 +111,7 @@ export interface WebhookEvent {
 // conflict resolution for state-change webhooks during a grace period after
 // startup.
 
-const STARTUP_GRACE_MS = 60_000;
+const STARTUP_GRACE_MS = 120_000;
 let startupTimestamp = Date.now();
 
 export function isInStartupGrace(): boolean {
@@ -337,7 +337,6 @@ function upsertTask(
 // ---------------------------------------------------------------------------
 
 const ACTIVE_CHILD_STATUSES = new Set<string>([
-  "dispatched",
   "running",
   "in_review",
   "changes_requested",
@@ -385,7 +384,7 @@ export async function evaluateParentStatuses(
       writeBackStatus(
         client,
         parent.linearIssueId,
-        "dispatched",
+        "running",
         stateMap,
       ).catch((err) => {
         log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
@@ -607,7 +606,6 @@ export async function processWebhookEvent(
       // Skip terminal states (failed, done, backlog) — no active workflow to cancel.
       const CANCELLABLE_STATUSES = new Set<TaskStatus>([
         "ready",
-        "dispatched",
         "running",
         "in_review",
         "changes_requested",
@@ -731,7 +729,7 @@ export function resolveConflict(
   // this is almost certainly a stale webhook echo from a previous retry cycle or
   // pre-deploy write-back, not a genuine user action. Skip to avoid disrupting work.
   if (linearStateType === "unstarted") {
-    const activeStates = ["running", "in_review", "dispatched"];
+    const activeStates = ["running", "in_review"];
     if (activeStates.includes(task.orcaStatus)) {
       const updatedAgo = Date.now() - new Date(task.updatedAt).getTime();
       if (updatedAgo < 120_000) {
@@ -818,7 +816,7 @@ export async function writeBackStatus(
   client: LinearClient,
   taskId: string,
   orcaTransition:
-    | "dispatched"
+    | "running"
     | "in_review"
     | "deploying"
     | "awaiting_ci"
@@ -839,7 +837,7 @@ export async function writeBackStatus(
     string,
     { targetType: string; matchReview?: boolean }
   > = {
-    dispatched: { targetType: "started", matchReview: false },
+    running: { targetType: "started", matchReview: false },
     in_review: { targetType: "started", matchReview: true },
     done: { targetType: "completed" },
     changes_requested: { targetType: "started", matchReview: false },
@@ -901,7 +899,7 @@ export function logStateMapping(
     targetType: string;
     matchReview?: boolean;
   }> = [
-    { name: "dispatched", targetType: "started", matchReview: false },
+    { name: "running", targetType: "started", matchReview: false },
     { name: "in_review", targetType: "started", matchReview: true },
     { name: "done", targetType: "completed" },
     { name: "changes_requested", targetType: "started", matchReview: false },
