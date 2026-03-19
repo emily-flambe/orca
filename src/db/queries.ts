@@ -1146,3 +1146,21 @@ export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
     .limit(1)
     .get();
 }
+
+/** Count budget events with zero cost in the given window (circuit breaker). */
+export function countZeroCostFailuresInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): number {
+  const result = db
+    .select({ count: count() })
+    .from(budgetEvents)
+    .where(
+      and(
+        eq(budgetEvents.costUsd, 0),
+        gte(budgetEvents.recordedAt, windowStart),
+      ),
+    )
+    .get();
+  return result?.count ?? 0;
+}
