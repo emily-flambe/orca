@@ -10,6 +10,7 @@ import {
   getTask,
   claimTaskForDispatch,
   updateTaskStatus,
+  updateTaskFailureMetadata,
   insertInvocation,
   updateInvocation,
 } from "../../db/queries.js";
@@ -195,6 +196,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           outputSummary: `cron session timed out after ${SESSION_TIMEOUT}`,
         });
         updateTaskStatus(db, taskId, "failed");
+        updateTaskFailureMetadata(db, taskId, `Cron session timed out after ${SESSION_TIMEOUT}`, "implement");
         emitTaskUpdated(getTask(db, taskId)!);
         return { outcome: "permanent_fail" as const };
       }
@@ -207,6 +209,7 @@ export const cronTaskLifecycle = inngest.createFunction(
       }
 
       updateTaskStatus(db, taskId, "failed");
+      updateTaskFailureMetadata(db, taskId, `Session failed (exit code: ${sessionEvent?.data.exitCode ?? "unknown"})`, "implement");
       emitTaskUpdated(getTask(db, taskId)!);
       log(
         `cron task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
