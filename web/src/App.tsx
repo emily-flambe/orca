@@ -22,6 +22,7 @@ import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
 import InngestPage from "./components/InngestPage";
 import MetricsPage from "./components/MetricsPage";
+import ConfirmDialog from "./components/ui/ConfirmDialog.js";
 import { MODEL_OPTIONS } from "./constants.js";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,9 @@ function SettingsPage({
 }) {
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
+  const [pendingOpusChange, setPendingOpusChange] = useState<{
+    field: "implementModel" | "reviewModel" | "fixModel";
+  } | null>(null);
 
   if (!status) {
     return (
@@ -82,6 +86,7 @@ function SettingsPage({
   };
 
   return (
+    <>
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
       <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
         Settings
@@ -175,13 +180,10 @@ function SettingsPage({
                 value={status[field]}
                 onChange={(e) => {
                   const newModel = e.target.value;
-                  if (
-                    newModel === "opus" &&
-                    !window.confirm(
-                      "Switching to opus will significantly increase costs. Continue?",
-                    )
-                  )
+                  if (newModel === "opus") {
+                    setPendingOpusChange({ field });
                     return;
+                  }
                   onConfigUpdate({ [field]: newModel });
                 }}
                 className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
@@ -197,6 +199,20 @@ function SettingsPage({
         })}
       </div>
     </div>
+    <ConfirmDialog
+      open={pendingOpusChange !== null}
+      title="Switch to opus?"
+      message="Switching to opus will significantly increase costs. Continue?"
+      confirmLabel="Switch to opus"
+      onConfirm={() => {
+        if (pendingOpusChange) {
+          onConfigUpdate({ [pendingOpusChange.field]: "opus" });
+        }
+        setPendingOpusChange(null);
+      }}
+      onCancel={() => setPendingOpusChange(null)}
+    />
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
+import ConfirmDialog from "./ui/ConfirmDialog.js";
 import { formatTokens } from "../utils/formatTokens";
 import { MODEL_OPTIONS } from "../constants.js";
 
@@ -29,6 +30,9 @@ export default function OrchestratorBar({
   const [editingTokenLimit, setEditingTokenLimit] = useState(false);
   const [tokenLimitInput, setTokenLimitInput] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [pendingOpusChange, setPendingOpusChange] = useState<{
+    field: "implementModel" | "reviewModel" | "fixModel";
+  } | null>(null);
 
   if (!status) {
     return (
@@ -223,12 +227,8 @@ export default function OrchestratorBar({
                   value={status[field]}
                   onChange={(e) => {
                     const newModel = e.target.value;
-                    if (
-                      newModel === "opus" &&
-                      !window.confirm(
-                        "Switching to opus will significantly increase costs. Continue?",
-                      )
-                    ) {
+                    if (newModel === "opus") {
+                      setPendingOpusChange({ field });
                       return;
                     }
                     onConfigUpdate({ [field]: newModel });
@@ -284,6 +284,19 @@ export default function OrchestratorBar({
           }}
         />
       )}
+      <ConfirmDialog
+        open={pendingOpusChange !== null}
+        title="Switch to opus?"
+        message="Switching to opus will significantly increase costs. Continue?"
+        confirmLabel="Switch to opus"
+        onConfirm={() => {
+          if (pendingOpusChange) {
+            onConfigUpdate({ [pendingOpusChange.field]: "opus" });
+          }
+          setPendingOpusChange(null);
+        }}
+        onCancel={() => setPendingOpusChange(null)}
+      />
     </>
   );
 }
