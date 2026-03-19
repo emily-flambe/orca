@@ -356,9 +356,8 @@ export const taskLifecycle = inngest.createFunction(
       );
 
       if (budgetCheck.circuitBreaker) {
-        const deps = getSchedulerDeps();
         sendAlertThrottled(
-          deps,
+          getSchedulerDeps(),
           "circuit_breaker",
           {
             severity: "critical",
@@ -368,16 +367,9 @@ export const taskLifecycle = inngest.createFunction(
           },
           60 * 60 * 1000, // 60-minute cooldown
         );
-        deps.client
-          .createComment(
-            taskId,
-            `**[Orca] Circuit Breaker Open**\n\n${budgetCheck.reason ?? "Too many zero-cost failures"} — task paused until circuit resets.`,
-          )
-          .catch(() => {});
       } else {
-        const deps = getSchedulerDeps();
         sendAlertThrottled(
-          deps,
+          getSchedulerDeps(),
           "budget_exhausted",
           {
             severity: "warning",
@@ -387,12 +379,6 @@ export const taskLifecycle = inngest.createFunction(
           },
           30 * 60 * 1000, // 30-minute cooldown
         );
-        deps.client
-          .createComment(
-            taskId,
-            `**[Orca] Budget Hold**\n\nThis task has been paused because the rolling budget is exhausted.\n\n${budgetCheck.reason ?? "Budget exceeded"} — it will be requeued automatically.`,
-          )
-          .catch(() => {});
       }
 
       const retryCount = await step.run("requeue-budget-exceeded", () => {
