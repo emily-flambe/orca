@@ -49,6 +49,7 @@ All config is in `.env` (see `.env.example`). Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCA_DEPLOY_STRATEGY` | none | `none` or `github_actions` |
+| `ORCA_DRAIN_TIMEOUT_MIN` | 10 | Auto-clear drain if 0 active sessions for this duration (minutes) |
 | `CLOUDFLARE_TUNNEL_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_ACCOUNT_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_API_TOKEN` | — | Required for blue/green deploy script |
