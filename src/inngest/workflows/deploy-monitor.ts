@@ -1,10 +1,13 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
-import { getTask, updateTaskStatus } from "../../db/queries.js";
-import { emitTaskUpdated } from "../../events.js";
+import { getTask } from "../../db/queries.js";
+import {
+  updateAndEmit,
+  hasPollingTimedOut,
+  transitionToFinalState,
+} from "../workflow-utils.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
-import { writeBackStatus } from "../../linear/sync.js";
 import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
 
 const logger = createLogger("deploy-monitor");
@@ -52,32 +55,16 @@ export const deployMonitorWorkflow = inngest.createFunction(
       }
 
       // Timeout check
-      const timeoutMs = deps.config.deployTimeoutMin * 60 * 1000;
-      const startedAt = new Date(deployStartedAt).getTime();
-      if (startedAt + timeoutMs < Date.now()) {
+      if (hasPollingTimedOut(deployStartedAt, deps.config.deployTimeoutMin)) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
-
-          await writeBackStatus(
-            client,
+          updateAndEmit(db, linearIssueId, "failed");
+          await transitionToFinalState(
+            { client, stateMap },
             linearIssueId,
             "failed_permanent",
-            stateMap,
+            `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
           );
-
-          await client
-            .createComment(
-              linearIssueId,
-              `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on deploy timeout for task ${linearIssueId}: ${err}`,
-              );
-            });
-
           log(
             `task ${linearIssueId} deploy timed out after ${config.deployTimeoutMin}min`,
           );
@@ -89,19 +76,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (!mergeCommitSha) {
         await step.run("deploy-no-sha", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "done");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
-
-          await writeBackStatus(client, linearIssueId, "done", stateMap);
-
-          await client
-            .createComment(linearIssueId, "Task complete")
-            .catch((err) => {
-              log(
-                `comment failed on done (no SHA) for task ${linearIssueId}: ${err}`,
-              );
-            });
-
+          updateAndEmit(db, linearIssueId, "done");
+          await transitionToFinalState(
+            { client, stateMap },
+            linearIssueId,
+            "done",
+            "Task complete",
+          );
           log(
             `task ${linearIssueId} deploying → done (no merge commit SHA, skipping CI check)`,
           );
@@ -126,19 +107,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (deployStatus.status === "success") {
         await step.run("deploy-success", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "done");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
-
-          await writeBackStatus(client, linearIssueId, "done", stateMap);
-
-          await client
-            .createComment(linearIssueId, "Task complete")
-            .catch((err) => {
-              log(
-                `comment failed on deploy success for task ${linearIssueId}: ${err}`,
-              );
-            });
-
+          updateAndEmit(db, linearIssueId, "done");
+          await transitionToFinalState(
+            { client, stateMap },
+            linearIssueId,
+            "done",
+            "Task complete",
+          );
           log(
             `task ${linearIssueId} deploy succeeded → done (SHA: ${mergeCommitSha})`,
           );
@@ -148,27 +123,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
-
-          await writeBackStatus(
-            client,
+          updateAndEmit(db, linearIssueId, "failed");
+          await transitionToFinalState(
+            { client, stateMap },
             linearIssueId,
             "failed_permanent",
-            stateMap,
+            `Deploy CI failed for commit ${mergeCommitSha} — task failed permanently`,
           );
-
-          await client
-            .createComment(
-              linearIssueId,
-              `Deploy CI failed for commit ${mergeCommitSha} — task failed permanently`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on deploy failure for task ${linearIssueId}: ${err}`,
-              );
-            });
-
           log(
             `task ${linearIssueId} deploy failed → failed (SHA: ${mergeCommitSha})`,
           );
@@ -187,22 +148,17 @@ export const deployMonitorWorkflow = inngest.createFunction(
       await step.run("deploy-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateTaskStatus(db, linearIssueId, "failed");
-        emitTaskUpdated(getTask(db, linearIssueId)!);
-
-        await writeBackStatus(
-          client,
+        updateAndEmit(db, linearIssueId, "failed");
+        await transitionToFinalState(
+          { client, stateMap },
           linearIssueId,
           "failed_permanent",
-          stateMap,
         );
-
         sendPermanentFailureAlert(
           deps,
           linearIssueId,
           `Deploy status never resolved after ${maxPollAttempts} poll attempts`,
         );
-
         log(
           `task ${linearIssueId} deploy poll exhausted ${maxPollAttempts} attempts`,
         );

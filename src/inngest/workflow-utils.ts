@@ -6,6 +6,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { git } from "../git.js";
+import { updateTaskStatus, getTask } from "../db/queries.js";
+import { emitTaskUpdated } from "../events.js";
+import { writeBackStatus } from "../linear/sync.js";
+import type { OrcaDb } from "../db/index.js";
+import type { TaskStatus } from "../shared/types.js";
+import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 
 // ---------------------------------------------------------------------------
 // alreadyDonePatterns — patterns in output summary indicating task is complete
@@ -90,5 +96,62 @@ export async function worktreeHasNoChanges(
     return diff.trim() === "";
   } catch {
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// updateAndEmit — update task status in DB and emit SSE event in one call
+// ---------------------------------------------------------------------------
+
+/**
+ * Update task status in DB and emit SSE event in one call.
+ * The task must exist — if not found post-update, emitTaskUpdated is skipped.
+ */
+export function updateAndEmit(
+  db: OrcaDb,
+  taskId: string,
+  status: TaskStatus,
+): void {
+  updateTaskStatus(db, taskId, status);
+  const task = getTask(db, taskId);
+  if (task) emitTaskUpdated(task);
+}
+
+// ---------------------------------------------------------------------------
+// hasPollingTimedOut — check if startedAt has exceeded timeout
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if the given startedAt ISO timestamp has exceeded the timeout.
+ * @param startedAt ISO timestamp string (when the operation started)
+ * @param timeoutMin Timeout in minutes
+ */
+export function hasPollingTimedOut(
+  startedAt: string,
+  timeoutMin: number,
+): boolean {
+  const timeoutMs = timeoutMin * 60 * 1000;
+  return new Date(startedAt).getTime() + timeoutMs < Date.now();
+}
+
+// ---------------------------------------------------------------------------
+// transitionToFinalState — write back Linear status and post a comment
+// ---------------------------------------------------------------------------
+
+/**
+ * Write back Linear status and optionally post a comment, swallowing errors
+ * on both. Consolidates the repeated `writeBackStatus + createComment` pattern.
+ */
+export async function transitionToFinalState(
+  deps: { client: LinearClient; stateMap: WorkflowStateMap },
+  taskId: string,
+  targetStatus: Parameters<typeof writeBackStatus>[2],
+  comment?: string,
+): Promise<void> {
+  await writeBackStatus(deps.client, taskId, targetStatus, deps.stateMap).catch(
+    () => {},
+  );
+  if (comment !== undefined) {
+    await deps.client.createComment(taskId, comment).catch(() => {});
   }
 }

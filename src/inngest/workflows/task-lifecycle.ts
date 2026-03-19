@@ -47,7 +47,6 @@ import {
   emitInvocationStarted,
   emitInvocationCompleted,
 } from "../../events.js";
-import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
   sendPermanentFailureAlert,
@@ -57,6 +56,8 @@ import {
   extractMarkerFromLog,
   worktreeHasNoChanges,
   alreadyDonePatterns,
+  updateAndEmit,
+  transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
@@ -382,9 +383,7 @@ export const taskLifecycle = inngest.createFunction(
       );
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
-        updateTaskStatus(db, taskId, "ready");
-        const task = getTask(db, taskId);
-        if (task) emitTaskUpdated(task);
+        updateAndEmit(db, taskId, "ready");
       });
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }
@@ -424,9 +423,9 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         emitTaskUpdated(getTask(db, taskId)!);
-        writeBackStatus(client, taskId, "running", stateMap).catch((err) => {
-          log(`write-back failed on claim for task ${taskId}: ${err}`);
-        });
+        transitionToFinalState({ client, stateMap }, taskId, "running").catch(
+          () => {},
+        );
 
         return { claimed: true, phase: task.orcaStatus as string };
       },
@@ -655,6 +654,35 @@ export const taskLifecycle = inngest.createFunction(
       | "timed_out"
       | "rescued_pr";
 
+    /**
+     * Marks a task as "done" when the work was already complete (no PR needed).
+     * Encapsulates the ~15 lines common to both "already done" early-return paths.
+     */
+    async function markAlreadyDone(
+      db: OrcaDb,
+      taskId: string,
+      client: import("../../linear/client.js").LinearClient,
+      stateMap: import("../../linear/client.js").WorkflowStateMap,
+      worktreePath: string,
+      reason: string,
+    ): Promise<{ outcome: "done" }> {
+      updateAndEmit(db, taskId, "done");
+      insertSystemEvent(db, {
+        type: "task_completed",
+        message: `Task ${taskId} completed`,
+        metadata: { taskId, phase: "implement", reason },
+      });
+      transitionToFinalState({ client, stateMap }, taskId, "done").catch(
+        () => {},
+      );
+      try {
+        removeWorktree(worktreePath);
+      } catch {
+        /* ignore */
+      }
+      return { outcome: "done" };
+    }
+
     const gate2 = await step.run(
       "process-implement-and-gate2",
       async (): Promise<{
@@ -679,9 +707,7 @@ export const taskLifecycle = inngest.createFunction(
             endedAt: new Date().toISOString(),
             outputSummary: "session timed out after 45 minutes",
           });
-          updateTaskStatus(db, taskId, "failed");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "failed");
           try {
             removeWorktree(worktreePath);
           } catch {
@@ -739,12 +765,10 @@ export const taskLifecycle = inngest.createFunction(
                   guardBTask.repoPath,
                 );
                 if (ciStatus === "success") {
-                  updateTaskStatus(db, taskId, "awaiting_ci");
+                  updateAndEmit(db, taskId, "awaiting_ci");
                   updateTaskCiInfo(db, taskId, {
                     ciStartedAt: new Date().toISOString(),
                   });
-                  const rescuedTask = getTask(db, taskId);
-                  if (rescuedTask) emitTaskUpdated(rescuedTask);
                   sendAlert(getSchedulerDeps(), {
                     severity: "info",
                     title: "Rescued orphaned green PR",
@@ -784,9 +808,7 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          updateTaskStatus(db, taskId, "failed");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "failed");
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
@@ -823,15 +845,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Session failed after ${config.maxRetries} retries (implement phase)`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
-            client
-              .createComment(
-                taskId,
-                `Task permanently failed after ${config.maxRetries} retries`,
-              )
-              .catch(() => {});
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+              `Task permanently failed after ${config.maxRetries} retries`,
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
 
@@ -856,31 +875,20 @@ export const taskLifecycle = inngest.createFunction(
         if (!branchName) {
           if (isAlreadyDone || noChanges) {
             log(`task ${taskId}: work already on main — marking done`);
-            updateTaskStatus(db, taskId, "done");
-            insertSystemEvent(db, {
-              type: "task_completed",
-              message: `Task ${taskId} completed`,
-              metadata: {
-                taskId,
-                phase: "implement",
-                reason: "already_on_main",
-              },
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return { outcome: "done" };
+            return markAlreadyDone(
+              db,
+              taskId,
+              client,
+              stateMap,
+              worktreePath,
+              "already_on_main",
+            );
           }
           updateInvocation(db, invocationId, {
             status: "failed",
             outputSummary: "Post-implementation gate failed: no branch name",
           });
-          updateTaskStatus(db, taskId, "failed");
-          emitTaskUpdated(getTask(db, taskId) ?? task);
+          updateAndEmit(db, taskId, "failed");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -897,9 +905,11 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -913,20 +923,14 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: no PR found but work is already done — marking done`,
             );
-            updateTaskStatus(db, taskId, "done");
-            insertSystemEvent(db, {
-              type: "task_completed",
-              message: `Task ${taskId} completed`,
-              metadata: { taskId, phase: "implement", reason: "already_done" },
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            writeBackStatus(client, taskId, "done", stateMap).catch(() => {});
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return { outcome: "done" };
+            return markAlreadyDone(
+              db,
+              taskId,
+              client,
+              stateMap,
+              worktreePath,
+              "already_done",
+            );
           }
           log(
             `task ${taskId}: Gate 2 failed — no PR found for branch ${branchName}`,
@@ -935,8 +939,7 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
-          updateTaskStatus(db, taskId, "failed");
-          emitTaskUpdated(getTask(db, taskId) ?? task);
+          updateAndEmit(db, taskId, "failed");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -953,9 +956,11 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
             );
-            writeBackStatus(client, taskId, "failed_permanent", stateMap).catch(
-              () => {},
-            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+            ).catch(() => {});
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -990,15 +995,13 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         resetStaleSessionRetryCount(db, taskId);
-        updateTaskStatus(db, taskId, "in_review");
-        emitTaskUpdated(getTask(db, taskId)!);
-        writeBackStatus(client, taskId, "in_review", stateMap).catch(() => {});
-        client
-          .createComment(
-            taskId,
-            `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-          )
-          .catch(() => {});
+        updateAndEmit(db, taskId, "in_review");
+        transitionToFinalState(
+          { client, stateMap },
+          taskId,
+          "in_review",
+          `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
+        ).catch(() => {});
 
         try {
           removeWorktree(worktreePath);
@@ -1152,8 +1155,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateTaskStatus(db, taskId, "running");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "running");
           client
             .createComment(
               taskId,
@@ -1213,9 +1215,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "review session timed out after 45 minutes",
             });
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1244,9 +1244,7 @@ export const taskLifecycle = inngest.createFunction(
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
           if (!isSuccess) {
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1292,18 +1290,14 @@ export const taskLifecycle = inngest.createFunction(
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
           resetStaleSessionRetryCount(db, taskId);
-          updateTaskStatus(db, taskId, "awaiting_ci");
-          emitTaskUpdated(getTask(db, taskId)!);
-          writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
-            () => {},
-          );
+          updateAndEmit(db, taskId, "awaiting_ci");
           const task = getTask(db, taskId);
-          client
-            .createComment(
-              taskId,
-              `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
-            )
-            .catch(() => {});
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "awaiting_ci",
+            `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
+          ).catch(() => {});
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
@@ -1348,9 +1342,7 @@ export const taskLifecycle = inngest.createFunction(
       if (reviewResult.outcome === "no_marker" || isLastCycle) {
         await step.run(`cycles-exhausted-${cycle}`, () => {
           const { db, client, config } = getSchedulerDeps();
-          updateTaskStatus(db, taskId, "in_review");
-          const updatedTask = getTask(db, taskId);
-          if (updatedTask) emitTaskUpdated(updatedTask);
+          updateAndEmit(db, taskId, "in_review");
           const reason =
             reviewResult.outcome === "no_marker"
               ? "no REVIEW_RESULT marker found"
@@ -1417,11 +1409,12 @@ export const taskLifecycle = inngest.createFunction(
           if (!task) throw new Error(`task ${taskId} not found`);
 
           incrementReviewCycleCount(db, taskId);
-          updateTaskStatus(db, taskId, "changes_requested");
-          emitTaskUpdated(getTask(db, taskId)!);
-          writeBackStatus(client, taskId, "changes_requested", stateMap).catch(
-            () => {},
-          );
+          updateAndEmit(db, taskId, "changes_requested");
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "changes_requested",
+          ).catch(() => {});
 
           let resumeSessionId: string | undefined;
           if (config.resumeOnFix) {
@@ -1484,8 +1477,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateTaskStatus(db, taskId, "running");
-          emitTaskUpdated(getTask(db, taskId)!);
+          updateAndEmit(db, taskId, "running");
 
           const reviewCycle = task.reviewCycleCount + 1;
           client
@@ -1540,9 +1532,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "fix session timed out after 45 minutes",
             });
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1590,24 +1580,21 @@ export const taskLifecycle = inngest.createFunction(
                   `Fix resume session not found (stale session ID) — restarting as fresh session`,
                 )
                 .catch(() => {});
-              updateTaskStatus(db, taskId, "in_review");
-              const updatedTask = getTask(db, taskId);
-              if (updatedTask) emitTaskUpdated(updatedTask);
+              updateAndEmit(db, taskId, "in_review");
               return { ok: false, timedOut: false, resumeNotFound: true };
             }
-            updateTaskStatus(db, taskId, "in_review");
-            const updatedTask = getTask(db, taskId);
-            if (updatedTask) emitTaskUpdated(updatedTask);
+            updateAndEmit(db, taskId, "in_review");
             return { ok: false, timedOut: false, resumeNotFound: false };
           }
 
           // Fix succeeded — transition back to in_review for next review cycle
           resetStaleSessionRetryCount(db, taskId);
-          updateTaskStatus(db, taskId, "in_review");
-          emitTaskUpdated(getTask(db, taskId)!);
-          writeBackStatus(client, taskId, "in_review", stateMap).catch(
-            () => {},
-          );
+          updateAndEmit(db, taskId, "in_review");
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "in_review",
+          ).catch(() => {});
           log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
           return { ok: true, timedOut: false, resumeNotFound: false };
         },

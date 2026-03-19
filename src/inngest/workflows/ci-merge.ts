@@ -3,7 +3,6 @@ import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
 import {
   getTask,
-  updateTaskStatus,
   updateTaskDeployInfo,
   updateTaskFixReason,
   incrementMergeAttemptCount,
@@ -11,6 +10,11 @@ import {
   incrementReviewCycleCount,
 } from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
+import {
+  updateAndEmit,
+  hasPollingTimedOut,
+  transitionToFinalState,
+} from "../workflow-utils.js";
 import {
   getPrCheckStatus,
   getPrMergeState,
@@ -22,7 +26,6 @@ import {
   getFailingCheckNames,
   isCiFlakeOnMain,
 } from "../../github/index.js";
-import { writeBackStatus } from "../../linear/sync.js";
 import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
 
 const logger = createLogger("ci-gate");
@@ -70,32 +73,16 @@ export const ciMergeWorkflow = inngest.createFunction(
       }
 
       // Timeout check
-      const timeoutMs = deps.config.deployTimeoutMin * 60 * 1000;
-      const startedAt = new Date(ciStartedAt).getTime();
-      if (startedAt + timeoutMs < Date.now()) {
+      if (hasPollingTimedOut(ciStartedAt, deps.config.deployTimeoutMin)) {
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateTaskStatus(db, linearIssueId, "failed");
-          emitTaskUpdated(getTask(db, linearIssueId)!);
-
-          await writeBackStatus(
-            client,
+          updateAndEmit(db, linearIssueId, "failed");
+          await transitionToFinalState(
+            { client, stateMap },
             linearIssueId,
             "failed_permanent",
-            stateMap,
+            `CI timed out after ${config.deployTimeoutMin}min — task failed`,
           );
-
-          await client
-            .createComment(
-              linearIssueId,
-              `CI timed out after ${config.deployTimeoutMin}min — task failed`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on CI timeout for task ${linearIssueId}: ${err}`,
-              );
-            });
-
           log(
             `task ${linearIssueId} CI timed out after ${config.deployTimeoutMin}min`,
           );
@@ -253,31 +240,13 @@ export const ciMergeWorkflow = inngest.createFunction(
 
               if (freshTask.reviewCycleCount < config.maxReviewCycles) {
                 incrementReviewCycleCount(db, linearIssueId);
-                updateTaskStatus(db, linearIssueId, "changes_requested");
-                emitTaskUpdated(getTask(db, linearIssueId)!);
-
-                await writeBackStatus(
-                  client,
+                updateAndEmit(db, linearIssueId, "changes_requested");
+                await transitionToFinalState(
+                  { client, stateMap },
                   linearIssueId,
                   "changes_requested",
-                  stateMap,
-                ).catch((err) => {
-                  log(
-                    `write-back failed on CI failure for task ${linearIssueId}: ${err}`,
-                  );
-                });
-
-                await client
-                  .createComment(
-                    linearIssueId,
-                    `CI failed on PR #${prNumber} — requesting fixes (cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
-                  )
-                  .catch((err) => {
-                    log(
-                      `comment failed on CI failure for task ${linearIssueId}: ${err}`,
-                    );
-                  });
-
+                  `CI failed on PR #${prNumber} — requesting fixes (cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                );
                 log(
                   `task ${linearIssueId} CI failed → changes_requested ` +
                     `(cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
@@ -288,31 +257,13 @@ export const ciMergeWorkflow = inngest.createFunction(
                 };
               } else {
                 // Cycles exhausted — mark as failed
-                updateTaskStatus(db, linearIssueId, "failed");
-                emitTaskUpdated(getTask(db, linearIssueId)!);
-
-                await writeBackStatus(
-                  client,
+                updateAndEmit(db, linearIssueId, "failed");
+                await transitionToFinalState(
+                  { client, stateMap },
                   linearIssueId,
                   "failed_permanent",
-                  stateMap,
-                ).catch((err) => {
-                  log(
-                    `write-back failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
-                  );
-                });
-
-                await client
-                  .createComment(
-                    linearIssueId,
-                    `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
-                  )
-                  .catch((err) => {
-                    log(
-                      `comment failed on CI failure (cycles exhausted) for task ${linearIssueId}: ${err}`,
-                    );
-                  });
-
+                  `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
+                );
                 log(
                   `task ${linearIssueId} CI failed, cycles exhausted → failed`,
                 );
@@ -357,22 +308,17 @@ export const ciMergeWorkflow = inngest.createFunction(
       await step.run("ci-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateTaskStatus(db, linearIssueId, "failed");
-        emitTaskUpdated(getTask(db, linearIssueId)!);
-
-        await writeBackStatus(
-          client,
+        updateAndEmit(db, linearIssueId, "failed");
+        await transitionToFinalState(
+          { client, stateMap },
           linearIssueId,
           "failed_permanent",
-          stateMap,
         );
-
         sendPermanentFailureAlert(
           deps,
           linearIssueId,
           `CI checks never resolved after ${maxPollAttempts} poll attempts`,
         );
-
         log(
           `task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`,
         );
@@ -434,8 +380,7 @@ async function mergeAndFinalizeStep(
       if (task.reviewCycleCount < config.maxReviewCycles) {
         incrementReviewCycleCount(db, taskId);
         updateTaskFixReason(db, taskId, "merge_conflict");
-        updateTaskStatus(db, taskId, "changes_requested");
-        emitTaskUpdated(getTask(db, taskId)!);
+        updateAndEmit(db, taskId, "changes_requested");
 
         client
           .createComment(
@@ -451,31 +396,13 @@ async function mergeAndFinalizeStep(
         );
       } else {
         // Review cycles exhausted — fail the task
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        await writeBackStatus(
-          client,
+        updateAndEmit(db, taskId, "failed");
+        await transitionToFinalState(
+          { client, stateMap },
           taskId,
           "failed_permanent",
-          stateMap,
-        ).catch((err) => {
-          log(
-            `write-back failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-          );
-        });
-
-        client
-          .createComment(
-            taskId,
-            `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on merge conflict exhaustion for task ${taskId}: ${err}`,
-            );
-          });
-
+          `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
+        );
         log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
         return { done: false, action: "failed" };
       }
@@ -538,8 +465,7 @@ async function mergeAndFinalizeStep(
               incrementReviewCycleCount(db, taskId);
               updateTaskFixReason(db, taskId, "merge_conflict");
               resetMergeAttemptCount(db, taskId);
-              updateTaskStatus(db, taskId, "changes_requested");
-              emitTaskUpdated(getTask(db, taskId)!);
+              updateAndEmit(db, taskId, "changes_requested");
 
               client
                 .createComment(
@@ -557,31 +483,13 @@ async function mergeAndFinalizeStep(
               );
             } else {
               // Review cycles exhausted — fail the task
-              updateTaskStatus(db, taskId, "failed");
-              emitTaskUpdated(getTask(db, taskId)!);
-
-              await writeBackStatus(
-                client,
+              updateAndEmit(db, taskId, "failed");
+              await transitionToFinalState(
+                { client, stateMap },
                 taskId,
                 "failed_permanent",
-                stateMap,
-              ).catch((err) => {
-                log(
-                  `write-back failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                );
-              });
-
-              client
-                .createComment(
-                  taskId,
-                  `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
-                )
-                .catch((err) => {
-                  log(
-                    `comment failed on rebase conflict exhaustion for task ${taskId}: ${err}`,
-                  );
-                });
-
+                `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
+              );
               log(
                 `task ${taskId} rebase conflicts — review cycles exhausted → failed`,
               );
@@ -614,28 +522,13 @@ async function mergeAndFinalizeStep(
         }
 
         // Exhausted retries — escalate to failed but preserve the PR
-        updateTaskStatus(db, taskId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        await writeBackStatus(client, taskId, "in_review", stateMap).catch(
-          (err) => {
-            log(
-              `write-back failed on merge escalation for task ${taskId}: ${err}`,
-            );
-          },
+        updateAndEmit(db, taskId, "failed");
+        await transitionToFinalState(
+          { client, stateMap },
+          taskId,
+          "in_review",
+          `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please resolve the merge blocker and merge manually, or reset this issue to Todo to re-implement.`,
         );
-
-        client
-          .createComment(
-            taskId,
-            `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please resolve the merge blocker and merge manually, or reset this issue to Todo to re-implement.`,
-          )
-          .catch((err) => {
-            log(
-              `comment failed on merge escalation for task ${taskId}: ${err}`,
-            );
-          });
-
         log(
           `task ${taskId} merge failed after ${attemptsSoFar} attempts — escalated, PR preserved, status=failed`,
         );
@@ -659,8 +552,7 @@ async function mergeAndFinalizeStep(
       prNumber: task.prNumber ?? null,
       deployStartedAt: now,
     });
-    updateTaskStatus(db, taskId, "deploying");
-    emitTaskUpdated(getTask(db, taskId)!);
+    updateAndEmit(db, taskId, "deploying");
 
     client
       .createComment(
@@ -685,22 +577,13 @@ async function mergeAndFinalizeStep(
     };
   } else {
     // deploy_strategy = "none" — go straight to done
-    updateTaskStatus(db, taskId, "done");
-    emitTaskUpdated(getTask(db, taskId)!);
-
-    await writeBackStatus(client, taskId, "done", stateMap).catch((err) => {
-      log(`write-back failed on merge+done for task ${taskId}: ${err}`);
-    });
-
-    client
-      .createComment(
-        taskId,
-        `PR #${task.prNumber ?? "?"} merged — task complete`,
-      )
-      .catch((err) => {
-        log(`comment failed on merge+done for task ${taskId}: ${err}`);
-      });
-
+    updateAndEmit(db, taskId, "done");
+    await transitionToFinalState(
+      { client, stateMap },
+      taskId,
+      "done",
+      `PR #${task.prNumber ?? "?"} merged — task complete`,
+    );
     log(`task ${taskId} merged → done (PR #${task.prNumber ?? "?"})`);
     return { done: true, nextStatus: "done" };
   }
