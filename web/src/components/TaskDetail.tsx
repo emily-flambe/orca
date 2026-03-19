@@ -48,6 +48,7 @@ export default function TaskDetail({
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+  const statusTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     fetchTaskDetail(taskId)
@@ -96,18 +97,53 @@ export default function TaskDetail({
         </h2>
         <div className="relative" ref={statusMenuRef}>
           <button
+            ref={statusTriggerRef}
+            aria-haspopup="menu"
+            aria-expanded={showStatusMenu}
             onClick={() => setShowStatusMenu(!showStatusMenu)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && showStatusMenu) {
+                setShowStatusMenu(false);
+              }
+            }}
             className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
           >
             {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}{" "}
             &#9662;
           </button>
           {showStatusMenu && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+            <div
+              role="menu"
+              className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setShowStatusMenu(false);
+                  statusTriggerRef.current?.focus();
+                  return;
+                }
+                const items =
+                  statusMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                    '[role="menuitem"]',
+                  ) ?? [];
+                const arr = Array.from(items);
+                const idx = arr.indexOf(
+                  document.activeElement as HTMLButtonElement,
+                );
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  arr[(idx + 1) % arr.length]?.focus();
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  arr[(idx - 1 + arr.length) % arr.length]?.focus();
+                }
+              }}
+            >
               {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map(
-                (s) => (
+                (s, i) => (
                   <button
                     key={s.value}
+                    role="menuitem"
+                    tabIndex={i === 0 ? 0 : -1}
                     onClick={() => {
                       setShowStatusMenu(false);
                       updateTaskStatus(detail.linearIssueId, s.value)

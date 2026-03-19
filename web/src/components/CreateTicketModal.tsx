@@ -24,6 +24,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -35,10 +36,32 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
       .catch(() => {});
   }, []);
 
-  // Close on Escape
+  // Close on Escape and trap focus within dialog
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) return;
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -72,11 +95,23 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 className="text-base font-semibold text-gray-100">New ticket</h2>
+          <h2
+            id="modal-title"
+            className="text-base font-semibold text-gray-100"
+          >
+            New ticket
+          </h2>
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="text-gray-500 hover:text-gray-300 transition-colors text-lg leading-none"
           >
             ×

@@ -144,6 +144,7 @@ export default function TaskList({
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+  const statusMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
@@ -313,6 +314,8 @@ export default function TaskList({
           <div className="relative flex-1">
             <button
               onClick={() => setStatusDropdownOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={statusDropdownOpen}
               className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
             >
               <span className="truncate">
@@ -545,6 +548,13 @@ export default function TaskList({
                   }
                 >
                   <button
+                    ref={
+                      statusMenuTaskId === task.linearIssueId
+                        ? statusMenuTriggerRef
+                        : undefined
+                    }
+                    aria-haspopup="menu"
+                    aria-expanded={statusMenuTaskId === task.linearIssueId}
                     onClick={(e) => {
                       e.stopPropagation();
                       setStatusMenuTaskId(
@@ -553,17 +563,54 @@ export default function TaskList({
                           : task.linearIssueId,
                       );
                     }}
+                    onKeyDown={(e) => {
+                      if (
+                        e.key === "Escape" &&
+                        statusMenuTaskId === task.linearIssueId
+                      ) {
+                        e.stopPropagation();
+                        setStatusMenuTaskId(null);
+                      }
+                    }}
                     className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(task.orcaStatus)}`}
                   >
                     {getStatusDisplayText(task.orcaStatus)} &#9662;
                   </button>
                   {statusMenuTaskId === task.linearIssueId && (
-                    <div className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+                    <div
+                      role="menu"
+                      className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setStatusMenuTaskId(null);
+                          statusMenuTriggerRef.current?.focus();
+                          return;
+                        }
+                        const items =
+                          statusMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                            '[role="menuitem"]',
+                          ) ?? [];
+                        const arr = Array.from(items);
+                        const idx = arr.indexOf(
+                          document.activeElement as HTMLButtonElement,
+                        );
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          arr[(idx + 1) % arr.length]?.focus();
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          arr[(idx - 1 + arr.length) % arr.length]?.focus();
+                        }
+                      }}
+                    >
                       {MANUAL_STATUSES.filter(
                         (s) => s.value !== task.orcaStatus,
-                      ).map((s) => (
+                      ).map((s, i) => (
                         <button
                           key={s.value}
+                          role="menuitem"
+                          tabIndex={i === 0 ? 0 : -1}
                           onClick={(e) => {
                             e.stopPropagation();
                             setStatusMenuTaskId(null);
