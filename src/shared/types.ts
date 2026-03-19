@@ -129,4 +129,10 @@ export interface OrcaStatus {
   tokensPerMinute: number | null;
   inputTokensInWindow: number;
   outputTokensInWindow: number;
+  failedTaskSnapshot: Array<{
+    id: string;
+    phase: string | null;
+    failedAt: string | null;
+    reason: string | null;
+  }>;
 }

@@ -95,6 +95,9 @@ export function incrementRetryCount(
       retryCount: sql`${tasks.retryCount} + 1`,
       orcaStatus: resetStatus,
       doneAt: null,
+      lastFailureReason: null,
+      lastFailedPhase: null,
+      lastFailedAt: null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))

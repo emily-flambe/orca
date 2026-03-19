@@ -376,19 +376,6 @@ function migrateSchema(sqlite: DatabaseType): void {
   );
 
   // ---------------------------------------------------------------------------
-  // Migration 18 (failure metadata):
-  //   - Add last_failure_reason column to tasks (truncated error summary)
-  //   - Add last_failed_phase column to tasks (implement | review | fix)
-  //   - Add last_failed_at column to tasks (ISO timestamp)
-  //   Sentinel: last_failure_reason column doesn't exist on tasks table.
-  // ---------------------------------------------------------------------------
-  if (!hasColumn(sqlite, "tasks", "last_failure_reason")) {
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failure_reason TEXT");
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_phase TEXT");
-    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_at TEXT");
-  }
-
-  // ---------------------------------------------------------------------------
   // Migration 17 (performance indexes):
   //   Indexes on frequently queried columns to avoid full table scans.
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
@@ -408,6 +395,19 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 18 (failure metadata):
+  //   - Add last_failure_reason column to tasks (truncated error summary)
+  //   - Add last_failed_phase column to tasks (implement | review | fix)
+  //   - Add last_failed_at column to tasks (ISO timestamp)
+  //   Sentinel: last_failure_reason column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "last_failure_reason")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failure_reason TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_phase TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_at TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

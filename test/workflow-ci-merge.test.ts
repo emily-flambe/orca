@@ -88,6 +88,7 @@ vi.mock("../src/db/queries.js", () => ({
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   getInvocation: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
+  updateTaskFailure: vi.fn(),
 }));
 
 vi.mock("../src/events.js", () => ({
@@ -576,8 +577,15 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "poll_exhausted",
+    });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -616,7 +624,10 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "poll_exhausted",
+    });
   });
 
   test("poll exhaustion → updateTaskStatus called with 'failed'", async () => {
@@ -629,7 +640,11 @@ describe("ci-merge workflow", () => {
       step,
     });
 
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
   });
 
   test("poll exhaustion → writeBackStatus called with 'failed_permanent'", async () => {
@@ -679,7 +694,10 @@ describe("ci-merge workflow", () => {
     });
 
     // Must be called inside a step.run (not fire-and-forget outside)
-    expect(step.run).toHaveBeenCalledWith("ci-poll-exhausted", expect.any(Function));
+    expect(step.run).toHaveBeenCalledWith(
+      "ci-poll-exhausted",
+      expect.any(Function),
+    );
     expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
   });
 

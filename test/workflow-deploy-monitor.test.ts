@@ -88,6 +88,7 @@ vi.mock("../src/db/queries.js", () => ({
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   getInvocation: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
+  updateTaskFailure: vi.fn(),
 }));
 
 vi.mock("../src/events.js", () => ({
@@ -234,8 +235,15 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "deploy_timeout" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "deploy_timeout",
+    });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -364,8 +372,15 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "poll_exhausted",
+    });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -395,7 +410,10 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(result).toMatchObject({ status: "failed", reason: "poll_exhausted" });
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: "poll_exhausted",
+    });
   });
 
   test("poll exhaustion → updateTaskStatus called with 'failed'", async () => {
@@ -408,7 +426,11 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "failed");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "failed",
+    );
   });
 
   test("poll exhaustion → writeBackStatus called with 'failed_permanent'", async () => {
@@ -456,7 +478,10 @@ describe("deploy-monitor workflow", () => {
       step,
     });
 
-    expect(step.run).toHaveBeenCalledWith("deploy-poll-exhausted", expect.any(Function));
+    expect(step.run).toHaveBeenCalledWith(
+      "deploy-poll-exhausted",
+      expect.any(Function),
+    );
     expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
   });
 
