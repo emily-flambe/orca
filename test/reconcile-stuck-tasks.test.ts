@@ -129,6 +129,7 @@ function makeConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     cloudflaredPath: "cloudflared",
     externalTunnel: false,
     cronRetentionDays: 7,
+    drainTimeoutMin: 10,
     stateMapOverrides: undefined,
     logLevel: "info",
     projectRepoMap: new Map(),

@@ -17,12 +17,21 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  countActiveSessions,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
 import type { OrcaDb } from "../../db/index.js";
+import {
+  isDraining,
+  getDrainingForSeconds,
+  clearDraining,
+  incrementDrainZeroSessionsCount,
+  resetDrainZeroSessionsCount,
+} from "../../deploy.js";
+import { sendAlert } from "../../scheduler/alerts.js";
 
 const logger = createLogger("reconcile");
 
@@ -256,6 +265,64 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       logger.info(
         `re-dispatched ${readyTasks.length} orphaned ready task(s): ${readyTasks.map((t) => t.linearIssueId).join(", ")}`,
       );
+    });
+
+    await step.run("check-drain-timeout", async () => {
+      if (!isDraining()) {
+        resetDrainZeroSessionsCount();
+        return;
+      }
+
+      const deps = getSchedulerDeps();
+      const { db, config } = deps;
+      const activeSessions = countActiveSessions(db);
+      const drainingForSeconds = getDrainingForSeconds();
+
+      if (activeSessions > 0) {
+        resetDrainZeroSessionsCount();
+        logger.debug(
+          `drain active with ${activeSessions} session(s) — not stuck`,
+        );
+        return;
+      }
+
+      // activeSessions === 0 and draining
+      const consecutiveCount = incrementDrainZeroSessionsCount();
+
+      // Check drain timeout
+      if (
+        drainingForSeconds !== null &&
+        config.drainTimeoutMin > 0 &&
+        drainingForSeconds >= config.drainTimeoutMin * 60
+      ) {
+        clearDraining();
+        const durationMin = Math.round(drainingForSeconds / 60);
+        const message = `Drain timeout: auto-cleared drain flag after ${durationMin} min with zero active sessions`;
+        sendAlert(deps, {
+          severity: "warning",
+          title: "Drain Timeout Auto-Cleared",
+          message,
+        });
+        logger.warn(`[drain] ${message}`);
+        return;
+      }
+
+      // Alert if stuck for 2+ consecutive checks
+      if (consecutiveCount >= 2) {
+        const durationMin = Math.round((drainingForSeconds ?? 0) / 60);
+        const message = `Drain active with zero sessions for ${consecutiveCount} consecutive checks (${durationMin} min)`;
+        sendAlert(deps, {
+          severity: "warning",
+          title: "Stuck Drain State",
+          message,
+        });
+        insertSystemEvent(db, {
+          type: "health_check",
+          message,
+          metadata: { consecutiveCount, drainingForSeconds, durationMin },
+        });
+        logger.warn(`[drain] ${message}`);
+      }
     });
   },
 );

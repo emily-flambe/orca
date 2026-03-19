@@ -61,7 +61,7 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining } from "../deploy.js";
+import { isDraining, setDraining, getDrainingForSeconds } from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -708,6 +708,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const inngestReachable = await checkInngestHealth();
 
     const draining = isDraining();
+    const drainingForSeconds = draining ? getDrainingForSeconds() : null;
     return c.json({
       activeSessions,
       activeTaskIds,
@@ -727,6 +728,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       fixModel: config.fixModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
+      drainingForSeconds,
       burnRatePerHour,
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
