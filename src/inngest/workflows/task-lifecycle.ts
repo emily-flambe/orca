@@ -68,13 +68,6 @@ import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 
-// ---------------------------------------------------------------------------
-// Concurrency cap — read from env at module load time so it's available when
-// the Inngest function object is constructed.
-// ---------------------------------------------------------------------------
-
-const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
-
 /**
  * Guard: throws if the number of active Claude sessions has reached the
  * concurrency cap. Checks both the process-local activeHandles map AND the
@@ -311,18 +304,16 @@ export const taskLifecycle = inngest.createFunction(
   {
     id: "task-lifecycle",
 
-    // Two-level concurrency control:
-    // 1. Global cap: max CONCURRENCY_CAP workflow runs total
-    // 2. Per-task cap: only one workflow run per task at a time (dedup)
+    // Per-task dedup only — global concurrency cap is enforced inside the
+    // claim step via assertSessionCapacity() which reads from the injected
+    // config. This avoids the frozen-at-module-load CONCURRENCY_CAP constant
+    // diverging from the runtime config value.
     //
     // NOTE: Do NOT use `idempotency` here — it's sugar for rateLimit with a
     // 24h window, which blocks ALL re-runs for the same task for 24 hours.
     // Per-task concurrency of 1 achieves the dedup goal while still allowing
     // a new run after the previous one completes.
-    concurrency: [
-      { limit: CONCURRENCY_CAP },
-      { limit: 1, key: "event.data.linearIssueId" },
-    ],
+    concurrency: [{ limit: 1, key: "event.data.linearIssueId" }],
 
     // Cancel this workflow when a task/cancelled event arrives with the same
     // linearIssueId as the trigger event.
