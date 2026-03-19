@@ -513,6 +513,7 @@ export default function App() {
           onSync={handleSync}
           onConfigUpdate={handleConfigUpdate}
           onNewTicket={handleNewTicket}
+          onToast={toast}
         />
 
         {/* Backend-down banner */}
