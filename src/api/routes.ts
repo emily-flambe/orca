@@ -61,7 +61,7 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining } from "../deploy.js";
+import { isDraining, setDraining, getDrainingForSeconds } from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -726,6 +726,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       reviewModel: config.reviewModel,
       fixModel: config.fixModel,
       draining,
+      drainingForSeconds: draining ? getDrainingForSeconds() : null,
       drainSessionCount: draining ? activeSessions : 0,
       burnRatePerHour,
       tokensPerMinute,

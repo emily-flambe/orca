@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
+let drainingStartedAt: number | null = null;
 let startupSha: string | null = null;
 
 const logger = createLogger("deploy");
@@ -56,8 +57,31 @@ export function initDeployState(): void {
   }
 }
 
+// NOTE: The drain flag does NOT block Inngest task dispatch — the task-lifecycle
+// workflow does not check isDraining(). Drain only affects the health/status
+// API responses and the CLI shutdown path. Ready tasks will still be picked up
+// by Inngest even when draining=true.
 export function isDraining(): boolean {
   return draining;
+}
+
+/**
+ * Clear the drain flag. Called when the drain timeout fires with zero active
+ * sessions, indicating that deploy.sh died without completing the blue/green
+ * switch. Controlled by ORCA_DRAIN_TIMEOUT_MIN (default: 10 min).
+ */
+export function clearDraining(): void {
+  logger.warn("clearDraining: resetting drain flag");
+  draining = false;
+  drainingStartedAt = null;
+}
+
+/**
+ * Returns how many seconds the drain flag has been set, or null if not draining.
+ */
+export function getDrainingForSeconds(): number | null {
+  if (drainingStartedAt === null) return null;
+  return Math.floor((Date.now() - drainingStartedAt) / 1000);
 }
 
 /**
@@ -70,5 +94,6 @@ export function setDraining(): void {
     return;
   }
   draining = true;
+  drainingStartedAt = Date.now();
   log("draining flag set (external deploy mode)");
 }

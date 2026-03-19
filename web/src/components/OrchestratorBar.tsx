@@ -4,6 +4,16 @@ import CreateTicketModal from "./CreateTicketModal";
 import { formatTokens } from "../utils/formatTokens";
 import { MODEL_OPTIONS } from "../constants.js";
 
+function formatDrainDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return `${h}h ${rem}m`;
+}
+
 interface Props {
   status: OrcaStatus | null;
   onSync: () => Promise<void>;
@@ -269,10 +279,13 @@ export default function OrchestratorBar({
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
           </span>
-          <span>
-            Draining — waiting for {status.drainSessionCount} session
-            {status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy
-          </span>
+          <span>Draining</span>
+          {status.drainingForSeconds != null && (
+            <span className="text-amber-400/70 text-xs">
+              {formatDrainDuration(status.drainingForSeconds)}
+            </span>
+          )}
+          <span>— waiting for {status.drainSessionCount} session{status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy</span>
         </div>
       )}
       {showModal && (

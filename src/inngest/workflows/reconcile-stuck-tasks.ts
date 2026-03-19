@@ -8,6 +8,8 @@
  * - awaiting_ci/deploying/in_review older than strandedTaskThresholdMin → timed-out, reset to ready/failed
  */
 
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
@@ -17,14 +19,52 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  countActiveSessions,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
+import { isDraining, getDrainingForSeconds, clearDraining } from "../../deploy.js";
+import { sendAlertThrottled } from "../../scheduler/alerts.js";
 import type { OrcaConfig } from "../../config/index.js";
 import type { OrcaDb } from "../../db/index.js";
 
 const logger = createLogger("reconcile");
+
+// ---------------------------------------------------------------------------
+// Drain tracking state (persisted to file across Inngest invocations)
+// ---------------------------------------------------------------------------
+
+interface DrainTrackingState {
+  consecutiveZeroSessionSnapshots: number;
+  firstSeenAt: string | null;
+}
+
+const DRAIN_TRACKING_FILE = path.join(
+  process.cwd(),
+  "tmp",
+  "drain-tracking.json",
+);
+
+async function readDrainTrackingState(): Promise<DrainTrackingState> {
+  try {
+    const raw = await fs.readFile(DRAIN_TRACKING_FILE, "utf-8");
+    return JSON.parse(raw) as DrainTrackingState;
+  } catch {
+    return { consecutiveZeroSessionSnapshots: 0, firstSeenAt: null };
+  }
+}
+
+async function writeDrainTrackingState(
+  state: DrainTrackingState,
+): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(DRAIN_TRACKING_FILE), { recursive: true });
+    await fs.writeFile(DRAIN_TRACKING_FILE, JSON.stringify(state), "utf-8");
+  } catch (err) {
+    logger.warn(`drain tracking: failed to write state file: ${err}`);
+  }
+}
 
 /**
  * Core reconciliation logic — extracted for testability.
@@ -256,6 +296,97 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       logger.info(
         `re-dispatched ${readyTasks.length} orphaned ready task(s): ${readyTasks.map((t) => t.linearIssueId).join(", ")}`,
       );
+    });
+
+    // Step 5: Alert if drain flag is stuck (draining=true with 0 active sessions
+    // for 2+ consecutive reconcile snapshots). Runs before the auto-clear step so
+    // we can alert before potentially clearing.
+    await step.run("alert-stuck-drain", async () => {
+      const deps = getSchedulerDeps();
+      const draining = isDraining();
+      const activeSessions = countActiveSessions(deps.db);
+
+      const state = await readDrainTrackingState();
+
+      if (!draining || activeSessions > 0) {
+        // Not stuck — reset tracking
+        if (state.consecutiveZeroSessionSnapshots > 0) {
+          await writeDrainTrackingState({
+            consecutiveZeroSessionSnapshots: 0,
+            firstSeenAt: null,
+          });
+        }
+        return;
+      }
+
+      // draining=true and activeSessions=0 — increment counter
+      const newCount = state.consecutiveZeroSessionSnapshots + 1;
+      const firstSeenAt = state.firstSeenAt ?? new Date().toISOString();
+      await writeDrainTrackingState({
+        consecutiveZeroSessionSnapshots: newCount,
+        firstSeenAt,
+      });
+
+      if (newCount === 2) {
+        const durationMin = Math.round(
+          (Date.now() - new Date(firstSeenAt).getTime()) / 60000,
+        );
+        sendAlertThrottled(
+          deps,
+          "stuck-drain",
+          {
+            severity: "warning",
+            title: "Drain Flag Stuck",
+            message: `Orca has been draining for ${durationMin} min with 0 active sessions. deploy.sh may have died mid-deploy. Drain will auto-clear after ${deps.config.drainTimeoutMin} min.`,
+          },
+          60 * 60 * 1000, // 60-minute cooldown
+        );
+        logger.warn(
+          `stuck drain alert: draining=true with 0 active sessions for ${newCount} consecutive snapshots`,
+        );
+      }
+    });
+
+    // Step 6: Auto-clear drain flag if it has been set for longer than
+    // drainTimeoutMin with zero active sessions. This recovers from a
+    // mid-deploy crash of deploy.sh that left the drain flag set forever.
+    // Controlled by ORCA_DRAIN_TIMEOUT_MIN (default: 10 min).
+    await step.run("check-drain-timeout", async () => {
+      const deps = getSchedulerDeps();
+
+      if (!isDraining()) return;
+
+      const drainingForSeconds = getDrainingForSeconds();
+      if (drainingForSeconds === null) return;
+
+      const drainTimeoutSec = deps.config.drainTimeoutMin * 60;
+      const activeSessions = countActiveSessions(deps.db);
+
+      if (drainingForSeconds > drainTimeoutSec && activeSessions === 0) {
+        logger.warn(
+          `drain timeout: draining for ${drainingForSeconds}s with 0 active sessions — auto-clearing drain flag`,
+        );
+        clearDraining();
+        insertSystemEvent(deps.db, {
+          type: "health_check",
+          message: `Auto-cleared stuck drain flag after ${Math.round(drainingForSeconds / 60)} min with 0 active sessions`,
+          metadata: {
+            drainingForSeconds,
+            activeSessions,
+            drainTimeoutMin: deps.config.drainTimeoutMin,
+          },
+        });
+        sendAlertThrottled(
+          deps,
+          "drain-timeout",
+          {
+            severity: "warning",
+            title: "Drain Timeout Auto-Cleared",
+            message: `Orca was draining for ${Math.round(drainingForSeconds / 60)} min with 0 active sessions. Drain flag auto-cleared to unblock ready tasks.`,
+          },
+          30 * 60 * 1000, // 30-minute cooldown
+        );
+      }
     });
   },
 );
