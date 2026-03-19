@@ -666,14 +666,12 @@ export const taskLifecycle = inngest.createFunction(
       worktreePath: string,
       reason: string,
     ): Promise<{ outcome: "done" }> {
-      updateTaskStatus(db, taskId, "done");
+      updateAndEmit(db, taskId, "done");
       insertSystemEvent(db, {
         type: "task_completed",
         message: `Task ${taskId} completed`,
         metadata: { taskId, phase: "implement", reason },
       });
-      const doneTask = getTask(db, taskId);
-      if (doneTask) emitTaskUpdated(doneTask);
       transitionToFinalState({ client, stateMap }, taskId, "done").catch(
         () => {},
       );
@@ -767,12 +765,10 @@ export const taskLifecycle = inngest.createFunction(
                   guardBTask.repoPath,
                 );
                 if (ciStatus === "success") {
-                  updateTaskStatus(db, taskId, "awaiting_ci");
+                  updateAndEmit(db, taskId, "awaiting_ci");
                   updateTaskCiInfo(db, taskId, {
                     ciStartedAt: new Date().toISOString(),
                   });
-                  const rescuedTask = getTask(db, taskId);
-                  if (rescuedTask) emitTaskUpdated(rescuedTask);
                   sendAlert(getSchedulerDeps(), {
                     severity: "info",
                     title: "Rescued orphaned green PR",
