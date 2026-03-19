@@ -77,7 +77,7 @@ export const ciMergeWorkflow = inngest.createFunction(
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           updateTaskStatus(db, linearIssueId, "failed");
-          updateTaskFailureMetadata(db, linearIssueId, `CI timed out after ${config.deployTimeoutMin}min`, "ci");
+          updateTaskFailureMetadata(db, linearIssueId, `CI timed out after ${config.deployTimeoutMin}min`, "review");
           emitTaskUpdated(getTask(db, linearIssueId)!);
 
           await writeBackStatus(
@@ -291,7 +291,7 @@ export const ciMergeWorkflow = inngest.createFunction(
               } else {
                 // Cycles exhausted — mark as failed
                 updateTaskStatus(db, linearIssueId, "failed");
-                updateTaskFailureMetadata(db, linearIssueId, `CI failed and review cycles exhausted (${config.maxReviewCycles})`, "ci");
+                updateTaskFailureMetadata(db, linearIssueId, `CI failed and review cycles exhausted (${config.maxReviewCycles})`, "review");
                 emitTaskUpdated(getTask(db, linearIssueId)!);
 
                 await writeBackStatus(
@@ -361,7 +361,7 @@ export const ciMergeWorkflow = inngest.createFunction(
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
         updateTaskStatus(db, linearIssueId, "failed");
-        updateTaskFailureMetadata(db, linearIssueId, "CI polling exhausted without reaching CLEAN status", "ci");
+        updateTaskFailureMetadata(db, linearIssueId, "CI polling exhausted without reaching CLEAN status", "review");
         emitTaskUpdated(getTask(db, linearIssueId)!);
 
         await writeBackStatus(
@@ -456,7 +456,7 @@ async function mergeAndFinalizeStep(
       } else {
         // Review cycles exhausted — fail the task
         updateTaskStatus(db, taskId, "failed");
-        updateTaskFailureMetadata(db, taskId, "PR has merge conflicts and review cycle limit reached", "merge");
+        updateTaskFailureMetadata(db, taskId, "PR has merge conflicts and review cycle limit reached", "review");
         emitTaskUpdated(getTask(db, taskId)!);
 
         await writeBackStatus(
@@ -563,7 +563,7 @@ async function mergeAndFinalizeStep(
             } else {
               // Review cycles exhausted — fail the task
               updateTaskStatus(db, taskId, "failed");
-              updateTaskFailureMetadata(db, taskId, "PR has merge conflicts and review cycle limit reached", "merge");
+              updateTaskFailureMetadata(db, taskId, "PR has merge conflicts and review cycle limit reached", "review");
               emitTaskUpdated(getTask(db, taskId)!);
 
               await writeBackStatus(
@@ -621,7 +621,7 @@ async function mergeAndFinalizeStep(
 
         // Exhausted retries — escalate to failed but preserve the PR
         updateTaskStatus(db, taskId, "failed");
-        updateTaskFailureMetadata(db, taskId, `Merge failed after ${attemptsSoFar} attempts`, "merge");
+        updateTaskFailureMetadata(db, taskId, `Merge failed after ${attemptsSoFar} attempts`, "review");
         emitTaskUpdated(getTask(db, taskId)!);
 
         await writeBackStatus(client, taskId, "in_review", stateMap).catch(

@@ -62,9 +62,14 @@ export async function runReconciliation(deps: {
   // invocations in DB to find which tasks have live handles.
   const runningInvocations = getRunningInvocations(db);
   const liveTaskIds = new Set<string>();
+  // Map taskId → actual invocation phase (implement/review/fix) for running tasks
+  const taskInvocationPhase = new Map<string, string>();
   for (const inv of runningInvocations) {
     if (handles.has(inv.id)) {
       liveTaskIds.add(inv.linearIssueId);
+    }
+    if (inv.phase) {
+      taskInvocationPhase.set(inv.linearIssueId, inv.phase);
     }
   }
 
@@ -111,7 +116,18 @@ export async function runReconciliation(deps: {
     updateTaskStatus(db, linearIssueId, targetStatus);
 
     if (targetStatus === "failed") {
-      updateTaskFailureMetadata(db, linearIssueId, `Stranded task exhausted retries: ${reason}`, orcaStatus);
+      // Determine the actual workflow phase from the invocation record (for running tasks)
+      // or infer it from the task status (for intermediate states).
+      const strandedPhase =
+        taskInvocationPhase.get(linearIssueId) ??
+        (orcaStatus === "awaiting_ci" || orcaStatus === "in_review"
+          ? "review"
+          : orcaStatus === "deploying"
+            ? "deploy"
+            : orcaStatus === "changes_requested"
+              ? "fix"
+              : "implement");
+      updateTaskFailureMetadata(db, linearIssueId, `Stranded task exhausted retries: ${reason}`, strandedPhase);
     }
 
     insertSystemEvent(db, {

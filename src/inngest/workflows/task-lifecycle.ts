@@ -888,7 +888,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "Post-implementation gate failed: no branch name",
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(db, taskId, "Gate 2 failed: no branch name after session completed", "gate2");
+          updateTaskFailureMetadata(db, taskId, "Gate 2 failed: no branch name after session completed", "implement");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -896,7 +896,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Task ${taskId} permanently failed`,
               metadata: {
                 taskId,
-                phase: "gate2",
+                phase: "implement",
                 reason: "no_branch_name",
                 retries: config.maxRetries,
               },
@@ -945,7 +945,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureMetadata(db, taskId, `Gate 2 failed: no PR found for branch ${branchName}`, "gate2");
+          updateTaskFailureMetadata(db, taskId, `Gate 2 failed: no PR found for branch ${branchName}`, "implement");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -953,7 +953,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Task ${taskId} permanently failed`,
               metadata: {
                 taskId,
-                phase: "gate2",
+                phase: "implement",
                 reason: "no_pr_found",
                 retries: config.maxRetries,
               },
