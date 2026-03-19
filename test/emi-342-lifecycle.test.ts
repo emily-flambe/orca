@@ -51,6 +51,7 @@ vi.mock("../src/db/queries.js", () => ({
   getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   resetMergeAttemptCount: vi.fn(),
+  resetStaleSessionRetryCount: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   clearSessionIds: vi.fn(),

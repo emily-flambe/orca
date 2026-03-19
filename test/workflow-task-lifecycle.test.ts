@@ -59,6 +59,7 @@ vi.mock("../src/db/queries.js", () => ({
   getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   resetMergeAttemptCount: vi.fn(),
+  resetStaleSessionRetryCount: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
   insertSystemEvent: vi.fn(),
   getInvocationsByTask: vi.fn().mockReturnValue([]),
@@ -135,6 +136,7 @@ import {
   sumCostInWindow,
   incrementRetryCount,
   insertSystemEvent,
+  resetStaleSessionRetryCount,
 } from "../src/db/queries.js";
 import { spawnSession, killSession } from "../src/runner/index.js";
 import { findPrForBranch, getPrCheckStatus } from "../src/github/index.js";
@@ -162,6 +164,7 @@ const mockFindPrForBranch = vi.mocked(findPrForBranch);
 const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
 const mockGetInvocation = vi.mocked(getInvocation);
 const mockInsertSystemEvent = vi.mocked(insertSystemEvent);
+const mockResetStaleSessionRetryCount = vi.mocked(resetStaleSessionRetryCount);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
@@ -424,6 +427,10 @@ describe("task-lifecycle workflow", () => {
     // After Gate 2 passes with PR found, the workflow continues to review loop.
     // With no review event it returns timed_out or awaiting_ci based on flow.
     // The in_review transition happens inside the step.run, then it continues to review.
+    expect(mockResetStaleSessionRetryCount).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+    );
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
@@ -536,6 +543,12 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "awaiting_ci" });
+    // Stale count should be reset on the implement→in_review transition
+    // AND on the review approved→awaiting_ci transition
+    expect(mockResetStaleSessionRetryCount).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+    );
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
@@ -989,7 +1002,7 @@ describe("Guard A — stale workflow abort", () => {
   test("canceled task → workflow aborts with aborted_stale", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim (emitTaskUpdated)
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim (emitTaskUpdated)
       .mockReturnValueOnce(makeTask({ orcaStatus: "canceled" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1009,7 +1022,7 @@ describe("Guard A — stale workflow abort", () => {
   test("done task → workflow aborts", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
       .mockReturnValueOnce(makeTask({ orcaStatus: "done" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1029,7 +1042,7 @@ describe("Guard A — stale workflow abort", () => {
   test("deleted task (null) → workflow aborts", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
       .mockReturnValueOnce(null); // guard-a-implement: task deleted
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1050,8 +1063,8 @@ describe("Guard A — stale workflow abort", () => {
     // Guard A returns non-terminal status, so workflow continues to start-implement
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: getTask after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
       .mockReturnValue(makeTask({ orcaStatus: "running" })); // all subsequent calls
     mockClaimTaskForDispatch.mockReturnValue(true);
     mockInsertInvocation.mockReturnValue(1);
@@ -1072,8 +1085,8 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with green PR → rescued to awaiting_ci", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
           orcaStatus: "running",
@@ -1124,8 +1137,8 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with failing PR → falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
           orcaStatus: "running",
@@ -1168,8 +1181,8 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with no PR → falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
           orcaStatus: "running",
@@ -1205,8 +1218,8 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("gh CLI error → try/catch catches, falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "dispatched" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
           orcaStatus: "running",

@@ -60,7 +60,7 @@ export function updateTaskStatus(
 
 /**
  * Atomically claim a task for dispatch using compare-and-swap.
- * Only updates the status to "dispatched" if the task is currently in one of
+ * Only updates the status to "running" if the task is currently in one of
  * the provided `fromStatuses`. Returns true if exactly one row was updated.
  */
 export function claimTaskForDispatch(
@@ -71,7 +71,7 @@ export function claimTaskForDispatch(
   const result = db
     .update(tasks)
     .set({
-      orcaStatus: "dispatched" as TaskStatus,
+      orcaStatus: "running" as TaskStatus,
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -153,6 +153,14 @@ export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): void {
       mergeAttemptCount: sql`${tasks.mergeAttemptCount} + 1`,
       updatedAt: new Date().toISOString(),
     })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
+/** Reset stale_session_retry_count to 0. Used when a task makes real progress (phase transition). */
+export function resetStaleSessionRetryCount(db: OrcaDb, taskId: string): void {
+  db.update(tasks)
+    .set({ staleSessionRetryCount: 0, updatedAt: new Date().toISOString() })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
 }
@@ -747,7 +755,7 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
         WHEN t.orca_status = 'done'                THEN 'completed'
         WHEN i.status = 'running'                  THEN 'running'
         WHEN i.status = 'completed'                THEN 'completed'
-        WHEN i.status = 'failed' AND t.orca_status IN ('ready', 'in_review', 'changes_requested', 'dispatched', 'running')
+        WHEN i.status = 'failed' AND t.orca_status IN ('ready', 'in_review', 'changes_requested', 'running')
                                                    THEN 'queued'
         WHEN i.status = 'failed'                   THEN 'retrying'
         ELSE i.status

@@ -37,6 +37,7 @@ import {
   getLastCompletedImplementInvocation,
   insertSystemEvent,
   clearSessionIds,
+  resetStaleSessionRetryCount,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -346,7 +347,7 @@ export const taskLifecycle = inngest.createFunction(
     }
 
     // -------------------------------------------------------------------------
-    // Step 2: Claim task (atomic CAS: ready/in_review/changes_requested → dispatched)
+    // Step 2: Claim task (atomic CAS: ready/in_review/changes_requested → running)
     // -------------------------------------------------------------------------
 
     const claimResult = await step.run(
@@ -369,7 +370,7 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         emitTaskUpdated(getTask(db, taskId)!);
-        writeBackStatus(client, taskId, "dispatched", stateMap).catch((err) => {
+        writeBackStatus(client, taskId, "running", stateMap).catch((err) => {
           log(`write-back failed on claim for task ${taskId}: ${err}`);
         });
 
@@ -554,7 +555,6 @@ export const taskLifecycle = inngest.createFunction(
         );
 
         emitInvocationStarted({ taskId, invocationId });
-        updateTaskStatus(db, taskId, "running");
         emitTaskUpdated(getTask(db, taskId)!);
 
         const dispatchMsg = isDeployResume
@@ -935,6 +935,7 @@ export const taskLifecycle = inngest.createFunction(
             .catch(() => {});
         }
 
+        resetStaleSessionRetryCount(db, taskId);
         updateTaskStatus(db, taskId, "in_review");
         emitTaskUpdated(getTask(db, taskId)!);
         writeBackStatus(client, taskId, "in_review", stateMap).catch(() => {});
@@ -1236,6 +1237,7 @@ export const taskLifecycle = inngest.createFunction(
           const { db, client, stateMap } = getSchedulerDeps();
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
+          resetStaleSessionRetryCount(db, taskId);
           updateTaskStatus(db, taskId, "awaiting_ci");
           emitTaskUpdated(getTask(db, taskId)!);
           writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
@@ -1546,6 +1548,7 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           // Fix succeeded — transition back to in_review for next review cycle
+          resetStaleSessionRetryCount(db, taskId);
           updateTaskStatus(db, taskId, "in_review");
           emitTaskUpdated(getTask(db, taskId)!);
           writeBackStatus(client, taskId, "in_review", stateMap).catch(

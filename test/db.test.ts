@@ -14,6 +14,7 @@ import {
   updateTaskFixReason,
   incrementMergeAttemptCount,
   incrementStaleSessionRetryCount,
+  resetStaleSessionRetryCount,
   incrementReviewCycleCount,
   getDeployingTasks,
   getAwaitingCiTasks,
@@ -371,6 +372,46 @@ describe("incrementStaleSessionRetryCount", () => {
     const id = seedTask(db, { staleSessionRetryCount: 2 });
     const result = incrementStaleSessionRetryCount(db, id);
     expect(result).toBe(3);
+  });
+});
+
+describe("resetStaleSessionRetryCount", () => {
+  let db: OrcaDb;
+  beforeEach(() => { db = freshDb(); });
+
+  test("resets count to 0 from a non-zero value", () => {
+    const id = seedTask(db, { staleSessionRetryCount: 3 });
+    resetStaleSessionRetryCount(db, id);
+    expect(getTask(db, id)!.staleSessionRetryCount).toBe(0);
+  });
+
+  test("is a no-op when count is already 0", () => {
+    const id = seedTask(db, { staleSessionRetryCount: 0 });
+    resetStaleSessionRetryCount(db, id);
+    expect(getTask(db, id)!.staleSessionRetryCount).toBe(0);
+  });
+
+  test("updates updatedAt timestamp", () => {
+    const ts = "2020-01-01T00:00:00.000Z";
+    const id = seedTask(db, { staleSessionRetryCount: 2, createdAt: ts, updatedAt: ts });
+    resetStaleSessionRetryCount(db, id);
+    expect(getTask(db, id)!.updatedAt).not.toBe(ts);
+  });
+
+  test("reset followed by increment gives count of 1", () => {
+    const id = seedTask(db, { staleSessionRetryCount: 5 });
+    resetStaleSessionRetryCount(db, id);
+    const result = incrementStaleSessionRetryCount(db, id);
+    expect(result).toBe(1);
+  });
+
+  test("does not affect other task fields", () => {
+    const id = seedTask(db, { staleSessionRetryCount: 3, retryCount: 2, orcaStatus: "running" });
+    resetStaleSessionRetryCount(db, id);
+    const task = getTask(db, id)!;
+    expect(task.staleSessionRetryCount).toBe(0);
+    expect(task.retryCount).toBe(2);
+    expect(task.orcaStatus).toBe("running");
   });
 });
 
@@ -995,8 +1036,8 @@ describe("getRecentActivity", () => {
     expect(entry!.status).toBe("queued");
   });
 
-  test("shows queued when latest invocation failed and task is dispatched (being re-dispatched)", () => {
-    const t = seedTask(db, { orcaStatus: "dispatched" });
+  test("shows queued when latest invocation failed and task is running (being re-dispatched)", () => {
+    const t = seedTask(db, { orcaStatus: "running" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);
