@@ -52,6 +52,7 @@ export interface OrcaConfig {
   externalTunnel: boolean;
   cronRetentionDays: number;
   strandedTaskThresholdMin: number;
+  drainTimeoutMin: number;
   stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
@@ -358,6 +359,7 @@ Steps:
       "ORCA_STRANDED_TASK_THRESHOLD_MIN",
       30,
     ),
+    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
     stateMapOverrides: (() => {
       const raw = readEnv("ORCA_STATE_MAP");
       if (raw === undefined) return undefined;

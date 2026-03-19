@@ -25,6 +25,7 @@ import * as deployModule from "../src/deploy.js";
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainingStartedAt: vi.fn().mockReturnValue(null),
   setDraining: vi.fn(),
   initDeployState: vi.fn(),
 }));

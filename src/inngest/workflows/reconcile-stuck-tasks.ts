@@ -17,12 +17,20 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  countActiveSessions,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
 import type { OrcaDb } from "../../db/index.js";
+import {
+  isDraining,
+  checkAndAutoClearDrain,
+  recordDrainZeroSnapshot,
+  resetDrainZeroSnapshots,
+} from "../../deploy.js";
+import { sendAlertThrottled } from "../../scheduler/alerts.js";
 
 const logger = createLogger("reconcile");
 
@@ -175,6 +183,71 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         "deploying",
       ]);
       await detectAndAlertStuckTasks(deps, tasks);
+    });
+
+    await step.run("monitor-drain-state", async () => {
+      const { db, config } = getSchedulerDeps();
+      const activeSessions = countActiveSessions(db);
+
+      if (!isDraining()) {
+        resetDrainZeroSnapshots();
+        return;
+      }
+
+      // Auto-clear if timed out
+      const autoCleared = checkAndAutoClearDrain(
+        activeSessions,
+        config.drainTimeoutMin,
+      );
+      if (autoCleared) {
+        logger.warn(
+          `drain auto-cleared after timeout (${config.drainTimeoutMin} min with 0 sessions)`,
+        );
+        insertSystemEvent(db, {
+          type: "health_check",
+          message: `Drain auto-cleared: was draining for >${config.drainTimeoutMin} min with 0 active sessions`,
+          metadata: { drainTimeoutMin: config.drainTimeoutMin },
+        });
+        resetDrainZeroSnapshots();
+        return;
+      }
+
+      if (activeSessions > 0) {
+        resetDrainZeroSnapshots();
+        return;
+      }
+
+      // draining=true, activeSessions=0 — track consecutive snapshots
+      const consecutiveCount = recordDrainZeroSnapshot();
+      logger.warn(
+        `drain+zero-sessions snapshot #${consecutiveCount} (draining=true, activeSessions=0)`,
+      );
+
+      if (consecutiveCount >= 2) {
+        const deps = getSchedulerDeps();
+        sendAlertThrottled(
+          deps,
+          "stuck-drain",
+          {
+            severity: "warning",
+            title: "Stuck Drain State",
+            message: `Orca has been draining with 0 active sessions for ${consecutiveCount} consecutive snapshots (~${consecutiveCount * 5} min). Deploy may have completed without clearing the drain flag.`,
+            fields: [
+              {
+                title: "Consecutive Snapshots",
+                value: String(consecutiveCount),
+                short: true,
+              },
+              {
+                title: "Drain Duration",
+                value: `~${consecutiveCount * 5} min`,
+                short: true,
+              },
+            ],
+          },
+          30 * 60 * 1000, // 30 min cooldown
+        );
+      }
     });
 
     await step.run("auto-retry-failed-tasks", async () => {

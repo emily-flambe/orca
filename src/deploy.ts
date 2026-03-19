@@ -14,6 +14,8 @@ import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
+let drainingStartedAt: number | null = null;
+let consecutiveDrainZeroSnapshots = 0;
 let startupSha: string | null = null;
 
 const logger = createLogger("deploy");
@@ -70,5 +72,47 @@ export function setDraining(): void {
     return;
   }
   draining = true;
+  drainingStartedAt = Date.now();
   log("draining flag set (external deploy mode)");
+}
+
+export function getDrainingStartedAt(): number | null {
+  return drainingStartedAt;
+}
+
+export function clearDraining(): void {
+  draining = false;
+  drainingStartedAt = null;
+  consecutiveDrainZeroSnapshots = 0;
+  log("drain flag cleared");
+}
+
+export function checkAndAutoClearDrain(
+  activeSessions: number,
+  timeoutMin: number,
+): boolean {
+  if (!draining || activeSessions !== 0) return false;
+  if (drainingStartedAt === null) return false;
+  const elapsed = Date.now() - drainingStartedAt;
+  if (elapsed > timeoutMin * 60000) {
+    logger.warn(
+      `drain auto-clearing: draining for ${Math.round(elapsed / 60000)} min with 0 active sessions (timeout: ${timeoutMin} min)`,
+    );
+    clearDraining();
+    return true;
+  }
+  return false;
+}
+
+export function recordDrainZeroSnapshot(): number {
+  consecutiveDrainZeroSnapshots++;
+  return consecutiveDrainZeroSnapshots;
+}
+
+export function resetDrainZeroSnapshots(): void {
+  consecutiveDrainZeroSnapshots = 0;
+}
+
+export function getDrainZeroSnapshots(): number {
+  return consecutiveDrainZeroSnapshots;
 }
