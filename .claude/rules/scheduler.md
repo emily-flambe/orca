@@ -82,6 +82,18 @@ After an implement phase completes successfully, Gate 2 determines what happened
 - Max-turns failures preserve the worktree for `--resume` on next dispatch
 - Exhausted retries → permanent `failed`, Linear write-back to "Canceled"
 
+## Drain State & Blue-Green Deploy
+
+The drain flag (`isDraining()` in `src/deploy.ts`) is set by `deploy.sh` via `POST /api/deploy/drain` when a blue-green deploy begins. It signals that the old instance should stop accepting new work so it can be safely replaced.
+
+**Task dispatch during drain**: Tasks are **not blocked** by the drain flag. The `task-lifecycle` Inngest workflow has no `isDraining()` check — tasks continue to be claimed and sessions spawned regardless of drain state. The flag is informational/observability only in the current architecture.
+
+**Why drain exists**: Originally used by the legacy tick-loop scheduler to stop polling. In the Inngest-based architecture, its primary role is:
+1. Preserving worktrees on shutdown (so the new instance can `--resume` in-progress sessions)
+2. Surfacing drain state in the dashboard and monitor for observability
+
+**Stuck drain recovery**: If `draining=true` and `activeSessions==0` persists longer than `ORCA_DRAIN_TIMEOUT_MIN` (default 10 min), the reconcile-stuck-tasks workflow auto-clears the flag and emits a warning alert. This prevents the UI from showing a perpetual "Draining" state after a deploy completes normally. An alert is also emitted after 2 consecutive reconciliation checks (~10 min) with drain+zero-sessions to catch stuck states before the timeout.
+
 ## Linear Write-back
 
 Orca writes status changes back to Linear with echo prevention (registers expected changes, ignores webhook echoes within 10s). Conflict resolution handles user-initiated Linear state changes (Todo resets, Done overrides, Canceled kills sessions).
