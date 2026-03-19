@@ -303,29 +303,49 @@ export function sendPermanentFailureAlert(
   const retryCount = task?.retryCount ?? 0;
   const maxRetries = config.maxRetries;
 
+  // Include stored failure metadata if available (truncated to 80 chars for snapshot)
+  const lastFailureReason = task?.lastFailureReason
+    ? task.lastFailureReason.slice(0, 80)
+    : null;
+  const lastFailedPhase = task?.lastFailedPhase ?? null;
+
   const message = [
     `**Task permanently failed**`,
     ``,
     `**Reason:** ${reason}`,
     `**Retry count:** ${retryCount}/${maxRetries}`,
     `**Invocations:** ${invocationIds}`,
+    ...(lastFailureReason
+      ? [
+          `**Last failure:** ${lastFailedPhase ? `[${lastFailedPhase}] ` : ""}${lastFailureReason}`,
+        ]
+      : []),
   ].join("\n");
+
+  const fields: { title: string; value: string; short?: boolean }[] = [
+    { title: "Task ID", value: taskId, short: true },
+    {
+      title: "Retry count",
+      value: `${retryCount}/${maxRetries}`,
+      short: true,
+    },
+    { title: "Reason", value: reason, short: false },
+    { title: "Invocations", value: invocationIds, short: false },
+  ];
+  if (lastFailureReason) {
+    fields.push({
+      title: "Last failure",
+      value: `${lastFailedPhase ? `[${lastFailedPhase}] ` : ""}${lastFailureReason}`,
+      short: false,
+    });
+  }
 
   sendAlert(deps, {
     severity: "critical",
     title: "Permanent Task Failure",
     message,
     taskId,
-    fields: [
-      { title: "Task ID", value: taskId, short: true },
-      {
-        title: "Retry count",
-        value: `${retryCount}/${maxRetries}`,
-        short: true,
-      },
-      { title: "Reason", value: reason, short: false },
-      { title: "Invocations", value: invocationIds, short: false },
-    ],
+    fields,
   });
 }
 

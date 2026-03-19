@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
   project_name TEXT,
+  last_failure_reason TEXT,
+  last_failed_phase TEXT,
+  last_failed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;

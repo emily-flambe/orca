@@ -172,6 +172,12 @@ export function bridgeSessionCompletion(
               outputTokens: result.outputTokens ?? null,
             });
             updateTaskStatus(db, linearIssueId, "failed");
+            updateTaskFailureMetadata(
+              db,
+              linearIssueId,
+              "Inngest event send failed — session marked failed via DB fallback",
+              phase,
+            );
             log(
               `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
             );
@@ -221,6 +227,12 @@ export function bridgeSessionCompletion(
               endedAt: new Date().toISOString(),
             });
             updateTaskStatus(db, linearIssueId, "failed");
+            updateTaskFailureMetadata(
+              db,
+              linearIssueId,
+              "Runner process error — both Inngest sends failed, task failed via DB fallback",
+              phase,
+            );
             log(
               `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
             );
