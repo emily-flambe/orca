@@ -1,5 +1,6 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -43,8 +44,11 @@ import {
   updateCronSchedule,
   deleteCronSchedule,
   incrementCronRunCount,
+  updateCronLastRunStatus,
   getTasksByCronSchedule,
   getCronRunsForSchedule,
+  insertCronRun,
+  completeCronRun,
   insertTask,
   deleteTask,
   insertSystemEvent,
@@ -1553,6 +1557,59 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (!schedule) {
       return c.json({ error: "not found" }, 404);
     }
+
+    if (schedule.type === "shell") {
+      const startedAt = new Date().toISOString();
+      const startMs = Date.now();
+      const runId = insertCronRun(db, {
+        cronScheduleId: schedule.id,
+        startedAt,
+        status: "running",
+      });
+      try {
+        const cwd = schedule.repoPath || process.cwd();
+        const stdout = execSync(schedule.prompt, {
+          cwd,
+          timeout: 60_000,
+          stdio: "pipe",
+          encoding: "utf8",
+          shell: process.platform === "win32" ? "bash" : "/bin/sh",
+        });
+        const durationMs = Date.now() - startMs;
+        const output = typeof stdout === "string" ? stdout.slice(0, 10_000) : null;
+        completeCronRun(db, runId, {
+          endedAt: new Date().toISOString(),
+          status: "success",
+          output,
+          durationMs,
+        });
+        incrementCronRunCount(db, schedule.id, computeNextRunAt(schedule.schedule));
+        updateCronLastRunStatus(db, schedule.id, "success");
+      } catch (err) {
+        const durationMs = Date.now() - startMs;
+        let output: string | null = null;
+        if (err && typeof err === "object" && "stderr" in err) {
+          const stderr = (err as { stderr?: unknown }).stderr;
+          if (typeof stderr === "string") {
+            output = stderr.slice(0, 10_000);
+          }
+        }
+        if (!output && err instanceof Error) {
+          output = err.message.slice(0, 10_000);
+        }
+        completeCronRun(db, runId, {
+          endedAt: new Date().toISOString(),
+          status: "failed",
+          output,
+          durationMs,
+        });
+        incrementCronRunCount(db, schedule.id, computeNextRunAt(schedule.schedule));
+        updateCronLastRunStatus(db, schedule.id, "failed");
+      }
+      return c.json({ ok: true, runId });
+    }
+
+    // claude type: create a task and emit Inngest event
     const now = new Date().toISOString();
     const taskId = `cron-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     insertTask(db, {
@@ -1560,7 +1617,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       agentPrompt: schedule.prompt,
       repoPath: schedule.repoPath ?? "",
       orcaStatus: "ready",
-      taskType: schedule.type === "claude" ? "cron_claude" : "cron_shell",
+      taskType: "cron_claude",
       cronScheduleId: schedule.id,
       createdAt: now,
       updatedAt: now,

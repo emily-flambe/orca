@@ -14,6 +14,7 @@ import {
   insertCronSchedule,
   getCronSchedule,
   getTasksByCronSchedule,
+  getCronRunsForSchedule,
   insertTask,
   updateCronLastRunStatus,
 } from "../src/db/queries.js";
@@ -1054,24 +1055,23 @@ describe("POST /api/cron/:id/trigger", () => {
     expect(tasks[0].taskType).toBe("cron_claude");
   });
 
-  it("task type is cron_shell for shell schedule", async () => {
-    const id = insertCronSchedule(
-      db,
-      makeSchedule({ type: "shell", repoPath: null }),
-    );
+  it("shell trigger does NOT create a task", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ type: "shell", repoPath: null }));
     await trigger(id);
     const tasks = getTasksByCronSchedule(db, id);
-    expect(tasks[0].taskType).toBe("cron_shell");
+    expect(tasks).toHaveLength(0);
   });
 
-  it("task repoPath is empty string when schedule repoPath is null", async () => {
-    const id = insertCronSchedule(
-      db,
-      makeSchedule({ type: "shell", repoPath: null }),
-    );
-    await trigger(id);
-    const tasks = getTasksByCronSchedule(db, id);
-    expect(tasks[0].repoPath).toBe("");
+  it("shell trigger creates a cronRun entry", async () => {
+    const id = insertCronSchedule(db, makeSchedule({ type: "shell", repoPath: null }));
+    const res = await trigger(id);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.runId).toBe("number");
+    const runs = getCronRunsForSchedule(db, id);
+    expect(runs).toHaveLength(1);
+    expect(["success", "failed"]).toContain(runs[0].status);
   });
 });
 
