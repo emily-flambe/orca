@@ -22,7 +22,11 @@ import {
   countActiveSessions,
   getDispatchableTasks,
 } from "../src/db/queries.js";
-import { spawnSession, killSession, type SessionHandle } from "../src/runner/index.js";
+import {
+  spawnSession,
+  killSession,
+  type SessionHandle,
+} from "../src/runner/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -451,9 +455,7 @@ describe("9.5 - Budget enforcement", () => {
     });
 
     // Window = 4 hours
-    const windowStart = new Date(
-      Date.now() - 4 * 60 * 60 * 1000,
-    ).toISOString();
+    const windowStart = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
     const total = sumCostInWindow(db, windowStart);
 
     // Only the recent 0.5 should be counted, not the old 100.0

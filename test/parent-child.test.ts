@@ -2,14 +2,7 @@
 // Parent/child issue support tests
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -330,10 +323,26 @@ describe("evaluateParentStatuses", () => {
   ]);
 
   test("parent transitions to done when all children are done", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "CHILD-B", parentIdentifier: "PARENT", orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "CHILD-C", parentIdentifier: "PARENT", orcaStatus: "done" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      orcaStatus: "running",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "done",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-B",
+      parentIdentifier: "PARENT",
+      orcaStatus: "done",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-C",
+      parentIdentifier: "PARENT",
+      orcaStatus: "done",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -345,21 +354,44 @@ describe("evaluateParentStatuses", () => {
 
   test("parent transitions to running when any child is active", async () => {
     seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "CHILD-B", parentIdentifier: "PARENT", orcaStatus: "ready" });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "running",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-B",
+      parentIdentifier: "PARENT",
+      orcaStatus: "ready",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
 
     const parent = getTask(db, "PARENT");
     expect(parent!.orcaStatus).toBe("running");
-    expect(client.updateIssueState).toHaveBeenCalledWith("PARENT", "s-progress");
+    expect(client.updateIssueState).toHaveBeenCalledWith(
+      "PARENT",
+      "s-progress",
+    );
   });
 
   test("parent stays running when some children are done and some active", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "CHILD-B", parentIdentifier: "PARENT", orcaStatus: "in_review" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      orcaStatus: "running",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "done",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-B",
+      parentIdentifier: "PARENT",
+      orcaStatus: "in_review",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -382,10 +414,18 @@ describe("evaluateParentStatuses", () => {
 
   test("evaluates only specified parentIds when provided", async () => {
     seedTask(db, { linearIssueId: "P-1", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "C-1", parentIdentifier: "P-1", orcaStatus: "running" });
+    seedTask(db, {
+      linearIssueId: "C-1",
+      parentIdentifier: "P-1",
+      orcaStatus: "running",
+    });
 
     seedTask(db, { linearIssueId: "P-2", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "C-2", parentIdentifier: "P-2", orcaStatus: "running" });
+    seedTask(db, {
+      linearIssueId: "C-2",
+      parentIdentifier: "P-2",
+      orcaStatus: "running",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap, ["P-1"]);
@@ -398,7 +438,11 @@ describe("evaluateParentStatuses", () => {
 
   test("parent already done is not updated again", async () => {
     seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "done" });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "done",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -408,7 +452,11 @@ describe("evaluateParentStatuses", () => {
 
   test("child in_review counts as active for parent", async () => {
     seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "in_review" });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "in_review",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -418,7 +466,11 @@ describe("evaluateParentStatuses", () => {
 
   test("child deploying counts as active for parent", async () => {
     seedTask(db, { linearIssueId: "PARENT", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT", orcaStatus: "deploying" });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT",
+      orcaStatus: "deploying",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -556,8 +608,16 @@ describe("Dispatch filtering - parent tasks", () => {
   });
 
   test("parent task with isParent=1 is in dispatchable query but should be filtered", () => {
-    seedTask(db, { linearIssueId: "PARENT-1", isParent: 1, orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "CHILD-1", parentIdentifier: "PARENT-1", orcaStatus: "ready" });
+    seedTask(db, {
+      linearIssueId: "PARENT-1",
+      isParent: 1,
+      orcaStatus: "ready",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-1",
+      parentIdentifier: "PARENT-1",
+      orcaStatus: "ready",
+    });
 
     const candidates = getDispatchableTasks(db, ["ready"]);
     // Both appear in the query (DB doesn't filter isParent)
@@ -571,7 +631,11 @@ describe("Dispatch filtering - parent tasks", () => {
 
   test("parent with 0 children and isParent=0 is dispatchable", () => {
     // Edge case: parent had children removed, isParent reset to 0
-    seedTask(db, { linearIssueId: "FORMER-PARENT", isParent: 0, orcaStatus: "ready" });
+    seedTask(db, {
+      linearIssueId: "FORMER-PARENT",
+      isParent: 0,
+      orcaStatus: "ready",
+    });
 
     const candidates = getDispatchableTasks(db, ["ready"]);
     const dispatchable = candidates.filter((t) => !t.isParent);

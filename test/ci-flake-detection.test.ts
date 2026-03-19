@@ -80,10 +80,11 @@ describe("isCiFlakeOnMain", () => {
   });
 
   test("returns false when different workflow names", async () => {
-    mockExecFile(
-      JSON.stringify([{ name: "Deploy", conclusion: "failure" }]),
+    mockExecFile(JSON.stringify([{ name: "Deploy", conclusion: "failure" }]));
+    const result = await isCiFlakeOnMain(
+      ["CI / test", "CI / lint"],
+      "/tmp/repo",
     );
-    const result = await isCiFlakeOnMain(["CI / test", "CI / lint"], "/tmp/repo");
     expect(result).toBe(false);
   });
 

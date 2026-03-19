@@ -2,14 +2,7 @@
 // Unit tests for closePr() and closeOrphanedPrs()
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Mock child_process.execFileSync — the gh() helper uses this under the hood
 vi.mock("node:child_process", () => ({
@@ -45,9 +38,12 @@ describe("closePr", () => {
     const [cmd, args, opts] = execMock.mock.calls[0];
     expect(cmd).toBe("gh");
     expect(args).toEqual([
-      "pr", "close", "42",
+      "pr",
+      "close",
+      "42",
       "--delete-branch",
-      "--comment", "Closed by Orca cleanup: orphaned PR with no running invocation or active task.",
+      "--comment",
+      "Closed by Orca cleanup: orphaned PR with no running invocation or active task.",
     ]);
     expect(opts.cwd).toBe("/tmp/repo");
   });
@@ -94,7 +90,9 @@ describe("closeOrphanedPrs", () => {
   const FIVE_MIN_AGO = new Date(NOW - 5 * 60 * 1000).toISOString();
   const ONE_HOUR_MS = 60 * 60 * 1000;
 
-  function defaultOpts(overrides: Partial<Parameters<typeof closeOrphanedPrs>[1]> = {}) {
+  function defaultOpts(
+    overrides: Partial<Parameters<typeof closeOrphanedPrs>[1]> = {},
+  ) {
     return {
       runningBranches: new Set<string>(),
       activeBranches: new Set<string>(),
@@ -139,8 +137,16 @@ describe("closeOrphanedPrs", () => {
 
   test("only targets PRs with orca/ prefix branches", () => {
     mockGhCalls([
-      { headRefName: "orca/TASK-1-inv-1", number: 10, updatedAt: TWO_HOURS_AGO },
-      { headRefName: "feature/unrelated", number: 20, updatedAt: TWO_HOURS_AGO },
+      {
+        headRefName: "orca/TASK-1-inv-1",
+        number: 10,
+        updatedAt: TWO_HOURS_AGO,
+      },
+      {
+        headRefName: "feature/unrelated",
+        number: 20,
+        updatedAt: TWO_HOURS_AGO,
+      },
       { headRefName: "main", number: 30, updatedAt: TWO_HOURS_AGO },
     ]);
 
@@ -157,24 +163,38 @@ describe("closeOrphanedPrs", () => {
 
   test("skips PRs in runningBranches", () => {
     mockGhCalls([
-      { headRefName: "orca/TASK-1-inv-1", number: 10, updatedAt: TWO_HOURS_AGO },
+      {
+        headRefName: "orca/TASK-1-inv-1",
+        number: 10,
+        updatedAt: TWO_HOURS_AGO,
+      },
     ]);
 
-    const closed = closeOrphanedPrs("/tmp/repo", defaultOpts({
-      runningBranches: new Set(["orca/TASK-1-inv-1"]),
-    }));
+    const closed = closeOrphanedPrs(
+      "/tmp/repo",
+      defaultOpts({
+        runningBranches: new Set(["orca/TASK-1-inv-1"]),
+      }),
+    );
 
     expect(closed).toBe(0);
   });
 
   test("skips PRs in activeBranches", () => {
     mockGhCalls([
-      { headRefName: "orca/TASK-2-inv-1", number: 11, updatedAt: TWO_HOURS_AGO },
+      {
+        headRefName: "orca/TASK-2-inv-1",
+        number: 11,
+        updatedAt: TWO_HOURS_AGO,
+      },
     ]);
 
-    const closed = closeOrphanedPrs("/tmp/repo", defaultOpts({
-      activeBranches: new Set(["orca/TASK-2-inv-1"]),
-    }));
+    const closed = closeOrphanedPrs(
+      "/tmp/repo",
+      defaultOpts({
+        activeBranches: new Set(["orca/TASK-2-inv-1"]),
+      }),
+    );
 
     expect(closed).toBe(0);
   });
@@ -266,7 +286,11 @@ describe("closeOrphanedPrs", () => {
     // So it does NOT skip, and the PR IS closed.
     const exactBoundary = new Date(NOW - ONE_HOUR_MS).toISOString();
     mockGhCalls([
-      { headRefName: "orca/TASK-BOUNDARY", number: 302, updatedAt: exactBoundary },
+      {
+        headRefName: "orca/TASK-BOUNDARY",
+        number: 302,
+        updatedAt: exactBoundary,
+      },
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
@@ -290,10 +314,13 @@ describe("closeOrphanedPrs", () => {
       { headRefName: "orca/TASK-BOTH", number: 400, updatedAt: TWO_HOURS_AGO },
     ]);
 
-    const closed = closeOrphanedPrs("/tmp/repo", defaultOpts({
-      runningBranches: new Set(["orca/TASK-BOTH"]),
-      activeBranches: new Set(["orca/TASK-BOTH"]),
-    }));
+    const closed = closeOrphanedPrs(
+      "/tmp/repo",
+      defaultOpts({
+        runningBranches: new Set(["orca/TASK-BOTH"]),
+        activeBranches: new Set(["orca/TASK-BOTH"]),
+      }),
+    );
     expect(closed).toBe(0);
   });
 

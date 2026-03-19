@@ -16,7 +16,9 @@ import type { ProjectMetadata } from "../src/linear/client.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeStateMap(entries: Array<[string, { id: string; type: string }]>): WorkflowStateMap {
+function makeStateMap(
+  entries: Array<[string, { id: string; type: string }]>,
+): WorkflowStateMap {
   return new Map(entries);
 }
 
@@ -91,19 +93,19 @@ describe("findStateByType", () => {
   });
 
   it("does NOT perform case-insensitive matching — type is case-sensitive", () => {
-    const stateMap = makeStateMap([
-      ["Backlog", { id: "s1", type: "Backlog" }],
-    ]);
+    const stateMap = makeStateMap([["Backlog", { id: "s1", type: "Backlog" }]]);
     // Linear API returns lowercase types ("backlog", "unstarted", etc.)
     // The call site passes lowercase; this test documents the behavior.
     expect(findStateByType(stateMap, "backlog")).toBeUndefined();
-    expect(findStateByType(stateMap, "Backlog")).toEqual({ id: "s1", type: "Backlog", name: "Backlog" });
+    expect(findStateByType(stateMap, "Backlog")).toEqual({
+      id: "s1",
+      type: "Backlog",
+      name: "Backlog",
+    });
   });
 
   it("returns undefined when stateMap has entries but type is an empty string", () => {
-    const stateMap = makeStateMap([
-      ["Backlog", { id: "s1", type: "backlog" }],
-    ]);
+    const stateMap = makeStateMap([["Backlog", { id: "s1", type: "backlog" }]]);
     expect(findStateByType(stateMap, "")).toBeUndefined();
   });
 
@@ -119,8 +121,18 @@ describe("findStateByType", () => {
     const overrides: Record<string, string> = {
       "Custom In Progress": "running",
     };
-    const result = findStateByType(stateMap, "started", false, overrides, "running");
-    expect(result).toEqual({ id: "s2", type: "started", name: "Custom In Progress" });
+    const result = findStateByType(
+      stateMap,
+      "started",
+      false,
+      overrides,
+      "running",
+    );
+    expect(result).toEqual({
+      id: "s2",
+      type: "started",
+      name: "Custom In Progress",
+    });
   });
 
   it("overrides reverse lookup only applies when orcaStatus matches", () => {
@@ -132,7 +144,13 @@ describe("findStateByType", () => {
       "Custom In Progress": "running",
     };
     // orcaStatus is "in_review", not "running" — override should NOT apply
-    const result = findStateByType(stateMap, "started", true, overrides, "in_review");
+    const result = findStateByType(
+      stateMap,
+      "started",
+      true,
+      overrides,
+      "in_review",
+    );
     // Should fall through to matchReview logic — no review-named state, falls back to first
     expect(result?.id).toBe("s1");
   });
@@ -202,7 +220,9 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-    createIssueMock = vi.fn().mockResolvedValue({ identifier: "PROJ-99", id: "issue-uuid" });
+    createIssueMock = vi
+      .fn()
+      .mockResolvedValue({ identifier: "PROJ-99", id: "issue-uuid" });
     syncTasksMock = vi.fn().mockResolvedValue(0);
   });
 
@@ -337,7 +357,10 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
     const res = await app.request("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Test task", projectId: "nonexistent-project" }),
+      body: JSON.stringify({
+        title: "Test task",
+        projectId: "nonexistent-project",
+      }),
     });
 
     expect(res.status).toBe(400);
@@ -347,9 +370,7 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
 
   it("returns 500 when createIssue throws", async () => {
     createIssueMock.mockRejectedValue(new Error("Linear API error"));
-    const stateMap = makeStateMap([
-      ["Todo", { id: "s1", type: "unstarted" }],
-    ]);
+    const stateMap = makeStateMap([["Todo", { id: "s1", type: "unstarted" }]]);
     const app = makeApp(stateMap);
 
     const res = await app.request("/api/tasks", {

@@ -7,7 +7,14 @@
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import { insertTask, insertInvocation, getTask, resetStaleSessionRetryCount, updateTaskFields } from "../src/db/queries.js";
+import {
+  insertTask,
+  insertInvocation,
+  getTask,
+  resetStaleSessionRetryCount,
+  updateTaskFields,
+  getFailedTasksWithRetriesRemaining,
+} from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
@@ -24,9 +31,8 @@ vi.mock("../src/session-handles.js", () => ({
   sweepExitedHandles: vi.fn(),
 }));
 
-const { runReconciliation } = await import(
-  "../src/inngest/workflows/reconcile-stuck-tasks.js"
-);
+const { runReconciliation } =
+  await import("../src/inngest/workflows/reconcile-stuck-tasks.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,7 +152,11 @@ describe("runReconciliation — running (handle-based detection)", () => {
     const id = seedTask(db, { orcaStatus: "running", updatedAt: ago(5) });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("ready");
     expect(mockInngestSend).toHaveBeenCalledWith(
@@ -160,7 +170,11 @@ describe("runReconciliation — running (handle-based detection)", () => {
     const id = seedTask(db, { orcaStatus: "running" }); // updatedAt defaults to now()
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("running");
     expect(mockInngestSend).not.toHaveBeenCalled();
@@ -171,7 +185,11 @@ describe("runReconciliation — running (handle-based detection)", () => {
     const id = seedTask(db, { orcaStatus: "running", updatedAt: ago(5) });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("ready");
   });
@@ -182,7 +200,11 @@ describe("runReconciliation — running (handle-based detection)", () => {
     const invId = seedRunningInvocation(db, id);
     const handles = new Map<number, unknown>([[invId, { pid: 1234 }]]);
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("running");
     expect(mockInngestSend).not.toHaveBeenCalled();
@@ -191,7 +213,11 @@ describe("runReconciliation — running (handle-based detection)", () => {
   test("running task with exhausted retries is marked failed", async () => {
     const db = freshDb();
     // retryCount=3, newStaleCount=1, totalAttempts=4 > maxRetries=3 → failed
-    const id = seedTask(db, { orcaStatus: "running", retryCount: 3, updatedAt: ago(5) });
+    const id = seedTask(db, {
+      orcaStatus: "running",
+      retryCount: 3,
+      updatedAt: ago(5),
+    });
     const handles = new Map<number, unknown>();
 
     await runReconciliation({
@@ -220,7 +246,11 @@ describe("runReconciliation — in_review (time-based, strandedTaskThresholdMin)
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("ready");
     expect(mockInngestSend).toHaveBeenCalledWith(
@@ -236,7 +266,11 @@ describe("runReconciliation — in_review (time-based, strandedTaskThresholdMin)
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("in_review");
     expect(mockInngestSend).not.toHaveBeenCalled();
@@ -258,7 +292,11 @@ describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("ready");
   });
@@ -271,7 +309,11 @@ describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("awaiting_ci");
     expect(mockInngestSend).not.toHaveBeenCalled();
@@ -285,7 +327,11 @@ describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("ready");
   });
@@ -327,7 +373,11 @@ describe("runReconciliation — terminal states are never touched", () => {
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, readyId)?.orcaStatus).toBe("ready");
     expect(getTask(db, doneId)?.orcaStatus).toBe("done");
@@ -362,7 +412,11 @@ describe("runReconciliation — multiple tasks in one pass", () => {
     const inv4 = seedRunningInvocation(db, t4);
     const handles = new Map<number, unknown>([[inv4, { pid: 9999 }]]);
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, t1)?.orcaStatus).toBe("ready");
     expect(getTask(db, t2)?.orcaStatus).toBe("ready");
@@ -399,7 +453,11 @@ describe("runReconciliation — multiple tasks in one pass", () => {
     });
     const handles = new Map<number, unknown>();
 
-    await runReconciliation({ db, config: makeConfig(), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
 
     expect(mockInngestSend).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -438,7 +496,11 @@ describe("runReconciliation — stale count reset prevents premature death", () 
     });
 
     const handles = new Map<number, unknown>();
-    await runReconciliation({ db, config: makeConfig({ maxRetries: 3 }), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig({ maxRetries: 3 }),
+      activeHandles: handles,
+    });
 
     // After reconciliation: staleCount 0 → 1, totalAttempts = 0 + 1 = 1 ≤ 3 → ready
     const task = getTask(db, id);
@@ -461,7 +523,11 @@ describe("runReconciliation — stale count reset prevents premature death", () 
     });
 
     const handles = new Map<number, unknown>();
-    await runReconciliation({ db, config: makeConfig({ maxRetries: 3 }), activeHandles: handles });
+    await runReconciliation({
+      db,
+      config: makeConfig({ maxRetries: 3 }),
+      activeHandles: handles,
+    });
 
     expect(getTask(db, id)?.orcaStatus).toBe("failed");
     expect(mockInngestSend).not.toHaveBeenCalled();
@@ -512,5 +578,136 @@ describe("runReconciliation — stale count reset prevents premature death", () 
       activeHandles: new Map(),
     });
     expect(getTask(dbWithReset, resetId)?.orcaStatus).toBe("ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("auto-retry-failed-tasks — getFailedTasksWithRetriesRemaining", () => {
+  test("failed task with retries remaining is returned", () => {
+    const db = freshDb();
+    // retryCount=1, staleSessionRetryCount=0, sum=1 < maxRetries=3 → included
+    const id = seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 1,
+      staleSessionRetryCount: 0,
+    });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].linearIssueId).toBe(id);
+  });
+
+  test("failed task at max retries (sum >= maxRetries) is NOT returned", () => {
+    const db = freshDb();
+    // retryCount=2, staleSessionRetryCount=1, sum=3, not < 3 → excluded
+    seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 2,
+      staleSessionRetryCount: 1,
+    });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("failed task where staleSessionRetryCount alone equals maxRetries is NOT returned", () => {
+    const db = freshDb();
+    // retryCount=0, staleSessionRetryCount=3, sum=3, not < 3 → excluded
+    seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 0,
+      staleSessionRetryCount: 3,
+    });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("cron_claude task is excluded even if under retry limit", () => {
+    const db = freshDb();
+    const id = seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+    });
+    updateTaskFields(db, id, { taskType: "cron_claude" });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("cron_shell task is excluded even if under retry limit", () => {
+    const db = freshDb();
+    const id = seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+    });
+    updateTaskFields(db, id, { taskType: "cron_shell" });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("non-failed tasks (ready, running, done) are not returned", () => {
+    const db = freshDb();
+    seedTask(db, {
+      orcaStatus: "ready",
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+    });
+    seedTask(db, {
+      orcaStatus: "running",
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+    });
+    seedTask(db, {
+      orcaStatus: "done",
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+    });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(0);
+  });
+
+  test("multiple tasks — only those under retry limit are returned", () => {
+    const db = freshDb();
+    // Under limit — should be returned
+    const underLimit1 = seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 1,
+      staleSessionRetryCount: 0,
+    });
+    const underLimit2 = seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 0,
+      staleSessionRetryCount: 2,
+    });
+    // At or over limit — excluded
+    seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 3,
+      staleSessionRetryCount: 0,
+    });
+    seedTask(db, {
+      orcaStatus: "failed",
+      retryCount: 1,
+      staleSessionRetryCount: 2,
+    });
+
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+
+    expect(result).toHaveLength(2);
+    const ids = result.map((t) => t.linearIssueId);
+    expect(ids).toContain(underLimit1);
+    expect(ids).toContain(underLimit2);
   });
 });

@@ -252,13 +252,17 @@ describe("isTransientGitError", () => {
 
   test("returns true for signal-killed process (via message containing 'signal: SIG')", () => {
     expect(
-      isTransientGitError(makeErrorWithMessage("process failed: signal: SIGTERM")),
+      isTransientGitError(
+        makeErrorWithMessage("process failed: signal: SIGTERM"),
+      ),
     ).toBe(true);
   });
 
   test("returns true for 'Could not resolve host' network error", () => {
     expect(
-      isTransientGitError(makeErrorWithMessage("fatal: Could not resolve host: github.com")),
+      isTransientGitError(
+        makeErrorWithMessage("fatal: Could not resolve host: github.com"),
+      ),
     ).toBe(true);
   });
 
@@ -278,7 +282,9 @@ describe("isTransientGitError", () => {
 
   test("returns true for EPERM error message", () => {
     expect(
-      isTransientGitError(makeErrorWithMessage("EPERM: operation not permitted")),
+      isTransientGitError(
+        makeErrorWithMessage("EPERM: operation not permitted"),
+      ),
     ).toBe(true);
   });
 

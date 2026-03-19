@@ -3,14 +3,7 @@
 // (closePr and closeOrphanedPrs are covered in close-orphaned-prs.test.ts)
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
@@ -260,7 +253,12 @@ describe("findPrByUrl", () => {
   test("calls gh pr view with correct args", () => {
     const prUrl = "https://github.com/owner/repo/pull/13";
     execSyncMock.mockReturnValue(
-      JSON.stringify({ url: prUrl, number: 13, state: "OPEN", headRefName: "orca/x" }),
+      JSON.stringify({
+        url: prUrl,
+        number: 13,
+        state: "OPEN",
+        headRefName: "orca/x",
+      }),
     );
 
     findPrByUrl(prUrl, "/tmp/repo");
@@ -280,7 +278,12 @@ describe("findPrByUrl", () => {
   test("merged is true when state is MERGED", () => {
     const prUrl = "https://github.com/owner/repo/pull/14";
     execSyncMock.mockReturnValue(
-      JSON.stringify({ url: prUrl, number: 14, state: "MERGED", headRefName: "orca/x" }),
+      JSON.stringify({
+        url: prUrl,
+        number: 14,
+        state: "MERGED",
+        headRefName: "orca/x",
+      }),
     );
 
     const result = findPrByUrl(prUrl, "/tmp/repo");
@@ -529,13 +532,7 @@ describe("getPrCheckStatus", () => {
 
     const [cmd, args] = execFileMock.mock.calls[0];
     expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "checks",
-      "7",
-      "--json",
-      "name,state,bucket",
-    ]);
+    expect(args).toEqual(["pr", "checks", "7", "--json", "name,state,bucket"]);
   });
 });
 
@@ -573,9 +570,7 @@ describe("getPrCheckStatusSync", () => {
 
   test("returns pending when any check has bucket queued", () => {
     execSyncMock.mockReturnValue(
-      JSON.stringify([
-        { name: "build", state: "QUEUED", bucket: "queued" },
-      ]),
+      JSON.stringify([{ name: "build", state: "QUEUED", bucket: "queued" }]),
     );
 
     const result = getPrCheckStatusSync(1, "/tmp/repo");
@@ -646,13 +641,7 @@ describe("getPrCheckStatusSync", () => {
 
     const [cmd, args, opts] = execSyncMock.mock.calls[0];
     expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "checks",
-      "7",
-      "--json",
-      "name,state,bucket",
-    ]);
+    expect(args).toEqual(["pr", "checks", "7", "--json", "name,state,bucket"]);
     expect(opts.cwd).toBe("/tmp/repo");
   });
 });
@@ -772,13 +761,7 @@ describe("mergePr", () => {
 
     const [cmd, args] = execFileMock.mock.calls[0];
     expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "merge",
-      "42",
-      "--squash",
-      "--delete-branch",
-    ]);
+    expect(args).toEqual(["pr", "merge", "42", "--squash", "--delete-branch"]);
   });
 });
 
