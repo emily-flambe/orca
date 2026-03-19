@@ -285,7 +285,10 @@ export default function OrchestratorBar({
               {formatDrainDuration(status.drainingForSeconds)}
             </span>
           )}
-          <span>— waiting for {status.drainSessionCount} session{status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy</span>
+          <span>
+            — waiting for {status.drainSessionCount} session
+            {status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy
+          </span>
         </div>
       )}
       {showModal && (
