@@ -1264,6 +1264,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/cron/:id/tasks
+  // -----------------------------------------------------------------------
+  app.get("/api/cron/:id/tasks", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) {
+      return c.json({ error: "invalid id" }, 400);
+    }
+    const tasks = getTasksByCronSchedule(db, id);
+    const result = tasks
+      .map((task) => {
+        const invocations = getInvocationsByTask(db, task.linearIssueId).sort(
+          (a, b) =>
+            new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime(),
+        );
+        return { ...task, invocations };
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    return c.json(result);
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/cron
   // -----------------------------------------------------------------------
   app.post("/api/cron", async (c) => {
