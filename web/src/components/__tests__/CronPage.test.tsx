@@ -296,6 +296,26 @@ describe("CronPage", () => {
     });
   });
 
+  it("calls onToast.success when toggling a schedule succeeds", async () => {
+    const schedule = makeSchedule({ id: 1, enabled: 1 });
+    const updated = makeSchedule({ id: 1, enabled: 0 });
+    mockFetchCronSchedules.mockResolvedValue([schedule]);
+    mockUpdateCronSchedule.mockResolvedValue(updated);
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTitle("Disable"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule disabled");
+    });
+  });
+
   it("calls onToast.error when toggle fails", async () => {
     const schedule = makeSchedule({ id: 1, enabled: 1 });
     mockFetchCronSchedules.mockResolvedValue([schedule]);
