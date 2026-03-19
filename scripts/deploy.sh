@@ -41,9 +41,25 @@ echo $$ > "$LOCKFILE"
 trap "rm -f $LOCKFILE" EXIT
 
 # ---------------------------------------------------------------------------
-# Read deploy state (defaults: active=4000, standby=4001)
+# Deploy cooldown — skip if last deploy was less than 10 minutes ago
+# (override with FORCE_DEPLOY=1 to bypass)
 # ---------------------------------------------------------------------------
 STATE_FILE="$PROJECT_DIR/deploy-state.json"
+DEPLOY_COOLDOWN_S=600
+if [[ -f "$STATE_FILE" && "${FORCE_DEPLOY:-}" != "1" ]]; then
+  LAST_DEPLOY=$(cat "$STATE_FILE" | json_field deployedAt "")
+  if [[ -n "$LAST_DEPLOY" ]]; then
+    DEPLOY_AGE_S=$(node -e "console.log(Math.floor((Date.now()-new Date('$LAST_DEPLOY').getTime())/1000))" 2>/dev/null || echo "999")
+    if [[ "$DEPLOY_AGE_S" -lt "$DEPLOY_COOLDOWN_S" ]]; then
+      log "deploy cooldown: last deploy was ${DEPLOY_AGE_S}s ago (cooldown=${DEPLOY_COOLDOWN_S}s) — skipping (set FORCE_DEPLOY=1 to override)"
+      exit 0
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Read deploy state (defaults: active=4000, standby=4001)
+# ---------------------------------------------------------------------------
 if [[ -f "$STATE_FILE" ]]; then
   ACTIVE_PORT=$(cat "$STATE_FILE" | json_field activePort 4000)
   STANDBY_PORT=$(cat "$STATE_FILE" | json_field standbyPort 4001)
@@ -282,7 +298,7 @@ fi
 # ---------------------------------------------------------------------------
 # Stop old instance: signal drain, wait for active sessions to finish, then kill.
 # ---------------------------------------------------------------------------
-DRAIN_TIMEOUT_S=120  # Max seconds to wait for sessions to finish
+DRAIN_TIMEOUT_S=600  # Max seconds to wait for sessions to finish (10 min)
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
   log "signaling drain on old instance (port $ACTIVE_PORT)..."
   curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true

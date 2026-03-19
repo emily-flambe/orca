@@ -79,7 +79,7 @@ export function createGithubWebhookRoute(deps: {
     }
 
     log(
-      `push to main detected (SHA: ${body.after.slice(0, 12)}) — triggering graceful deploy`,
+      `push to main detected (SHA: ${body.after.slice(0, 12)}) — auto-deploy disabled, deploy manually via scripts/deploy.sh`,
     );
     const pushSha = body.after;
     setImmediate(() => deps.onPushToMain(pushSha));
