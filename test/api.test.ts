@@ -27,6 +27,8 @@ vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
   setDraining: vi.fn(),
   initDeployState: vi.fn(),
+  getDrainingForSeconds: vi.fn().mockReturnValue(null),
+  clearDraining: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
