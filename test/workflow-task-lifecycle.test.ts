@@ -154,6 +154,7 @@ import { activeHandles } from "../src/session-handles.js";
 import {
   sendAlertThrottled,
   isCircuitBreakerTripped,
+  trackZeroCostFailure,
 } from "../src/scheduler/alerts.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
@@ -178,6 +179,7 @@ const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
 const mockSendAlertThrottled = vi.mocked(sendAlertThrottled);
 const mockIsCircuitBreakerTripped = vi.mocked(isCircuitBreakerTripped);
+const mockTrackZeroCostFailure = vi.mocked(trackZeroCostFailure);
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -377,13 +379,14 @@ describe("task-lifecycle workflow", () => {
     expect(payload.taskId).toBe("TEST-1");
   });
 
-  test("budget exceeded → step.sleep called with 10m backoff", async () => {
+  test("budget exceeded → step.sleep called with exponential backoff (5m on first hold)", async () => {
     mockSumCostInWindow.mockReturnValue(150);
 
     const step = createStep();
     await capturedHandler({ event: makeTaskReadyEvent(), step });
 
-    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", "10m");
+    // budgetHoldCount defaults to 0 → 5 * 2^0 = 5m
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", "5m");
   });
 
   test("budget exceeded → requeues task to ready after backoff", async () => {
@@ -827,6 +830,63 @@ describe("task-lifecycle workflow", () => {
       "failed",
     );
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
+  });
+
+  test("zero-cost implement failure → trackZeroCostFailure called", async () => {
+    const task = makeTask({ retryCount: 0 });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+      costUsd: 0, // zero cost
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockTrackZeroCostFailure).toHaveBeenCalledOnce();
+  });
+
+  test("non-zero-cost implement failure → trackZeroCostFailure NOT called", async () => {
+    const task = makeTask({ retryCount: 0 });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: false,
+      costUsd: 0.01, // non-zero cost
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockTrackZeroCostFailure).not.toHaveBeenCalled();
+  });
+
+  test("isMaxTurns implement failure at $0 → trackZeroCostFailure NOT called (maxTurns excluded)", async () => {
+    const task = makeTask({ retryCount: 0 });
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      isMaxTurns: true,
+      costUsd: 0, // zero cost but maxTurns
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockTrackZeroCostFailure).not.toHaveBeenCalled();
   });
 
   test("implement success → invocation finalized with completed status and cost data", async () => {

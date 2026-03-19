@@ -107,6 +107,9 @@ const WORKFLOW_TIMEOUT = "4h";
 /** Maximum time to wait for a single Claude session to complete. */
 const SESSION_TIMEOUT = "45m";
 
+/** Number of zero-cost failures in 30 min that trips the circuit breaker. */
+const CIRCUIT_BREAKER_THRESHOLD = 3;
+
 // ---------------------------------------------------------------------------
 // Log helpers
 // ---------------------------------------------------------------------------
@@ -349,6 +352,7 @@ export const taskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
+    const budgetHoldCount = event.data.budgetHoldCount ?? 0;
 
     log(`workflow started for task ${taskId}`);
 
@@ -363,7 +367,6 @@ export const taskLifecycle = inngest.createFunction(
 
         // Circuit breaker: too many consecutive zero-cost failures means
         // the Claude CLI itself is broken. Pause dispatching and alert.
-        const CIRCUIT_BREAKER_THRESHOLD = 3;
         if (isCircuitBreakerTripped(CIRCUIT_BREAKER_THRESHOLD)) {
           return {
             ok: false,
@@ -423,16 +426,28 @@ export const taskLifecycle = inngest.createFunction(
       });
 
       // Exponential backoff: sleep before requeue to break tight dispatch loops.
-      // Tasks re-enter ready and the reconciler re-fires them every 5 min,
-      // so without sleep they could cycle instantly. The sleep ensures at least
-      // 10 minutes between budget check attempts.
-      await step.sleep("budget-backoff", "10m");
+      // Doubles each hold: 5m, 10m, 20m, 40m, capped at 60m.
+      const backoffMinutes = Math.min(5 * Math.pow(2, budgetHoldCount), 60);
+      const backoffDuration = `${backoffMinutes}m`;
+      await step.sleep("budget-backoff", backoffDuration);
 
-      await step.run("requeue-budget-exceeded", () => {
+      await step.run("requeue-budget-exceeded", async () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
+        await inngest.send({
+          name: "task/ready",
+          data: {
+            linearIssueId: taskId,
+            repoPath: task?.repoPath ?? "",
+            priority: task?.priority ?? 0,
+            projectName: task?.projectName ?? null,
+            taskType: task?.taskType ?? "linear",
+            createdAt: task?.createdAt ?? new Date().toISOString(),
+            budgetHoldCount: budgetHoldCount + 1,
+          },
+        });
       });
       return { outcome: "budget_exceeded", reason };
     }

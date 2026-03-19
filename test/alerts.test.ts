@@ -22,6 +22,11 @@ import {
   initAlertSystem,
   _getHealingCounters,
   _getAlertCooldowns,
+  trackZeroCostFailure,
+  countZeroCostFailuresInWindow,
+  isCircuitBreakerTripped,
+  resetZeroCostFailures,
+  _getZeroCostFailures,
   type AlertPayload,
 } from "../src/scheduler/alerts.js";
 
@@ -630,5 +635,89 @@ describe("lastHealingAttemptTimestamp", () => {
 
     const ts = lastHealingAttemptTimestamp();
     expect(ts).toBe(1_000_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Circuit breaker functions
+// ---------------------------------------------------------------------------
+
+describe("trackZeroCostFailure / countZeroCostFailuresInWindow / isCircuitBreakerTripped", () => {
+  beforeEach(() => {
+    resetZeroCostFailures();
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    resetZeroCostFailures();
+  });
+
+  test("trackZeroCostFailure records a failure timestamp", () => {
+    expect(countZeroCostFailuresInWindow()).toBe(0);
+    trackZeroCostFailure();
+    expect(countZeroCostFailuresInWindow()).toBe(1);
+  });
+
+  test("multiple calls accumulate within the window", () => {
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    expect(countZeroCostFailuresInWindow()).toBe(3);
+  });
+
+  test("entries older than 30 minutes are pruned", () => {
+    vi.useFakeTimers();
+    trackZeroCostFailure(); // at t=0
+    vi.advanceTimersByTime(29 * 60 * 1000); // 29min — still in window
+    trackZeroCostFailure(); // at t=29min
+    expect(countZeroCostFailuresInWindow()).toBe(2);
+
+    vi.advanceTimersByTime(2 * 60 * 1000); // now at t=31min — first entry expired
+    // trackZeroCostFailure prunes old entries on call
+    trackZeroCostFailure();
+    expect(countZeroCostFailuresInWindow()).toBe(2); // only the 29min + 31min entries remain
+  });
+
+  test("isCircuitBreakerTripped returns false when below threshold", () => {
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    expect(isCircuitBreakerTripped(3)).toBe(false);
+  });
+
+  test("isCircuitBreakerTripped returns true when at threshold", () => {
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    expect(isCircuitBreakerTripped(3)).toBe(true);
+  });
+
+  test("isCircuitBreakerTripped respects custom threshold", () => {
+    trackZeroCostFailure();
+    expect(isCircuitBreakerTripped(1)).toBe(true);
+    expect(isCircuitBreakerTripped(2)).toBe(false);
+  });
+
+  test("resetZeroCostFailures clears all entries", () => {
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    expect(isCircuitBreakerTripped(3)).toBe(true);
+    resetZeroCostFailures();
+    expect(countZeroCostFailuresInWindow()).toBe(0);
+    expect(isCircuitBreakerTripped(3)).toBe(false);
+  });
+
+  test("failures expire from window without needing a new call to trackZeroCostFailure", () => {
+    vi.useFakeTimers();
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    trackZeroCostFailure();
+    expect(isCircuitBreakerTripped(3)).toBe(true);
+
+    vi.advanceTimersByTime(31 * 60 * 1000); // advance past 30-min window
+    // countZeroCostFailuresInWindow filters by cutoff — does not require a trackZeroCostFailure call
+    expect(countZeroCostFailuresInWindow()).toBe(0);
+    expect(isCircuitBreakerTripped(3)).toBe(false);
   });
 });

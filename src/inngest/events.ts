@@ -13,6 +13,7 @@ export type OrcaEvents = {
       projectName: string | null;
       taskType: string;
       createdAt: string;
+      budgetHoldCount?: number;
     };
   };
   "task/cancelled": {
