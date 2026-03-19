@@ -7,7 +7,14 @@
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import { insertTask, insertInvocation, getTask, resetStaleSessionRetryCount, updateTaskFields } from "../src/db/queries.js";
+import {
+  insertTask,
+  insertInvocation,
+  getTask,
+  resetStaleSessionRetryCount,
+  updateTaskFields,
+  getFailedTasksWithRetriesRemaining,
+} from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
@@ -512,5 +519,102 @@ describe("runReconciliation — stale count reset prevents premature death", () 
       activeHandles: new Map(),
     });
     expect(getTask(dbWithReset, resetId)?.orcaStatus).toBe("ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("getFailedTasksWithRetriesRemaining — EMI-357", () => {
+  test("returns failed tasks where retryCount + staleSessionRetryCount < maxRetries", () => {
+    const db = freshDb();
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 1, staleSessionRetryCount: 0 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result.map((t) => t.linearIssueId)).toContain(id);
+  });
+
+  test("excludes failed tasks at max retries (retryCount >= maxRetries)", () => {
+    const db = freshDb();
+    seedTask(db, { orcaStatus: "failed", retryCount: 3, staleSessionRetryCount: 0 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result).toHaveLength(0);
+  });
+
+  test("excludes failed tasks where combined count >= maxRetries", () => {
+    const db = freshDb();
+    // 1 + 2 = 3 which is NOT < 3
+    seedTask(db, { orcaStatus: "failed", retryCount: 1, staleSessionRetryCount: 2 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result).toHaveLength(0);
+  });
+
+  test("excludes non-failed tasks", () => {
+    const db = freshDb();
+    seedTask(db, { orcaStatus: "ready", retryCount: 0 });
+    seedTask(db, { orcaStatus: "running", retryCount: 0 });
+    seedTask(db, { orcaStatus: "done", retryCount: 0 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result).toHaveLength(0);
+  });
+
+  test("excludes cron tasks (cron_claude, cron_shell)", () => {
+    const db = freshDb();
+    const id1 = `CRON-${Date.now().toString(36)}-1`;
+    const id2 = `CRON-${Date.now().toString(36)}-2`;
+    const ts = now();
+    insertTask(db, {
+      linearIssueId: id1,
+      agentPrompt: "do something",
+      repoPath: "/tmp/fake",
+      orcaStatus: "failed",
+      priority: 0,
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+      taskType: "cron_claude",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    insertTask(db, {
+      linearIssueId: id2,
+      agentPrompt: "do something",
+      repoPath: "/tmp/fake",
+      orcaStatus: "failed",
+      priority: 0,
+      retryCount: 0,
+      staleSessionRetryCount: 0,
+      taskType: "cron_shell",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result).toHaveLength(0);
+  });
+
+  test("returns multiple eligible failed tasks", () => {
+    const db = freshDb();
+    const id1 = seedTask(db, { orcaStatus: "failed", retryCount: 0 });
+    const id2 = seedTask(db, { orcaStatus: "failed", retryCount: 1 });
+    const id3 = seedTask(db, { orcaStatus: "failed", retryCount: 2 });
+    // Exhausted — should be excluded
+    seedTask(db, { orcaStatus: "failed", retryCount: 3 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    const ids = result.map((t) => t.linearIssueId);
+    expect(ids).toContain(id1);
+    expect(ids).toContain(id2);
+    expect(ids).toContain(id3);
+    expect(result).toHaveLength(3);
+  });
+
+  test("boundary: retryCount=2, staleSessionRetryCount=0, maxRetries=3 → eligible", () => {
+    const db = freshDb();
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 2, staleSessionRetryCount: 0 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result.map((t) => t.linearIssueId)).toContain(id);
+  });
+
+  test("boundary: retryCount=1, staleSessionRetryCount=1, maxRetries=3 → eligible (2 < 3)", () => {
+    const db = freshDb();
+    const id = seedTask(db, { orcaStatus: "failed", retryCount: 1, staleSessionRetryCount: 1 });
+    const result = getFailedTasksWithRetriesRemaining(db, 3);
+    expect(result.map((t) => t.linearIssueId)).toContain(id);
   });
 });
