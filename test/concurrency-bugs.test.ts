@@ -776,7 +776,7 @@ describe("claim-task capacity rejection", () => {
     expect(mockSpawnSession).not.toHaveBeenCalled();
   });
 
-  test("capacity exceeded in start-implement: task is claimed but no session spawned", async () => {
+  test("FIXED: capacity exceeded in start-implement resets task to ready gracefully", async () => {
     // First call (claim-task): under cap
     // Second call (start-implement): at cap (another session started between steps)
     mockCountActiveSessions
@@ -789,17 +789,23 @@ describe("claim-task capacity rejection", () => {
 
     const step = createStep();
 
-    // start-implement throws because capacity is now full
-    await expect(
-      capturedHandler({ event: makeTaskReadyEvent(), step }),
-    ).rejects.toThrow(/session cap reached/);
+    // start-implement catches the capacity error, resets task to "ready",
+    // and returns gracefully instead of throwing (which would kill the workflow).
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+    expect(result).toEqual({ outcome: "capacity_blocked" });
 
-    // BUG: claimTaskForDispatch WAS called - the task is now in "running" state
-    // but no session was spawned. This is a zombie task.
-    // The reconcile-stuck-tasks cron will eventually catch this, but there's
-    // a window where the task is stuck.
+    // claimTaskForDispatch was called, but no session was spawned
     expect(mockClaimTaskForDispatch).toHaveBeenCalled();
     expect(mockSpawnSession).not.toHaveBeenCalled();
+    // Task was reset to "ready" so the reconciler can re-dispatch
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      "TEST-1",
+      "ready",
+    );
   });
 });
 
@@ -984,10 +990,10 @@ describe("activeHandles lifecycle in bridgeSessionCompletion", () => {
 // ===========================================================================
 
 describe("resource leaks on capacity rejection", () => {
-  test("FIXED: capacity check runs before createWorktree — no worktree leak on rejection", async () => {
-    // After the fix, assertSessionCapacity is called BEFORE createWorktree
-    // in start-implement. If capacity is full, the step throws before any
-    // worktree is created, preventing resource leaks.
+  test("FIXED: capacity check runs before createWorktree — graceful exit on rejection", async () => {
+    // assertSessionCapacity is called BEFORE createWorktree in start-implement.
+    // If capacity is full, the step catches the error, resets task to "ready",
+    // and returns null so the workflow exits gracefully.
 
     mockCountActiveSessions
       .mockReturnValueOnce(0) // claim-task: passes
@@ -999,15 +1005,24 @@ describe("resource leaks on capacity rejection", () => {
 
     const step = createStep();
 
-    await expect(
-      capturedHandler({ event: makeTaskReadyEvent(), step }),
-    ).rejects.toThrow(/session cap reached/);
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+    expect(result).toEqual({ outcome: "capacity_blocked" });
 
-    // createWorktree should NOT have been called — capacity check throws first
+    // createWorktree should NOT have been called — capacity check catches first
     expect(mockCreateWorktree).not.toHaveBeenCalled();
 
     // No cleanup needed since no worktree was created
     const { removeWorktree } = await import("../src/worktree/index.js");
     expect(vi.mocked(removeWorktree)).not.toHaveBeenCalled();
+
+    // Task was reset to "ready"
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      "TEST-1",
+      "ready",
+    );
   });
 });

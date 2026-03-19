@@ -482,7 +482,7 @@ export const taskLifecycle = inngest.createFunction(
         branchName: string;
         isFixPhase: boolean;
         startedAt: number;
-      } => {
+      } | null => {
         const { db, config, client } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
@@ -531,7 +531,16 @@ export const taskLifecycle = inngest.createFunction(
 
         // Check capacity BEFORE creating worktree or inserting invocation —
         // creating resources first would leak them if the check throws.
-        assertSessionCapacity(db);
+        // Catch errors gracefully — with retries: 0, a throw kills the
+        // workflow permanently and orphans the task.
+        try {
+          assertSessionCapacity(db);
+        } catch {
+          log(`task ${taskId}: implement spawn blocked by capacity, resetting to ready`);
+          updateTaskStatus(db, taskId, "ready");
+          emitTaskUpdated(getTask(db, taskId)!);
+          return null;
+        }
 
         let worktreePath: string;
         let branchName: string;
@@ -543,9 +552,17 @@ export const taskLifecycle = inngest.createFunction(
           const baseRef = isFixPhase
             ? (task.prBranchName ?? undefined)
             : undefined;
-          const wtResult = createWorktree(task.repoPath, taskId, 0, {
-            baseRef,
-          });
+          let wtResult;
+          try {
+            wtResult = createWorktree(task.repoPath, taskId, 0, {
+              baseRef,
+            });
+          } catch (err) {
+            log(`task ${taskId}: implement spawn blocked by worktree error: ${err}`);
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            return null;
+          }
           worktreePath = wtResult.worktreePath;
           branchName = wtResult.branchName;
         }
@@ -628,6 +645,10 @@ export const taskLifecycle = inngest.createFunction(
         };
       },
     );
+
+    // If implement spawn was blocked by capacity/worktree error, exit gracefully.
+    // The task was reset to "ready" and the reconciler will re-dispatch.
+    if (!implementCtx) return { outcome: "capacity_blocked" };
 
     // -------------------------------------------------------------------------
     // Step 4: Wait for implement session to complete (45 min timeout)
@@ -1097,7 +1118,7 @@ export const taskLifecycle = inngest.createFunction(
           invocationId: number;
           worktreePath: string;
           startedAt: number;
-        } => {
+        } | null => {
           const { db, config, client } = getSchedulerDeps();
           const task = getTask(db, taskId);
           if (!task) throw new Error(`task ${taskId} not found`);
@@ -1106,11 +1127,27 @@ export const taskLifecycle = inngest.createFunction(
           const agentPrompt = `${task.agentPrompt ?? ""}\n\nReview PR ${prRef}. The PR branch is checked out in your working directory.`;
 
           const baseRef = task.prBranchName ?? undefined;
-          const wtResult = createWorktree(task.repoPath, taskId, cycle, {
-            baseRef,
-          });
+          let wtResult;
+          try {
+            wtResult = createWorktree(task.repoPath, taskId, cycle, {
+              baseRef,
+            });
+          } catch (err) {
+            log(`task ${taskId}: review spawn blocked by worktree error: ${err}`);
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            return null;
+          }
 
-          assertSessionCapacity(db);
+          try {
+            assertSessionCapacity(db);
+          } catch {
+            log(`task ${taskId}: review spawn blocked by capacity, resetting to ready`);
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            try { removeWorktree(wtResult.worktreePath); } catch { /* ignore */ }
+            return null;
+          }
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
@@ -1170,6 +1207,10 @@ export const taskLifecycle = inngest.createFunction(
           };
         },
       );
+
+      // If review spawn was blocked by capacity/worktree error, exit gracefully.
+      // The task was reset to "ready" and the reconciler will re-dispatch.
+      if (!reviewCtx) return { outcome: "capacity_blocked" as const };
 
       // -----------------------------------------------------------------------
       // 6b: Wait for review session to complete
@@ -1400,7 +1441,7 @@ export const taskLifecycle = inngest.createFunction(
           invocationId: number;
           worktreePath: string;
           startedAt: number;
-        } => {
+        } | null => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           const task = getTask(db, taskId);
           if (!task) throw new Error(`task ${taskId} not found`);
@@ -1420,9 +1461,17 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           const baseRef = task.prBranchName ?? undefined;
-          const wtResult = createWorktree(task.repoPath, taskId, cycle + 1000, {
-            baseRef,
-          });
+          let wtResult;
+          try {
+            wtResult = createWorktree(task.repoPath, taskId, cycle + 1000, {
+              baseRef,
+            });
+          } catch (err) {
+            log(`task ${taskId}: fix spawn blocked by worktree error: ${err}`);
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            return null;
+          }
 
           let agentPrompt = task.agentPrompt ?? "";
           if (task.fixReason === "merge_conflict") {
@@ -1431,7 +1480,15 @@ export const taskLifecycle = inngest.createFunction(
             updateTaskFixReason(db, taskId, null);
           }
 
-          assertSessionCapacity(db);
+          try {
+            assertSessionCapacity(db);
+          } catch {
+            log(`task ${taskId}: fix spawn blocked by capacity, resetting to ready`);
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            try { removeWorktree(wtResult.worktreePath); } catch { /* ignore */ }
+            return null;
+          }
 
           const now = new Date().toISOString();
           const invocationId = insertInvocation(db, {
@@ -1496,6 +1553,10 @@ export const taskLifecycle = inngest.createFunction(
           };
         },
       );
+
+      // If fix spawn was blocked by capacity/worktree error, exit gracefully.
+      // The task was reset to "ready" and the reconciler will re-dispatch.
+      if (!fixCtx) return { outcome: "capacity_blocked" as const };
 
       // -----------------------------------------------------------------------
       // 6f: Wait for fix session
