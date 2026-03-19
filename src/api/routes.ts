@@ -712,6 +712,20 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const inngestReachable = await checkInngestHealth();
 
     const draining = isDraining();
+
+    // Build a snapshot of failed tasks with truncated reasons for monitoring
+    const failedTaskSnapshot = allTasks
+      .filter((t) => t.orcaStatus === "failed" && t.lastFailureReason)
+      .map((t) => ({
+        id: t.linearIssueId,
+        phase: t.lastFailedPhase ?? null,
+        failedAt: t.lastFailedAt ?? null,
+        reason:
+          (t.lastFailureReason?.length ?? 0) > 80
+            ? t.lastFailureReason!.slice(0, 77) + "..."
+            : (t.lastFailureReason ?? null),
+      }));
+
     return c.json({
       activeSessions,
       activeTaskIds,
@@ -736,6 +750,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
       inngestReachable,
+      failedTaskSnapshot,
     });
   });
 

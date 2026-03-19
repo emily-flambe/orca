@@ -600,6 +600,17 @@ export default function TaskList({
                   ? task.agentPrompt.slice(0, 300)
                   : "No prompt"}
               </span>
+              {/* Failure reason — shown inline for failed tasks */}
+              {task.orcaStatus === "failed" && task.lastFailureReason && (
+                <span
+                  className="text-xs text-red-400/80 leading-snug pl-[18px] truncate"
+                  title={task.lastFailureReason}
+                >
+                  {task.lastFailureReason.length > 100
+                    ? task.lastFailureReason.slice(0, 97) + "..."
+                    : task.lastFailureReason}
+                </span>
+              )}
             </div>
           );
         })}

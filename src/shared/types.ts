@@ -50,6 +50,9 @@ export interface Task {
   updatedAt: string;
   taskType: TaskType;
   cronScheduleId: number | null;
+  lastFailureReason: string | null;
+  lastFailedPhase: string | null;
+  lastFailedAt: string | null;
 }
 
 export interface CronSchedule {

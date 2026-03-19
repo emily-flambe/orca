@@ -138,6 +138,32 @@ export function updateTaskFixReason(
     .run();
 }
 
+/**
+ * Set failure metadata on a task.
+ * Call this alongside updateTaskStatus(db, taskId, "failed") so the
+ * dashboard and API callers can surface a human-readable failure reason.
+ *
+ * @param reason - Truncated error summary (will be capped at 500 chars)
+ * @param phase  - Which phase failed: "implement" | "review" | "fix" | "ci" | "deploy" | "gate2"
+ */
+export function updateTaskFailure(
+  db: OrcaDb,
+  taskId: string,
+  reason: string,
+  phase: string,
+): void {
+  const truncated = reason.length > 500 ? reason.slice(0, 497) + "..." : reason;
+  db.update(tasks)
+    .set({
+      lastFailureReason: truncated,
+      lastFailedPhase: phase,
+      lastFailedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Reset merge_attempt_count to 0. Used when dispatching a conflict-resolution fix session. */
 export function resetMergeAttemptCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)
