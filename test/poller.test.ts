@@ -2,14 +2,7 @@
 // Tests for src/linear/poller.ts
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks

@@ -381,14 +381,11 @@ export async function evaluateParentStatuses(
       log(`parent ${parent.linearIssueId} → done (all children done)`);
     } else if (anyActive && parent.orcaStatus === "ready") {
       updateTaskStatus(db, parent.linearIssueId, "running");
-      writeBackStatus(
-        client,
-        parent.linearIssueId,
-        "running",
-        stateMap,
-      ).catch((err) => {
-        log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
-      });
+      writeBackStatus(client, parent.linearIssueId, "running", stateMap).catch(
+        (err) => {
+          log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
+        },
+      );
       log(`parent ${parent.linearIssueId} → running (child activity detected)`);
     }
   }

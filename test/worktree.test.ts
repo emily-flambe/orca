@@ -2,16 +2,16 @@
 // Worktree resilience tests — retry, transient detection, fallback
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, utimesSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  utimesSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 
 import {
@@ -25,8 +25,11 @@ import { deriveRepoRoot } from "../src/worktree/index.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeGitError(overrides: Partial<ExecError> & { message?: string } = {}): Error & ExecError {
-  const err = new Error(overrides.message ?? "git command failed") as Error & ExecError;
+function makeGitError(
+  overrides: Partial<ExecError> & { message?: string } = {},
+): Error & ExecError {
+  const err = new Error(overrides.message ?? "git command failed") as Error &
+    ExecError;
   if (overrides.status !== undefined) err.status = overrides.status;
   if (overrides.signal !== undefined) err.signal = overrides.signal;
   if (overrides.code !== undefined) err.code = overrides.code;
@@ -66,17 +69,25 @@ describe("isTransientGitError", () => {
   });
 
   test("returns true for signal in message", () => {
-    const err = new Error("git command failed: git fetch origin\nsignal: SIGTERM");
+    const err = new Error(
+      "git command failed: git fetch origin\nsignal: SIGTERM",
+    );
     expect(isTransientGitError(err)).toBe(true);
   });
 
   test("returns false for normal git error (exit 1)", () => {
-    const err = makeGitError({ status: 1, message: "git command failed\nexit: 1" });
+    const err = makeGitError({
+      status: 1,
+      message: "git command failed\nexit: 1",
+    });
     expect(isTransientGitError(err)).toBe(false);
   });
 
   test("returns false for exit code 128 (git-level error)", () => {
-    const err = makeGitError({ status: 128, message: "git command failed\nexit: 128" });
+    const err = makeGitError({
+      status: 128,
+      message: "git command failed\nexit: 128",
+    });
     expect(isTransientGitError(err)).toBe(false);
   });
 
@@ -101,8 +112,11 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
 
   test("retries on transient error and succeeds on second attempt", () => {
     const transientErr = makeGitError({ signal: "SIGKILL" });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw transientErr; })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw transientErr;
+      })
       .mockReturnValue("recovered");
 
     const result = retryWrapper(fn, 3);
@@ -112,7 +126,9 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
 
   test("does not retry on non-transient error (exit 1)", () => {
     const normalErr = makeGitError({ status: 1 });
-    const fn = vi.fn().mockImplementation(() => { throw normalErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw normalErr;
+    });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
     expect(fn).toHaveBeenCalledTimes(1);
@@ -120,7 +136,9 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
 
   test("does not retry on non-transient error (exit 128)", () => {
     const normalErr = makeGitError({ status: 128 });
-    const fn = vi.fn().mockImplementation(() => { throw normalErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw normalErr;
+    });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
     expect(fn).toHaveBeenCalledTimes(1);
@@ -128,7 +146,9 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
 
   test("throws after exhausting all retries on transient errors", () => {
     const transientErr = makeGitError({ signal: "SIGTERM" });
-    const fn = vi.fn().mockImplementation(() => { throw transientErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw transientErr;
+    });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
     expect(fn).toHaveBeenCalledTimes(3);
@@ -136,8 +156,11 @@ describe("gitWithRetry (logic via retryWrapper)", () => {
 
   test("retries on signal-killed and succeeds", () => {
     const sigErr = makeGitError({ signal: "SIGKILL" });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw sigErr; })
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw sigErr;
+      })
       .mockReturnValue("ok");
 
     const result = retryWrapper(fn, 3);
@@ -338,15 +361,17 @@ describe("isTransientGitError — edge cases", () => {
 
   test("false positive risk: message containing 'signal: SIG' in path or ref name", () => {
     // Contrived but demonstrates the substring match weakness
-    const err = new Error("git command failed: fatal: not a git repository: /home/signal: SIGINT/repo");
+    const err = new Error(
+      "git command failed: fatal: not a git repository: /home/signal: SIGINT/repo",
+    );
     expect(isTransientGitError(err)).toBe(true); // false positive
   });
 
   test("DLL init exit code in message is NOT transient", () => {
     const err = new Error(
       "git command failed: git fetch origin\n" +
-      "exit: 3221225794\n" +
-      "fatal: not a git repository"
+        "exit: 3221225794\n" +
+        "fatal: not a git repository",
     );
     expect(isTransientGitError(err)).toBe(false);
   });
@@ -369,7 +394,9 @@ describe("isTransientGitError — edge cases", () => {
 describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
   test("maxAttempts = 1 never retries", () => {
     const transientErr = makeGitError({ signal: "SIGKILL" });
-    const fn = vi.fn().mockImplementation(() => { throw transientErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw transientErr;
+    });
 
     expect(() => retryWrapper(fn, 1)).toThrow();
     expect(fn).toHaveBeenCalledTimes(1);
@@ -378,9 +405,14 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
   test("alternating transient and non-transient errors: stops on non-transient", () => {
     const transientErr = makeGitError({ signal: "SIGKILL" });
     const normalErr = makeGitError({ status: 128 });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw transientErr; })
-      .mockImplementationOnce(() => { throw normalErr; });
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw transientErr;
+      })
+      .mockImplementationOnce(() => {
+        throw normalErr;
+      });
 
     expect(() => retryWrapper(fn, 5)).toThrow();
     expect(fn).toHaveBeenCalledTimes(2);
@@ -390,17 +422,26 @@ describe("gitWithRetry (logic via retryWrapper) — edge cases", () => {
     const err1 = makeGitError({ signal: "SIGKILL", message: "first failure" });
     const err2 = makeGitError({ signal: "SIGKILL", message: "second failure" });
     const err3 = makeGitError({ signal: "SIGKILL", message: "third failure" });
-    const fn = vi.fn()
-      .mockImplementationOnce(() => { throw err1; })
-      .mockImplementationOnce(() => { throw err2; })
-      .mockImplementationOnce(() => { throw err3; });
+    const fn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw err1;
+      })
+      .mockImplementationOnce(() => {
+        throw err2;
+      })
+      .mockImplementationOnce(() => {
+        throw err3;
+      });
 
     expect(() => retryWrapper(fn, 3)).toThrow("third failure");
   });
 
   test("DLL init error IS retried (transient resource exhaustion)", () => {
     const dllErr = makeGitError({ status: 3221225794 });
-    const fn = vi.fn().mockImplementation(() => { throw dllErr; });
+    const fn = vi.fn().mockImplementation(() => {
+      throw dllErr;
+    });
 
     expect(() => retryWrapper(fn, 3)).toThrow();
     // Should retry all 3 attempts before giving up

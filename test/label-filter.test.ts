@@ -150,17 +150,22 @@ describe("fullSync — label filter active", () => {
     const noLabelIssue = makeIssue("PROJ-3", []);
 
     const client = makeClient({
-      fetchProjectIssues: vi.fn().mockResolvedValue([
-        matchingIssue,
-        unmatchedIssue,
-        noLabelIssue,
-      ]),
+      fetchProjectIssues: vi
+        .fn()
+        .mockResolvedValue([matchingIssue, unmatchedIssue, noLabelIssue]),
       fetchLabelIdByName: vi.fn().mockResolvedValue("label-id-123"),
     });
 
     const graph = makeGraph();
 
-    await fullSync(db, client as any, graph as any, config, undefined, labelIdCache);
+    await fullSync(
+      db,
+      client as any,
+      graph as any,
+      config,
+      undefined,
+      labelIdCache,
+    );
 
     // Only matching issue should be in DB
     expect(getTask(db, "PROJ-1")).toBeDefined();
@@ -188,7 +193,14 @@ describe("fullSync — label filter active", () => {
 
     const graph = makeGraph();
 
-    await fullSync(db, client as any, graph as any, config, undefined, labelIdCache);
+    await fullSync(
+      db,
+      client as any,
+      graph as any,
+      config,
+      undefined,
+      labelIdCache,
+    );
 
     // Both issues should be in DB
     expect(getTask(db, "PROJ-1")).toBeDefined();
@@ -213,7 +225,14 @@ describe("fullSync — label filter active", () => {
 
     const graph = makeGraph();
 
-    await fullSync(db, client as any, graph as any, config, undefined, labelIdCache);
+    await fullSync(
+      db,
+      client as any,
+      graph as any,
+      config,
+      undefined,
+      labelIdCache,
+    );
 
     // Label cache should be empty (label not found)
     expect(labelIdCache.size).toBe(0);
@@ -230,13 +249,22 @@ describe("fullSync — label filter active", () => {
     const labelIdCache = new Map<string, string>([["old-label", "old-id"]]);
 
     const client = makeClient({
-      fetchProjectIssues: vi.fn().mockResolvedValue([makeIssue("PROJ-1", ["orca"])]),
+      fetchProjectIssues: vi
+        .fn()
+        .mockResolvedValue([makeIssue("PROJ-1", ["orca"])]),
       fetchLabelIdByName: vi.fn().mockResolvedValue("new-label-id"),
     });
 
     const graph = makeGraph();
 
-    await fullSync(db, client as any, graph as any, config, undefined, labelIdCache);
+    await fullSync(
+      db,
+      client as any,
+      graph as any,
+      config,
+      undefined,
+      labelIdCache,
+    );
 
     // Old entry should be gone, new one set
     expect(labelIdCache.has("old-label")).toBe(false);

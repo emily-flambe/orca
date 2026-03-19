@@ -95,7 +95,9 @@ describe("processSnapshot", () => {
   });
 
   test("first snapshot: task enters non-terminal status, consecutiveSnapshots=1, no alert", () => {
-    const tasks = [{ linearIssueId: "T-1", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-1", orcaStatus: "running", retryCount: 0 },
+    ];
     const { updatedState, alerts } = processSnapshot(tasks, {});
     expect(updatedState["T-1"]).toBeDefined();
     expect(updatedState["T-1"]!.consecutiveSnapshots).toBe(1);
@@ -103,7 +105,9 @@ describe("processSnapshot", () => {
   });
 
   test("second snapshot in same status: consecutiveSnapshots=2, alert fires for threshold=2", () => {
-    const tasks = [{ linearIssueId: "T-2", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-2", orcaStatus: "running", retryCount: 0 },
+    ];
     const state: TaskTrackingState = {
       "T-2": {
         status: "running",
@@ -122,7 +126,9 @@ describe("processSnapshot", () => {
 
   test("terminal statuses are removed from updatedState", () => {
     for (const status of TERMINAL_STATUSES) {
-      const tasks = [{ linearIssueId: "T-term", orcaStatus: status, retryCount: 0 }];
+      const tasks = [
+        { linearIssueId: "T-term", orcaStatus: status, retryCount: 0 },
+      ];
       const state: TaskTrackingState = {
         "T-term": {
           status: "running",
@@ -163,7 +169,9 @@ describe("processSnapshot", () => {
         retryCount: 0,
       },
     };
-    const tasks = [{ linearIssueId: "T-change", orcaStatus: "in_review", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-change", orcaStatus: "in_review", retryCount: 0 },
+    ];
     const { updatedState, alerts } = processSnapshot(tasks, state);
     expect(updatedState["T-change"]!.consecutiveSnapshots).toBe(1);
     expect(updatedState["T-change"]!.status).toBe("in_review");
@@ -181,7 +189,9 @@ describe("processSnapshot", () => {
       },
     };
     const now = new Date();
-    const tasks = [{ linearIssueId: "T-time", orcaStatus: "in_review", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-time", orcaStatus: "in_review", retryCount: 0 },
+    ];
     const { updatedState } = processSnapshot(tasks, state, now);
     expect(updatedState["T-time"]!.firstSeenAt).toBe(now.toISOString());
   });
@@ -202,7 +212,9 @@ describe("processSnapshot", () => {
       },
     };
     // Same status, retryCount bumped — counter continues accumulating
-    const tasks = [{ linearIssueId: "T-retry", orcaStatus: "running", retryCount: 1 }];
+    const tasks = [
+      { linearIssueId: "T-retry", orcaStatus: "running", retryCount: 1 },
+    ];
     const { updatedState } = processSnapshot(tasks, state);
     expect(updatedState["T-retry"]!.consecutiveSnapshots).toBe(6);
     expect(updatedState["T-retry"]!.retryCount).toBe(1);
@@ -213,7 +225,9 @@ describe("processSnapshot", () => {
   test("awaiting_ci: no alert at snapshot 3 (entering with 2, incrementing to 3)", () => {
     // State entering with consecutiveSnapshots=2. After processing becomes 3. Threshold=4.
     // 3 >= 4 is false, so no alert should fire.
-    const tasks = [{ linearIssueId: "T-ci", orcaStatus: "awaiting_ci", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-ci", orcaStatus: "awaiting_ci", retryCount: 0 },
+    ];
     const state: TaskTrackingState = {
       "T-ci": {
         status: "awaiting_ci",
@@ -229,7 +243,9 @@ describe("processSnapshot", () => {
   test("awaiting_ci: alert fires at snapshot 4 (entering with 3, incrementing to 4 which meets threshold)", () => {
     // State entering with consecutiveSnapshots=3. After processing becomes 4. Threshold=4.
     // 4 >= 4 = true, so alert fires.
-    const tasks = [{ linearIssueId: "T-ci4", orcaStatus: "awaiting_ci", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-ci4", orcaStatus: "awaiting_ci", retryCount: 0 },
+    ];
     const state: TaskTrackingState = {
       "T-ci4": {
         status: "awaiting_ci",
@@ -247,7 +263,9 @@ describe("processSnapshot", () => {
   // Once past the threshold, no further alerts from processSnapshot itself.
 
   test("no alert fires past the threshold boundary (snapshot 11, threshold 2)", () => {
-    const tasks = [{ linearIssueId: "T-spam", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-spam", orcaStatus: "running", retryCount: 0 },
+    ];
     const state: TaskTrackingState = {
       "T-spam": {
         status: "running",
@@ -265,7 +283,9 @@ describe("processSnapshot", () => {
 
   test("alert includes all required fields", () => {
     const firstSeenAt = new Date(Date.now() - 120_000).toISOString(); // 2min ago
-    const tasks = [{ linearIssueId: "T-fields", orcaStatus: "running", retryCount: 2 }];
+    const tasks = [
+      { linearIssueId: "T-fields", orcaStatus: "running", retryCount: 2 },
+    ];
     const state: TaskTrackingState = {
       "T-fields": {
         status: "running",
@@ -290,7 +310,9 @@ describe("processSnapshot", () => {
 
   test("unknown status accumulates in state indefinitely without alert", () => {
     // e.g., if a new status is added to the system without updating STUCK_THRESHOLDS
-    const tasks = [{ linearIssueId: "T-unk", orcaStatus: "some_new_status", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-unk", orcaStatus: "some_new_status", retryCount: 0 },
+    ];
     const state: TaskTrackingState = {
       "T-unk": {
         status: "some_new_status",
@@ -319,7 +341,9 @@ describe("processSnapshot", () => {
         retryCount: 0,
       },
     };
-    const tasks = [{ linearIssueId: "T-preserve", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-preserve", orcaStatus: "running", retryCount: 0 },
+    ];
     const { updatedState } = processSnapshot(tasks, state);
     expect(updatedState["T-preserve"]!.firstSeenAt).toBe(originalTime);
   });
@@ -333,8 +357,18 @@ describe("processSnapshot", () => {
       { linearIssueId: "T-c", orcaStatus: "done", retryCount: 0 },
     ];
     const state: TaskTrackingState = {
-      "T-a": { status: "running", firstSeenAt: new Date().toISOString(), consecutiveSnapshots: 1, retryCount: 0 },
-      "T-b": { status: "awaiting_ci", firstSeenAt: new Date().toISOString(), consecutiveSnapshots: 3, retryCount: 1 },
+      "T-a": {
+        status: "running",
+        firstSeenAt: new Date().toISOString(),
+        consecutiveSnapshots: 1,
+        retryCount: 0,
+      },
+      "T-b": {
+        status: "awaiting_ci",
+        firstSeenAt: new Date().toISOString(),
+        consecutiveSnapshots: 3,
+        retryCount: 1,
+      },
     };
     const { updatedState, alerts } = processSnapshot(tasks, state);
     expect(updatedState["T-a"]!.consecutiveSnapshots).toBe(2); // alert fires
@@ -368,10 +402,14 @@ describe("processSnapshot", () => {
       },
     };
     const frozen = { ...state };
-    const tasks = [{ linearIssueId: "T-pure", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-pure", orcaStatus: "running", retryCount: 0 },
+    ];
     processSnapshot(tasks, state);
     // Input state should not be mutated
-    expect(state["T-pure"]!.consecutiveSnapshots).toBe(frozen["T-pure"]!.consecutiveSnapshots);
+    expect(state["T-pure"]!.consecutiveSnapshots).toBe(
+      frozen["T-pure"]!.consecutiveSnapshots,
+    );
   });
 
   // --- durationMinutes accuracy ---
@@ -387,7 +425,9 @@ describe("processSnapshot", () => {
         retryCount: 0,
       },
     };
-    const tasks = [{ linearIssueId: "T-dur", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-dur", orcaStatus: "running", retryCount: 0 },
+    ];
     const { alerts } = processSnapshot(tasks, state, now);
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.durationMinutes).toBe(10);
@@ -431,7 +471,9 @@ describe("detectAndAlertStuckTasks", () => {
   test("never throws even if state file contains invalid JSON", async () => {
     await fs.writeFile(tmpFile, "NOT JSON AT ALL {{{", "utf8");
     const deps = makeDeps();
-    const tasks = [{ linearIssueId: "T-bad", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-bad", orcaStatus: "running", retryCount: 0 },
+    ];
     await expect(
       detectAndAlertStuckTasks(deps, tasks, tmpFile),
     ).resolves.toBeUndefined();
@@ -442,7 +484,9 @@ describe("detectAndAlertStuckTasks", () => {
     await fs.writeFile(tmpFile, "CORRUPTED JSON", "utf8");
 
     const deps = makeDeps();
-    const tasks = [{ linearIssueId: "T-corrupt", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-corrupt", orcaStatus: "running", retryCount: 0 },
+    ];
     await detectAndAlertStuckTasks(deps, tasks, tmpFile);
 
     // After the call, state file should be rewritten with just the current snapshot
@@ -459,7 +503,9 @@ describe("detectAndAlertStuckTasks", () => {
 
   test("state file is written after processing", async () => {
     const deps = makeDeps();
-    const tasks = [{ linearIssueId: "T-write", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-write", orcaStatus: "running", retryCount: 0 },
+    ];
     await detectAndAlertStuckTasks(deps, tasks, tmpFile);
 
     const written = await fs.readFile(tmpFile, "utf8");
@@ -470,7 +516,9 @@ describe("detectAndAlertStuckTasks", () => {
 
   test("second call increments consecutiveSnapshots and fires alert", async () => {
     const deps = makeDeps();
-    const tasks = [{ linearIssueId: "T-inc", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-inc", orcaStatus: "running", retryCount: 0 },
+    ];
 
     // First call
     await detectAndAlertStuckTasks(deps, tasks, tmpFile);
@@ -498,7 +546,9 @@ describe("detectAndAlertStuckTasks", () => {
 
     const deps = makeDeps();
     // Task is now "done"
-    const tasks = [{ linearIssueId: "T-terminal", orcaStatus: "done", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "T-terminal", orcaStatus: "done", retryCount: 0 },
+    ];
     await detectAndAlertStuckTasks(deps, tasks, tmpFile);
 
     const written = await fs.readFile(tmpFile, "utf8");
@@ -569,7 +619,9 @@ describe("detectAndAlertStuckTasks", () => {
     };
     await fs.writeFile(tmpFile, JSON.stringify(initialState), "utf8");
 
-    const tasks = [{ linearIssueId: "LINEAR-42", orcaStatus: "running", retryCount: 0 }];
+    const tasks = [
+      { linearIssueId: "LINEAR-42", orcaStatus: "running", retryCount: 0 },
+    ];
     await detectAndAlertStuckTasks(deps, tasks, tmpFile);
 
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
@@ -588,7 +640,13 @@ describe("detectAndAlertStuckTasks", () => {
 
 describe("constants", () => {
   test("all expected active statuses have thresholds", () => {
-    const expectedStatuses = ["running", "in_review", "awaiting_ci", "changes_requested", "deploying"];
+    const expectedStatuses = [
+      "running",
+      "in_review",
+      "awaiting_ci",
+      "changes_requested",
+      "deploying",
+    ];
     for (const status of expectedStatuses) {
       expect(STUCK_THRESHOLDS[status]).toBeDefined();
     }

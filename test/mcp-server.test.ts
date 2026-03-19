@@ -159,8 +159,14 @@ describe("get_task query logic", () => {
 
   test("returns task with invocation summary list", () => {
     const taskId = seedTask(db, { linearIssueId: "EMI-101" });
-    const inv1 = seedInvocation(db, taskId, { phase: "implement", status: "completed" });
-    const inv2 = seedInvocation(db, taskId, { phase: "review", status: "failed" });
+    const inv1 = seedInvocation(db, taskId, {
+      phase: "implement",
+      status: "completed",
+    });
+    const inv2 = seedInvocation(db, taskId, {
+      phase: "review",
+      status: "failed",
+    });
 
     const invocations = getInvocationsByTask(db, taskId);
     expect(invocations).toHaveLength(2);
@@ -235,8 +241,14 @@ describe("get_invocation query logic", () => {
 
   test("returns correct invocation when multiple exist for same task", () => {
     const taskId = seedTask(db, { linearIssueId: "EMI-301" });
-    const inv1 = seedInvocation(db, taskId, { phase: "implement", status: "failed" });
-    const inv2 = seedInvocation(db, taskId, { phase: "implement", status: "completed" });
+    const inv1 = seedInvocation(db, taskId, {
+      phase: "implement",
+      status: "failed",
+    });
+    const inv2 = seedInvocation(db, taskId, {
+      phase: "implement",
+      status: "completed",
+    });
 
     const fetched1 = getInvocation(db, inv1);
     expect(fetched1!.status).toBe("failed");
@@ -330,7 +342,10 @@ describe("get_parent_issue query logic", () => {
   });
 
   test("task with no parentIdentifier has null parentIdentifier", () => {
-    const taskId = seedTask(db, { linearIssueId: "EMI-500", parentIdentifier: null });
+    const taskId = seedTask(db, {
+      linearIssueId: "EMI-500",
+      parentIdentifier: null,
+    });
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.parentIdentifier).toBeNull();
@@ -418,9 +433,21 @@ describe("get_sibling_tasks query logic", () => {
 
   test("siblings by parentIdentifier excludes self", () => {
     seedTask(db, { linearIssueId: "PARENT-S", isParent: 1 });
-    seedTask(db, { linearIssueId: "CHILD-A", parentIdentifier: "PARENT-S", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "CHILD-B", parentIdentifier: "PARENT-S", orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "CHILD-C", parentIdentifier: "PARENT-S", orcaStatus: "done" });
+    seedTask(db, {
+      linearIssueId: "CHILD-A",
+      parentIdentifier: "PARENT-S",
+      orcaStatus: "ready",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-B",
+      parentIdentifier: "PARENT-S",
+      orcaStatus: "running",
+    });
+    seedTask(db, {
+      linearIssueId: "CHILD-C",
+      parentIdentifier: "PARENT-S",
+      orcaStatus: "done",
+    });
 
     const task = getTask(db, "CHILD-A");
     expect(task!.parentIdentifier).toBe("PARENT-S");
@@ -439,7 +466,10 @@ describe("get_sibling_tasks query logic", () => {
 
   test("returns empty array when task is the only child", () => {
     seedTask(db, { linearIssueId: "PARENT-ONLY", isParent: 1 });
-    seedTask(db, { linearIssueId: "ONLY-CHILD", parentIdentifier: "PARENT-ONLY" });
+    seedTask(db, {
+      linearIssueId: "ONLY-CHILD",
+      parentIdentifier: "PARENT-ONLY",
+    });
 
     const task = getTask(db, "ONLY-CHILD");
     const siblings = getChildTasks(db, task!.parentIdentifier!).filter(
@@ -450,10 +480,26 @@ describe("get_sibling_tasks query logic", () => {
   });
 
   test("falls back to projectName siblings when no parentIdentifier", () => {
-    seedTask(db, { linearIssueId: "PROJ-A", projectName: "my-project", parentIdentifier: null });
-    seedTask(db, { linearIssueId: "PROJ-B", projectName: "my-project", parentIdentifier: null });
-    seedTask(db, { linearIssueId: "PROJ-C", projectName: "my-project", parentIdentifier: null });
-    seedTask(db, { linearIssueId: "OTHER-1", projectName: "other-project", parentIdentifier: null });
+    seedTask(db, {
+      linearIssueId: "PROJ-A",
+      projectName: "my-project",
+      parentIdentifier: null,
+    });
+    seedTask(db, {
+      linearIssueId: "PROJ-B",
+      projectName: "my-project",
+      parentIdentifier: null,
+    });
+    seedTask(db, {
+      linearIssueId: "PROJ-C",
+      projectName: "my-project",
+      parentIdentifier: null,
+    });
+    seedTask(db, {
+      linearIssueId: "OTHER-1",
+      projectName: "other-project",
+      parentIdentifier: null,
+    });
 
     const task = getTask(db, "PROJ-A");
     expect(task!.parentIdentifier).toBeNull();
@@ -476,7 +522,11 @@ describe("get_sibling_tasks query logic", () => {
   });
 
   test("project fallback returns empty array when task is the only one in project", () => {
-    seedTask(db, { linearIssueId: "SOLO-A", projectName: "solo-project", parentIdentifier: null });
+    seedTask(db, {
+      linearIssueId: "SOLO-A",
+      projectName: "solo-project",
+      parentIdentifier: null,
+    });
 
     const task = getTask(db, "SOLO-A");
     const siblings = db
@@ -490,14 +540,18 @@ describe("get_sibling_tasks query logic", () => {
   });
 
   test("task with no parentIdentifier and no projectName returns no siblings", () => {
-    seedTask(db, { linearIssueId: "ORPHAN-1", parentIdentifier: null, projectName: null });
+    seedTask(db, {
+      linearIssueId: "ORPHAN-1",
+      parentIdentifier: null,
+      projectName: null,
+    });
 
     const task = getTask(db, "ORPHAN-1");
     expect(task!.parentIdentifier).toBeNull();
     expect(task!.projectName).toBeNull();
 
     // Tool logic: neither branch executes, siblings stays []
-    const siblings: typeof schema.tasks.$inferSelect[] = [];
+    const siblings: (typeof schema.tasks.$inferSelect)[] = [];
     expect(siblings).toHaveLength(0);
   });
 
@@ -511,7 +565,10 @@ describe("get_sibling_tasks query logic", () => {
       prBranchName: "orca/SHAPE-A",
       projectName: "shape-proj",
     });
-    seedTask(db, { linearIssueId: "SHAPE-B", parentIdentifier: "PARENT-SHAPE" });
+    seedTask(db, {
+      linearIssueId: "SHAPE-B",
+      parentIdentifier: "PARENT-SHAPE",
+    });
 
     const task = getTask(db, "SHAPE-B");
     const siblings = getChildTasks(db, task!.parentIdentifier!).filter(

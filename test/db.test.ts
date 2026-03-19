@@ -161,7 +161,9 @@ function seedInvocation(
 
 describe("insertTask / getTask", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("inserted task is retrievable with all fields", () => {
     const ts = now();
@@ -214,7 +216,9 @@ describe("insertTask / getTask", () => {
 
 describe("getAllTasks", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns all tasks", () => {
     expect(getAllTasks(db)).toHaveLength(0);
@@ -226,7 +230,9 @@ describe("getAllTasks", () => {
 
 describe("updateTaskStatus", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("updates orcaStatus", () => {
     const id = seedTask(db, { orcaStatus: "ready" });
@@ -255,7 +261,11 @@ describe("updateTaskStatus", () => {
 
   test("updates updatedAt timestamp", () => {
     const ts = "2020-01-01T00:00:00.000Z";
-    const id = seedTask(db, { orcaStatus: "ready", createdAt: ts, updatedAt: ts });
+    const id = seedTask(db, {
+      orcaStatus: "ready",
+      createdAt: ts,
+      updatedAt: ts,
+    });
     updateTaskStatus(db, id, "running");
     expect(getTask(db, id)!.updatedAt).not.toBe(ts);
   });
@@ -263,7 +273,9 @@ describe("updateTaskStatus", () => {
 
 describe("incrementRetryCount", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("increments retryCount by 1 and resets status to ready", () => {
     const id = seedTask(db, { orcaStatus: "running", retryCount: 2 });
@@ -288,7 +300,9 @@ describe("incrementRetryCount", () => {
 
 describe("getDispatchableTasks", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns only tasks with matching statuses", () => {
     seedTask(db, { orcaStatus: "ready" });
@@ -297,16 +311,33 @@ describe("getDispatchableTasks", () => {
 
     const dispatchable = getDispatchableTasks(db, ["ready", "in_review"]);
     expect(dispatchable).toHaveLength(2);
-    expect(dispatchable.every((t) => ["ready", "in_review"].includes(t.orcaStatus))).toBe(true);
+    expect(
+      dispatchable.every((t) => ["ready", "in_review"].includes(t.orcaStatus)),
+    ).toBe(true);
   });
 
   test("orders by priority ASC then createdAt ASC", () => {
     const ts1 = "2024-01-01T00:00:00.000Z";
     const ts2 = "2024-01-01T01:00:00.000Z";
     const ts3 = "2024-01-01T02:00:00.000Z";
-    seedTask(db, { linearIssueId: "D-3", orcaStatus: "ready", priority: 1, createdAt: ts1 });
-    seedTask(db, { linearIssueId: "D-1", orcaStatus: "ready", priority: 0, createdAt: ts2 });
-    seedTask(db, { linearIssueId: "D-2", orcaStatus: "ready", priority: 0, createdAt: ts3 });
+    seedTask(db, {
+      linearIssueId: "D-3",
+      orcaStatus: "ready",
+      priority: 1,
+      createdAt: ts1,
+    });
+    seedTask(db, {
+      linearIssueId: "D-1",
+      orcaStatus: "ready",
+      priority: 0,
+      createdAt: ts2,
+    });
+    seedTask(db, {
+      linearIssueId: "D-2",
+      orcaStatus: "ready",
+      priority: 0,
+      createdAt: ts3,
+    });
 
     const tasks = getDispatchableTasks(db, ["ready"]);
     expect(tasks.map((t) => t.linearIssueId)).toEqual(["D-1", "D-2", "D-3"]);
@@ -320,7 +351,9 @@ describe("getDispatchableTasks", () => {
 
 describe("updateTaskPrBranch", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sets prBranchName", () => {
     const id = seedTask(db);
@@ -331,7 +364,9 @@ describe("updateTaskPrBranch", () => {
 
 describe("updateTaskFixReason", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sets fixReason", () => {
     const id = seedTask(db);
@@ -348,7 +383,9 @@ describe("updateTaskFixReason", () => {
 
 describe("incrementMergeAttemptCount", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("increments mergeAttemptCount", () => {
     const id = seedTask(db, { mergeAttemptCount: 1 });
@@ -359,7 +396,9 @@ describe("incrementMergeAttemptCount", () => {
 
 describe("incrementStaleSessionRetryCount", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("increments count and returns new value", () => {
     const id = seedTask(db, { staleSessionRetryCount: 0 });
@@ -377,7 +416,9 @@ describe("incrementStaleSessionRetryCount", () => {
 
 describe("resetStaleSessionRetryCount", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("resets count to 0 from a non-zero value", () => {
     const id = seedTask(db, { staleSessionRetryCount: 3 });
@@ -393,7 +434,11 @@ describe("resetStaleSessionRetryCount", () => {
 
   test("updates updatedAt timestamp", () => {
     const ts = "2020-01-01T00:00:00.000Z";
-    const id = seedTask(db, { staleSessionRetryCount: 2, createdAt: ts, updatedAt: ts });
+    const id = seedTask(db, {
+      staleSessionRetryCount: 2,
+      createdAt: ts,
+      updatedAt: ts,
+    });
     resetStaleSessionRetryCount(db, id);
     expect(getTask(db, id)!.updatedAt).not.toBe(ts);
   });
@@ -406,7 +451,11 @@ describe("resetStaleSessionRetryCount", () => {
   });
 
   test("does not affect other task fields", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 3, retryCount: 2, orcaStatus: "running" });
+    const id = seedTask(db, {
+      staleSessionRetryCount: 3,
+      retryCount: 2,
+      orcaStatus: "running",
+    });
     resetStaleSessionRetryCount(db, id);
     const task = getTask(db, id)!;
     expect(task.staleSessionRetryCount).toBe(0);
@@ -417,7 +466,9 @@ describe("resetStaleSessionRetryCount", () => {
 
 describe("incrementReviewCycleCount", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("increments reviewCycleCount", () => {
     const id = seedTask(db, { reviewCycleCount: 1 });
@@ -428,7 +479,9 @@ describe("incrementReviewCycleCount", () => {
 
 describe("getDeployingTasks / getAwaitingCiTasks", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("getDeployingTasks returns only deploying tasks", () => {
     seedTask(db, { orcaStatus: "deploying" });
@@ -446,7 +499,9 @@ describe("getDeployingTasks / getAwaitingCiTasks", () => {
 
 describe("updateTaskCiInfo", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sets ciStartedAt", () => {
     const id = seedTask(db);
@@ -464,7 +519,9 @@ describe("updateTaskCiInfo", () => {
 
 describe("updateTaskDeployInfo", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sets mergeCommitSha, prNumber, deployStartedAt", () => {
     const id = seedTask(db);
@@ -483,13 +540,18 @@ describe("updateTaskDeployInfo", () => {
 
 describe("getChildTasks / getParentTasks", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("getChildTasks returns tasks with matching parentIdentifier", () => {
     const parentId = seedTask(db, { linearIssueId: "PARENT-1", isParent: 1 });
     seedTask(db, { linearIssueId: "CHILD-1", parentIdentifier: parentId });
     seedTask(db, { linearIssueId: "CHILD-2", parentIdentifier: parentId });
-    seedTask(db, { linearIssueId: "CHILD-3", parentIdentifier: "OTHER-PARENT" });
+    seedTask(db, {
+      linearIssueId: "CHILD-3",
+      parentIdentifier: "OTHER-PARENT",
+    });
 
     const children = getChildTasks(db, parentId);
     expect(children).toHaveLength(2);
@@ -506,12 +568,18 @@ describe("getChildTasks / getParentTasks", () => {
 
 describe("deleteTask", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("deletes task, invocations, and budget events (FK chain)", () => {
     const id = seedTask(db);
     const invId = seedInvocation(db, id, { status: "completed" });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 1.0, recordedAt: now() });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 1.0,
+      recordedAt: now(),
+    });
 
     deleteTask(db, id);
 
@@ -528,7 +596,9 @@ describe("deleteTask", () => {
 
 describe("updateTaskFields", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("partially updates task fields", () => {
     const id = seedTask(db, { priority: 0, orcaStatus: "ready" });
@@ -556,7 +626,9 @@ describe("updateTaskFields", () => {
 
 describe("insertInvocation / getInvocation", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("inserted invocation is retrievable by id", () => {
     const taskId = seedTask(db);
@@ -589,7 +661,9 @@ describe("insertInvocation / getInvocation", () => {
 
 describe("updateInvocation", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("updates status, endedAt, costUsd", () => {
     const taskId = seedTask(db);
@@ -598,14 +672,14 @@ describe("updateInvocation", () => {
     updateInvocation(db, invId, {
       status: "completed",
       endedAt: ts,
-      costUsd: 2.50,
+      costUsd: 2.5,
       numTurns: 10,
     });
 
     const inv = getInvocation(db, invId)!;
     expect(inv.status).toBe("completed");
     expect(inv.endedAt).toBe(ts);
-    expect(inv.costUsd).toBeCloseTo(2.50);
+    expect(inv.costUsd).toBeCloseTo(2.5);
     expect(inv.numTurns).toBe(10);
   });
 
@@ -619,7 +693,9 @@ describe("updateInvocation", () => {
 
 describe("getInvocationsByTask", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns all invocations for a task", () => {
     const t1 = seedTask(db);
@@ -640,7 +716,9 @@ describe("getInvocationsByTask", () => {
 
 describe("countActiveSessions", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("counts only running invocations", () => {
     const t = seedTask(db);
@@ -658,7 +736,9 @@ describe("countActiveSessions", () => {
 
 describe("getRunningInvocations", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns only running invocations", () => {
     const t = seedTask(db);
@@ -672,7 +752,9 @@ describe("getRunningInvocations", () => {
 
 describe("getLastCompletedImplementInvocation", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns most recent completed implement invocation with sessionId", () => {
     const t = seedTask(db);
@@ -731,7 +813,9 @@ describe("getLastCompletedImplementInvocation", () => {
 
 describe("getLastMaxTurnsInvocation", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns most recent max-turns invocation with sessionId and worktreePath", () => {
     const t = seedTask(db);
@@ -798,7 +882,9 @@ describe("getLastMaxTurnsInvocation", () => {
 
 describe("insertBudgetEvent / sumCostInWindow", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sums costs within window", () => {
     const taskId = seedTask(db);
@@ -806,8 +892,16 @@ describe("insertBudgetEvent / sumCostInWindow", () => {
     const recent = new Date(Date.now() - 1000).toISOString(); // 1 second ago
     const old = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(); // 10 hours ago
 
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 3.0, recordedAt: recent });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 1.5, recordedAt: old });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 3.0,
+      recordedAt: recent,
+    });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 1.5,
+      recordedAt: old,
+    });
 
     const windowStart = budgetWindowStart(4); // 4-hour window
     const total = sumCostInWindow(db, windowStart);
@@ -822,8 +916,16 @@ describe("insertBudgetEvent / sumCostInWindow", () => {
   test("includes all events when window covers everything", () => {
     const taskId = seedTask(db);
     const invId = seedInvocation(db, taskId);
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 2.0, recordedAt: now() });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 3.0, recordedAt: now() });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 2.0,
+      recordedAt: now(),
+    });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 3.0,
+      recordedAt: now(),
+    });
 
     const windowStart = new Date(0).toISOString();
     expect(sumCostInWindow(db, windowStart)).toBeCloseTo(5.0);
@@ -845,7 +947,9 @@ describe("budgetWindowStart", () => {
 
 describe("sumCostInWindowRange", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("sums costs within [start, end) range", () => {
     const taskId = seedTask(db);
@@ -856,10 +960,26 @@ describe("sumCostInWindowRange", () => {
     const t3 = "2024-01-01T02:00:00.000Z";
     const t4 = "2024-01-01T03:00:00.000Z";
 
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 1.0, recordedAt: t1 });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 2.0, recordedAt: t2 });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 4.0, recordedAt: t3 });
-    insertBudgetEvent(db, { invocationId: invId, costUsd: 8.0, recordedAt: t4 });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 1.0,
+      recordedAt: t1,
+    });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 2.0,
+      recordedAt: t2,
+    });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 4.0,
+      recordedAt: t3,
+    });
+    insertBudgetEvent(db, {
+      invocationId: invId,
+      costUsd: 8.0,
+      recordedAt: t4,
+    });
 
     // Range [t2, t4) — should include t2 and t3, exclude t1 and t4
     const total = sumCostInWindowRange(db, t2, t4);
@@ -867,7 +987,11 @@ describe("sumCostInWindowRange", () => {
   });
 
   test("returns 0 when no events in range", () => {
-    const total = sumCostInWindowRange(db, "2030-01-01T00:00:00.000Z", "2030-12-31T00:00:00.000Z");
+    const total = sumCostInWindowRange(
+      db,
+      "2030-01-01T00:00:00.000Z",
+      "2030-12-31T00:00:00.000Z",
+    );
     expect(total).toBe(0);
   });
 });
@@ -878,7 +1002,9 @@ describe("sumCostInWindowRange", () => {
 
 describe("getInvocationStats", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns empty stats when no invocations", () => {
     const stats = getInvocationStats(db);
@@ -921,7 +1047,11 @@ describe("getInvocationStats", () => {
     // 60-second invocation
     const start = "2024-01-01T00:00:00.000Z";
     const end = "2024-01-01T00:01:00.000Z";
-    seedInvocation(db, t, { status: "completed", startedAt: start, endedAt: end });
+    seedInvocation(db, t, {
+      status: "completed",
+      startedAt: start,
+      endedAt: end,
+    });
 
     const stats = getInvocationStats(db);
     expect(stats.avgDurationSecs).toBeCloseTo(60, 0);
@@ -930,12 +1060,17 @@ describe("getInvocationStats", () => {
 
 describe("getRecentErrors", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns failed and timed_out invocations ordered by id desc", () => {
     const t = seedTask(db);
     seedInvocation(db, t, { status: "completed" });
-    const failId = seedInvocation(db, t, { status: "failed", outputSummary: "exploded" });
+    const failId = seedInvocation(db, t, {
+      status: "failed",
+      outputSummary: "exploded",
+    });
     const timedId = seedInvocation(db, t, { status: "timed_out" });
 
     const errors = getRecentErrors(db);
@@ -954,7 +1089,12 @@ describe("getRecentErrors", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "failed", outputSummary: "oops", phase: "implement", costUsd: 0.5 });
+    seedInvocation(db, t, {
+      status: "failed",
+      outputSummary: "oops",
+      phase: "implement",
+      costUsd: 0.5,
+    });
 
     const errors = getRecentErrors(db);
     expect(errors[0]).toMatchObject({
@@ -971,7 +1111,9 @@ describe("getRecentErrors", () => {
 
 describe("getDailyStats", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns N entries (one per day)", () => {
     const stats = getDailyStats(db, 7);
@@ -993,8 +1135,16 @@ describe("getDailyStats", () => {
     todayStart.setUTCHours(0, 0, 0, 0);
     const todayTs = todayStart.toISOString();
 
-    seedInvocation(db, t, { status: "completed", startedAt: todayTs, costUsd: 1.0 });
-    seedInvocation(db, t, { status: "failed", startedAt: todayTs, costUsd: 0.5 });
+    seedInvocation(db, t, {
+      status: "completed",
+      startedAt: todayTs,
+      costUsd: 1.0,
+    });
+    seedInvocation(db, t, {
+      status: "failed",
+      startedAt: todayTs,
+      costUsd: 0.5,
+    });
     seedInvocation(db, t, { status: "timed_out", startedAt: todayTs });
 
     const stats = getDailyStats(db, 1);
@@ -1006,7 +1156,9 @@ describe("getDailyStats", () => {
 
 describe("getRecentActivity", () => {
   let db: OrcaDb;
-  beforeEach(() => { db = freshDb(); });
+  beforeEach(() => {
+    db = freshDb();
+  });
 
   test("returns invocations ordered by id desc", () => {
     const t = seedTask(db);
@@ -1062,7 +1214,11 @@ describe("getRecentActivity", () => {
 
   test("returned shape has expected fields", () => {
     const t = seedTask(db);
-    seedInvocation(db, t, { status: "completed", phase: "review", costUsd: 1.23 });
+    seedInvocation(db, t, {
+      status: "completed",
+      phase: "review",
+      costUsd: 1.23,
+    });
 
     const [entry] = getRecentActivity(db);
     expect(entry).toBeDefined();

@@ -142,9 +142,7 @@ describe("getFailingWorkflowRunIds", () => {
   });
 
   test("returns empty array when headRefOid is missing from response", async () => {
-    mockGhSequence([
-      JSON.stringify({}),
-    ]);
+    mockGhSequence([JSON.stringify({})]);
 
     const result = await getFailingWorkflowRunIds(42, "/tmp/repo");
     expect(result).toEqual([]);
@@ -190,7 +188,12 @@ describe("rerunFailedWorkflowJobs", () => {
     await rerunFailedWorkflowJobs(101, "/tmp/repo");
 
     expect(mock).toHaveBeenCalledOnce();
-    const [cmd, args] = mock.mock.calls[0] as [string, string[], unknown, unknown];
+    const [cmd, args] = mock.mock.calls[0] as [
+      string,
+      string[],
+      unknown,
+      unknown,
+    ];
     expect(cmd).toBe("gh");
     expect(args).toEqual(["run", "rerun", "101", "--failed"]);
   });

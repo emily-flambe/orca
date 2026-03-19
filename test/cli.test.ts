@@ -377,7 +377,7 @@ describe("orca status", () => {
       logMaxSizeMb: 10,
       port: 4000,
       concurrencyCap: 1,
-  
+
       externalTunnel: true,
       githubWebhookSecret: undefined,
       cloudflaredPath: "cloudflared",

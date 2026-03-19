@@ -526,10 +526,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Kill running session if task is active
     let sessionKilled = false;
-    if (
-      task.orcaStatus === "running" ||
-      task.orcaStatus === "in_review"
-    ) {
+    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       const runningInvocations = getRunningInvocations(db);
       for (const [invId, handle] of activeHandles) {
         const matchingInv = runningInvocations.find(

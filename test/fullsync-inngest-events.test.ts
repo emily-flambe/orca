@@ -178,7 +178,15 @@ describe("fullSync — Inngest event emission", () => {
     });
     const client = makeClient([issue]);
 
-    await fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any);
+    await fullSync(
+      db,
+      client as any,
+      makeGraph() as any,
+      testConfig(),
+      undefined,
+      undefined,
+      inngest as any,
+    );
 
     expect(inngest.send).toHaveBeenCalledOnce();
     const call = inngest.send.mock.calls[0][0];
@@ -200,7 +208,15 @@ describe("fullSync — Inngest event emission", () => {
     });
     const client = makeClient([issue]);
 
-    await fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any);
+    await fullSync(
+      db,
+      client as any,
+      makeGraph() as any,
+      testConfig(),
+      undefined,
+      undefined,
+      inngest as any,
+    );
 
     expect(inngest.send).toHaveBeenCalledOnce();
     const call = inngest.send.mock.calls[0][0];
@@ -221,7 +237,15 @@ describe("fullSync — Inngest event emission", () => {
     });
     const client = makeClient([issue]);
 
-    await fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any);
+    await fullSync(
+      db,
+      client as any,
+      makeGraph() as any,
+      testConfig(),
+      undefined,
+      undefined,
+      inngest as any,
+    );
 
     expect(inngest.send).not.toHaveBeenCalled();
   });
@@ -237,7 +261,15 @@ describe("fullSync — Inngest event emission", () => {
     });
     const client = makeClient([issue]);
 
-    await fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any);
+    await fullSync(
+      db,
+      client as any,
+      makeGraph() as any,
+      testConfig(),
+      undefined,
+      undefined,
+      inngest as any,
+    );
 
     expect(inngest.send).not.toHaveBeenCalled();
   });
@@ -253,7 +285,15 @@ describe("fullSync — Inngest event emission", () => {
     });
     const client = makeClient([issue]);
 
-    await fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any);
+    await fullSync(
+      db,
+      client as any,
+      makeGraph() as any,
+      testConfig(),
+      undefined,
+      undefined,
+      inngest as any,
+    );
 
     // "started" state on insert → insertStatus = "ready" (since no agent is actually running)
     expect(inngest.send).toHaveBeenCalledOnce();
@@ -276,7 +316,15 @@ describe("fullSync — Inngest event emission", () => {
     const client = makeClient([issue]);
 
     await expect(
-      fullSync(db, client as any, makeGraph() as any, testConfig(), undefined, undefined, inngest as any),
+      fullSync(
+        db,
+        client as any,
+        makeGraph() as any,
+        testConfig(),
+        undefined,
+        undefined,
+        inngest as any,
+      ),
     ).resolves.toBeDefined();
   });
 

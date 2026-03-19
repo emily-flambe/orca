@@ -18,11 +18,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 import { execFile } from "node:child_process";
 
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import {
-  insertTask,
-  getTask,
-  updateTaskCiInfo,
-} from "../src/db/queries.js";
+import { insertTask, getTask, updateTaskCiInfo } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { TaskStatus } from "../src/db/schema.js";
 

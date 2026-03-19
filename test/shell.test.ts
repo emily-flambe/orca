@@ -2,14 +2,7 @@
 // Tests for src/runner/shell.ts
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 
 // ---------------------------------------------------------------------------
@@ -48,10 +41,7 @@ afterEach(() => {
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import {
-  spawnShellCommand,
-  activeShellHandles,
-} from "../src/runner/shell.js";
+import { spawnShellCommand, activeShellHandles } from "../src/runner/shell.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
