@@ -338,6 +338,9 @@ const zeroCostFailures: number[] = [];
 
 const ZERO_COST_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 
+/** Number of zero-cost failures in the rolling window that trips the circuit breaker. */
+export const CIRCUIT_BREAKER_THRESHOLD = 3;
+
 /**
  * Record a zero-cost failure (session completed with $0 cost and non-zero exit).
  * Prunes entries older than the window.

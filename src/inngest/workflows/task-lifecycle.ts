@@ -54,6 +54,7 @@ import {
   sendAlertThrottled,
   trackZeroCostFailure,
   isCircuitBreakerTripped,
+  CIRCUIT_BREAKER_THRESHOLD,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
@@ -106,9 +107,6 @@ const WORKFLOW_TIMEOUT = "4h";
 
 /** Maximum time to wait for a single Claude session to complete. */
 const SESSION_TIMEOUT = "45m";
-
-/** Number of zero-cost failures in 30 min that trips the circuit breaker. */
-const CIRCUIT_BREAKER_THRESHOLD = 3;
 
 // ---------------------------------------------------------------------------
 // Log helpers
@@ -415,7 +413,7 @@ export const taskLifecycle = inngest.createFunction(
               ? "Circuit Breaker Tripped"
               : "Budget Hold",
             message: reason,
-            taskId,
+            taskId: budgetCheck.isCircuitBreaker ? undefined : taskId,
             fields: [
               { title: "Task ID", value: taskId, short: true },
               { title: "Reason", value: reason, short: false },

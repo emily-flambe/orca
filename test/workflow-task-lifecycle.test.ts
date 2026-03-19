@@ -419,6 +419,7 @@ describe("task-lifecycle workflow", () => {
     expect(alertKey).toBe("circuit-breaker");
     expect(payload.severity).toBe("critical");
     expect(payload.title).toBe("Circuit Breaker Tripped");
+    expect(payload.taskId).toBeUndefined(); // circuit breaker is global — no task-specific Linear comment
   });
 
   test("circuit breaker checked before budget — skips budget query when tripped", async () => {
