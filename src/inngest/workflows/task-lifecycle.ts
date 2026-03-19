@@ -69,28 +69,25 @@ import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 
-// ---------------------------------------------------------------------------
-// Concurrency cap — read from env at module load time so it's available when
-// the Inngest function object is constructed.
-// ---------------------------------------------------------------------------
-
-const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
-
 /**
  * Guard: throws if the number of active Claude sessions has reached the
  * concurrency cap. Checks both the process-local activeHandles map AND the
  * DB running invocation count (survives restarts where activeHandles is empty).
  * Uses Math.max to be conservative — if either source says we're full, we're full.
+ *
+ * The cap is read dynamically from scheduler deps so tests can override it
+ * without module reload.
  */
 export function assertSessionCapacity(
   db: import("../../db/index.js").OrcaDb,
 ): void {
+  const cap = getSchedulerDeps().config.concurrencyCap ?? 1;
   const handleCount = activeHandles.size;
   const dbCount = countActiveSessions(db);
   const effectiveCount = Math.max(handleCount, dbCount);
-  if (effectiveCount >= CONCURRENCY_CAP) {
+  if (effectiveCount >= cap) {
     throw new Error(
-      `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${CONCURRENCY_CAP})`,
+      `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${cap})`,
     );
   }
 }
@@ -319,7 +316,7 @@ export const taskLifecycle = inngest.createFunction(
     // Per-task concurrency of 1 achieves the dedup goal while still allowing
     // a new run after the previous one completes.
     concurrency: [
-      { limit: CONCURRENCY_CAP },
+      { limit: parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10) },
       { limit: 1, key: "event.data.linearIssueId" },
     ],
 
