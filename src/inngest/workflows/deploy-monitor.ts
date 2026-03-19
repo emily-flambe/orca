@@ -5,7 +5,7 @@ import { getTask } from "../../db/queries.js";
 import { getWorkflowRunStatus } from "../../github/index.js";
 import { writeBackStatus } from "../../linear/sync.js";
 import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
-import { updateAndEmit, isPollingTimedOut } from "../helpers.js";
+import { updateAndEmit, isPollingTimedOut, transitionToFinalState } from "../helpers.js";
 
 const logger = createLogger("deploy-monitor");
 
@@ -55,29 +55,16 @@ export const deployMonitorWorkflow = inngest.createFunction(
       const timeoutMs = deps.config.deployTimeoutMin * 60 * 1000;
       if (isPollingTimedOut(deployStartedAt, timeoutMs)) {
         await step.run("deploy-timeout", async () => {
-          const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed");
-
-          await writeBackStatus(
-            client,
+          const deps = getSchedulerDeps();
+          await transitionToFinalState(
+            deps,
             linearIssueId,
+            "failed",
             "failed_permanent",
-            stateMap,
+            `Deploy timed out after ${deps.config.deployTimeoutMin}min — task failed permanently`,
           );
-
-          await client
-            .createComment(
-              linearIssueId,
-              `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on deploy timeout for task ${linearIssueId}: ${err}`,
-              );
-            });
-
           log(
-            `task ${linearIssueId} deploy timed out after ${config.deployTimeoutMin}min`,
+            `task ${linearIssueId} deploy timed out after ${deps.config.deployTimeoutMin}min`,
           );
         });
         return { status: "failed", reason: "deploy_timeout" };
@@ -86,19 +73,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
       // Defensive: no SHA means we can't monitor — mark done
       if (!mergeCommitSha) {
         await step.run("deploy-no-sha", async () => {
-          const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "done");
-
-          await writeBackStatus(client, linearIssueId, "done", stateMap);
-
-          await client
-            .createComment(linearIssueId, "Task complete")
-            .catch((err) => {
-              log(
-                `comment failed on done (no SHA) for task ${linearIssueId}: ${err}`,
-              );
-            });
-
+          await transitionToFinalState(
+            getSchedulerDeps(),
+            linearIssueId,
+            "done",
+            "done",
+            "Task complete",
+          );
           log(
             `task ${linearIssueId} deploying → done (no merge commit SHA, skipping CI check)`,
           );
@@ -122,19 +103,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
 
       if (deployStatus.status === "success") {
         await step.run("deploy-success", async () => {
-          const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "done");
-
-          await writeBackStatus(client, linearIssueId, "done", stateMap);
-
-          await client
-            .createComment(linearIssueId, "Task complete")
-            .catch((err) => {
-              log(
-                `comment failed on deploy success for task ${linearIssueId}: ${err}`,
-              );
-            });
-
+          await transitionToFinalState(
+            getSchedulerDeps(),
+            linearIssueId,
+            "done",
+            "done",
+            "Task complete",
+          );
           log(
             `task ${linearIssueId} deploy succeeded → done (SHA: ${mergeCommitSha})`,
           );
@@ -143,27 +118,13 @@ export const deployMonitorWorkflow = inngest.createFunction(
         return { status: "done" };
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
-          const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed");
-
-          await writeBackStatus(
-            client,
+          await transitionToFinalState(
+            getSchedulerDeps(),
             linearIssueId,
+            "failed",
             "failed_permanent",
-            stateMap,
+            `Deploy CI failed for commit ${mergeCommitSha} — task failed permanently`,
           );
-
-          await client
-            .createComment(
-              linearIssueId,
-              `Deploy CI failed for commit ${mergeCommitSha} — task failed permanently`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on deploy failure for task ${linearIssueId}: ${err}`,
-              );
-            });
-
           log(
             `task ${linearIssueId} deploy failed → failed (SHA: ${mergeCommitSha})`,
           );

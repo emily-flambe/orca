@@ -64,7 +64,7 @@ import {
 } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
-import { updateAndEmit } from "../helpers.js";
+import { updateAndEmit, transitionToFinalState } from "../helpers.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency cap — read from env at module load time so it's available when
@@ -975,14 +975,13 @@ export const taskLifecycle = inngest.createFunction(
             .catch(() => {});
         }
 
-        updateAndEmit(db, taskId, "in_review");
-        writeBackStatus(client, taskId, "in_review", stateMap).catch(() => {});
-        client
-          .createComment(
-            taskId,
-            `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-          )
-          .catch(() => {});
+        await transitionToFinalState(
+          { db, client, stateMap },
+          taskId,
+          "in_review",
+          "in_review",
+          `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
+        );
 
         try {
           removeWorktree(worktreePath);
@@ -1262,20 +1261,17 @@ export const taskLifecycle = inngest.createFunction(
       // -----------------------------------------------------------------------
 
       if (reviewResult.outcome === "approved") {
-        const ciInfo = await step.run(`transition-awaiting-ci-${cycle}`, () => {
+        const ciInfo = await step.run(`transition-awaiting-ci-${cycle}`, async () => {
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
-          updateAndEmit(db, taskId, "awaiting_ci");
-          writeBackStatus(client, taskId, "awaiting_ci", stateMap).catch(
-            () => {},
-          );
           const task = getTask(db, taskId);
-          client
-            .createComment(
-              taskId,
-              `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
-            )
-            .catch(() => {});
+          await transitionToFinalState(
+            { db, client, stateMap },
+            taskId,
+            "awaiting_ci",
+            "awaiting_ci",
+            `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
+          );
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
