@@ -55,6 +55,13 @@ export interface OrcaConfig {
   stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
+
+  // Circuit breaker for zero-cost failures
+  zeroCostFailureThreshold: number;
+  zeroCostFailureWindowMin: number;
+  // Budget backoff
+  budgetBackoffBaseMin: number;
+  budgetBackoffMaxMin: number;
 }
 
 function exitWithError(message: string): never {
@@ -395,6 +402,17 @@ Steps:
       }
       return parsed as Record<string, string>;
     })(),
+
+    zeroCostFailureThreshold: readIntOrDefault(
+      "ORCA_ZERO_COST_FAILURE_THRESHOLD",
+      3,
+    ),
+    zeroCostFailureWindowMin: readIntOrDefault(
+      "ORCA_ZERO_COST_FAILURE_WINDOW_MIN",
+      10,
+    ),
+    budgetBackoffBaseMin: readIntOrDefault("ORCA_BUDGET_BACKOFF_BASE_MIN", 5),
+    budgetBackoffMaxMin: readIntOrDefault("ORCA_BUDGET_BACKOFF_MAX_MIN", 60),
 
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();

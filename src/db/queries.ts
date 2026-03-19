@@ -1136,6 +1136,33 @@ export function countSystemEventsSince(
   return result?.count ?? 0;
 }
 
+/**
+ * Count "budget_exceeded" system events for a specific task within the last N hours.
+ * Used for exponential backoff on budget-exceeded requeues.
+ */
+export function countBudgetExceededEvents(
+  db: OrcaDb,
+  taskId: string,
+  windowHours: number,
+): number {
+  const windowStart = new Date(
+    Date.now() - windowHours * 60 * 60 * 1000,
+  ).toISOString();
+  const result = db
+    .select({ count: count() })
+    .from(systemEvents)
+    .where(
+      and(
+        eq(systemEvents.type, "self_heal"),
+        gte(systemEvents.createdAt, windowStart),
+        sql`json_extract(${systemEvents.metadata}, '$.eventType') = 'budget_exceeded'`,
+        sql`json_extract(${systemEvents.metadata}, '$.taskId') = ${taskId}`,
+      ),
+    )
+    .get();
+  return result?.count ?? 0;
+}
+
 /** Get uptime info: time since last startup event. */
 export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
   return db

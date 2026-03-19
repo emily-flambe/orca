@@ -39,6 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  countBudgetExceededEvents,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -50,6 +51,8 @@ import {
 import {
   sendAlert,
   sendPermanentFailureAlert,
+  recordZeroCostFailure,
+  isCircuitBreakerOpen,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
@@ -356,14 +359,30 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; isBudgetExhausted?: boolean } => {
         const { db, config } = getSchedulerDeps();
+
+        // Circuit breaker check (fast path — check before expensive budget query)
+        if (
+          isCircuitBreakerOpen(
+            config.zeroCostFailureThreshold,
+            config.zeroCostFailureWindowMin,
+          )
+        ) {
+          return {
+            ok: false,
+            reason: `circuit breaker open: ${config.zeroCostFailureThreshold}+ zero-cost failures in ${config.zeroCostFailureWindowMin} min — Claude CLI may be broken`,
+            isBudgetExhausted: false,
+          };
+        }
+
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
         if (spentUsd >= config.budgetMaxCostUsd) {
           return {
             ok: false,
             reason: `budget exhausted: $${spentUsd.toFixed(2)} >= $${config.budgetMaxCostUsd} in ${config.budgetWindowHours}h window`,
+            isBudgetExhausted: true,
           };
         }
         const usedTokens = sumTokensInWindow(db, windowStart);
@@ -371,6 +390,7 @@ export const taskLifecycle = inngest.createFunction(
           return {
             ok: false,
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
+            isBudgetExhausted: true,
           };
         }
         return { ok: true };
@@ -378,14 +398,66 @@ export const taskLifecycle = inngest.createFunction(
     );
 
     if (!budgetCheck.ok) {
+      const reason = budgetCheck.reason ?? "budget exceeded";
+      log(`task ${taskId}: ${reason} — alerting and requeueing with backoff`);
+
+      // Alert: fire webhook + post Linear comment
+      await step.run("alert-budget-exceeded", () => {
+        const deps = getSchedulerDeps();
+        const isBudgetIssue = budgetCheck.isBudgetExhausted ?? true;
+        const title = isBudgetIssue ? "Budget Hold" : "Circuit Breaker Open";
+        const severity: import("../../scheduler/alerts.js").AlertSeverity =
+          isBudgetIssue ? "warning" : "critical";
+
+        sendAlert(deps, {
+          severity,
+          title,
+          message: reason,
+          taskId,
+          fields: [
+            { title: "Task ID", value: taskId, short: true },
+            { title: "Reason", value: reason, short: false },
+          ],
+        });
+
+        // Post Linear comment explaining the hold
+        const comment = isBudgetIssue
+          ? `**[Orca Budget Hold]** Task is paused: ${reason}. It will be automatically requeued when the budget window clears.`
+          : `**[Orca Circuit Breaker]** Task dispatch paused: ${reason}. This usually means the Claude CLI is broken. Manual intervention may be required.`;
+        deps.client.createComment(taskId, comment).catch(() => {});
+      });
+
+      // Exponential backoff: count recent budget-exceeded system events for this task
+      const backoffMs = await step.run("compute-backoff", (): number => {
+        const { db, config } = getSchedulerDeps();
+        // Count recent "budget_exceeded" system events for this task to determine backoff exponent
+        const recentCount = countBudgetExceededEvents(db, taskId, 24);
+        const exponent = Math.min(recentCount, 4); // cap at 2^4 = 16x base
+        const backoffMin = Math.min(
+          config.budgetBackoffBaseMin * Math.pow(2, exponent),
+          config.budgetBackoffMaxMin,
+        );
+
+        // Record this budget exceeded event
+        insertSystemEvent(db, {
+          type: "self_heal",
+          message: `Budget exceeded for task ${taskId}: ${reason}`,
+          metadata: { taskId, reason, eventType: "budget_exceeded" },
+        });
+
+        return backoffMin * 60 * 1000; // return ms for logging
+      });
+
       log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
+        `task ${taskId}: sleeping ${Math.round(backoffMs / 60000)}min before requeue`,
       );
+      await step.sleep("budget-backoff", `${Math.round(backoffMs / 60000)}m`);
+
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateAndEmit(db, taskId, "ready");
       });
-      return { outcome: "budget_exceeded", reason: budgetCheck.reason };
+      return { outcome: "budget_exceeded", reason };
     }
 
     // -------------------------------------------------------------------------
@@ -722,6 +794,42 @@ export const taskLifecycle = inngest.createFunction(
         const isMaxTurns = implementEvent.data.isMaxTurns;
 
         recordBudgetEventFromEvent(db, invocationId, implementEvent.data);
+
+        // Track zero-cost failures for circuit breaker
+        if (
+          !isSuccess &&
+          (implementEvent.data.costUsd === null ||
+            implementEvent.data.costUsd === 0)
+        ) {
+          const { config } = getSchedulerDeps();
+          const failCount = recordZeroCostFailure(
+            config.zeroCostFailureWindowMin,
+          );
+          log(
+            `task ${taskId}: zero-cost failure #${failCount} in circuit breaker window`,
+          );
+          if (failCount === config.zeroCostFailureThreshold) {
+            sendAlert(getSchedulerDeps(), {
+              severity: "critical",
+              title: "Circuit Breaker Triggered",
+              message: `${failCount} zero-cost failures in ${config.zeroCostFailureWindowMin} minutes — Claude CLI may be broken. Dispatching is paused for all tasks.`,
+              taskId,
+              fields: [
+                {
+                  title: "Failure count",
+                  value: String(failCount),
+                  short: true,
+                },
+                {
+                  title: "Window",
+                  value: `${config.zeroCostFailureWindowMin} min`,
+                  short: true,
+                },
+                { title: "Task ID", value: taskId, short: false },
+              ],
+            });
+          }
+        }
 
         emitInvocationCompleted({
           taskId,
@@ -1242,6 +1350,42 @@ export const taskLifecycle = inngest.createFunction(
             outputTokens: reviewEvent.data.outputTokens ?? null,
           });
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
+
+          // Track zero-cost failures for circuit breaker
+          if (
+            !isSuccess &&
+            (reviewEvent.data.costUsd === null ||
+              reviewEvent.data.costUsd === 0)
+          ) {
+            const { config } = getSchedulerDeps();
+            const failCount = recordZeroCostFailure(
+              config.zeroCostFailureWindowMin,
+            );
+            log(
+              `task ${taskId}: zero-cost failure #${failCount} in circuit breaker window (review)`,
+            );
+            if (failCount === config.zeroCostFailureThreshold) {
+              sendAlert(getSchedulerDeps(), {
+                severity: "critical",
+                title: "Circuit Breaker Triggered",
+                message: `${failCount} zero-cost failures in ${config.zeroCostFailureWindowMin} minutes — Claude CLI may be broken. Dispatching is paused for all tasks.`,
+                taskId,
+                fields: [
+                  {
+                    title: "Failure count",
+                    value: String(failCount),
+                    short: true,
+                  },
+                  {
+                    title: "Window",
+                    value: `${config.zeroCostFailureWindowMin} min`,
+                    short: true,
+                  },
+                  { title: "Task ID", value: taskId, short: false },
+                ],
+              });
+            }
+          }
 
           if (!isSuccess) {
             updateAndEmit(db, taskId, "in_review");

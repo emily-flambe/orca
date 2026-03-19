@@ -59,6 +59,7 @@ vi.mock("../src/db/queries.js", () => ({
   insertSystemEvent: vi.fn(),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  countBudgetExceededEvents: vi.fn().mockReturnValue(0),
   budgetMaxTokens: 1000000,
 }));
 
@@ -91,6 +92,9 @@ vi.mock("../src/linear/sync.js", () => ({
 
 vi.mock("../src/scheduler/alerts.js", () => ({
   sendAlert: vi.fn(),
+  sendPermanentFailureAlert: vi.fn(),
+  isCircuitBreakerOpen: vi.fn().mockReturnValue(false),
+  recordZeroCostFailure: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/github/index.js", () => ({

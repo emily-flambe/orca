@@ -272,6 +272,7 @@ export function shouldEscalate(key: string): boolean {
 export function resetHealingCounters(): void {
   healingCounters.clear();
   alertCooldowns.clear();
+  zeroCostFailureTimestamps.length = 0;
 }
 
 /**
@@ -327,6 +328,56 @@ export function sendPermanentFailureAlert(
       { title: "Invocations", value: invocationIds, short: false },
     ],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Zero-cost failure circuit breaker
+// ---------------------------------------------------------------------------
+
+/** In-memory state: timestamps of recent zero-cost failures. */
+const zeroCostFailureTimestamps: number[] = [];
+
+/**
+ * Record a zero-cost failure and return the count within the window.
+ * windowMin: rolling window in minutes.
+ */
+export function recordZeroCostFailure(windowMin: number): number {
+  const now = Date.now();
+  const windowMs = windowMin * 60 * 1000;
+  // Prune old entries outside window
+  while (
+    zeroCostFailureTimestamps.length > 0 &&
+    now - zeroCostFailureTimestamps[0]! > windowMs
+  ) {
+    zeroCostFailureTimestamps.shift();
+  }
+  zeroCostFailureTimestamps.push(now);
+  return zeroCostFailureTimestamps.length;
+}
+
+/**
+ * Returns true if N+ zero-cost failures have occurred within the window.
+ */
+export function isCircuitBreakerOpen(
+  threshold: number,
+  windowMin: number,
+): boolean {
+  const now = Date.now();
+  const windowMs = windowMin * 60 * 1000;
+  const recent = zeroCostFailureTimestamps.filter((t) => now - t <= windowMs);
+  return recent.length >= threshold;
+}
+
+/**
+ * Reset the zero-cost failure circuit breaker.
+ */
+export function resetZeroCostCircuitBreaker(): void {
+  zeroCostFailureTimestamps.length = 0;
+}
+
+/** @internal */
+export function _getZeroCostFailureTimestamps(): number[] {
+  return zeroCostFailureTimestamps;
 }
 
 // ---------------------------------------------------------------------------
