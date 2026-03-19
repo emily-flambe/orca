@@ -13,6 +13,10 @@ export type OrcaEvents = {
       projectName: string | null;
       taskType: string;
       createdAt: string;
+      /** Number of times this task has been requeued due to budget exhaustion.
+       * Used to compute exponential backoff. Omitted (undefined → 0) when
+       * dispatched externally (reconciler, webhook). */
+      budgetExceededCount?: number;
     };
   };
   "task/cancelled": {

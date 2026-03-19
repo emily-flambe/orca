@@ -562,6 +562,28 @@ export function getEarliestEventInWindow(
   return result?.earliest ?? null;
 }
 
+/**
+ * Count invocations that failed with zero or no cost within the given window.
+ * Used by the circuit breaker to detect broken CLI scenarios.
+ */
+export function countZeroCostFailuresInWindow(
+  db: OrcaDb,
+  windowStart: string,
+): number {
+  const result = db
+    .select({ total: count() })
+    .from(invocations)
+    .where(
+      and(
+        eq(invocations.status, "failed"),
+        sql`${invocations.endedAt} >= ${windowStart}`,
+        or(isNull(invocations.costUsd), lte(invocations.costUsd, 0)),
+      ),
+    )
+    .get();
+  return result?.total ?? 0;
+}
+
 // ---------------------------------------------------------------------------
 // Metrics queries
 // ---------------------------------------------------------------------------

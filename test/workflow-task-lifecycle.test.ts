@@ -65,6 +65,7 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -115,6 +116,7 @@ vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {
   return {
     ...actual,
     sendPermanentFailureAlert: vi.fn(),
+    sendAlertThrottled: vi.fn(),
   };
 });
 
@@ -138,6 +140,8 @@ import {
   incrementRetryCount,
   insertSystemEvent,
   resetStaleSessionRetryCount,
+  countZeroCostFailuresInWindow,
+  insertBudgetEvent,
 } from "../src/db/queries.js";
 import { spawnSession, killSession } from "../src/runner/index.js";
 import { findPrForBranch, getPrCheckStatus } from "../src/github/index.js";
@@ -148,6 +152,7 @@ import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
 import { activeHandles } from "../src/session-handles.js";
+import { sendAlertThrottled } from "../src/scheduler/alerts.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
 
@@ -169,6 +174,11 @@ const mockResetStaleSessionRetryCount = vi.mocked(resetStaleSessionRetryCount);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
+const mockCountZeroCostFailuresInWindow = vi.mocked(
+  countZeroCostFailuresInWindow,
+);
+const mockInsertBudgetEvent = vi.mocked(insertBudgetEvent);
+const mockSendAlertThrottled = vi.mocked(sendAlertThrottled);
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -945,6 +955,104 @@ describe("task-lifecycle workflow", () => {
     );
   });
 
+  test("budget exhausted → fires alert step, sleeps, then requeues", async () => {
+    mockSumCostInWindow.mockReturnValue(150); // exceeds 100 limit
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "budget_exceeded" });
+    // Should have run the alert step
+    expect(step.run).toHaveBeenCalledWith(
+      "alert-budget-or-circuit-breaker",
+      expect.any(Function),
+    );
+    // Should have slept before requeueing
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", 5 * 60_000);
+    // Should have requeued the task
+    expect(step.run).toHaveBeenCalledWith(
+      "requeue-budget-exceeded",
+      expect.any(Function),
+    );
+    // sendAlertThrottled should have been called with warning severity and task-specific key
+    expect(mockSendAlertThrottled).toHaveBeenCalledWith(
+      expect.anything(),
+      "budget-halt:TEST-1",
+      expect.objectContaining({ severity: "warning", title: "Budget Exhausted" }),
+      30 * 60 * 1000,
+    );
+  });
+
+  test("circuit breaker triggered → fires critical alert, backs off, requeues", async () => {
+    // 5 zero-cost failures → trips the circuit breaker
+    mockCountZeroCostFailuresInWindow.mockReturnValue(5);
+
+    const step = createStep();
+    const result = await capturedHandler({
+      event: makeTaskReadyEvent(),
+      step,
+    });
+
+    expect(result).toMatchObject({ outcome: "budget_exceeded" });
+    expect((result as { reason: string }).reason).toMatch(/circuit breaker/);
+    // Alert step ran
+    expect(step.run).toHaveBeenCalledWith(
+      "alert-budget-or-circuit-breaker",
+      expect.any(Function),
+    );
+    // Sleep step ran
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", 5 * 60_000);
+    // Requeue step ran
+    expect(step.run).toHaveBeenCalledWith(
+      "requeue-budget-exceeded",
+      expect.any(Function),
+    );
+    // sendAlertThrottled should have been called with critical severity and task-specific key
+    expect(mockSendAlertThrottled).toHaveBeenCalledWith(
+      expect.anything(),
+      "budget-halt:TEST-1",
+      expect.objectContaining({
+        severity: "critical",
+        title: "Circuit Breaker Triggered",
+      }),
+      30 * 60 * 1000,
+    );
+  });
+
+  test("recordBudgetEventFromEvent records zero-cost events (costUsd === 0)", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+    mockGetInvocation.mockReturnValue({ outputSummary: "" });
+    mockFindPrForBranch.mockReturnValue({ exists: false });
+    mockExistsSync.mockReturnValue(false);
+
+    // Session completes with $0 cost
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      costUsd: 0,
+      inputTokens: 50,
+      outputTokens: 25,
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    // insertBudgetEvent should have been called even with $0 cost
+    expect(mockInsertBudgetEvent).toHaveBeenCalledWith(
+      mockDb,
+      expect.objectContaining({
+        costUsd: 0,
+        inputTokens: 50,
+        outputTokens: 25,
+      }),
+    );
+  });
+
   test("review timeout → killSession called on the active handle", async () => {
     const task = makeTask();
     mockGetTask.mockReturnValue(task);
@@ -1249,6 +1357,169 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EMI-332 tests — budget alerts, circuit breaker, exponential backoff
+// ---------------------------------------------------------------------------
+
+describe("EMI-332 — per-task alert throttle key", () => {
+  test("alert throttle key includes taskId so different tasks get independent alerts", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    // TASK-1 hits budget exceeded
+    const step1 = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent("TASK-1"), step: step1 });
+
+    expect(mockSendAlertThrottled).toHaveBeenCalledWith(
+      expect.anything(),
+      "budget-halt:TASK-1",
+      expect.objectContaining({ taskId: "TASK-1" }),
+      expect.any(Number),
+    );
+
+    // TASK-2 hits budget exceeded — should use its own throttle key
+    const step2 = createStep();
+    await capturedHandler({ event: makeTaskReadyEvent("TASK-2"), step: step2 });
+
+    expect(mockSendAlertThrottled).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "budget-halt:TASK-2",
+      expect.objectContaining({ taskId: "TASK-2" }),
+      expect.any(Number),
+    );
+  });
+});
+
+describe("EMI-332 — exponential backoff on budget-exceeded requeues", () => {
+  test("first budget-exceeded hit sleeps 5 minutes (300000 ms)", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    // budgetExceededCount not set → defaults to 0 → 5 * 2^0 = 5 min
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", 5 * 60_000);
+  });
+
+  test("second budget-exceeded hit (budgetExceededCount=1) sleeps 10 minutes", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    const event = {
+      name: "task/ready" as const,
+      data: {
+        linearIssueId: "TEST-1",
+        repoPath: "/repo",
+        priority: 0,
+        projectName: "test",
+        taskType: "feature",
+        createdAt: new Date().toISOString(),
+        budgetExceededCount: 1, // second attempt
+      },
+    };
+    await capturedHandler({ event, step });
+
+    // 5 * 2^1 = 10 min
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", 10 * 60_000);
+  });
+
+  test("backoff is capped at 60 minutes regardless of budgetExceededCount", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+
+    const step = createStep();
+    const event = {
+      name: "task/ready" as const,
+      data: {
+        linearIssueId: "TEST-1",
+        repoPath: "/repo",
+        priority: 0,
+        projectName: "test",
+        taskType: "feature",
+        createdAt: new Date().toISOString(),
+        budgetExceededCount: 10, // 5 * 2^10 = 5120 min → capped at 60
+      },
+    };
+    await capturedHandler({ event, step });
+
+    expect(step.sleep).toHaveBeenCalledWith("budget-backoff", 60 * 60_000);
+  });
+});
+
+describe("EMI-332 — null-cost events recorded in budget_events", () => {
+  test("session failing with null costUsd inserts a budget event with costUsd=0", async () => {
+    const task = makeTask();
+    mockGetTask.mockReturnValue(task);
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    // Session fails with null cost (Claude CLI crashed before reporting cost)
+    const implementEvent = makeSessionCompletedEvent({
+      invocationId: 1,
+      exitCode: 1,
+      costUsd: null,
+      inputTokens: null,
+      outputTokens: null,
+    });
+    const step = createStep(new Map([["await-implement", implementEvent]]));
+
+    await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(mockInsertBudgetEvent).toHaveBeenCalledWith(
+      mockDb,
+      expect.objectContaining({
+        costUsd: 0,
+        invocationId: 1,
+      }),
+    );
+  });
+});
+
+describe("EMI-332 — circuit breaker boundary checks", () => {
+  test("4 zero-cost failures (below threshold) should NOT trip the circuit breaker", async () => {
+    mockCountZeroCostFailuresInWindow.mockReturnValue(4);
+    mockGetTask.mockReturnValue(makeTask({ orcaStatus: "ready" }));
+    mockClaimTaskForDispatch.mockReturnValue(true);
+    mockInsertInvocation.mockReturnValue(1);
+
+    const step = createStep(new Map([["await-implement", null]]));
+    const result = await capturedHandler({ event: makeTaskReadyEvent(), step });
+
+    expect(result).not.toMatchObject({ outcome: "budget_exceeded" });
+    expect(mockClaimTaskForDispatch).toHaveBeenCalled();
+  });
+});
+
+describe("EMI-332 — requeue emits task/ready Inngest event", () => {
+  test("requeue step emits task/ready with incremented budgetExceededCount", async () => {
+    mockSumCostInWindow.mockReturnValue(150);
+    mockGetTask.mockReturnValue(makeTask());
+
+    const step = createStep();
+    const event = {
+      name: "task/ready" as const,
+      data: {
+        linearIssueId: "TEST-1",
+        repoPath: "/repo",
+        priority: 0,
+        projectName: "test",
+        taskType: "feature",
+        createdAt: new Date().toISOString(),
+        budgetExceededCount: 2,
+      },
+    };
+    await capturedHandler({ event, step });
+
+    expect(mockInngestSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "task/ready",
+        data: expect.objectContaining({
+          linearIssueId: "TEST-1",
+          budgetExceededCount: 3, // incremented from 2
+        }),
+      }),
     );
   });
 });

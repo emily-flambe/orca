@@ -39,6 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  countZeroCostFailuresInWindow,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -50,6 +51,7 @@ import {
 import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
+  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -74,6 +76,10 @@ import { createLogger } from "../../logger.js";
 // ---------------------------------------------------------------------------
 
 const CONCURRENCY_CAP = parseInt(process.env.ORCA_CONCURRENCY_CAP ?? "1", 10);
+
+// Circuit breaker: pause dispatch after N zero-cost failures in M minutes
+const ZERO_COST_FAILURE_THRESHOLD = 5;
+const ZERO_COST_FAILURE_WINDOW_MIN = 10;
 
 /**
  * Guard: throws if the number of active Claude sessions has reached the
@@ -247,15 +253,15 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
-    insertBudgetEvent(db, {
-      invocationId,
-      costUsd: eventData.costUsd,
-      inputTokens: eventData.inputTokens ?? 0,
-      outputTokens: eventData.outputTokens ?? 0,
-      recordedAt: new Date().toISOString(),
-    });
-  }
+  // Always record — including zero-cost and null-cost failures (null → 0).
+  // Zero/null cost events appear in the audit trail without inflating the budget sum.
+  insertBudgetEvent(db, {
+    invocationId,
+    costUsd: eventData.costUsd ?? 0,
+    inputTokens: eventData.inputTokens ?? 0,
+    outputTokens: eventData.outputTokens ?? 0,
+    recordedAt: new Date().toISOString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +352,11 @@ export const taskLifecycle = inngest.createFunction(
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
+    // Tracks how many times this specific task has been requeued due to budget
+    // exhaustion. Used to compute exponential backoff. Defaults to 0 when the
+    // event was fired by an external source (reconciler, webhook) that doesn't
+    // carry this field.
+    const budgetExceededCount = event.data.budgetExceededCount ?? 0;
 
     log(`workflow started for task ${taskId}`);
 
@@ -365,6 +376,18 @@ export const taskLifecycle = inngest.createFunction(
             reason: `budget exhausted: $${spentUsd.toFixed(2)} >= $${config.budgetMaxCostUsd} in ${config.budgetWindowHours}h window`,
           };
         }
+        // Circuit breaker: if Claude CLI is broken, stop dispatching
+        const cbWindowStart = new Date(
+          Date.now() - ZERO_COST_FAILURE_WINDOW_MIN * 60 * 1000,
+        ).toISOString();
+        const zeroCostFailures = countZeroCostFailuresInWindow(db, cbWindowStart);
+        if (zeroCostFailures >= ZERO_COST_FAILURE_THRESHOLD) {
+          return {
+            ok: false,
+            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in last ${ZERO_COST_FAILURE_WINDOW_MIN} minutes — Claude CLI may be broken`,
+          };
+        }
+
         const usedTokens = sumTokensInWindow(db, windowStart);
         if (usedTokens >= config.budgetMaxTokens) {
           return {
@@ -377,16 +400,70 @@ export const taskLifecycle = inngest.createFunction(
     );
 
     if (!budgetCheck.ok) {
-      log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
-      );
-      await step.run("requeue-budget-exceeded", () => {
+      const reason = budgetCheck.reason ?? "budget exceeded";
+      const isCircuitBreaker = reason.startsWith("circuit breaker");
+      log(`task ${taskId}: ${reason} — alerting + backing off before requeue`);
+
+      // Alert: fire webhook + post Linear comment.
+      // Throttle key is per-task so each task gets its own alert within the
+      // cooldown window (different tasks are independent budget events).
+      await step.run("alert-budget-or-circuit-breaker", () => {
+        const deps = getSchedulerDeps();
+        const severity = isCircuitBreaker ? "critical" : "warning";
+        const title = isCircuitBreaker ? "Circuit Breaker Triggered" : "Budget Exhausted";
+        sendAlertThrottled(
+          deps,
+          `budget-halt:${taskId}`,
+          {
+            severity,
+            title,
+            message: reason,
+            taskId,
+            fields: [
+              { title: "Task", value: taskId, short: true },
+              { title: "Reason", value: reason, short: false },
+            ],
+          },
+          30 * 60 * 1000, // 30-minute per-task cooldown
+        );
+        deps.client
+          .createComment(
+            taskId,
+            `**[Orca] ${title}**\n\n${reason}\n\nThis task is on hold and will be retried automatically.`,
+          )
+          .catch(() => {});
+      });
+
+      // Exponential backoff: 5m → 10m → 20m → 40m → 60m (capped).
+      // Per-task concurrency of 1 means no other workflow for this task can
+      // start while this one is sleeping, so the sleep IS the effective backoff.
+      const backoffMs =
+        Math.min(5 * Math.pow(2, budgetExceededCount), 60) * 60_000;
+      await step.sleep("budget-backoff", backoffMs);
+
+      // Requeue: reset status to ready and emit task/ready so a new workflow
+      // picks up the task immediately (without waiting for the reconciler cron).
+      await step.run("requeue-budget-exceeded", async () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
+        if (task) {
+          await inngest.send({
+            name: "task/ready",
+            data: {
+              linearIssueId: taskId,
+              repoPath: task.repoPath,
+              priority: task.priority,
+              projectName: task.projectName ?? null,
+              taskType: task.taskType ?? "standard",
+              createdAt: task.createdAt,
+              budgetExceededCount: budgetExceededCount + 1,
+            },
+          });
+        }
       });
-      return { outcome: "budget_exceeded", reason: budgetCheck.reason };
+      return { outcome: "budget_exceeded", reason };
     }
 
     // -------------------------------------------------------------------------
