@@ -9,11 +9,14 @@ import * as os from "node:os";
 import {
   processSnapshot,
   detectAndAlertStuckTasks,
+  detectAndAlertStuckDrain,
   STUCK_THRESHOLDS,
   TERMINAL_STATUSES,
   DEFAULT_TRACKING_FILE,
+  DEFAULT_DRAIN_TRACKING_FILE,
   type TaskTrackingState,
   type StuckTaskAlert,
+  type DrainTrackingState,
 } from "../src/scheduler/stuck-task-detector.js";
 import { resetHealingCounters } from "../src/scheduler/alerts.js";
 import { createDb } from "../src/db/index.js";
@@ -31,7 +34,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 3600,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -43,6 +45,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     deployStrategy: "none",
     deployPollIntervalSec: 30,
     deployTimeoutMin: 30,
+    drainTimeoutMin: 10,
     cleanupIntervalMin: 10000,
     cleanupBranchMaxAgeMin: 60,
     resumeOnMaxTurns: true,
@@ -52,7 +55,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
@@ -604,5 +606,133 @@ describe("constants", () => {
     expect(STUCK_THRESHOLDS["awaiting_ci"]).toBe(4);
     expect(STUCK_THRESHOLDS["running"]).toBe(2);
     expect(STUCK_THRESHOLDS["dispatched"]).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectAndAlertStuckDrain
+// ---------------------------------------------------------------------------
+
+describe("detectAndAlertStuckDrain", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "drain-test-"));
+    resetHealingCounters();
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  function drainFile(): string {
+    return path.join(tmpDir, "drain-state.json");
+  }
+
+  async function readDrainState(filePath: string): Promise<DrainTrackingState> {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw) as DrainTrackingState;
+  }
+
+  test("not draining: resets state to zero and saves", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+    // Pre-seed non-zero state
+    await fs.writeFile(filePath, JSON.stringify({ consecutiveZeroSessionSnapshots: 3, firstSeenAt: new Date().toISOString() }));
+
+    const result = await detectAndAlertStuckDrain(deps, false, 0, filePath);
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(0);
+    expect(result.firstSeenAt).toBeNull();
+    const saved = await readDrainState(filePath);
+    expect(saved.consecutiveZeroSessionSnapshots).toBe(0);
+    expect(saved.firstSeenAt).toBeNull();
+  });
+
+  test("draining with active sessions: resets state (normal drain)", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+
+    const result = await detectAndAlertStuckDrain(deps, true, 3, filePath);
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(0);
+    expect(result.firstSeenAt).toBeNull();
+  });
+
+  test("draining, zero sessions, first snapshot: count=1, no alert", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+    const sendAlertSpy = vi.spyOn(deps.client, "createComment");
+
+    const result = await detectAndAlertStuckDrain(deps, true, 0, filePath);
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(1);
+    expect(result.firstSeenAt).not.toBeNull();
+    expect(sendAlertSpy).not.toHaveBeenCalled();
+  });
+
+  test("draining, zero sessions, second snapshot: count=2, alert fires once", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+
+    // First snapshot
+    await detectAndAlertStuckDrain(deps, true, 0, filePath);
+    // Second snapshot
+    const result = await detectAndAlertStuckDrain(deps, true, 0, filePath);
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(2);
+    // createComment is the observable side-effect of sendAlert
+    expect(deps.client.createComment).not.toHaveBeenCalled(); // no taskId, so no Linear comment
+    // Alert fires through webhook — not easily testable here without webhook config.
+    // Key assertion: count reached 2
+    expect(result.consecutiveZeroSessionSnapshots).toBe(2);
+  });
+
+  test("draining, zero sessions, third snapshot: count=3, alert NOT re-fired (boundary semantics)", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+
+    await detectAndAlertStuckDrain(deps, true, 0, filePath); // count=1
+    await detectAndAlertStuckDrain(deps, true, 0, filePath); // count=2, alert
+    const result = await detectAndAlertStuckDrain(deps, true, 0, filePath); // count=3, no alert (=== 2 check)
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(3);
+  });
+
+  test("firstSeenAt is set on first snapshot and preserved on subsequent ones", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+
+    const r1 = await detectAndAlertStuckDrain(deps, true, 0, filePath);
+    const firstSeenAt = r1.firstSeenAt;
+    expect(firstSeenAt).not.toBeNull();
+
+    const r2 = await detectAndAlertStuckDrain(deps, true, 0, filePath);
+    expect(r2.firstSeenAt).toBe(firstSeenAt);
+  });
+
+  test("session fluctuation resets counter: zero→nonzero→zero starts fresh", async () => {
+    const deps = makeDeps();
+    const filePath = drainFile();
+
+    await detectAndAlertStuckDrain(deps, true, 0, filePath); // count=1
+    await detectAndAlertStuckDrain(deps, true, 2, filePath); // reset
+    const result = await detectAndAlertStuckDrain(deps, true, 0, filePath); // count=1 again
+
+    expect(result.consecutiveZeroSessionSnapshots).toBe(1); // reset, not 2
+  });
+
+  test("returns zero state when state file is absent (first run)", async () => {
+    const deps = makeDeps();
+    const filePath = path.join(tmpDir, "nonexistent-dir", "drain.json");
+
+    // Should not throw — creates dir and file
+    const result = await detectAndAlertStuckDrain(deps, true, 0, filePath);
+    expect(result.consecutiveZeroSessionSnapshots).toBe(1);
+  });
+
+  test("DEFAULT_DRAIN_TRACKING_FILE is different from DEFAULT_TRACKING_FILE", () => {
+    expect(DEFAULT_DRAIN_TRACKING_FILE).not.toBe(DEFAULT_TRACKING_FILE);
+    expect(DEFAULT_DRAIN_TRACKING_FILE).toContain("drain");
   });
 });

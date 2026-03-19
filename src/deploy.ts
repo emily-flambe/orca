@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
+let drainStartedAt: number | null = null;
 let startupSha: string | null = null;
 
 const logger = createLogger("deploy");
@@ -70,5 +71,20 @@ export function setDraining(): void {
     return;
   }
   draining = true;
+  drainStartedAt = Date.now();
   log("draining flag set (external deploy mode)");
+}
+
+export function getDrainStartedAt(): number | null {
+  return drainStartedAt;
+}
+
+/**
+ * Reset the drain flag and timestamp. Used for auto-recovery when drain
+ * is stuck with no active sessions past the timeout.
+ */
+export function clearDraining(): void {
+  logger.warn("clearDraining() called — resetting drain flag");
+  draining = false;
+  drainStartedAt = null;
 }

@@ -25,6 +25,7 @@ export interface OrcaConfig {
   deployStrategy: "none" | "github_actions";
   deployPollIntervalSec: number;
   deployTimeoutMin: number;
+  drainTimeoutMin: number;
   maxDeployPollAttempts: number;
   maxCiPollAttempts: number;
   cleanupIntervalMin: number;
@@ -321,6 +322,7 @@ Steps:
       30,
     ),
     deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
+    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
     maxDeployPollAttempts: readIntOrDefault(
       "ORCA_DEPLOY_MAX_POLL_ATTEMPTS",
       60,

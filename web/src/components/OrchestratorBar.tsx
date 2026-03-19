@@ -17,6 +17,20 @@ interface Props {
   onNewTicket: (identifier: string) => void;
 }
 
+function formatDrainDuration(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  } else if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+  } else {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+}
+
 export default function OrchestratorBar({
   status,
   onSync,
@@ -270,7 +284,11 @@ export default function OrchestratorBar({
             <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
           </span>
           <span>
-            Draining — waiting for {status.drainSessionCount} session
+            Draining
+            {status.drainingForSeconds != null && status.drainingForSeconds > 0 && (
+              <> ({formatDrainDuration(status.drainingForSeconds)})</>
+            )}{" "}
+            — waiting for {status.drainSessionCount} session
             {status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy
           </span>
         </div>

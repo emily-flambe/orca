@@ -17,8 +17,13 @@ import {
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateTaskStatus,
+  countActiveSessions,
 } from "../../db/queries.js";
-import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
+import {
+  detectAndAlertStuckTasks,
+  detectAndAlertStuckDrain,
+} from "../../scheduler/stuck-task-detector.js";
+import { isDraining, getDrainStartedAt, clearDraining } from "../../deploy.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -177,6 +182,39 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         "deploying",
       ]);
       await detectAndAlertStuckTasks(deps, tasks);
+    });
+
+    await step.run("monitor-drain-state", async () => {
+      const deps = getSchedulerDeps();
+      const { db, config } = deps;
+      let draining = isDraining();
+      const activeSessions = countActiveSessions(db);
+
+      // Auto-clear drain first — if timed out, skip the stuck-drain alert
+      // (no need to alert about a problem we just fixed)
+      if (draining && activeSessions === 0) {
+        const drainStartedAt = getDrainStartedAt();
+        if (drainStartedAt) {
+          const drainAgeMin = (Date.now() - drainStartedAt) / 60000;
+          if (drainAgeMin >= config.drainTimeoutMin) {
+            logger.warn(
+              `drain timeout: clearing drain flag after ${Math.round(drainAgeMin)} min with 0 active sessions`,
+            );
+            clearDraining();
+            draining = false;
+            insertSystemEvent(db, {
+              type: "self_heal",
+              message: `Auto-cleared stuck drain flag after ${Math.round(drainAgeMin)} min with 0 active sessions`,
+              metadata: {
+                drainAgeMin: Math.round(drainAgeMin),
+                drainTimeoutMin: config.drainTimeoutMin,
+              },
+            });
+          }
+        }
+      }
+
+      await detectAndAlertStuckDrain(deps, draining, activeSessions);
     });
 
     await step.run("auto-retry-failed-tasks", async () => {

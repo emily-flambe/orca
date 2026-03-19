@@ -16,6 +16,12 @@ export const DEFAULT_TRACKING_FILE = path.join(
   "task-state-tracking.json",
 );
 
+export const DEFAULT_DRAIN_TRACKING_FILE = path.join(
+  process.cwd(),
+  "tmp",
+  "drain-state-tracking.json",
+);
+
 export const STUCK_THRESHOLDS: Record<string, number> = {
   running: 2,
   dispatched: 2,
@@ -38,6 +44,11 @@ const ALERT_COOLDOWN_MS = 1_800_000; // 30 minutes
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface DrainTrackingState {
+  consecutiveZeroSessionSnapshots: number;
+  firstSeenAt: string | null;
+}
 
 export interface TaskTrackingEntry {
   status: string;
@@ -222,4 +233,98 @@ export async function detectAndAlertStuckTasks(
   } catch (err) {
     logger.error(`detectAndAlertStuckTasks: failed to save state file: ${err}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Drain state monitoring
+// ---------------------------------------------------------------------------
+
+export async function detectAndAlertStuckDrain(
+  deps: SchedulerDeps,
+  isDraining: boolean,
+  activeSessions: number,
+  filePath?: string,
+): Promise<DrainTrackingState> {
+  const targetPath = filePath ?? DEFAULT_DRAIN_TRACKING_FILE;
+
+  const resetState: DrainTrackingState = {
+    consecutiveZeroSessionSnapshots: 0,
+    firstSeenAt: null,
+  };
+
+  // Load existing state
+  let state: DrainTrackingState = { ...resetState };
+  try {
+    const raw = await fs.readFile(targetPath, "utf8");
+    state = JSON.parse(raw) as DrainTrackingState;
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      logger.warn(`detectAndAlertStuckDrain: could not read state file: ${err}`);
+    }
+  }
+
+  let updatedState: DrainTrackingState;
+
+  if (!isDraining) {
+    // Not draining — reset state
+    updatedState = { ...resetState };
+  } else if (activeSessions > 0) {
+    // Draining with active sessions — reset state (normal drain in progress)
+    updatedState = { ...resetState };
+  } else {
+    // Draining with zero active sessions — increment counter
+    const now = new Date().toISOString();
+    const newCount = state.consecutiveZeroSessionSnapshots + 1;
+    updatedState = {
+      consecutiveZeroSessionSnapshots: newCount,
+      firstSeenAt: state.firstSeenAt ?? now,
+    };
+
+    if (newCount === 2) {
+      const firstSeenMs = new Date(updatedState.firstSeenAt!).getTime();
+      const durationMinutes = Math.round((Date.now() - firstSeenMs) / 60000);
+      const message = `Drain has been active with 0 sessions for ${durationMinutes} min (${newCount} consecutive snapshots). Drain may be stuck.`;
+
+      sendAlertThrottled(
+        deps,
+        "stuck-drain",
+        {
+          severity: "warning",
+          title: "Stuck Drain: draining with no sessions",
+          message,
+          fields: [
+            {
+              title: "Consecutive Zero-Session Snapshots",
+              value: String(newCount),
+              short: true,
+            },
+            {
+              title: "Duration",
+              value: `${durationMinutes} min`,
+              short: true,
+            },
+            { title: "First Seen", value: updatedState.firstSeenAt!, short: false },
+          ],
+        },
+        1_800_000,
+      );
+    }
+  }
+
+  // Save updated state
+  try {
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(
+      targetPath,
+      JSON.stringify(updatedState, null, 2),
+      "utf8",
+    );
+  } catch (err) {
+    logger.error(
+      `detectAndAlertStuckDrain: failed to save state file: ${err}`,
+    );
+  }
+
+  return updatedState;
 }
