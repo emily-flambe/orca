@@ -637,6 +637,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
       await deleteCronSchedule(id);
       setSchedules((prev) => prev.filter((s) => s.id !== id));
       setDeletingId(null);
+      onToast?.success("Schedule deleted");
     } catch (err) {
       onToast?.error(
         err instanceof Error ? err.message : "Failed to delete schedule",

@@ -274,6 +274,46 @@ describe("CronPage", () => {
     });
   });
 
+  it("calls onToast.success('Schedule deleted') after successful delete", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 7, name: "Toast me" }),
+    ]);
+    mockDeleteCronSchedule.mockResolvedValue({ ok: true });
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Toast me")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Delete"));
+    fireEvent.click(screen.getByText("Yes"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Schedule deleted");
+    });
+  });
+
+  it("calls onToast.error when delete fails", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 8 })]);
+    mockDeleteCronSchedule.mockRejectedValue(new Error("Server error"));
+
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test schedule")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Delete"));
+    fireEvent.click(screen.getByText("Yes"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Server error");
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // formatLastRun — via rendered output
   // ---------------------------------------------------------------------------
