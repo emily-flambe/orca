@@ -109,6 +109,46 @@ Blue/green zero-downtime: new instance on standby port → health check → swit
 
 Deploy after: backend changes (`src/**/*.ts`), frontend rebuild (`web/dist/`), `.env`/config changes.
 
+### Post-Deploy Verification (MANDATORY)
+
+After deploying any scheduler/workflow/Inngest changes, you MUST verify the system is actually working — not just that tests passed. "Tests green + deployed" is NOT done.
+
+1. Wait 2 minutes for the new instance to stabilize
+2. Check `deploy-state.json` to confirm the deploy timestamp updated
+3. Query the Orca DB: are tasks moving through statuses? Are running task counts ≤ `ORCA_CONCURRENCY_CAP`?
+4. Query Inngest (`curl localhost:8288/v0/gql`) for recent `task-lifecycle` runs — check for FAILED runs, not just COMPLETED
+5. If any ready tasks exist with no active Inngest workflow, the dispatch pipeline is broken — investigate before declaring success
+
+**Do not declare victory until a task has demonstrably moved through at least one lifecycle transition after deploy.**
+
+## Inngest Workflow Invariants
+
+These rules exist because violations have caused production outages:
+
+### Never throw in claim steps (retries: 0)
+
+All Orca Inngest functions use `retries: 0`. A thrown error in any step permanently kills the workflow — the task is orphaned. Always catch errors in claim steps and return `{ claimed: false, reason: "..." }` so the workflow exits gracefully and the reconciler can re-dispatch.
+
+### DB changes must emit corresponding Inngest events
+
+Never update `orca_status` in the DB without emitting the matching Inngest event. The DB and Inngest event queue must stay in sync:
+
+| DB status change | Required Inngest event |
+|-----------------|----------------------|
+| → `ready` | `task/ready` |
+| → `awaiting_ci` | `task/awaiting-ci` |
+| → `deploying` | `task/deploying` |
+
+If you reset a task to `ready` via direct DB query (debugging, manual fix, etc.), you MUST also emit `task/ready` or the task will sit orphaned until the reconciler's 5-minute re-dispatch cycle picks it up.
+
+### Tests pass ≠ system works
+
+Unit tests with mocked Inngest steps cannot catch workflow-level failures (e.g., "step throws → workflow dies → task orphaned forever"). For scheduler/workflow changes:
+
+- Unit tests verify individual step logic
+- Integration verification (post-deploy) verifies the workflow chain actually executes
+- Both are required. Shipping with only unit tests has caused repeated outages.
+
 ## Creating Linear Issues
 
 Reference `docs/linear_issue_templates.md` and apply the appropriate template (Feature, Bug Fix, Refactor, Planning, Discovery). Fill all sections with real content.
