@@ -1,7 +1,7 @@
-import { rmSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { git, isTransientGitError } from "../git.js";
-import { removeWorktree } from "../worktree/index.js";
+import { removeWorktree, rmSyncWithRetry } from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
@@ -130,7 +130,6 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   // Tasks in backlog/ready/done/failed have no workflow watching their PR,
   // so those PRs are eligible for orphan cleanup.
   const PR_ACTIVE_STATUSES = new Set([
-    "dispatched",
     "running",
     "in_review",
     "changes_requested",
@@ -289,7 +288,7 @@ function cleanupRepo(
       if (attempts >= MAX_REMOVAL_ATTEMPTS) continue;
 
       try {
-        rmSync(fullPath, { recursive: true, force: true });
+        rmSyncWithRetry(fullPath);
         failedRemovalAttempts.delete(fullPath);
         log(`removed orphaned worktree directory: ${fullPath}`);
       } catch (err) {
