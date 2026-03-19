@@ -39,7 +39,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
-  updateTaskFailureInfo,
+  updateTaskFailureMetadata,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -172,10 +172,7 @@ export function bridgeSessionCompletion(
               outputTokens: result.outputTokens ?? null,
             });
             updateTaskStatus(db, linearIssueId, "failed");
-            updateTaskFailureInfo(db, linearIssueId, {
-              reason: result.outputSummary ?? "Session failed",
-              phase,
-            });
+            updateTaskFailureMetadata(db, linearIssueId, result.outputSummary ?? "Session failed", phase ?? "implement");
             log(
               `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
             );
@@ -225,10 +222,7 @@ export function bridgeSessionCompletion(
               endedAt: new Date().toISOString(),
             });
             updateTaskStatus(db, linearIssueId, "failed");
-            updateTaskFailureInfo(db, linearIssueId, {
-              reason: "Session failed",
-              phase,
-            });
+            updateTaskFailureMetadata(db, linearIssueId, "Session failed", phase ?? "implement");
             log(
               `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
             );
@@ -689,10 +683,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "session timed out after 45 minutes",
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureInfo(db, taskId, {
-            reason: "Session timed out after 45 minutes",
-            phase: implementCtx.isFixPhase ? "fix" : "implement",
-          });
+          updateTaskFailureMetadata(db, taskId, "Session timed out after 45 minutes", implementCtx.isFixPhase ? "fix" : "implement");
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
           try {
@@ -798,12 +789,13 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureInfo(db, taskId, {
-            reason:
-              implementEvent.data.summary ??
+          updateTaskFailureMetadata(
+            db,
+            taskId,
+            implementEvent.data.summary ??
               `Session failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns" : ""})`,
-            phase: implementCtx.isFixPhase ? "fix" : "implement",
-          });
+            implementCtx.isFixPhase ? "fix" : "implement",
+          );
           const updatedTask = getTask(db, taskId);
           if (updatedTask) emitTaskUpdated(updatedTask);
 
@@ -899,10 +891,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "Post-implementation gate failed: no branch name",
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureInfo(db, taskId, {
-            reason: "Post-implementation gate: no branch name",
-            phase: "implement",
-          });
+          updateTaskFailureMetadata(db, taskId, "Post-implementation gate: no branch name", "implement");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
@@ -959,10 +948,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
           updateTaskStatus(db, taskId, "failed");
-          updateTaskFailureInfo(db, taskId, {
-            reason: `Post-implementation gate: no PR found for branch ${branchName}`,
-            phase: "implement",
-          });
+          updateTaskFailureMetadata(db, taskId, `Post-implementation gate: no PR found for branch ${branchName}`, "implement");
           emitTaskUpdated(getTask(db, taskId) ?? task);
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
