@@ -15,7 +15,6 @@ import { createLogger } from "./logger.js";
 
 let draining = false;
 let drainStartedAt: number | null = null;
-let drainZeroSessionsCount: number = 0;
 let startupSha: string | null = null;
 
 const logger = createLogger("deploy");
@@ -62,6 +61,21 @@ export function isDraining(): boolean {
   return draining;
 }
 
+export function getDrainStartedAt(): number | null {
+  return drainStartedAt;
+}
+
+export function getDrainingForSeconds(): number | null {
+  if (!draining || drainStartedAt === null) return null;
+  return Math.floor((Date.now() - drainStartedAt) / 1000);
+}
+
+export function clearDraining(): void {
+  draining = false;
+  drainStartedAt = null;
+  log("drain flag cleared (auto-timeout)");
+}
+
 /**
  * Set the draining flag without spawning deploy.sh.
  * Used by the blue-green deploy API endpoint.
@@ -73,31 +87,5 @@ export function setDraining(): void {
   }
   draining = true;
   drainStartedAt = Date.now();
-  drainZeroSessionsCount = 0;
   log("draining flag set (external deploy mode)");
-}
-
-export function getDrainStartedAt(): number | null {
-  return drainStartedAt;
-}
-
-export function getDrainingForSeconds(): number | null {
-  if (!draining || drainStartedAt === null) return null;
-  return Math.round((Date.now() - drainStartedAt) / 1000);
-}
-
-export function clearDraining(): void {
-  draining = false;
-  drainStartedAt = null;
-  drainZeroSessionsCount = 0;
-  log("drain flag cleared");
-}
-
-export function incrementDrainZeroSessionsCount(): number {
-  drainZeroSessionsCount++;
-  return drainZeroSessionsCount;
-}
-
-export function resetDrainZeroSessionsCount(): void {
-  drainZeroSessionsCount = 0;
 }

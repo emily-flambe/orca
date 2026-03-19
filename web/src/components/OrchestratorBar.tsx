@@ -278,7 +278,7 @@ export default function OrchestratorBar({
               <span className="text-amber-400 ml-1">
                 ({status.drainingForSeconds < 60
                   ? `${status.drainingForSeconds}s`
-                  : `${Math.floor(status.drainingForSeconds / 60)}m`})
+                  : `${Math.floor(status.drainingForSeconds / 60)}m ${status.drainingForSeconds % 60}s`})
               </span>
             )}
           </span>

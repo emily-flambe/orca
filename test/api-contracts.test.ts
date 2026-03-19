@@ -32,6 +32,7 @@ vi.mock("../src/linear/sync.js", () => ({
 }));
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainStartedAt: vi.fn().mockReturnValue(null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -519,6 +520,7 @@ describe("GET /api/status — contract", () => {
     expect(typeof body.fixModel).toBe("string");
     expect(typeof body.draining).toBe("boolean");
     expect(typeof body.drainSessionCount).toBe("number");
+    expect(body.drainingForSeconds === null || typeof body.drainingForSeconds === "number").toBe(true);
     expect(typeof body.inngestReachable).toBe("boolean");
   });
 });
