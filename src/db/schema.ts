@@ -90,6 +90,7 @@ export const systemEvents = sqliteTable("system_events", {
       "deploy",
       "self_heal",
       "auto_retry",
+      "zero_cost_failure",
     ] as const,
   }).notNull(),
   message: text("message").notNull(),

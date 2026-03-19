@@ -36,6 +36,7 @@ import {
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
   insertSystemEvent,
+  countZeroCostFailuresSince,
   clearSessionIds,
   resetStaleSessionRetryCount,
 } from "../../db/queries.js";
@@ -49,6 +50,7 @@ import {
 import { writeBackStatus } from "../../linear/sync.js";
 import {
   sendAlert,
+  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -204,7 +206,7 @@ function recordBudgetEventFromEvent(
   invocationId: number,
   eventData: SessionEventData,
 ): void {
-  if (eventData.costUsd != null && eventData.costUsd > 0) {
+  if (eventData.costUsd != null) {
     insertBudgetEvent(db, {
       invocationId,
       costUsd: eventData.costUsd,
@@ -312,7 +314,7 @@ export const taskLifecycle = inngest.createFunction(
 
     const budgetCheck = await step.run(
       "check-budget",
-      (): { ok: boolean; reason?: string } => {
+      (): { ok: boolean; reason?: string; circuitBreaker?: boolean } => {
         const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
         const spentUsd = sumCostInWindow(db, windowStart);
@@ -329,6 +331,21 @@ export const taskLifecycle = inngest.createFunction(
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
           };
         }
+        const circuitWindow = new Date(
+          Date.now() - 10 * 60 * 1000,
+        ).toISOString();
+        const zeroCostCount = countZeroCostFailuresSince(db, circuitWindow);
+        const circuitBreakerThreshold = parseInt(
+          process.env.ORCA_CIRCUIT_BREAKER_THRESHOLD ?? "5",
+          10,
+        );
+        if (zeroCostCount >= circuitBreakerThreshold) {
+          return {
+            ok: false,
+            reason: `circuit breaker open: ${zeroCostCount} zero-cost failures in 10 minutes`,
+            circuitBreaker: true,
+          };
+        }
         return { ok: true };
       },
     );
@@ -337,12 +354,58 @@ export const taskLifecycle = inngest.createFunction(
       log(
         `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — requeueing`,
       );
-      await step.run("requeue-budget-exceeded", () => {
+
+      if (budgetCheck.circuitBreaker) {
+        const deps = getSchedulerDeps();
+        sendAlertThrottled(
+          deps,
+          "circuit_breaker",
+          {
+            severity: "critical",
+            title: "Circuit Breaker Open",
+            message: budgetCheck.reason ?? "Too many zero-cost failures",
+            taskId,
+          },
+          60 * 60 * 1000, // 60-minute cooldown
+        );
+        deps.client
+          .createComment(
+            taskId,
+            `**[Orca] Circuit Breaker Open**\n\n${budgetCheck.reason ?? "Too many zero-cost failures"} — task paused until circuit resets.`,
+          )
+          .catch(() => {});
+      } else {
+        const deps = getSchedulerDeps();
+        sendAlertThrottled(
+          deps,
+          "budget_exhausted",
+          {
+            severity: "warning",
+            title: "Budget Hold",
+            message: `Task ${taskId} is paused due to budget exhaustion: ${budgetCheck.reason ?? "budget exceeded"}`,
+            taskId,
+          },
+          30 * 60 * 1000, // 30-minute cooldown
+        );
+        deps.client
+          .createComment(
+            taskId,
+            `**[Orca] Budget Hold**\n\nThis task has been paused because the rolling budget is exhausted.\n\n${budgetCheck.reason ?? "Budget exceeded"} — it will be requeued automatically.`,
+          )
+          .catch(() => {});
+      }
+
+      const retryCount = await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
         updateTaskStatus(db, taskId, "ready");
         const task = getTask(db, taskId);
         if (task) emitTaskUpdated(task);
+        return task?.retryCount ?? 0;
       });
+
+      const backoffMinutes = Math.min(2 ** retryCount * 5, 60);
+      await step.sleep("budget-backoff", `${backoffMinutes}m`);
+
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }
 
@@ -642,6 +705,20 @@ export const taskLifecycle = inngest.createFunction(
         const isMaxTurns = implementEvent.data.isMaxTurns;
 
         recordBudgetEventFromEvent(db, invocationId, implementEvent.data);
+
+        // Record zero-cost failure for circuit breaker tracking
+        const isZeroCostImpl = (implementEvent.data.costUsd ?? 0) === 0;
+        if (!isSuccess && isZeroCostImpl) {
+          insertSystemEvent(db, {
+            type: "zero_cost_failure",
+            message: `Zero-cost failure for task ${taskId} (phase: implement)`,
+            metadata: {
+              taskId,
+              invocationId,
+              exitCode: implementEvent.data.exitCode,
+            },
+          });
+        }
 
         emitInvocationCompleted({
           taskId,
@@ -1189,6 +1266,20 @@ export const taskLifecycle = inngest.createFunction(
           });
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
+          // Record zero-cost failure for circuit breaker tracking
+          const isZeroCostReview = (reviewEvent.data.costUsd ?? 0) === 0;
+          if (!isSuccess && isZeroCostReview) {
+            insertSystemEvent(db, {
+              type: "zero_cost_failure",
+              message: `Zero-cost failure for task ${taskId} (phase: review)`,
+              metadata: {
+                taskId,
+                invocationId,
+                exitCode: reviewEvent.data.exitCode,
+              },
+            });
+          }
+
           if (!isSuccess) {
             updateTaskStatus(db, taskId, "in_review");
             const updatedTask = getTask(db, taskId);
@@ -1515,6 +1606,20 @@ export const taskLifecycle = inngest.createFunction(
             outputTokens: fixEvent.data.outputTokens ?? null,
           });
           recordBudgetEventFromEvent(db, invocationId, fixEvent.data);
+
+          // Record zero-cost failure for circuit breaker tracking
+          const isZeroCostFix = (fixEvent.data.costUsd ?? 0) === 0;
+          if (!isSuccess && isZeroCostFix) {
+            insertSystemEvent(db, {
+              type: "zero_cost_failure",
+              message: `Zero-cost failure for task ${taskId} (phase: fix)`,
+              metadata: {
+                taskId,
+                invocationId,
+                exitCode: fixEvent.data.exitCode,
+              },
+            });
+          }
 
           try {
             removeWorktree(worktreePath);

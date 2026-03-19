@@ -1136,6 +1136,11 @@ export function countSystemEventsSince(
   return result?.count ?? 0;
 }
 
+/** Count zero-cost failure events since a given timestamp. */
+export function countZeroCostFailuresSince(db: OrcaDb, since: string): number {
+  return countSystemEventsSince(db, since, "zero_cost_failure");
+}
+
 /** Get uptime info: time since last startup event. */
 export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
   return db
