@@ -27,6 +27,7 @@ vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
   getDrainingStartedAt: vi.fn().mockReturnValue(null),
   setDraining: vi.fn(),
+  clearDraining: vi.fn(),
   initDeployState: vi.fn(),
 }));
 
@@ -1608,5 +1609,71 @@ describe("GET /api/invocations/:id/logs — cron_shell", () => {
     const body = await res.json();
     expect(body.lines).toHaveLength(1);
     expect(body.lines[0]).toMatchObject({ type: "shell_output", exitCode: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("POST /api/deploy/drain and POST /api/deploy/event", () => {
+  let db: OrcaDb;
+  let app: Hono;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+    app = createApiRoutes({
+      db,
+      config: makeConfig(),
+      syncTasks: vi.fn().mockResolvedValue(0),
+      client: {} as any,
+      stateMap: new Map(),
+      projectMeta: [],
+      inngest: mockInngest,
+    });
+    vi.clearAllMocks();
+    vi.mocked(deployModule.isDraining).mockReturnValue(false);
+  });
+
+  it("POST /api/deploy/drain sets drain flag and returns ok", async () => {
+    const res = await app.request("/api/deploy/drain", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.draining).toBe(true);
+    expect(deployModule.setDraining).toHaveBeenCalledTimes(1);
+  });
+
+  it("POST /api/deploy/event with status=success clears drain flag when draining", async () => {
+    vi.mocked(deployModule.isDraining).mockReturnValue(true);
+    const res = await app.request("/api/deploy/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "success" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(deployModule.clearDraining).toHaveBeenCalledTimes(1);
+  });
+
+  it("POST /api/deploy/event with status=success does NOT call clearDraining when not draining", async () => {
+    vi.mocked(deployModule.isDraining).mockReturnValue(false);
+    const res = await app.request("/api/deploy/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "success" }),
+    });
+    expect(res.status).toBe(200);
+    expect(deployModule.clearDraining).not.toHaveBeenCalled();
+  });
+
+  it("POST /api/deploy/event with status=failure does NOT call clearDraining", async () => {
+    vi.mocked(deployModule.isDraining).mockReturnValue(true);
+    const res = await app.request("/api/deploy/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "failure" }),
+    });
+    expect(res.status).toBe(200);
+    expect(deployModule.clearDraining).not.toHaveBeenCalled();
   });
 });
