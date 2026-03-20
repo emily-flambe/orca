@@ -128,6 +128,11 @@ const ORCA_VERSION = readPackageVersion();
 
 let _inngestHealthCache: { value: boolean; expiresAt: number } | null = null;
 
+/** Exported for testing only — do not call in production code. */
+export function _resetInngestHealthCacheForTesting(): void {
+  _inngestHealthCache = null;
+}
+
 async function checkInngestHealth(): Promise<boolean> {
   const now = Date.now();
   if (_inngestHealthCache && now < _inngestHealthCache.expiresAt) {
