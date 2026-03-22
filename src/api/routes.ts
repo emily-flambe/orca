@@ -725,10 +725,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
     const queuedTasks = allTasks.filter(
-      (t) =>
-        t.orcaStatus === "ready" ||
-        t.orcaStatus === "in_review" ||
-        t.orcaStatus === "changes_requested",
+      (t) => t.orcaStatus === "ready",
     ).length;
     const windowStart = budgetWindowStart(config.budgetWindowHours);
     const costInWindow = sumCostInWindow(db, windowStart);
