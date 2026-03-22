@@ -20,8 +20,40 @@ import {
 } from "../../db/queries.js";
 import { computeNextRunAt } from "../../cron/index.js";
 import { createLogger } from "../../logger.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const logger = createLogger("cron-dispatch");
+
+/**
+ * Resolve the active Orca port from deploy-state.json.
+ * Falls back to ORCA_PORT env var, then 4000.
+ */
+function getActivePort(): number {
+  try {
+    const statePath = join(process.cwd(), "deploy-state.json");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    if (state.activePort) return state.activePort;
+  } catch {
+    // deploy-state.json missing or unreadable
+  }
+  return parseInt(process.env.ORCA_PORT ?? "4000", 10);
+}
+
+/**
+ * Replace template variables in cron prompts so they stay correct
+ * across blue/green deploys.
+ *
+ * Supported variables:
+ *   {{ORCA_PORT}}      → active port (e.g. 4001)
+ *   {{ORCA_BASE_URL}}  → http://localhost:<activePort>
+ */
+function interpolatePrompt(prompt: string): string {
+  const port = getActivePort();
+  return prompt
+    .replace(/\{\{ORCA_PORT\}\}/g, String(port))
+    .replace(/\{\{ORCA_BASE_URL\}\}/g, `http://localhost:${port}`);
+}
 
 export const cronDispatchWorkflow = inngest.createFunction(
   {
@@ -58,7 +90,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
           });
           try {
             const cwd = schedule.repoPath || process.cwd();
-            const stdout = execSync(schedule.prompt, {
+            const stdout = execSync(interpolatePrompt(schedule.prompt), {
               cwd,
               timeout: 60_000,
               stdio: "pipe",
@@ -122,7 +154,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
           try {
             insertTask(db, {
               linearIssueId: taskId,
-              agentPrompt: schedule.prompt,
+              agentPrompt: interpolatePrompt(schedule.prompt),
               repoPath: schedule.repoPath ?? "",
               orcaStatus: "ready",
               taskType: "cron_claude",
