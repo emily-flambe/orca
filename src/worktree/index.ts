@@ -12,6 +12,7 @@ import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
 import { git, gitAsync, cleanStaleLockFiles } from "../git.js";
 import { createLogger } from "../logger.js";
+import { writeHookConfig, cleanupHookConfig } from "../hooks/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -385,6 +386,10 @@ export function createWorktree(
   // Copy .env* files from base repo
   copyEnvFiles(repoPath, worktreePath);
 
+  // Write Claude Code hook config so sessions post events back to Orca.
+  const orcaPort = parseInt(process.env.ORCA_PORT ?? "3000", 10);
+  writeHookConfig(worktreePath, Number(invocationId), orcaPort);
+
   // Run npm install if package.json exists
   if (existsSync(join(worktreePath, "package.json"))) {
     npmInstall(worktreePath);
@@ -502,6 +507,9 @@ export function deriveRepoRoot(worktreePath: string): string | undefined {
  * @param worktreePath - Absolute path to the worktree directory to remove
  */
 export function removeWorktree(worktreePath: string): void {
+  // Best-effort cleanup of hook config before removing the worktree.
+  cleanupHookConfig(worktreePath);
+
   // Pre-deletion: kill processes that may hold file handles in the worktree.
   // On Windows, grandchild processes (wrangler, miniflare, etc.) can survive
   // after the parent session is killed and hold open handles, causing EPERM.
@@ -656,6 +664,9 @@ async function killProcessesInDirectoryAsync(dirPath: string): Promise<void> {
  * 3. Fall back to rm + git worktree prune
  */
 export async function removeWorktreeAsync(worktreePath: string): Promise<void> {
+  // Best-effort cleanup of hook config before removing the worktree.
+  cleanupHookConfig(worktreePath);
+
   // Pre-deletion: kill processes that may hold file handles in the worktree.
   await killProcessesInDirectoryAsync(worktreePath);
 

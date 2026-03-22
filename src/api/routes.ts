@@ -1765,5 +1765,41 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // -----------------------------------------------------------------------
+  // POST /api/hooks/:invocationId — receive Claude Code hook events
+  // -----------------------------------------------------------------------
+  app.post("/api/hooks/:invocationId", async (c) => {
+    const invocationId = parseInt(c.req.param("invocationId"), 10);
+    if (isNaN(invocationId)) {
+      return c.json({ error: "invalid invocationId" }, 400);
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON" }, 400);
+    }
+
+    const hookEntry = JSON.stringify({
+      type: "hook_event",
+      timestamp: new Date().toISOString(),
+      invocationId,
+      payload: body,
+    });
+
+    logger.info(`hook event for invocation ${invocationId}: ${JSON.stringify(body).slice(0, 200)}`);
+
+    // Emit into the invocation log stream (SSE) if the session is active
+    const logState = invocationLogs.get(invocationId);
+    if (logState && !logState.done) {
+      logState.buffer.push(hookEntry);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", hookEntry);
+    }
+
+    return c.json({ ok: true });
+  });
+
   return app;
 }
