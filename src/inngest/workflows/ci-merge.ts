@@ -5,6 +5,7 @@ import {
   getTask,
   updateTaskDeployInfo,
   updateTaskFixReason,
+  updateTaskPrState,
   incrementMergeAttemptCount,
   resetMergeAttemptCount,
   incrementReviewCycleCount,
@@ -553,6 +554,9 @@ async function mergeAndFinalizeStep(
       log(`task ${taskId} PR #${task.prNumber} already merged — proceeding`);
     }
   }
+
+  // Mark PR as merged in the task record
+  updateTaskPrState(db, taskId, task.prUrl ?? null, "merged");
 
   // After merge: transition to deploying (if github_actions) or done
   if (config.deployStrategy === "github_actions") {

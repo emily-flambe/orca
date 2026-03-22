@@ -49,6 +49,8 @@ export interface Task {
   updatedAt: string;
   taskType: TaskType;
   cronScheduleId: number | null;
+  prUrl: string | null;
+  prState: "draft" | "open" | "merged" | "closed" | null;
 }
 
 export interface CronSchedule {

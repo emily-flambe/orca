@@ -19,6 +19,17 @@ export interface PrInfo {
   number?: number;
   merged?: boolean;
   headBranch?: string;
+  state?: "draft" | "open" | "merged" | "closed";
+}
+
+function mapPrState(
+  ghState: string,
+  isDraft?: boolean,
+): "draft" | "open" | "merged" | "closed" {
+  if (ghState === "MERGED") return "merged";
+  if (ghState === "CLOSED") return "closed";
+  if (isDraft) return "draft";
+  return "open";
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +78,7 @@ export async function findPrForBranch(
           "--head",
           branchName,
           "--json",
-          "url,number,state,headRefName",
+          "url,number,state,headRefName,isDraft",
           "--limit",
           "1",
         ],
@@ -79,6 +90,7 @@ export async function findPrForBranch(
         number: number;
         state: string;
         headRefName: string;
+        isDraft: boolean;
       }[];
       if (prs.length > 0) {
         const pr = prs[0]!;
@@ -88,6 +100,7 @@ export async function findPrForBranch(
           number: pr.number,
           merged: pr.state === "MERGED",
           headBranch: pr.headRefName,
+          state: mapPrState(pr.state, pr.isDraft),
         };
       }
       // Empty result — may be GitHub API lag. Retry with backoff.
@@ -129,7 +142,7 @@ export async function findPrForBranch(
 export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
   try {
     const output = gh(
-      ["pr", "view", prUrl, "--json", "url,number,state,headRefName"],
+      ["pr", "view", prUrl, "--json", "url,number,state,headRefName,isDraft"],
       {
         cwd,
       },
@@ -139,6 +152,7 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       number?: number;
       state?: string;
       headRefName?: string;
+      isDraft?: boolean;
     };
     if (typeof data.number !== "number" || typeof data.url !== "string") {
       logger.warn(
@@ -152,6 +166,7 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       number: data.number,
       merged: data.state === "MERGED",
       headBranch: data.headRefName,
+      state: mapPrState(data.state ?? "OPEN", data.isDraft),
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

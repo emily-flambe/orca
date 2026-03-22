@@ -10,6 +10,57 @@ import { MANUAL_STATUSES } from "../constants.js";
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
 
+const PR_STATE_COLORS: Record<string, string> = {
+  draft: "#6e7781",
+  open: "#1a7f37",
+  merged: "#8250df",
+  closed: "#cf222e",
+};
+
+const PR_ICON_PATH =
+  "M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z";
+
+const PR_MERGE_ICON_PATH =
+  "M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218zM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zM5 3.25a.75.75 0 1 0 0 .005V3.25z";
+
+function PrIndicator({
+  prUrl,
+  prState,
+  prNumber,
+}: {
+  prUrl: string;
+  prState: string;
+  prNumber: number | null;
+}) {
+  const color = PR_STATE_COLORS[prState] ?? PR_STATE_COLORS.open;
+  const iconPath = prState === "merged" ? PR_MERGE_ICON_PATH : PR_ICON_PATH;
+  return (
+    <a
+      href={prUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex items-center gap-0.5 shrink-0 hover:opacity-80 transition-opacity"
+      title={`PR ${prNumber ? `#${prNumber}` : ""} (${prState})`}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        width={14}
+        height={14}
+        fill={color}
+        aria-hidden="true"
+      >
+        <path d={iconPath} />
+      </svg>
+      {prNumber != null && (
+        <span className="text-[10px] font-mono" style={{ color }}>
+          #{prNumber}
+        </span>
+      )}
+    </a>
+  );
+}
+
 interface ToastCallbacks {
   success: (msg: string) => void;
   error: (msg: string) => void;
@@ -590,6 +641,13 @@ export default function TaskList({
                   <Badge className="shrink-0 !text-[10px] !px-1.5 !py-0 !text-gray-500 !bg-transparent !border-gray-700">
                     {task.projectName}
                   </Badge>
+                )}
+                {task.prUrl && task.prState && (
+                  <PrIndicator
+                    prUrl={task.prUrl}
+                    prState={task.prState}
+                    prNumber={task.prNumber}
+                  />
                 )}
                 <div
                   className="relative shrink-0 ml-auto"

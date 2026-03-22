@@ -39,6 +39,8 @@ export const tasks = sqliteTable("tasks", {
   projectName: text("project_name"),
   taskType: text("task_type").notNull().default("linear"),
   cronScheduleId: integer("cron_schedule_id"),
+  prUrl: text("pr_url"),
+  prState: text("pr_state"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

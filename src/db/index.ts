@@ -377,7 +377,17 @@ function migrateSchema(sqlite: DatabaseType): void {
   }
 
   // ---------------------------------------------------------------------------
-  // Migration 16 (self-monitoring composite index):
+  // Migration 16 (PR URL and state):
+  //   - Add pr_url and pr_state columns to tasks
+  //   Sentinel: pr_url column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "pr_url")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 17 (self-monitoring composite index):
   //   - Add composite index on system_events(type, created_at) for efficient
   //     startup reconstruction of healing counters.
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
