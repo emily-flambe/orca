@@ -14,7 +14,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import { insertTask, getAllTasks } from "../src/db/queries.js";
 
-vi.mock("../src/scheduler/index.js", () => ({
+vi.mock("../src/session-handles.js", () => ({
   activeHandles: new Map(),
 }));
 

@@ -8,7 +8,7 @@ import { createApiRoutes } from "../src/api/routes.js";
 import { _resetInngestHealthCacheForTesting } from "../src/api/routes.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
-vi.mock("../src/scheduler/index.js", () => ({ activeHandles: new Map() }));
+vi.mock("../src/session-handles.js", () => ({ activeHandles: new Map() }));
 vi.mock("../src/runner/index.js", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
   invocationLogs: new Map(),

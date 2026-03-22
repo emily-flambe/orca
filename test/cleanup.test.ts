@@ -115,7 +115,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",

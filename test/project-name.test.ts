@@ -21,7 +21,7 @@ import {
 import type { OrcaConfig } from "../src/config/index.js";
 
 // Mock scheduler + runner so sync imports don't fail
-vi.mock("../src/scheduler/index.js", () => ({
+vi.mock("../src/session-handles.js", () => ({
   activeHandles: new Map(),
 }));
 vi.mock("../src/runner/index.js", () => ({
@@ -50,7 +50,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",

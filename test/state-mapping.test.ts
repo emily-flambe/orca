@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock scheduler + runner so sync imports don't fail
-vi.mock("../src/scheduler/index.js", () => ({
+vi.mock("../src/session-handles.js", () => ({
   activeHandles: new Map(),
 }));
 
@@ -65,7 +65,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",

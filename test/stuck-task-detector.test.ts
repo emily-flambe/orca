@@ -15,8 +15,17 @@ import {
   type TaskTrackingState,
   type StuckTaskAlert,
 } from "../src/scheduler/stuck-task-detector.js";
-import { resetHealingCounters } from "../src/scheduler/alerts.js";
+import {
+  _getHealingCounters,
+  _getAlertCooldowns,
+} from "../src/scheduler/alerts.js";
 import { createDb } from "../src/db/index.js";
+
+/** Test-only helper: clears all healing counters and alert cooldowns. */
+function resetHealingCounters(): void {
+  _getHealingCounters().clear();
+  _getAlertCooldowns().clear();
+}
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +40,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 3600,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
