@@ -315,6 +315,14 @@ export function deleteCronSchedule(id: number): Promise<{ ok: boolean }> {
   return fetchJson<{ ok: boolean }>(`/cron/${id}`, { method: "DELETE" });
 }
 
+export function triggerCronSchedule(
+  id: number,
+): Promise<{ ok: boolean; taskId: string }> {
+  return fetchJson<{ ok: boolean; taskId: string }>(`/cron/${id}/trigger`, {
+    method: "POST",
+  });
+}
+
 export async function fetchInngestWorkflows(): Promise<
   import("../types").InngestWorkflow[]
 > {

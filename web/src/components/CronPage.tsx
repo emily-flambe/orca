@@ -12,6 +12,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  triggerCronSchedule,
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import { formatTimestamp, formatDurationMs } from "../utils/time.js";
@@ -536,6 +537,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [triggeringId, setTriggeringId] = useState<number | null>(null);
   const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(
     null,
   );
@@ -610,6 +612,21 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
       );
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  async function handleTrigger(id: number) {
+    if (triggeringId === id) return;
+    setTriggeringId(id);
+    try {
+      await triggerCronSchedule(id);
+      onToast?.success("Run triggered");
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to trigger run",
+      );
+    } finally {
+      setTriggeringId(null);
     }
   }
 
@@ -714,6 +731,14 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                   </button>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleTrigger(s.id)}
+                    disabled={triggeringId === s.id}
+                    className="px-2 py-1 text-xs text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Run now (one-time)"
+                  >
+                    {triggeringId === s.id ? "Running..." : "Run now"}
+                  </button>
                   <button
                     onClick={() => setEditingId(s.id)}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
