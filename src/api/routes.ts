@@ -48,6 +48,7 @@ import {
   insertTask,
   deleteTask,
   insertSystemEvent,
+  getTaskStateTransitions,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -231,6 +232,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const invocations = getInvocationsByTask(db, taskId);
     return c.json({ ...task, invocations });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/tasks/:id/transitions
+  // -----------------------------------------------------------------------
+  app.get("/api/tasks/:id/transitions", (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "Task not found" }, 404);
+    }
+    const transitions = getTaskStateTransitions(db, taskId);
+    return c.json(transitions);
   });
 
   // -----------------------------------------------------------------------

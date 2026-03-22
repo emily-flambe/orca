@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS cron_runs (
   duration_ms INTEGER
 )`;
 
+const CREATE_TASK_STATE_TRANSITIONS = `
+CREATE TABLE IF NOT EXISTS task_state_transitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  linear_issue_id TEXT NOT NULL,
+  from_status TEXT,
+  to_status TEXT NOT NULL,
+  reason TEXT,
+  invocation_id INTEGER,
+  created_at TEXT NOT NULL
+)`;
+
 /**
  * Check if a column exists in a table using PRAGMA table_info.
  */
@@ -395,6 +406,30 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 18 (task state transition audit log):
+  //   - Create task_state_transitions table if it doesn't exist (for existing DBs)
+  //   Sentinel: table doesn't exist.
+  // ---------------------------------------------------------------------------
+  const transitionTableExists =
+    (
+      sqlite.pragma("table_info(task_state_transitions)") as { name: string }[]
+    ).length > 0;
+  if (!transitionTableExists) {
+    sqlite.exec(`CREATE TABLE task_state_transitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      linear_issue_id TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT NOT NULL,
+      reason TEXT,
+      invocation_id INTEGER,
+      created_at TEXT NOT NULL
+    )`);
+    sqlite.exec(
+      "CREATE INDEX IF NOT EXISTS idx_task_state_transitions_linear_issue_id ON task_state_transitions(linear_issue_id)",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
@@ -416,6 +451,7 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_CRON_SCHEDULES);
   sqlite.exec(CREATE_CRON_RUNS);
   sqlite.exec(CREATE_SYSTEM_EVENTS);
+  sqlite.exec(CREATE_TASK_STATE_TRANSITIONS);
 
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.

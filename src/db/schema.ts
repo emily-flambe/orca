@@ -97,6 +97,16 @@ export const systemEvents = sqliteTable("system_events", {
   createdAt: text("created_at").notNull(),
 });
 
+export const taskStateTransitions = sqliteTable("task_state_transitions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  linearIssueId: text("linear_issue_id").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  reason: text("reason"),
+  invocationId: integer("invocation_id"),
+  createdAt: text("created_at").notNull(),
+});
+
 export const cronSchedules = sqliteTable("cron_schedules", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
