@@ -71,8 +71,10 @@ export const cronTaskLifecycle = inngest.createFunction(
         // Enforce concurrency cap — exit gracefully if full
         try {
           assertSessionCapacity(db);
-        } catch {
-          return { claimed: false, reason: "session cap reached" };
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "session cap reached";
+          return { claimed: false, reason };
         }
 
         const task = getTask(db, taskId);
@@ -103,13 +105,26 @@ export const cronTaskLifecycle = inngest.createFunction(
         invocationId: number;
         worktreePath: string;
         branchName: string;
-      } => {
+      } | null => {
         const { db, config } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
-        // Second capacity check — guards against TOCTOU race between claim and spawn
-        assertSessionCapacity(db);
+        // Second capacity check — guards against TOCTOU race between claim and spawn.
+        // Catch errors gracefully — with retries: 0, a throw kills the workflow
+        // permanently and orphans the task.
+        try {
+          assertSessionCapacity(db);
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "session cap reached";
+          log(
+            `cron task ${taskId}: implement spawn blocked (${reason}), resetting to ready`,
+          );
+          updateTaskStatus(db, taskId, "ready");
+          emitTaskUpdated(getTask(db, taskId)!);
+          return null;
+        }
 
         const model = config.implementModel;
         const wtResult = createWorktree(task.repoPath, taskId, 0);
@@ -161,6 +176,8 @@ export const cronTaskLifecycle = inngest.createFunction(
         return { invocationId, worktreePath, branchName };
       },
     );
+
+    if (!implementCtx) return { outcome: "capacity_blocked" };
 
     // Step 3: Wait for session to complete
     const sessionEvent = await step.waitForEvent("await-session", {
