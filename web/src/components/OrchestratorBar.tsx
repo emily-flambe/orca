@@ -3,6 +3,7 @@ import type { OrcaStatus } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
 import { formatTokens } from "../utils/formatTokens";
 import { MODEL_OPTIONS } from "../constants.js";
+import PulsingDot from "./ui/PulsingDot";
 
 interface ToastCallbacks {
   success: (msg: string) => void;
@@ -195,12 +196,7 @@ export default function OrchestratorBar({
 
         {/* Active sessions */}
         <div className="flex items-center gap-2">
-          {status.activeSessions > 0 && (
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-            </span>
-          )}
+          {status.activeSessions > 0 && <PulsingDot color="blue" />}
           <span className="text-gray-300">
             {status.activeSessions}
             <span className="text-gray-500"> / </span>
@@ -299,10 +295,7 @@ export default function OrchestratorBar({
       </div>
       {status.draining && (
         <div className="bg-amber-900/40 border-b border-amber-700/50 px-4 py-1.5 text-xs text-amber-300 flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-          </span>
+          <PulsingDot color="amber" />
           <span>
             Draining — waiting for {status.drainSessionCount} session
             {status.drainSessionCount !== 1 ? "s" : ""} to finish before deploy

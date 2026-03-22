@@ -16,22 +16,12 @@ import Skeleton from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
 import { formatTokens } from "../utils/formatTokens";
 import { MANUAL_STATUSES } from "../constants.js";
-import { timeAgo } from "../utils/time.js";
+import { timeAgo, formatDurationRange } from "../utils/time.js";
 
 interface Props {
   taskId: string;
   initialInvocationId?: number;
   refreshTrigger?: number;
-}
-
-function formatDuration(start: string, end: string | null): string {
-  if (!end) return "running...";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  return `${mins}m ${remSecs}s`;
 }
 
 function formatDate(iso: string): string {
@@ -256,7 +246,11 @@ export default function TaskDetail({
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-400">
                       <span className="tabular-nums">
-                        {formatDuration(inv.startedAt, inv.endedAt)}
+                        {formatDurationRange(
+                          inv.startedAt,
+                          inv.endedAt,
+                          "running...",
+                        )}
                       </span>
                       {(inv.inputTokens != null ||
                         inv.outputTokens != null) && (
@@ -348,7 +342,11 @@ export default function TaskDetail({
                           {formatDate(inv.startedAt)}
                         </td>
                         <td className="py-2 pr-4 text-gray-300 whitespace-nowrap tabular-nums">
-                          {formatDuration(inv.startedAt, inv.endedAt)}
+                          {formatDurationRange(
+                            inv.startedAt,
+                            inv.endedAt,
+                            "running...",
+                          )}
                         </td>
                         <td className="py-2 pr-4">
                           <StatusBadge status={inv.status} />

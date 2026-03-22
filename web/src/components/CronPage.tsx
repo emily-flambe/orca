@@ -14,6 +14,8 @@ import {
   deleteCronSchedule,
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
+import { formatTimestamp, formatDurationMs } from "../utils/time.js";
+import { runStatusBadge } from "../utils/status.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,41 +291,6 @@ function CronForm({
 // Run History
 // ---------------------------------------------------------------------------
 
-function formatDuration(ms: number | null): string {
-  if (ms == null) return "—";
-  if (ms < 1000) return `${ms}ms`;
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  return `${mins}m ${remSecs}s`;
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function statusBadge(status: string) {
-  const colors: Record<string, string> = {
-    success: "bg-green-900/40 text-green-400 border-green-700/40",
-    failed: "bg-red-900/40 text-red-400 border-red-700/40",
-    running: "bg-blue-900/40 text-blue-400 border-blue-700/40",
-  };
-  const cls = colors[status] ?? "bg-gray-800 text-gray-400 border-gray-700";
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded-full border ${cls}`}>
-      {status}
-    </span>
-  );
-}
-
 // Shell run history (cron_shell)
 function ShellRunHistory({ scheduleId }: { scheduleId: number }) {
   const [runs, setRuns] = useState<CronRun[]>([]);
@@ -360,12 +327,12 @@ function ShellRunHistory({ scheduleId }: { scheduleId: number }) {
           className="bg-gray-800/50 rounded px-2 py-1.5 space-y-1"
         >
           <div className="flex items-center gap-2 text-xs">
-            {statusBadge(run.status)}
+            {runStatusBadge(run.status)}
             <span className="text-gray-400">
               {formatTimestamp(run.startedAt)}
             </span>
             <span className="text-gray-500">
-              {formatDuration(run.durationMs)}
+              {formatDurationMs(run.durationMs)}
             </span>
             {run.output && (
               <button
@@ -409,10 +376,10 @@ function InvocationRow({ inv }: { inv: Invocation }) {
   return (
     <div className="bg-gray-900 rounded px-2 py-1.5 space-y-1 border border-gray-800">
       <div className="flex items-center gap-2 text-xs">
-        {statusBadge(inv.status)}
+        {runStatusBadge(inv.status)}
         <span className="text-gray-500 font-mono">{inv.phase ?? "—"}</span>
         <span className="text-gray-400">{formatTimestamp(inv.startedAt)}</span>
-        <span className="text-gray-500">{formatDuration(durationMs)}</span>
+        <span className="text-gray-500">{formatDurationMs(durationMs)}</span>
         {inv.costUsd != null && (
           <span className="text-gray-500">${inv.costUsd.toFixed(4)}</span>
         )}
@@ -472,7 +439,7 @@ function ClaudeTaskRow({ task }: { task: TaskWithInvocations }) {
           {task.linearIssueId}
         </span>
         <span className="text-gray-400">{formatTimestamp(task.createdAt)}</span>
-        <span className="text-gray-500">{formatDuration(durationMs)}</span>
+        <span className="text-gray-500">{formatDurationMs(durationMs)}</span>
         {task.invocations.length > 0 && (
           <button
             onClick={() => setExpanded((v) => !v)}

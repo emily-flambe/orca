@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import type {
   MetricsData,
   SystemEvent,
@@ -9,7 +9,8 @@ import { fetchMetrics, fetchStatus } from "../hooks/useApi";
 import type { OrcaStatus } from "../types";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
-import { timeAgo, formatUptime } from "../utils/time.js";
+import { timeAgo, formatUptime, formatDateTime } from "../utils/time.js";
+import { useFetchWithPolling } from "../hooks/useFetchWithPolling.js";
 import { eventDotColor } from "../utils/events.js";
 
 // ---------------------------------------------------------------------------
@@ -30,15 +31,6 @@ function trendPct(current: number, previous: number): number | null {
   if (previous === 0 && current === 0) return null;
   if (previous === 0) return 100;
   return Math.round(((current - previous) / previous) * 100);
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -634,35 +626,23 @@ function SystemEventsTimeline({ events }: { events: SystemEvent[] }) {
 // Main MetricsPage
 // ---------------------------------------------------------------------------
 
+const fetchMetricsAndStatus = () =>
+  Promise.all([fetchMetrics(), fetchStatus()]).then(
+    ([m, s]) => ({ metrics: m, status: s }) as const,
+  );
+
 export default function MetricsPage() {
-  const [metrics, setMetrics] = useState<MetricsData | null>(null);
-  const [status, setStatus] = useState<OrcaStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    Promise.all([fetchMetrics(), fetchStatus()])
-      .then(([m, s]) => {
-        setMetrics(m);
-        setStatus(s);
-        setError(null);
-      })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 30_000);
-    return () => clearInterval(interval);
-  }, [load]);
+  const { data, loading, error } = useFetchWithPolling({
+    fetcher: fetchMetricsAndStatus,
+    intervalMs: 30_000,
+  });
 
   if (loading) return <Skeleton lines={8} className="m-6" />;
   if (error)
     return <div className="p-6 text-sm text-red-400">Error: {error}</div>;
-  if (!metrics) return null;
+  if (!data) return null;
+
+  const { metrics, status } = data;
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">

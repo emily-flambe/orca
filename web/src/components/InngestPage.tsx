@@ -1,50 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import type { InngestWorkflow } from "../types";
 import { fetchInngestWorkflows } from "../hooks/useApi";
+import { formatTimestamp, formatDurationRange } from "../utils/time.js";
+import { runStatusBadge } from "../utils/status.js";
+import { useFetchWithPolling } from "../hooks/useFetchWithPolling.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatDuration(startedAt: string, endedAt: string | null): string {
-  if (!endedAt) return "running";
-  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
-  if (ms < 1000) return `${ms}ms`;
-  const secs = Math.floor(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  const remSecs = secs % 60;
-  return `${mins}m ${remSecs}s`;
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  COMPLETED: "bg-green-900/40 text-green-400 border-green-700/40",
-  FAILED: "bg-red-900/40 text-red-400 border-red-700/40",
-  RUNNING: "bg-blue-900/40 text-blue-400 border-blue-700/40",
-  QUEUED: "bg-gray-800 text-gray-400 border-gray-700",
-  CANCELLED: "bg-yellow-900/40 text-yellow-400 border-yellow-700/40",
-};
-
-function statusBadge(status: string) {
-  const cls =
-    STATUS_COLORS[status] ?? "bg-gray-800 text-gray-400 border-gray-700";
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded-full border ${cls}`}>
-      {status}
-    </span>
-  );
-}
 
 function triggerLabel(trigger: { type: string; value: string }) {
   if (trigger.type === "cron" || trigger.type === "CRON") {
@@ -66,26 +29,15 @@ function triggerLabel(trigger: { type: string; value: string }) {
 // ---------------------------------------------------------------------------
 
 export default function InngestPage() {
-  const [workflows, setWorkflows] = useState<InngestWorkflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: workflows,
+    loading,
+    error,
+  } = useFetchWithPolling<InngestWorkflow[]>({
+    fetcher: fetchInngestWorkflows,
+    intervalMs: 30_000,
+  });
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    fetchInngestWorkflows()
-      .then((wfs) => {
-        setWorkflows(wfs);
-        setError(null);
-      })
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 30_000);
-    return () => clearInterval(interval);
-  }, [load]);
 
   if (loading) {
     return (
@@ -103,19 +55,21 @@ export default function InngestPage() {
     );
   }
 
+  const wfs = workflows ?? [];
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
       <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
         Inngest Workflows
       </h2>
 
-      {workflows.length === 0 && (
+      {wfs.length === 0 && (
         <div className="text-sm text-gray-500 italic">
           No workflows found. Is the Inngest dev server running?
         </div>
       )}
 
-      {workflows.map((wf) => (
+      {wfs.map((wf) => (
         <div
           key={wf.id}
           className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2"
@@ -173,12 +127,12 @@ export default function InngestPage() {
                   className="bg-gray-800/50 rounded px-2 py-1.5"
                 >
                   <div className="flex items-center gap-2 text-xs">
-                    {statusBadge(run.status)}
+                    {runStatusBadge(run.status)}
                     <span className="text-gray-400">
                       {formatTimestamp(run.startedAt)}
                     </span>
                     <span className="text-gray-500">
-                      {formatDuration(run.startedAt, run.endedAt)}
+                      {formatDurationRange(run.startedAt, run.endedAt)}
                     </span>
                   </div>
                 </div>

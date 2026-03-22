@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { OrcaStatus, Task } from "../types";
 import CreateTicketModal from "./CreateTicketModal";
+import PulsingDot from "./ui/PulsingDot";
 
 export type Page =
   | "dashboard"
@@ -221,10 +222,7 @@ export default function Sidebar({
             <span>Dashboard</span>
             {status && status.activeSessions > 0 && (
               <span className="ml-auto flex items-center gap-1">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-                </span>
+                <PulsingDot color="blue" />
                 <span className="text-xs text-blue-400 tabular-nums">
                   {status.activeSessions}
                 </span>
