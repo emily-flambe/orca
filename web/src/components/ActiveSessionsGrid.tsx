@@ -1,12 +1,26 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
 import { fetchRunningInvocations } from "../hooks/useApi";
-import { useSSE } from "../hooks/useSSE";
 import LiveRunWidget from "./LiveRunWidget";
 import { formatTokens } from "../utils/formatTokens";
 import { timeAgo } from "../utils/time.js";
 
-export default function ActiveSessionsGrid() {
+export interface ActiveSessionsGridProps {
+  invocationStartedTrigger?: number;
+  lastCompletedEvent?: {
+    taskId: string;
+    invocationId: number;
+    status: string;
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } | null;
+}
+
+export default function ActiveSessionsGrid({
+  invocationStartedTrigger,
+  lastCompletedEvent,
+}: ActiveSessionsGridProps) {
   const [running, setRunning] = useState<Invocation[]>([]);
   const [lastCompleted, setLastCompleted] = useState<Invocation | null>(null);
 
@@ -18,42 +32,35 @@ export default function ActiveSessionsGrid() {
     reload();
   }, [reload]);
 
-  const handleInvocationStarted = useCallback(() => {
-    // Re-fetch to get the full invocation object
-    fetchRunningInvocations().then(setRunning).catch(console.error);
-  }, []);
+  // Re-fetch running invocations when a new invocation starts
+  useEffect(() => {
+    if (
+      invocationStartedTrigger !== undefined &&
+      invocationStartedTrigger > 0
+    ) {
+      fetchRunningInvocations().then(setRunning).catch(console.error);
+    }
+  }, [invocationStartedTrigger]);
 
-  const handleInvocationCompleted = useCallback(
-    (data: {
-      taskId: string;
-      invocationId: number;
-      status: string;
-      costUsd: number;
-      inputTokens?: number;
-      outputTokens?: number;
-    }) => {
-      setRunning((prev) => {
-        const completed = prev.find((inv) => inv.id === data.invocationId);
-        if (completed) {
-          setLastCompleted({
-            ...completed,
-            status: data.status as Invocation["status"],
-            costUsd: data.costUsd,
-            inputTokens: data.inputTokens ?? null,
-            outputTokens: data.outputTokens ?? null,
-            endedAt: new Date().toISOString(),
-          });
-        }
-        return prev.filter((inv) => inv.id !== data.invocationId);
-      });
-    },
-    [],
-  );
-
-  useSSE({
-    onInvocationStarted: handleInvocationStarted,
-    onInvocationCompleted: handleInvocationCompleted,
-  });
+  // Handle invocation completed events from parent
+  useEffect(() => {
+    if (!lastCompletedEvent) return;
+    const data = lastCompletedEvent;
+    setRunning((prev) => {
+      const completed = prev.find((inv) => inv.id === data.invocationId);
+      if (completed) {
+        setLastCompleted({
+          ...completed,
+          status: data.status as Invocation["status"],
+          costUsd: data.costUsd,
+          inputTokens: data.inputTokens ?? null,
+          outputTokens: data.outputTokens ?? null,
+          endedAt: new Date().toISOString(),
+        });
+      }
+      return prev.filter((inv) => inv.id !== data.invocationId);
+    });
+  }, [lastCompletedEvent]);
 
   return (
     <div className="p-4">

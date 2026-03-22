@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { fetchMetrics } from "../hooks/useApi";
 import type { MetricsData } from "../hooks/useApi";
 import { timeAgo } from "../utils/time.js";
@@ -6,6 +6,7 @@ import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
 import ActiveSessionsGrid from "./ActiveSessionsGrid";
 import ActivityFeed from "./ActivityFeed";
+import { useFetchWithPolling } from "../hooks/useFetchWithPolling.js";
 
 // ---------------------------------------------------------------------------
 // Main dashboard
@@ -16,41 +17,40 @@ interface DashboardProps {
     invocationId: number,
   ) => void;
   refreshTrigger?: number;
+  invocationStartedTrigger?: number;
+  lastCompletedEvent?: {
+    taskId: string;
+    invocationId: number;
+    status: string;
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } | null;
 }
 
 export default function Dashboard({
   onNavigateToInvocation,
   refreshTrigger,
+  invocationStartedTrigger,
+  lastCompletedEvent,
 }: DashboardProps) {
-  const [data, setData] = useState<MetricsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, loading, error, reload } = useFetchWithPolling<MetricsData>({
+    fetcher: fetchMetrics,
+    intervalMs: 30_000,
+  });
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const load = useCallback(() => {
-    fetchMetrics()
-      .then((d) => {
-        setData(d);
-        setError(null);
-        setLastUpdated(new Date());
-      })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setLoading(false));
-  }, []);
-
+  // Track last-updated time whenever data changes
   useEffect(() => {
-    load();
-    const interval = setInterval(load, 30_000);
-    return () => clearInterval(interval);
-  }, [load]);
+    if (data) setLastUpdated(new Date());
+  }, [data]);
 
+  // Reload when parent signals a refresh
   useEffect(() => {
     if (refreshTrigger !== undefined && refreshTrigger > 0) {
-      load();
+      reload();
     }
-  }, [refreshTrigger, load]);
+  }, [refreshTrigger, reload]);
 
   if (loading) return <Skeleton lines={6} className="m-6" />;
   if (error)
@@ -62,7 +62,10 @@ export default function Dashboard({
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* Active sessions */}
-      <ActiveSessionsGrid />
+      <ActiveSessionsGrid
+        invocationStartedTrigger={invocationStartedTrigger}
+        lastCompletedEvent={lastCompletedEvent}
+      />
 
       {/* Activity feed */}
       <Card>

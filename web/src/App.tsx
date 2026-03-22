@@ -22,6 +22,7 @@ import OrchestratorBar from "./components/OrchestratorBar";
 import CronPage from "./components/CronPage";
 import InngestPage from "./components/InngestPage";
 import MetricsPage from "./components/MetricsPage";
+import PulsingDot from "./components/ui/PulsingDot";
 import { MODEL_OPTIONS } from "./constants.js";
 
 // ---------------------------------------------------------------------------
@@ -116,12 +117,7 @@ function SettingsPage({
           Concurrency
         </div>
         <div className="flex items-center gap-3">
-          {status.activeSessions > 0 && (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
-            </span>
-          )}
+          {status.activeSessions > 0 && <PulsingDot color="blue" />}
           <span className="text-sm text-gray-300">
             {status.activeSessions} active
           </span>
@@ -304,6 +300,15 @@ export default function App() {
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
+  const [invocationStartedTrigger, setInvocationStartedTrigger] = useState(0);
+  const [lastCompletedEvent, setLastCompletedEvent] = useState<{
+    taskId: string;
+    invocationId: number;
+    status: string;
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } | null>(null);
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
@@ -363,12 +368,24 @@ export default function App() {
     setStatus(s as OrcaStatus);
   }, []);
 
+  const handleInvocationStarted = useCallback(() => {
+    setInvocationStartedTrigger((n) => n + 1);
+  }, []);
+
   const handleInvocationCompleted = useCallback(
-    (data: { taskId: string }) => {
+    (data: {
+      taskId: string;
+      invocationId: number;
+      status: string;
+      costUsd: number;
+      inputTokens?: number;
+      outputTokens?: number;
+    }) => {
       if (data.taskId === selectedTaskId) {
         setDetailKey((k) => k + 1);
       }
       setDashboardRefreshTrigger((n) => n + 1);
+      setLastCompletedEvent({ ...data });
     },
     [selectedTaskId],
   );
@@ -435,6 +452,7 @@ export default function App() {
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
+    onInvocationStarted: handleInvocationStarted,
     onInvocationCompleted: handleInvocationCompleted,
     onTasksRefreshed: handleTasksRefreshed,
     onReconnect: handleReconnect,
@@ -505,6 +523,7 @@ export default function App() {
         <Header
           activePage={activePage}
           onOpenSidebar={() => setSidebarOpen(true)}
+          status={status}
         />
 
         {/* Orchestrator bar — persistent status/action bar */}
@@ -519,10 +538,7 @@ export default function App() {
         {/* Backend-down banner */}
         {backendDown && (
           <div className="shrink-0 bg-amber-900/50 border-b border-amber-700/60 px-4 py-2 text-sm text-amber-200 flex items-center gap-2">
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-            </span>
+            <PulsingDot color="amber" />
             Backend is unreachable — retrying...
           </div>
         )}
@@ -549,6 +565,8 @@ export default function App() {
           <Dashboard
             onNavigateToInvocation={handleNavigateToInvocation}
             refreshTrigger={dashboardRefreshTrigger}
+            invocationStartedTrigger={invocationStartedTrigger}
+            lastCompletedEvent={lastCompletedEvent}
           />
         )}
 

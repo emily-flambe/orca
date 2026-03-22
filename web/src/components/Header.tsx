@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
 import type { Page } from "./Sidebar";
-import { fetchStatus } from "../hooks/useApi.js";
+import type { OrcaStatus } from "../types";
 
 const PAGE_TITLES: Record<Page, string> = {
   dashboard: "Dashboard",
@@ -11,32 +10,6 @@ const PAGE_TITLES: Record<Page, string> = {
   cron: "Cron",
   inngest: "Inngest",
 };
-
-function useHealthStatus(): boolean | null {
-  const [online, setOnline] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function check() {
-      try {
-        await fetchStatus();
-        if (!cancelled) setOnline(true);
-      } catch {
-        if (!cancelled) setOnline(false);
-      }
-    }
-
-    check();
-    const id = setInterval(check, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
-
-  return online;
-}
 
 function HealthDot({ online }: { online: boolean | null }) {
   const color =
@@ -54,10 +27,18 @@ function HealthDot({ online }: { online: boolean | null }) {
 interface HeaderProps {
   activePage: Page;
   onOpenSidebar: () => void;
+  status?: OrcaStatus | null;
 }
 
-export default function Header({ activePage, onOpenSidebar }: HeaderProps) {
-  const online = useHealthStatus();
+export default function Header({
+  activePage,
+  onOpenSidebar,
+  status,
+}: HeaderProps) {
+  // Derive online state from status prop:
+  // null/undefined = still loading, non-null = online
+  // If status has been set at least once, we consider the backend online.
+  const online = status === undefined ? null : status !== null;
   return (
     <div className="sticky top-0 z-20 h-14 flex items-center px-4 border-b border-gray-800 bg-gray-950 shrink-0">
       {/* Left side */}
