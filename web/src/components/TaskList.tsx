@@ -145,6 +145,7 @@ export default function TaskList({
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+  const statusMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
@@ -589,6 +590,7 @@ export default function TaskList({
                   }
                 >
                   <button
+                    ref={statusMenuTaskId === task.linearIssueId ? statusMenuTriggerRef : undefined}
                     aria-haspopup="menu"
                     aria-expanded={statusMenuTaskId === task.linearIssueId}
                     aria-label={`Change status: ${getStatusDisplayText(task.orcaStatus)}`}
@@ -611,6 +613,7 @@ export default function TaskList({
                       onKeyDown={(e) => {
                         if (e.key === "Escape") {
                           setStatusMenuTaskId(null);
+                          statusMenuTriggerRef.current?.focus();
                           return;
                         }
                         if (e.key === "ArrowDown" || e.key === "ArrowUp") {
