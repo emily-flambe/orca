@@ -2,7 +2,7 @@
 // CLI command tests — add, status, and start subcommands
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks (hoisted — must be at top level)
@@ -96,7 +96,10 @@ vi.mock("../src/inngest/client.js", () => ({ inngest: {} }));
 vi.mock("inngest/hono", () => ({ serve: vi.fn(() => vi.fn()) }));
 vi.mock("../src/inngest/functions.js", () => ({ functions: [] }));
 vi.mock("../src/inngest/workflows/task-lifecycle.js", () => ({}));
-vi.mock("../src/inngest/deps.js", () => ({ setSchedulerDeps: vi.fn() }));
+vi.mock("../src/inngest/deps.js", () => ({
+  setSchedulerDeps: vi.fn(),
+  markReady: vi.fn(),
+}));
 vi.mock("../src/logger.js", () => ({
   initFileLogger: vi.fn(),
   createLogger: () => ({
@@ -423,6 +426,7 @@ describe("orca start", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -434,13 +438,21 @@ describe("orca start", () => {
     mockGetAllTasks.mockReturnValue([]);
   });
 
-  test("start command initializes scheduler deps", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("start command initializes scheduler deps after grace period", async () => {
     await runCli(["start"]);
 
     const { setSchedulerDeps } = await import("../src/inngest/deps.js");
-    await vi.waitFor(() => {
-      expect(vi.mocked(setSchedulerDeps)).toHaveBeenCalled();
-    });
+    // setSchedulerDeps is deferred by STARTUP_GRACE_MS (15s)
+    expect(vi.mocked(setSchedulerDeps)).not.toHaveBeenCalled();
+
+    // Advance past the startup grace period
+    await vi.advanceTimersByTimeAsync(16_000);
+
+    expect(vi.mocked(setSchedulerDeps)).toHaveBeenCalled();
   });
 
   test("orphaned invocations are marked failed on startup", async () => {
@@ -454,11 +466,7 @@ describe("orca start", () => {
 
     await runCli(["start"]);
 
-    const { setSchedulerDeps } = await import("../src/inngest/deps.js");
-    await vi.waitFor(() => {
-      expect(vi.mocked(setSchedulerDeps)).toHaveBeenCalled();
-    });
-
+    // Orphan cleanup happens synchronously before the grace period
     expect(vi.mocked(updateInvocation)).toHaveBeenCalledWith(
       expect.anything(),
       "inv-1",

@@ -1,8 +1,11 @@
 // Verified working: 2026-03-03
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "./logger.js";
+
+const execFileAsync = promisify(execFile);
 
 const logger = createLogger("git");
 
@@ -59,6 +62,52 @@ export function git(args: string[], options?: { cwd?: string }): string {
           `DLL_INIT_FAILED on "git ${args.join(" ")}" — retry ${attempt + 1}/${DLL_RETRY_MAX} after ${delayMs / 1000}s`,
         );
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+        continue;
+      }
+
+      const execErr = err as ExecError;
+      const stderr = execErr.stderr?.trim() ?? "";
+      const parts = [`git command failed: git ${args.join(" ")}`];
+      if (execErr.code) parts.push(`code: ${execErr.code}`);
+      if (execErr.status != null) parts.push(`exit: ${execErr.status}`);
+      if (execErr.signal) parts.push(`signal: ${execErr.signal}`);
+      if (stderr) parts.push(stderr);
+      if (!stderr && execErr.message) parts.push(execErr.message);
+      if (options?.cwd) parts.push(`cwd: ${options.cwd}`);
+      const error = Object.assign(new Error(parts.join("\n")), {
+        status: execErr.status,
+        signal: execErr.signal,
+      });
+      throw error;
+    }
+  }
+}
+
+/**
+ * Execute a git command asynchronously and return trimmed stdout.
+ * Non-blocking equivalent of `git()` — uses `execFile` (promise-based)
+ * and `setTimeout` for retry delays instead of `Atomics.wait()`.
+ * Same DLL_INIT retry logic as the sync version.
+ */
+export async function gitAsync(
+  args: string[],
+  options?: { cwd?: string },
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { stdout } = await execFileAsync("git", args, {
+        encoding: "utf-8",
+        cwd: options?.cwd,
+      });
+      return stdout.trim();
+    } catch (err: unknown) {
+      // Retry DLL_INIT errors with backoff before falling through to error handling
+      if (isDllExitCode(err) && attempt < DLL_RETRY_MAX) {
+        const delayMs = DLL_RETRY_DELAYS_MS[attempt];
+        logger.warn(
+          `DLL_INIT_FAILED on "git ${args.join(" ")}" — retry ${attempt + 1}/${DLL_RETRY_MAX} after ${delayMs / 1000}s`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
 

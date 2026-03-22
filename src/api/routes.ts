@@ -177,6 +177,14 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   const app = new Hono();
 
   // -----------------------------------------------------------------------
+  // GET /api/health/ping — lightweight liveness probe (no DB, no async)
+  // Registered before middleware so it always responds immediately.
+  // -----------------------------------------------------------------------
+  app.get("/api/health/ping", (c) => {
+    return c.text("pong", 200);
+  });
+
+  // -----------------------------------------------------------------------
   // Request logging middleware
   // -----------------------------------------------------------------------
   app.use("*", async (c, next) => {

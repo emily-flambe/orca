@@ -161,7 +161,7 @@ log "new instance started via PM2"
 log "health checking new instance on port $STANDBY_PORT..."
 HEALTH_OK=false
 for i in $(seq 1 60); do
-  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
+  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health/ping" > /dev/null 2>&1; then
     HEALTH_OK=true
     log "health check passed on attempt $i"
     break
@@ -262,7 +262,7 @@ fi
 log "post-switch health check on port $STANDBY_PORT..."
 POST_SWITCH_OK=false
 for i in $(seq 1 15); do
-  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
+  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health/ping" > /dev/null 2>&1; then
     POST_SWITCH_OK=true
     log "post-switch health check passed on attempt $i"
     break

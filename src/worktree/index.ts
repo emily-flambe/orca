@@ -1,4 +1,5 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync, execSync, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   existsSync,
   readdirSync,
@@ -6,10 +7,13 @@ import {
   rmSync,
   renameSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
-import { git, cleanStaleLockFiles } from "../git.js";
+import { git, gitAsync, cleanStaleLockFiles } from "../git.js";
 import { createLogger } from "../logger.js";
+
+const execFileAsync = promisify(execFile);
 
 const logger = createLogger("worktree");
 
@@ -67,6 +71,29 @@ export function rmSyncWithRetry(dirPath: string, maxAttempts = 5): void {
       }
       const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+}
+
+/**
+ * Async version of rmSyncWithRetry — uses fs/promises.rm and setTimeout
+ * instead of rmSync and Atomics.wait. Does not block the event loop.
+ */
+export async function rmWithRetry(
+  dirPath: string,
+  maxAttempts = 5,
+): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await rm(dirPath, { recursive: true, force: true });
+      return;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if ((code !== "EPERM" && code !== "EBUSY") || attempt === maxAttempts) {
+        throw err;
+      }
+      const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 }
@@ -587,6 +614,156 @@ export function removeWorktree(worktreePath: string): void {
         git(["update-ref", "-d", `refs/heads/${worktreeBranchName}`], {
           cwd: repoRoot,
         });
+      } catch {
+        // Branch may not exist or was already cleaned up by worktree prune
+      }
+    }
+  }
+}
+
+/**
+ * Async version of killProcessesInDirectory — uses execFile (promise-based)
+ * instead of execSync. Best-effort: errors are silently ignored.
+ */
+async function killProcessesInDirectoryAsync(dirPath: string): Promise<void> {
+  if (platform() !== "win32") return;
+  try {
+    const winPath = dirPath.replace(/\//g, "\\").replace(/'/g, "''");
+    await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Get-CimInstance Win32_Process | ` +
+          `Where-Object { $_.CommandLine -ne $null -and $_.CommandLine.Contains('${winPath}') } | ` +
+          `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+      ],
+      { timeout: 10_000 },
+    );
+  } catch {
+    // Best-effort: ignore errors (process may have already exited)
+  }
+}
+
+/**
+ * Async version of removeWorktree — uses gitAsync, rmWithRetry, and
+ * killProcessesInDirectoryAsync. Does not block the event loop.
+ *
+ * Same three-level fallback chain as the sync version:
+ * 1. Resolve repo root via git rev-parse, then git worktree remove
+ * 2. Derive repo root from path pattern, then git worktree remove
+ * 3. Fall back to rm + git worktree prune
+ */
+export async function removeWorktreeAsync(worktreePath: string): Promise<void> {
+  // Pre-deletion: kill processes that may hold file handles in the worktree.
+  await killProcessesInDirectoryAsync(worktreePath);
+
+  // Pre-deletion: remove node_modules trees first — they are the primary
+  // source of EPERM on Windows (deeply nested paths + antivirus locks).
+  if (platform() === "win32" && existsSync(worktreePath)) {
+    for (const candidate of [
+      join(worktreePath, "node_modules"),
+      ...(() => {
+        try {
+          return readdirSync(worktreePath, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && e.name !== "node_modules")
+            .map((e) => join(worktreePath, e.name, "node_modules"))
+            .filter((p) => existsSync(p));
+        } catch {
+          return [];
+        }
+      })(),
+    ]) {
+      try {
+        await rm(candidate, { recursive: true, force: true });
+      } catch {
+        // Best-effort: will retry in the full removal below
+      }
+    }
+  }
+
+  // Capture branch name before the directory is removed
+  let worktreeBranchName: string | null = null;
+  try {
+    const branchRef = (
+      await gitAsync(["rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd: worktreePath,
+      })
+    ).trim();
+    if (branchRef && branchRef !== "HEAD") {
+      worktreeBranchName = branchRef;
+    }
+  } catch {
+    // Worktree may already be in a broken state; proceed without branch name
+  }
+
+  let repoRoot: string | undefined;
+
+  // Level 1: resolve repo root via git
+  try {
+    const mainWorktree = await gitAsync(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: worktreePath },
+    );
+    repoRoot = dirname(mainWorktree);
+  } catch {
+    // Level 2: derive repo root from worktree path pattern
+    repoRoot = deriveRepoRoot(worktreePath);
+    if (repoRoot) {
+      logger.warn(
+        `rev-parse failed for ${worktreePath}, derived repo root: ${repoRoot}`,
+      );
+    }
+  }
+
+  // Try git worktree remove if we have a repo root
+  if (repoRoot) {
+    try {
+      await gitAsync(["worktree", "remove", "--force", worktreePath], {
+        cwd: repoRoot,
+      });
+      return;
+    } catch (removeErr) {
+      logger.warn(
+        `git worktree remove failed for ${worktreePath}: ${removeErr}`,
+      );
+      // Fall through to level 3
+    }
+  }
+
+  // Level 3: brute-force removal + prune
+  logger.warn(`falling back to rm + prune for ${worktreePath}`);
+  if (existsSync(worktreePath)) {
+    try {
+      await rmWithRetry(worktreePath);
+    } catch (rmErr) {
+      // Last resort: rename to .trash so the original path is unblocked
+      const trashPath = `${worktreePath}.trash-${Date.now()}`;
+      try {
+        renameSync(worktreePath, trashPath);
+        logger.warn(
+          `renamed stuck directory to ${trashPath} — manual cleanup needed`,
+        );
+      } catch {
+        throw rmErr;
+      }
+    }
+  }
+  if (repoRoot) {
+    try {
+      await gitAsync(["worktree", "prune"], { cwd: repoRoot });
+    } catch (pruneErr) {
+      logger.warn(`prune after rm failed: ${pruneErr}`);
+    }
+
+    // Bug 3: After prune, force-delete any ghost branch reference.
+    if (worktreeBranchName) {
+      try {
+        await gitAsync(
+          ["update-ref", "-d", `refs/heads/${worktreeBranchName}`],
+          { cwd: repoRoot },
+        );
       } catch {
         // Branch may not exist or was already cleaned up by worktree prune
       }

@@ -1,7 +1,7 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
-  cleanupStaleResources,
+  cleanupStaleResourcesAsync,
   cleanupOldInvocationLogs,
 } from "../../cleanup/index.js";
 import { deleteOldCronRuns } from "../../db/queries.js";
@@ -17,7 +17,7 @@ export const cleanupCronWorkflow = inngest.createFunction(
     await step.run("cleanup", async () => {
       sweepExitedHandles();
       const { db, config } = getSchedulerDeps();
-      cleanupStaleResources({ db, config });
+      await cleanupStaleResourcesAsync({ db, config });
       cleanupOldInvocationLogs({ db, config });
 
       // Delete cron runs older than 7 days

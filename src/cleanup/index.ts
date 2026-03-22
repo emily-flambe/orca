@@ -1,7 +1,12 @@
 import { readdirSync, statSync, unlinkSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { git, isTransientGitError } from "../git.js";
-import { removeWorktree, rmSyncWithRetry } from "../worktree/index.js";
+import { git, gitAsync, isTransientGitError } from "../git.js";
+import {
+  removeWorktree,
+  removeWorktreeAsync,
+  rmSyncWithRetry,
+  rmWithRetry,
+} from "../worktree/index.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
@@ -354,6 +359,289 @@ function cleanupRepo(
     } catch (err) {
       log(`failed to delete branch ${branch}: ${err}`);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async helpers (non-blocking equivalents)
+// ---------------------------------------------------------------------------
+
+async function getBranchLastCommitMsAsync(
+  branchName: string,
+  cwd: string,
+): Promise<number | null> {
+  try {
+    const dateStr = await gitAsync(["log", "-1", "--format=%ci", branchName], {
+      cwd,
+    });
+    if (!dateStr) return null;
+    const ms = new Date(dateStr).getTime();
+    return Number.isNaN(ms) ? null : ms;
+  } catch {
+    return null;
+  }
+}
+
+async function listOrcaBranchesAsync(cwd: string): Promise<string[]> {
+  try {
+    const output = await gitAsync(
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads/orca/"],
+      { cwd },
+    );
+    if (!output) return [];
+    return output.split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function listWorktreePathsAsync(cwd: string): Promise<string[]> {
+  try {
+    const output = await gitAsync(["worktree", "list", "--porcelain"], {
+      cwd,
+    });
+    const paths: string[] = [];
+    for (const line of output.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        paths.push(line.slice("worktree ".length));
+      }
+    }
+    return paths;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Async core cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Async version of cleanupStaleResources — uses non-blocking git/worktree
+ * operations and yields to the event loop between iterations.
+ */
+export async function cleanupStaleResourcesAsync(
+  deps: CleanupDeps,
+): Promise<void> {
+  const { db, config } = deps;
+
+  const allTasks = getAllTasks(db);
+  const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))];
+
+  if (repoPaths.length === 0) return;
+
+  const runningInvocations = getRunningInvocations(db);
+  const runningBranches = new Set(
+    runningInvocations
+      .map((inv) => inv.branchName)
+      .filter((b): b is string => b != null),
+  );
+  const runningWorktreePaths = new Set(
+    runningInvocations
+      .map((inv) => inv.worktreePath)
+      .filter((p): p is string => p != null),
+  );
+
+  const PR_ACTIVE_STATUSES = new Set([
+    "running",
+    "in_review",
+    "changes_requested",
+    "awaiting_ci",
+    "deploying",
+  ]);
+  const activeBranches = new Set(
+    allTasks
+      .filter((t) => PR_ACTIVE_STATUSES.has(t.orcaStatus))
+      .map((t) => t.prBranchName)
+      .filter((b): b is string => b != null),
+  );
+
+  const preservedWorktreePaths = new Set<string>();
+  const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
+  for (const t of readyTasks) {
+    const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
+    if (inv?.worktreePath) {
+      preservedWorktreePaths.add(inv.worktreePath);
+    }
+  }
+
+  const now = Date.now();
+  const maxAgeMs = config.cleanupBranchMaxAgeMin * 60 * 1000;
+
+  for (const repoPath of repoPaths) {
+    try {
+      await cleanupRepoAsync(repoPath, {
+        runningBranches,
+        runningWorktreePaths,
+        preservedWorktreePaths,
+        activeBranches,
+        now,
+        maxAgeMs,
+      });
+    } catch (err) {
+      log(`error cleaning up repo ${repoPath}: ${err}`);
+    }
+    // Yield to event loop between repos
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+async function cleanupRepoAsync(
+  repoPath: string,
+  ctx: {
+    runningBranches: Set<string>;
+    runningWorktreePaths: Set<string>;
+    preservedWorktreePaths: Set<string>;
+    activeBranches: Set<string>;
+    now: number;
+    maxAgeMs: number;
+  },
+): Promise<void> {
+  // --- Worktree cleanup ---
+  try {
+    await gitAsync(["worktree", "prune"], { cwd: repoPath });
+  } catch (err) {
+    const detail = isTransientGitError(err)
+      ? " (transient, will retry next cycle)"
+      : "";
+    logger.warn(`worktree prune failed for ${repoPath}${detail}: ${err}`);
+  }
+
+  const repoDirname = basename(repoPath);
+  const parentDir = dirname(repoPath);
+
+  const normalizePath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const normalizeSlashes = (p: string) => p.replace(/\\/g, "/");
+  const worktreePaths = (await listWorktreePathsAsync(repoPath)).map(
+    normalizeSlashes,
+  );
+  const normalizedWorktreePathSet = new Set(worktreePaths.map(normalizePath));
+  const normalizedRepoPath = normalizePath(repoPath);
+  const normalizedRepoDirname = normalizePath(repoDirname);
+  const normalizedRunningWtPaths = new Set(
+    [...ctx.runningWorktreePaths].map(normalizePath),
+  );
+  const normalizedPreservedWtPaths = new Set(
+    [...ctx.preservedWorktreePaths].map(normalizePath),
+  );
+
+  for (const wtPath of worktreePaths) {
+    if (normalizePath(wtPath) === normalizedRepoPath) continue;
+
+    const normalizedBasename = basename(normalizePath(wtPath));
+    if (!normalizedBasename.startsWith(`${normalizedRepoDirname}-`)) continue;
+
+    if (normalizedRunningWtPaths.has(normalizePath(wtPath))) continue;
+    if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
+
+    const wtAttempts = failedRemovalAttempts.get(wtPath) ?? 0;
+    if (wtAttempts >= MAX_REMOVAL_ATTEMPTS) continue;
+
+    try {
+      await removeWorktreeAsync(wtPath);
+      failedRemovalAttempts.delete(wtPath);
+      log(`removed worktree: ${wtPath}`);
+    } catch (err) {
+      const newAttempts = wtAttempts + 1;
+      failedRemovalAttempts.set(wtPath, newAttempts);
+      if (newAttempts >= MAX_REMOVAL_ATTEMPTS) {
+        log(
+          `permanently skipping worktree ${wtPath} after ${newAttempts} failed attempts — manual removal required`,
+        );
+      } else {
+        log(`failed to remove worktree ${wtPath}: ${err}`);
+      }
+    }
+
+    // Yield to event loop between worktree removals
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  // Also clean up unregistered directories matching the pattern
+  try {
+    const siblings = readdirSync(parentDir);
+    for (const entry of siblings) {
+      if (!normalizePath(entry).startsWith(`${normalizedRepoDirname}-`))
+        continue;
+      if (normalizePath(entry) === normalizedRepoDirname) continue;
+
+      const fullPath = join(parentDir, entry);
+
+      if (normalizedWorktreePathSet.has(normalizePath(fullPath))) continue;
+      if (normalizedRunningWtPaths.has(normalizePath(fullPath))) continue;
+      if (normalizedPreservedWtPaths.has(normalizePath(fullPath))) continue;
+
+      try {
+        if (!statSync(fullPath).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      const attempts = failedRemovalAttempts.get(fullPath) ?? 0;
+      if (attempts >= MAX_REMOVAL_ATTEMPTS) continue;
+
+      try {
+        await rmWithRetry(fullPath);
+        failedRemovalAttempts.delete(fullPath);
+        log(`removed orphaned worktree directory: ${fullPath}`);
+      } catch (err) {
+        const newAttempts = attempts + 1;
+        failedRemovalAttempts.set(fullPath, newAttempts);
+        if (newAttempts >= MAX_REMOVAL_ATTEMPTS) {
+          log(
+            `permanently skipping orphaned directory ${fullPath} after ${newAttempts} failed attempts — manual removal required`,
+          );
+        } else {
+          log(`failed to remove orphaned directory ${fullPath}: ${err}`);
+        }
+      }
+
+      // Yield to event loop between directory removals
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  } catch {
+    // Parent dir read failed — skip orphan cleanup for this repo
+  }
+
+  // --- Branch cleanup ---
+
+  // closeOrphanedPrs and listOpenPrBranches remain sync (github module scope)
+  try {
+    const closedCount = closeOrphanedPrs(repoPath, {
+      runningBranches: ctx.runningBranches,
+      activeBranches: ctx.activeBranches,
+      maxAgeMs: ctx.maxAgeMs,
+      now: ctx.now,
+    });
+    if (closedCount > 0) {
+      log(`closed ${closedCount} orphaned PR(s) in ${repoPath}`);
+    }
+  } catch (err) {
+    log(`failed to close orphaned PRs in ${repoPath}: ${err}`);
+  }
+
+  const orcaBranches = await listOrcaBranchesAsync(repoPath);
+  if (orcaBranches.length === 0) return;
+
+  const openPrBranches = listOpenPrBranches(repoPath);
+
+  for (const branch of orcaBranches) {
+    if (ctx.runningBranches.has(branch)) continue;
+    if (ctx.activeBranches.has(branch)) continue;
+    if (openPrBranches.has(branch)) continue;
+
+    const commitMs = await getBranchLastCommitMsAsync(branch, repoPath);
+    if (commitMs === null || ctx.now - commitMs < ctx.maxAgeMs) continue;
+
+    try {
+      await gitAsync(["branch", "-D", branch], { cwd: repoPath });
+      log(`deleted stale branch: ${branch}`);
+    } catch (err) {
+      log(`failed to delete branch ${branch}: ${err}`);
+    }
+
+    // Yield to event loop between branch deletions
+    await new Promise((resolve) => setImmediate(resolve));
   }
 }
 

@@ -30,7 +30,7 @@ import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
-import { setSchedulerDeps } from "../inngest/deps.js";
+import { setSchedulerDeps, markReady } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { probeDllHealth } from "../git.js";
@@ -375,83 +375,100 @@ program
     });
     poller.start();
 
-    // Initialize Inngest workflow deps (must happen before workflows fire)
-    setSchedulerDeps({ db, config, graph, client, stateMap });
-    logger.info("task lifecycle deps initialized");
-
-    // Verify Inngest server is reachable before self-registration.
-    const inngestBaseUrl =
-      process.env.INNGEST_BASE_URL || "http://localhost:8288";
-    fetch(inngestBaseUrl)
-      .then(() =>
-        logger.info(`Inngest server is reachable at ${inngestBaseUrl}`),
-      )
-      .catch(() =>
-        logger.error(
-          `WARNING: Inngest server is not reachable at ${inngestBaseUrl} — task dispatching will not work`,
-        ),
-      );
-
-    // Self-register with Inngest server so it knows our callback URL.
-    // Without this, deploys/restarts that change ports leave Inngest
-    // accepting events but unable to execute workflows.
-    fetch(`http://localhost:${config.port}/api/inngest`, { method: "PUT" })
-      .then(async (res) => {
-        if (res.ok) {
-          logger.info("Inngest functions registered successfully");
-        } else {
-          const body = await res.text().catch(() => "");
-          logger.warn(`Inngest registration returned ${res.status}: ${body}`);
-        }
-      })
-      .catch((err: unknown) =>
-        logger.warn(`Inngest registration failed: ${err}`),
-      );
-
-    // Re-emit task/ready events for any tasks that need dispatch.
-    // Events can be lost if Orca crashes, Inngest is down, or tasks were
-    // recovered from running→ready above. Without this, dispatchable tasks
-    // sit in the DB with no corresponding Inngest workflow to pick them up.
-    //
-    // Covers: ready, changes_requested, in_review — the claim step accepts
-    // all three statuses, so they all need a workflow run to make progress.
-    const dispatchableStatuses = new Set([
-      "ready",
-      "changes_requested",
-      "in_review",
-    ]);
-    const dispatchableTasks = getAllTasks(db).filter((t) =>
-      dispatchableStatuses.has(t.orcaStatus),
-    );
-    if (dispatchableTasks.length > 0) {
-      for (const task of dispatchableTasks) {
-        inngest
-          .send({
-            name: "task/ready",
-            data: {
-              linearIssueId: task.linearIssueId,
-              repoPath: task.repoPath,
-              priority: task.priority,
-              projectName: task.projectName ?? null,
-              taskType: task.taskType ?? "standard",
-              createdAt: task.createdAt,
-            },
-          })
-          .catch((err: unknown) =>
-            logger.warn(
-              `startup: failed to re-emit task/ready for ${task.linearIssueId}: ${err}`,
-            ),
-          );
-      }
-      logger.info(
-        `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,
-      );
-    }
-
-    // Signal PM2 that the app is ready to accept traffic
+    // Signal PM2 that the app is ready to accept traffic IMMEDIATELY after
+    // port bind, before Inngest registration. This ensures health checks can
+    // respond during the grace period.
     if (typeof process.send === "function") {
       process.send("ready");
     }
+
+    // Defer Inngest registration and task re-emission so health checks can
+    // respond without contention from workflow execution saturating the
+    // event loop.
+    const STARTUP_GRACE_MS = 15_000;
+    logger.info(
+      `startup grace period: deferring Inngest registration for ${STARTUP_GRACE_MS / 1000}s`,
+    );
+
+    setTimeout(() => {
+      logger.info("startup grace period ended — initializing Inngest");
+
+      // Initialize Inngest workflow deps (must happen before workflows fire)
+      setSchedulerDeps({ db, config, graph, client, stateMap });
+      logger.info("task lifecycle deps initialized");
+
+      // Verify Inngest server is reachable before self-registration.
+      const inngestBaseUrl =
+        process.env.INNGEST_BASE_URL || "http://localhost:8288";
+      fetch(inngestBaseUrl)
+        .then(() =>
+          logger.info(`Inngest server is reachable at ${inngestBaseUrl}`),
+        )
+        .catch(() =>
+          logger.error(
+            `WARNING: Inngest server is not reachable at ${inngestBaseUrl} — task dispatching will not work`,
+          ),
+        );
+
+      // Self-register with Inngest server so it knows our callback URL.
+      // Without this, deploys/restarts that change ports leave Inngest
+      // accepting events but unable to execute workflows.
+      fetch(`http://localhost:${config.port}/api/inngest`, { method: "PUT" })
+        .then(async (res) => {
+          if (res.ok) {
+            logger.info("Inngest functions registered successfully");
+          } else {
+            const body = await res.text().catch(() => "");
+            logger.warn(`Inngest registration returned ${res.status}: ${body}`);
+          }
+        })
+        .catch((err: unknown) =>
+          logger.warn(`Inngest registration failed: ${err}`),
+        );
+
+      // Re-emit task/ready events for any tasks that need dispatch.
+      // Events can be lost if Orca crashes, Inngest is down, or tasks were
+      // recovered from running→ready above. Without this, dispatchable tasks
+      // sit in the DB with no corresponding Inngest workflow to pick them up.
+      //
+      // Covers: ready, changes_requested, in_review — the claim step accepts
+      // all three statuses, so they all need a workflow run to make progress.
+      const dispatchableStatuses = new Set([
+        "ready",
+        "changes_requested",
+        "in_review",
+      ]);
+      const dispatchableTasks = getAllTasks(db).filter((t) =>
+        dispatchableStatuses.has(t.orcaStatus),
+      );
+      if (dispatchableTasks.length > 0) {
+        for (const task of dispatchableTasks) {
+          inngest
+            .send({
+              name: "task/ready",
+              data: {
+                linearIssueId: task.linearIssueId,
+                repoPath: task.repoPath,
+                priority: task.priority,
+                projectName: task.projectName ?? null,
+                taskType: task.taskType ?? "standard",
+                createdAt: task.createdAt,
+              },
+            })
+            .catch((err: unknown) =>
+              logger.warn(
+                `startup: failed to re-emit task/ready for ${task.linearIssueId}: ${err}`,
+              ),
+            );
+        }
+        logger.info(
+          `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,
+        );
+      }
+
+      markReady();
+      logger.info("Inngest ready gate opened");
+    }, STARTUP_GRACE_MS);
 
     // Self-health monitoring: detect DLL_INIT degradation and exit for PM2 restart
     let consecutiveDllFailures = 0;
