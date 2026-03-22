@@ -214,6 +214,7 @@ export default function Sidebar({
         <nav className="flex-1 overflow-y-auto py-2 px-2 flex flex-col gap-0.5">
           {/* Dashboard */}
           <button
+            aria-label="Dashboard"
             className={navItemClass("dashboard")}
             onClick={() => onNavigate("dashboard")}
           >
@@ -233,6 +234,7 @@ export default function Sidebar({
 
           {/* Metrics */}
           <button
+            aria-label="Metrics"
             className={navItemClass("metrics")}
             onClick={() => onNavigate("metrics")}
           >
@@ -241,6 +243,7 @@ export default function Sidebar({
 
           {/* New ticket button */}
           <button
+            aria-label="New ticket"
             className="flex items-center gap-2.5 px-3 py-2 rounded text-sm cursor-pointer transition-colors w-full text-left text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
             onClick={() => setShowModal(true)}
           >
@@ -252,6 +255,7 @@ export default function Sidebar({
 
           {/* Tasks */}
           <button
+            aria-label="Tasks"
             className={navItemClass("tasks")}
             onClick={() => onNavigate("tasks")}
           >
@@ -265,6 +269,7 @@ export default function Sidebar({
 
           {/* Cron */}
           <button
+            aria-label="Cron"
             className={navItemClass("cron")}
             onClick={() => onNavigate("cron")}
           >
@@ -273,6 +278,7 @@ export default function Sidebar({
 
           {/* Inngest */}
           <button
+            aria-label="Inngest"
             className={navItemClass("inngest")}
             onClick={() => onNavigate("inngest")}
           >
@@ -281,6 +287,7 @@ export default function Sidebar({
 
           {/* Logs */}
           <button
+            aria-label="Logs"
             className={navItemClass("logs")}
             onClick={() => onNavigate("logs")}
           >
@@ -323,13 +330,17 @@ export default function Sidebar({
 
           {/* Projects section */}
           <button
+            aria-expanded={projectsExpanded}
+            aria-label={
+              projectsExpanded ? "Collapse projects" : "Expand projects"
+            }
             className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
             onClick={() => setProjectsExpanded((v) => !v)}
           >
             <span className="uppercase tracking-wider font-medium">
               Projects
             </span>
-            <span className="ml-auto text-gray-600">
+            <span className="ml-auto text-gray-600" aria-hidden="true">
               {projectsExpanded ? "▾" : "▸"}
             </span>
           </button>
@@ -363,6 +374,7 @@ export default function Sidebar({
 
           {/* Settings */}
           <button
+            aria-label="Settings"
             className={navItemClass("settings")}
             onClick={() => onNavigate("settings")}
           >
