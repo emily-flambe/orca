@@ -70,6 +70,10 @@ import {
 import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import {
+  getResourceSnapshot,
+  isResourceConstrained,
+} from "../resource-check.js";
 
 /**
  * Guard: throws if the number of active Claude sessions has reached the
@@ -90,6 +94,13 @@ export function assertSessionCapacity(
   if (effectiveCount >= cap) {
     throw new Error(
       `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${cap})`,
+    );
+  }
+
+  const snapshot = getResourceSnapshot();
+  if (isResourceConstrained(snapshot)) {
+    throw new Error(
+      `resource constrained: ${snapshot.memAvailableMb.toFixed(0)}MB available, ${snapshot.cpuLoadPercent.toFixed(1)}% CPU load`,
     );
   }
 }
@@ -461,8 +472,10 @@ export const taskLifecycle = inngest.createFunction(
         // kills the workflow permanently and the task is never re-dispatched.
         try {
           assertSessionCapacity(db);
-        } catch {
-          return { claimed: false, reason: "session cap reached" };
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "session cap reached";
+          return { claimed: false, reason };
         }
 
         const task = getTask(db, taskId);
@@ -596,9 +609,11 @@ export const taskLifecycle = inngest.createFunction(
         // workflow permanently and orphans the task.
         try {
           assertSessionCapacity(db);
-        } catch {
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "session cap reached";
           log(
-            `task ${taskId}: implement spawn blocked by capacity, resetting to ready`,
+            `task ${taskId}: implement spawn blocked (${reason}), resetting to ready`,
           );
           updateTaskStatus(db, taskId, "ready");
           emitTaskUpdated(getTask(db, taskId)!);
@@ -1208,9 +1223,11 @@ export const taskLifecycle = inngest.createFunction(
 
           try {
             assertSessionCapacity(db);
-          } catch {
+          } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
             log(
-              `task ${taskId}: review spawn blocked by capacity, resetting to ready`,
+              `task ${taskId}: review spawn blocked (${reason}), resetting to ready`,
             );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);
@@ -1555,9 +1572,11 @@ export const taskLifecycle = inngest.createFunction(
 
           try {
             assertSessionCapacity(db);
-          } catch {
+          } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
             log(
-              `task ${taskId}: fix spawn blocked by capacity, resetting to ready`,
+              `task ${taskId}: fix spawn blocked (${reason}), resetting to ready`,
             );
             updateTaskStatus(db, taskId, "ready");
             emitTaskUpdated(getTask(db, taskId)!);

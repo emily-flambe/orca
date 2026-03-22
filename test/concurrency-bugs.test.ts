@@ -673,7 +673,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
 
     expect(result).toMatchObject({
       outcome: "not_claimed",
-      reason: "session cap reached",
+      reason: expect.stringContaining("session cap reached"),
     });
 
     // Task should NOT have been claimed
@@ -716,11 +716,12 @@ describe("cron-task-lifecycle capacity enforcement", () => {
     // and start-implement, matching task-lifecycle behavior.
     //
     // Proof: make countActiveSessions return 0 for claim, then 1 for start-implement.
-    // The spawn step should now throw because capacity is full.
+    // The spawn step catches the capacity error and returns gracefully with
+    // { outcome: "capacity_blocked" } instead of throwing.
 
     mockCountActiveSessions
       .mockReturnValueOnce(0) // claim-task: under cap, proceed
-      .mockReturnValueOnce(1); // start-implement: at cap, should throw
+      .mockReturnValueOnce(1); // start-implement: at cap, blocked
 
     const task = makeTask({ orcaStatus: "ready" });
     mockGetTask.mockReturnValue(task);
@@ -728,13 +729,12 @@ describe("cron-task-lifecycle capacity enforcement", () => {
 
     const step = createStep();
 
-    // start-implement should now throw because the second capacity check fails
-    await expect(
-      capturedCronHandler({
-        event: makeTaskReadyEvent("CRON-1", "cron_claude"),
-        step,
-      }),
-    ).rejects.toThrow(/session cap reached/);
+    const result = await capturedCronHandler({
+      event: makeTaskReadyEvent("CRON-1", "cron_claude"),
+      step,
+    });
+
+    expect(result).toEqual({ outcome: "capacity_blocked" });
 
     // Session should NOT have been spawned
     expect(mockSpawnSession).not.toHaveBeenCalled();
@@ -766,7 +766,7 @@ describe("claim-task capacity rejection", () => {
 
     expect(result).toMatchObject({
       outcome: "not_claimed",
-      reason: "session cap reached",
+      reason: expect.stringContaining("session cap reached"),
     });
 
     // claimTaskForDispatch was never called - DB is clean
