@@ -14,6 +14,7 @@ vi.mock("../../hooks/useApi", () => ({
   createCronSchedule: vi.fn(),
   updateCronSchedule: vi.fn(),
   deleteCronSchedule: vi.fn(),
+  triggerCron: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 const mockFetchCronSchedules = vi.mocked(fetchCronSchedules);
