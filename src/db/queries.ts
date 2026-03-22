@@ -196,20 +196,6 @@ export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
     .run();
 }
 
-/** Get all tasks with orca_status="deploying". */
-export function getDeployingTasks(db: OrcaDb): Task[] {
-  return db.select().from(tasks).where(eq(tasks.orcaStatus, "deploying")).all();
-}
-
-/** Get all tasks with orca_status="awaiting_ci". */
-export function getAwaitingCiTasks(db: OrcaDb): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.orcaStatus, "awaiting_ci"))
-    .all();
-}
-
 /** Update CI tracking fields on a task. */
 export function updateTaskCiInfo(
   db: OrcaDb,
@@ -1082,21 +1068,6 @@ export function getRecentSystemEvents(db: OrcaDb, limit = 100): SystemEvent[] {
   return db
     .select()
     .from(systemEvents)
-    .orderBy(desc(systemEvents.createdAt))
-    .limit(limit)
-    .all();
-}
-
-/** Get system events by type. */
-export function getSystemEventsByType(
-  db: OrcaDb,
-  type: SystemEventType,
-  limit = 50,
-): SystemEvent[] {
-  return db
-    .select()
-    .from(systemEvents)
-    .where(eq(systemEvents.type, type))
     .orderBy(desc(systemEvents.createdAt))
     .limit(limit)
     .all();

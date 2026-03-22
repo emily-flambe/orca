@@ -45,47 +45,6 @@ function gh(args: string[], options?: { cwd?: string }): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Push the current branch and create a PR via `gh pr create`.
- * Returns PrInfo on success, { exists: false } on failure.
- */
-export function pushAndCreatePr(
-  branchName: string,
-  taskId: string,
-  cwd: string,
-): PrInfo {
-  try {
-    // Push the branch
-    git(["push", "-u", "origin", branchName], { cwd });
-
-    // Create PR — gh pr create outputs the PR URL as plain text
-    const prUrl = gh(
-      [
-        "pr",
-        "create",
-        "--head",
-        branchName,
-        "--title",
-        `[${taskId}] Auto-recovered: implement phase completed without PR`,
-        "--body",
-        `This PR was auto-created by orca after the implement agent completed work but failed to push/create a PR.\n\nTask: ${taskId}`,
-      ],
-      { cwd },
-    );
-
-    // prUrl is the plain-text URL output by gh pr create
-    if (prUrl && prUrl.startsWith("http")) {
-      // Use findPrByUrl to get structured PR info
-      return findPrByUrl(prUrl, cwd);
-    }
-    return { exists: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`pushAndCreatePr failed for ${branchName}: ${msg}`);
-    return { exists: false };
-  }
-}
-
-/**
  * Find a PR for the given branch name.
  *
  * Uses `gh pr list --head <branch>` to check if a PR exists.
@@ -853,72 +812,6 @@ export type WorkflowRunStatus =
   | "success"
   | "failure"
   | "no_runs";
-
-/**
- * Gets workflow run IDs for failed runs on a PR's head commit.
- * Returns an array of run IDs that can be rerun.
- */
-export async function getFailingWorkflowRunIds(
-  prNumber: number,
-  repoPath: string,
-): Promise<number[]> {
-  try {
-    const prOutput = await ghAsync(
-      ["pr", "view", String(prNumber), "--json", "headRefOid"],
-      { cwd: repoPath },
-    );
-    const prData = JSON.parse(prOutput) as { headRefOid?: string };
-    const sha = prData.headRefOid;
-    if (!sha) return [];
-
-    const runsOutput = await ghAsync(
-      [
-        "run",
-        "list",
-        "--commit",
-        sha,
-        "--json",
-        "databaseId,conclusion,status",
-        "--limit",
-        "20",
-      ],
-      { cwd: repoPath },
-    );
-    const runs = JSON.parse(runsOutput) as {
-      databaseId: number;
-      conclusion: string | null;
-      status: string;
-    }[];
-    return runs
-      .filter(
-        (r) =>
-          r.conclusion === "failure" ||
-          r.conclusion === "cancelled" ||
-          r.conclusion === "timed_out",
-      )
-      .map((r) => r.databaseId);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Reruns only the failed jobs in a workflow run.
- * Returns true if the rerun was triggered successfully.
- */
-export async function rerunFailedWorkflowJobs(
-  runId: number,
-  repoPath: string,
-): Promise<boolean> {
-  try {
-    await ghAsync(["run", "rerun", String(runId), "--failed"], {
-      cwd: repoPath,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Check GitHub Actions workflow run status for a given commit SHA.
