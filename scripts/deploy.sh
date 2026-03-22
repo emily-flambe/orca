@@ -161,7 +161,7 @@ log "new instance started via PM2"
 log "health checking new instance on port $STANDBY_PORT..."
 HEALTH_OK=false
 for i in $(seq 1 60); do
-  if curl -sf "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
+  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
     HEALTH_OK=true
     log "health check passed on attempt $i"
     break
@@ -182,7 +182,7 @@ log_deploy_event() {
   local port="$1"
   local status="$2"
   local message="$3"
-  curl -sf -X POST "http://localhost:$port/api/deploy/event" \
+  curl -sf --max-time 5 -X POST "http://localhost:$port/api/deploy/event" \
     -H "Content-Type: application/json" \
     -d "{\"status\":\"$status\",\"message\":\"$message\"}" > /dev/null 2>&1 || true
 }
@@ -208,7 +208,7 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
 
   CF_API_BASE="https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/cfd_tunnel/$CF_TUNNEL_ID/configurations"
 
-  RAW_TUNNEL_CONFIG=$(curl -sf \
+  RAW_TUNNEL_CONFIG=$(curl -sf --max-time 15 \
     -H "Authorization: Bearer $CF_API_TOKEN" \
     -H "Content-Type: application/json" \
     "$CF_API_BASE" 2>/dev/null || true)
@@ -235,7 +235,7 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
     })
   ")
 
-  PUT_RESULT=$(curl -sf -X PUT \
+  PUT_RESULT=$(curl -sf --max-time 15 -X PUT \
     -H "Authorization: Bearer $CF_API_TOKEN" \
     -H "Content-Type: application/json" \
     -d "$UPDATED_CONFIG" \
@@ -261,9 +261,10 @@ fi
 # ---------------------------------------------------------------------------
 log "post-switch health check on port $STANDBY_PORT..."
 POST_SWITCH_OK=false
-for i in $(seq 1 5); do
-  if curl -sf "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
+for i in $(seq 1 15); do
+  if curl -sf --max-time 5 "http://localhost:$STANDBY_PORT/api/health" > /dev/null 2>&1; then
     POST_SWITCH_OK=true
+    log "post-switch health check passed on attempt $i"
     break
   fi
   sleep 2
@@ -281,7 +282,7 @@ if [[ "$POST_SWITCH_OK" != "true" ]]; then
         console.log(JSON.stringify({config:{ingress:cfg.result.config.ingress}}));
       })
     ")
-    curl -sf -X PUT \
+    curl -sf --max-time 15 -X PUT \
       -H "Authorization: Bearer $CF_API_TOKEN" \
       -H "Content-Type: application/json" \
       -d "$ROLLBACK_CONFIG" \
@@ -301,12 +302,12 @@ fi
 DRAIN_TIMEOUT_S=600  # Max seconds to wait for sessions to finish (10 min)
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
   log "signaling drain on old instance (port $ACTIVE_PORT)..."
-  curl -sf -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
+  curl -sf --max-time 5 -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
 
   # Poll active sessions — wait for them to finish before killing
   DRAIN_START=$(date +%s)
   while true; do
-    ACTIVE_SESSIONS=$(curl -sf "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
+    ACTIVE_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
       | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
       || echo "0")
 
@@ -333,7 +334,7 @@ fi
 # Post-deploy: re-register with Inngest server
 # ---------------------------------------------------------------------------
 log "re-registering Inngest functions..."
-INNGEST_REGISTER=$(curl -sf -X PUT "http://localhost:$STANDBY_PORT/api/inngest" 2>&1 || true)
+INNGEST_REGISTER=$(curl -sf --max-time 10 -X PUT "http://localhost:$STANDBY_PORT/api/inngest" 2>&1 || true)
 if echo "$INNGEST_REGISTER" | grep -q '"Successfully registered"'; then
   log "Inngest functions registered successfully"
 else
