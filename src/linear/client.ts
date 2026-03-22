@@ -10,6 +10,7 @@ const LINEAR_API_URL = "https://api.linear.app/graphql";
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WARN_THRESHOLD = 500;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503]);
+const REQUEST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,8 +112,15 @@ export class LinearClient {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ query: graphql, variables }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
       } catch (err) {
+        // Timeout is not transient — fail immediately without retrying
+        if (err instanceof Error && err.name === "TimeoutError") {
+          throw new Error(
+            `LinearClient: request timeout after ${REQUEST_TIMEOUT_MS}ms`,
+          );
+        }
         // Network error -- transient, retry
         lastError = err instanceof Error ? err : new Error(String(err));
         if (attempt < MAX_RETRIES) {

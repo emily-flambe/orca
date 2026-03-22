@@ -262,6 +262,55 @@ describe("LinearClient", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Timeout errors — should NOT retry (bug: currently retries all 4 times)
+  // -------------------------------------------------------------------------
+
+  describe("timeout errors", () => {
+    it("does NOT retry on AbortSignal.timeout() TimeoutError — throws immediately with 1 fetch call", async () => {
+      // AbortSignal.timeout() throws a DOMException with name "TimeoutError"
+      // This is NOT a transient network error — retrying a timed-out request
+      // is pointless (the API is already overloaded) and multiplies hang time
+      // (30s × 4 attempts = 2 minutes). The fix should detect TimeoutError and
+      // throw immediately without retrying.
+      //
+      // BUG: currently the catch block treats TimeoutError as "network error"
+      // and retries up to MAX_RETRIES times.
+      vi.useFakeTimers();
+      const timeoutError = new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError",
+      );
+      vi.mocked(fetch).mockRejectedValue(timeoutError);
+
+      const client = new LinearClient("key");
+      const promise = client.fetchViewer();
+      const assertion = expect(promise).rejects.toThrow("timeout");
+      await vi.runAllTimersAsync();
+      await assertion;
+
+      // Should fail on first attempt — NOT retry 4 times
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("error message on timeout is distinguishable from generic network error", async () => {
+      vi.useFakeTimers();
+      const timeoutError = new DOMException(
+        "The operation was aborted due to timeout",
+        "TimeoutError",
+      );
+      vi.mocked(fetch).mockRejectedValue(timeoutError);
+
+      const client = new LinearClient("key");
+      await vi.runAllTimersAsync();
+
+      // The error should mention timeout, not "network error after N attempts"
+      const err = await client.fetchViewer().catch((e: unknown) => e as Error);
+      expect(err.message).toMatch(/timeout/i);
+      expect(err.message).not.toMatch(/network error after/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Rate limit header warning
   // -------------------------------------------------------------------------
 
