@@ -63,6 +63,7 @@ describe("findPrForBranch", () => {
       number: 1,
       state: "OPEN",
       headRefName: "orca/EMI-1-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
@@ -74,6 +75,7 @@ describe("findPrForBranch", () => {
       number: pr.number,
       merged: false,
       headBranch: pr.headRefName,
+      state: "open",
     });
   });
 
@@ -117,6 +119,7 @@ describe("findPrForBranch", () => {
       number: 3,
       state: "OPEN",
       headRefName: "orca/EMI-3-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
@@ -130,7 +133,7 @@ describe("findPrForBranch", () => {
       "--head",
       "orca/EMI-3-inv-1",
       "--json",
-      "url,number,state,headRefName",
+      "url,number,state,headRefName,isDraft",
       "--limit",
       "1",
     ]);
@@ -182,6 +185,7 @@ describe("findPrByUrl", () => {
       number: 10,
       state: "OPEN",
       headRefName: "orca/EMI-10-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify(data));
 
@@ -196,6 +200,7 @@ describe("findPrByUrl", () => {
       number: data.number,
       merged: false,
       headBranch: data.headRefName,
+      state: "open",
     });
   });
 
@@ -269,7 +274,7 @@ describe("findPrByUrl", () => {
       "view",
       prUrl,
       "--json",
-      "url,number,state,headRefName",
+      "url,number,state,headRefName,isDraft",
     ]);
     expect(opts.cwd).toBe("/tmp/repo");
   });

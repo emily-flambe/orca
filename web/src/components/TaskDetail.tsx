@@ -24,6 +24,19 @@ interface Props {
   refreshTrigger?: number;
 }
 
+const PR_STATE_COLORS: Record<string, string> = {
+  draft: "#6e7781",
+  open: "#1a7f37",
+  merged: "#8250df",
+  closed: "#cf222e",
+};
+
+const PR_ICON_PATH =
+  "M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z";
+
+const PR_MERGE_ICON_PATH =
+  "M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218zM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zM5 3.25a.75.75 0 1 0 0 .005V3.25z";
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
@@ -202,6 +215,52 @@ export default function TaskDetail({
               .catch(console.error)
           }
         />
+      )}
+
+      {/* PR info */}
+      {detail.prUrl && detail.prState && (
+        <div className="space-y-2">
+          <h3 className="text-sm text-gray-400">Pull Request</h3>
+          <div className="flex items-center gap-2">
+            <svg
+              viewBox="0 0 16 16"
+              width={16}
+              height={16}
+              fill={PR_STATE_COLORS[detail.prState] ?? PR_STATE_COLORS.open}
+              aria-hidden="true"
+            >
+              <path
+                d={
+                  detail.prState === "merged"
+                    ? PR_MERGE_ICON_PATH
+                    : PR_ICON_PATH
+                }
+              />
+            </svg>
+            <a
+              href={detail.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-400 hover:text-blue-300 underline"
+            >
+              {detail.prNumber ? `#${detail.prNumber}` : detail.prUrl}
+            </a>
+            <span
+              className="text-xs px-1.5 py-0.5 rounded-full capitalize"
+              style={{
+                color: PR_STATE_COLORS[detail.prState] ?? PR_STATE_COLORS.open,
+                backgroundColor: `${PR_STATE_COLORS[detail.prState] ?? PR_STATE_COLORS.open}20`,
+              }}
+            >
+              {detail.prState}
+            </span>
+            {detail.prBranchName && (
+              <code className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
+                {detail.prBranchName}
+              </code>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Agent prompt (read-only, synced from Linear) */}

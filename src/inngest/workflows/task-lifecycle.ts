@@ -39,6 +39,7 @@ import {
   resetStaleSessionRetryCount,
   countActiveSessions,
   countActiveAgentSessions,
+  updateTaskPrState,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -874,6 +875,12 @@ export const taskLifecycle = inngest.createFunction(
                   guardBTask.repoPath,
                 );
                 if (ciStatus === "success") {
+                  updateTaskPrState(
+                    db,
+                    taskId,
+                    prInfo.url ?? null,
+                    prInfo.state ?? "open",
+                  );
                   updateAndEmit(db, taskId, "awaiting_ci", "rescued_green_pr");
                   updateTaskCiInfo(db, taskId, {
                     ciStartedAt: new Date().toISOString(),
@@ -1091,6 +1098,12 @@ export const taskLifecycle = inngest.createFunction(
         if (prInfo.number != null) {
           updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
         }
+        updateTaskPrState(
+          db,
+          taskId,
+          prInfo.url ?? null,
+          prInfo.state ?? "open",
+        );
 
         if (prInfo.number != null) {
           try {

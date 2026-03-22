@@ -46,6 +46,8 @@ export const tasks = sqliteTable("tasks", {
   lastFailureReason: text("last_failure_reason"),
   lastFailedPhase: text("last_failed_phase"),
   lastFailedAt: text("last_failed_at"),
+  prUrl: text("pr_url"),
+  prState: text("pr_state"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

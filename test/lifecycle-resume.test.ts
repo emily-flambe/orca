@@ -45,6 +45,7 @@ vi.mock("../src/db/queries.js", () => ({
   incrementRetryCount: vi.fn(),
   incrementReviewCycleCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),
+  updateTaskPrState: vi.fn(),
   updateTaskCiInfo: vi.fn(),
   updateTaskDeployInfo: vi.fn(),
   updateTaskFixReason: vi.fn(),
