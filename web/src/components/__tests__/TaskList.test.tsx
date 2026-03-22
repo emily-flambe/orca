@@ -27,6 +27,10 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     invocationCount: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    taskType: "linear",
+    cronScheduleId: null,
+    prUrl: null,
+    prState: null,
     ...overrides,
   };
 }

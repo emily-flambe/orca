@@ -26,6 +26,9 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const PR_STATES = ["draft", "open", "merged", "closed"] as const;
+export type PrState = (typeof PR_STATES)[number];
+
 export const INVOCATION_STATUSES = [
   "running",
   "completed",
@@ -66,7 +69,7 @@ export interface Task {
   lastFailedPhase: string | null;
   lastFailedAt: string | null;
   prUrl: string | null;
-  prState: "draft" | "open" | "merged" | "closed" | null;
+  prState: PrState | null;
 }
 
 export interface CronSchedule {

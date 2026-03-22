@@ -15,6 +15,7 @@ import {
   getInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
+  updateTaskPrState,
 } from "../db/queries.js";
 import { createLogger } from "../logger.js";
 
@@ -171,6 +172,8 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
         activeBranches,
         now,
         maxAgeMs,
+        db,
+        allTasks,
       });
     } catch (err) {
       log(`error cleaning up repo ${repoPath}: ${err}`);
@@ -187,6 +190,8 @@ function cleanupRepo(
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
+    db?: OrcaDb;
+    allTasks?: { linearIssueId: string; prBranchName: string | null }[];
   },
 ): void {
   // --- Worktree cleanup ---
@@ -320,14 +325,25 @@ function cleanupRepo(
   // Also run before listOrcaBranches so that any local branches deleted by
   // `gh pr close --delete-branch` are already gone.
   try {
-    const closedCount = closeOrphanedPrs(repoPath, {
+    const closedPrs = closeOrphanedPrs(repoPath, {
       runningBranches: ctx.runningBranches,
       activeBranches: ctx.activeBranches,
       maxAgeMs: ctx.maxAgeMs,
       now: ctx.now,
     });
-    if (closedCount > 0) {
-      log(`closed ${closedCount} orphaned PR(s) in ${repoPath}`);
+    if (closedPrs.length > 0) {
+      log(`closed ${closedPrs.length} orphaned PR(s) in ${repoPath}`);
+      // Update prState to 'closed' for tasks whose PRs were closed
+      if (ctx.db && ctx.allTasks) {
+        for (const pr of closedPrs) {
+          const task = ctx.allTasks.find(
+            (t) => t.prBranchName === pr.headRefName,
+          );
+          if (task) {
+            updateTaskPrState(ctx.db, task.linearIssueId, null, "closed");
+          }
+        }
+      }
     }
   } catch (err) {
     log(`failed to close orphaned PRs in ${repoPath}: ${err}`);
@@ -479,6 +495,8 @@ export async function cleanupStaleResourcesAsync(
         activeBranches,
         now,
         maxAgeMs,
+        db,
+        allTasks,
       });
     } catch (err) {
       log(`error cleaning up repo ${repoPath}: ${err}`);
@@ -497,6 +515,8 @@ async function cleanupRepoAsync(
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
+    db?: OrcaDb;
+    allTasks?: { linearIssueId: string; prBranchName: string | null }[];
   },
 ): Promise<void> {
   // --- Worktree cleanup ---
@@ -609,14 +629,25 @@ async function cleanupRepoAsync(
 
   // closeOrphanedPrs and listOpenPrBranches remain sync (github module scope)
   try {
-    const closedCount = closeOrphanedPrs(repoPath, {
+    const closedPrs = closeOrphanedPrs(repoPath, {
       runningBranches: ctx.runningBranches,
       activeBranches: ctx.activeBranches,
       maxAgeMs: ctx.maxAgeMs,
       now: ctx.now,
     });
-    if (closedCount > 0) {
-      log(`closed ${closedCount} orphaned PR(s) in ${repoPath}`);
+    if (closedPrs.length > 0) {
+      log(`closed ${closedPrs.length} orphaned PR(s) in ${repoPath}`);
+      // Update prState to 'closed' for tasks whose PRs were closed
+      if (ctx.db && ctx.allTasks) {
+        for (const pr of closedPrs) {
+          const task = ctx.allTasks.find(
+            (t) => t.prBranchName === pr.headRefName,
+          );
+          if (task) {
+            updateTaskPrState(ctx.db, task.linearIssueId, null, "closed");
+          }
+        }
+      }
     }
   } catch (err) {
     log(`failed to close orphaned PRs in ${repoPath}: ${err}`);

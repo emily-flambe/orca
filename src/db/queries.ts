@@ -27,6 +27,7 @@ import {
   agentMemories,
   hookEvents,
   type TaskStatus,
+  type PrState,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
 
@@ -194,7 +195,7 @@ export function updateTaskPrState(
   db: OrcaDb,
   linearIssueId: string,
   prUrl: string | null,
-  prState: string | null,
+  prState: PrState | null,
 ): void {
   db.update(tasks)
     .set({ prUrl, prState, updatedAt: new Date().toISOString() })

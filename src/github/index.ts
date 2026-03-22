@@ -423,6 +423,11 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
  *
  * Returns the number of PRs closed.
  */
+export interface ClosedPrInfo {
+  number: number;
+  headRefName: string;
+}
+
 export function closeOrphanedPrs(
   cwd: string,
   opts: {
@@ -431,7 +436,7 @@ export function closeOrphanedPrs(
     maxAgeMs: number;
     now: number;
   },
-): number {
+): ClosedPrInfo[] {
   let prs: { headRefName: string; number: number; updatedAt: string }[];
   try {
     const output = gh(
@@ -454,10 +459,10 @@ export function closeOrphanedPrs(
       ? " (transient, will retry next cycle)"
       : "";
     logger.warn(`closeOrphanedPrs: failed to list PRs${detail}: ${msg}`);
-    return 0;
+    return [];
   }
 
-  let closed = 0;
+  const closed: ClosedPrInfo[] = [];
   for (const pr of prs) {
     if (!pr.headRefName.startsWith("orca/")) continue;
     if (opts.runningBranches.has(pr.headRefName)) continue;
@@ -471,7 +476,7 @@ export function closeOrphanedPrs(
       logger.info(
         `closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
       );
-      closed++;
+      closed.push({ number: pr.number, headRefName: pr.headRefName });
     }
   }
   return closed;

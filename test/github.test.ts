@@ -92,6 +92,56 @@ describe("findPrForBranch", () => {
 
     expect(result.exists).toBe(true);
     expect(result.merged).toBe(true);
+    expect(result.state).toBe("merged");
+  });
+
+  test("state is 'draft' when isDraft is true", async () => {
+    const pr = {
+      url: "https://github.com/owner/repo/pull/5",
+      number: 5,
+      state: "OPEN",
+      headRefName: "orca/EMI-5-inv-1",
+      isDraft: true,
+    };
+    execSyncMock.mockReturnValue(JSON.stringify([pr]));
+
+    const result = await findPrForBranch("orca/EMI-5-inv-1", "/tmp/repo", 1);
+
+    expect(result.exists).toBe(true);
+    expect(result.merged).toBe(false);
+    expect(result.state).toBe("draft");
+  });
+
+  test("state is 'closed' when GitHub state is CLOSED", async () => {
+    const pr = {
+      url: "https://github.com/owner/repo/pull/6",
+      number: 6,
+      state: "CLOSED",
+      headRefName: "orca/EMI-6-inv-1",
+      isDraft: false,
+    };
+    execSyncMock.mockReturnValue(JSON.stringify([pr]));
+
+    const result = await findPrForBranch("orca/EMI-6-inv-1", "/tmp/repo", 1);
+
+    expect(result.exists).toBe(true);
+    expect(result.merged).toBe(false);
+    expect(result.state).toBe("closed");
+  });
+
+  test("state defaults to 'open' when isDraft is missing", async () => {
+    const pr = {
+      url: "https://github.com/owner/repo/pull/7",
+      number: 7,
+      state: "OPEN",
+      headRefName: "orca/EMI-7-inv-1",
+    };
+    execSyncMock.mockReturnValue(JSON.stringify([pr]));
+
+    const result = await findPrForBranch("orca/EMI-7-inv-1", "/tmp/repo", 1);
+
+    expect(result.exists).toBe(true);
+    expect(result.state).toBe("open");
   });
 
   test("returns exists: false when empty array", async () => {

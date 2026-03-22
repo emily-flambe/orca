@@ -10,12 +10,15 @@ export {
   type InvocationStatus,
   AGENT_MEMORY_TYPES,
   type AgentMemoryType,
+  PR_STATES,
+  type PrState,
 } from "../shared/types.js";
 import {
   CRON_TYPES,
   AGENT_MEMORY_TYPES,
   TASK_STATUSES,
   INVOCATION_STATUSES,
+  PR_STATES,
 } from "../shared/types.js";
 
 export const tasks = sqliteTable("tasks", {
@@ -47,7 +50,7 @@ export const tasks = sqliteTable("tasks", {
   lastFailedPhase: text("last_failed_phase"),
   lastFailedAt: text("last_failed_at"),
   prUrl: text("pr_url"),
-  prState: text("pr_state"),
+  prState: text("pr_state", { enum: PR_STATES }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
