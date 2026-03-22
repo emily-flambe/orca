@@ -581,17 +581,9 @@ describe("system prompt overrides", () => {
     expect(cfg.implementSystemPrompt).toBe("custom system prompt");
   });
 
-  test("ORCA_APPEND_SYSTEM_PROMPT fallback when ORCA_IMPLEMENT_SYSTEM_PROMPT absent", async () => {
+  test("uses default implement system prompt when ORCA_IMPLEMENT_SYSTEM_PROMPT absent", async () => {
     delete process.env.ORCA_IMPLEMENT_SYSTEM_PROMPT;
-    process.env.ORCA_APPEND_SYSTEM_PROMPT = "fallback prompt";
     const cfg = await loadConfig();
-    expect(cfg.implementSystemPrompt).toBe("fallback prompt");
-  });
-
-  test("ORCA_IMPLEMENT_SYSTEM_PROMPT takes precedence over ORCA_APPEND_SYSTEM_PROMPT", async () => {
-    process.env.ORCA_IMPLEMENT_SYSTEM_PROMPT = "primary prompt";
-    process.env.ORCA_APPEND_SYSTEM_PROMPT = "fallback prompt";
-    const cfg = await loadConfig();
-    expect(cfg.implementSystemPrompt).toBe("primary prompt");
+    expect(cfg.implementSystemPrompt).toContain("autonomous coding agent");
   });
 });
