@@ -70,6 +70,7 @@ import {
 import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { checkResourceConstraints } from "../../system-resources.js";
 
 /**
  * Guard: throws if the number of active Claude sessions has reached the
@@ -453,7 +454,7 @@ export const taskLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string; phase?: string } => {
-        const { db, client, stateMap } = getSchedulerDeps();
+        const { db, config, client, stateMap } = getSchedulerDeps();
 
         // Check capacity BEFORE claiming — if we claim first and capacity is
         // full, the DB row transitions to "running" with no session (zombie).
@@ -463,6 +464,21 @@ export const taskLifecycle = inngest.createFunction(
           assertSessionCapacity(db);
         } catch {
           return { claimed: false, reason: "session cap reached" };
+        }
+
+        // Check system resources before claiming. Skip if constrained.
+        const resourceCheck = checkResourceConstraints({
+          minMemoryGb: config.resourceMinMemoryGb,
+          maxCpuPercent: config.resourceMaxCpuPercent,
+        });
+        if (!resourceCheck.ok) {
+          log(
+            `resource throttle for task ${taskId}: ${resourceCheck.reason} — mem=${resourceCheck.snapshot.availableMemoryGb.toFixed(2)}GB, cpu=${resourceCheck.snapshot.cpuLoadPercent?.toFixed(1) ?? "n/a"}%`,
+          );
+          return {
+            claimed: false,
+            reason: `resource throttle: ${resourceCheck.reason}`,
+          };
         }
 
         const task = getTask(db, taskId);

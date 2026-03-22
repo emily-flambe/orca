@@ -114,6 +114,13 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn().mockReturnValue(""),
 }));
 
+vi.mock("../src/system-resources.js", () => ({
+  checkResourceConstraints: vi.fn().mockReturnValue({
+    ok: true,
+    snapshot: { availableMemoryGb: 16, cpuLoadPercent: 20 },
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after vi.mock hoisting)
 // ---------------------------------------------------------------------------
@@ -144,8 +151,10 @@ import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
 import { activeHandles } from "../src/session-handles.js";
+import { checkResourceConstraints } from "../src/system-resources.js";
 
 const mockInngestSend = vi.mocked(inngest.send);
+const mockCheckResourceConstraints = vi.mocked(checkResourceConstraints);
 const mockGetTask = vi.mocked(getTask);
 const mockGetInvocation = vi.mocked(getInvocation);
 const mockClaimTaskForDispatch = vi.mocked(claimTaskForDispatch);
@@ -179,6 +188,8 @@ const mockConfig = {
   disallowedTools: "",
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  resourceMinMemoryGb: 2,
+  resourceMaxCpuPercent: 80,
 };
 
 const mockLinearClient = {
@@ -271,6 +282,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   activeHandles.clear();
 
+  mockCheckResourceConstraints.mockReturnValue({
+    ok: true,
+    snapshot: { availableMemoryGb: 16, cpuLoadPercent: 20 },
+  });
   mockSumCostInWindow.mockReturnValue(0);
   mockSumTokensInWindow.mockReturnValue(0);
   mockBudgetWindowStart.mockReturnValue(new Date().toISOString());

@@ -40,8 +40,7 @@ vi.mock("../src/db/queries.js", async (importOriginal) => {
   // Use importOriginal so that real DB functions (insertTask, insertBudgetEvent, etc.)
   // remain available when tests use a real in-memory DB. Workflow-level functions
   // are individually spied on below.
-  const actual =
-    await importOriginal<typeof import("../src/db/queries.js")>();
+  const actual = await importOriginal<typeof import("../src/db/queries.js")>();
   return {
     ...actual,
     // Override workflow-level queries with mocks
@@ -134,6 +133,13 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn().mockReturnValue(""),
 }));
 
+vi.mock("../src/system-resources.js", () => ({
+  checkResourceConstraints: vi.fn().mockReturnValue({
+    ok: true,
+    snapshot: { availableMemoryGb: 16, cpuLoadPercent: 20 },
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after vi.mock hoisting)
 // ---------------------------------------------------------------------------
@@ -151,8 +157,10 @@ import { sendAlertThrottled } from "../src/scheduler/alerts.js";
 import { setSchedulerDeps } from "../src/inngest/deps.js";
 import "../src/inngest/workflows/task-lifecycle.js";
 import { activeHandles } from "../src/session-handles.js";
+import { checkResourceConstraints } from "../src/system-resources.js";
 
 // Typed mocks
+const mockCheckResourceConstraints = vi.mocked(checkResourceConstraints);
 const mockSumCostInWindow = vi.mocked(mockSumCostInWindowFn);
 const mockSumTokensInWindow = vi.mocked(mockSumTokensInWindowFn);
 const mockGetTask = vi.mocked(getTask);
@@ -184,6 +192,8 @@ const mockConfig = {
   disallowedTools: "",
   deployTimeoutMin: 30,
   deployStrategy: "none" as const,
+  resourceMinMemoryGb: 2,
+  resourceMaxCpuPercent: 80,
 };
 
 const mockLinearClient = {
@@ -245,6 +255,10 @@ beforeEach(() => {
   activeHandles.clear();
 
   // Re-apply defaults after reset
+  mockCheckResourceConstraints.mockReturnValue({
+    ok: true,
+    snapshot: { availableMemoryGb: 16, cpuLoadPercent: 20 },
+  });
   mockSumCostInWindow.mockReturnValue(0);
   mockSumTokensInWindow.mockReturnValue(0);
   mockCountZeroCostFailures.mockReturnValue(0);
@@ -568,8 +582,9 @@ describe("circuit breaker workflow integration", () => {
     // Task is not found, so it will return not_claimed — but what matters is
     // that the circuit breaker did NOT intercept it (budget check returned ok).
     mockGetTask.mockReturnValue(null);
-    const mockClaimTaskForDispatch =
-      vi.mocked((await import("../src/db/queries.js")).claimTaskForDispatch);
+    const mockClaimTaskForDispatch = vi.mocked(
+      (await import("../src/db/queries.js")).claimTaskForDispatch,
+    );
     mockClaimTaskForDispatch.mockReturnValue(false);
 
     const step = createStep();

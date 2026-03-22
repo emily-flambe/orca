@@ -25,6 +25,7 @@ import {
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
+import { checkResourceConstraints } from "../../system-resources.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -66,13 +67,28 @@ export const cronTaskLifecycle = inngest.createFunction(
     const claimResult = await step.run(
       "claim-task",
       (): { claimed: boolean; reason?: string } => {
-        const { db } = getSchedulerDeps();
+        const { db, config } = getSchedulerDeps();
 
         // Enforce concurrency cap — exit gracefully if full
         try {
           assertSessionCapacity(db);
         } catch {
           return { claimed: false, reason: "session cap reached" };
+        }
+
+        // Check system resources before claiming. Skip if constrained.
+        const resourceCheck = checkResourceConstraints({
+          minMemoryGb: config.resourceMinMemoryGb,
+          maxCpuPercent: config.resourceMaxCpuPercent,
+        });
+        if (!resourceCheck.ok) {
+          log(
+            `resource throttle for task ${taskId}: ${resourceCheck.reason} — mem=${resourceCheck.snapshot.availableMemoryGb.toFixed(2)}GB, cpu=${resourceCheck.snapshot.cpuLoadPercent?.toFixed(1) ?? "n/a"}%`,
+          );
+          return {
+            claimed: false,
+            reason: `resource throttle: ${resourceCheck.reason}`,
+          };
         }
 
         const task = getTask(db, taskId);

@@ -55,6 +55,8 @@ export interface OrcaConfig {
   stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
+  resourceMinMemoryGb: number;
+  resourceMaxCpuPercent: number;
 }
 
 function exitWithError(message: string): never {
@@ -406,6 +408,14 @@ Steps:
       }
       return val;
     })(),
+    resourceMinMemoryGb: readPositiveNumberOrDefault(
+      "ORCA_RESOURCE_MIN_MEMORY_GB",
+      2,
+    ),
+    resourceMaxCpuPercent: readPositiveNumberOrDefault(
+      "ORCA_RESOURCE_MAX_CPU_PERCENT",
+      80,
+    ),
   };
 }
 
