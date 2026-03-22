@@ -10,6 +10,7 @@
 
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
+import { isDraining } from "../../deploy.js";
 import {
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
@@ -129,7 +130,8 @@ export async function runReconciliation(deps: {
     );
 
     // Re-emit task/ready for tasks that still have retries remaining.
-    if (targetStatus === "ready") {
+    // Skip during drain — new instance will pick up ready tasks after it registers.
+    if (targetStatus === "ready" && !isDraining()) {
       await inngest.send({
         name: "task/ready",
         data: {
