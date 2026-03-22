@@ -4,7 +4,7 @@ import {
   cleanupStaleResourcesAsync,
   cleanupOldInvocationLogs,
 } from "../../cleanup/index.js";
-import { deleteOldCronRuns } from "../../db/queries.js";
+import { deleteOldCronRuns, getAllTasks } from "../../db/queries.js";
 import { sweepExitedHandles } from "../../session-handles.js";
 
 export const cleanupCronWorkflow = inngest.createFunction(
@@ -16,9 +16,18 @@ export const cleanupCronWorkflow = inngest.createFunction(
   async ({ step }) => {
     await step.run("cleanup", async () => {
       sweepExitedHandles();
-      const { db, config } = getSchedulerDeps();
-      await cleanupStaleResourcesAsync({ db, config });
+      const { db, config, worktreePool } = getSchedulerDeps();
+      await cleanupStaleResourcesAsync({ db, config }, worktreePool);
       cleanupOldInvocationLogs({ db, config });
+
+      // Refresh stale pool entries for each known repo
+      if (worktreePool) {
+        const repoPaths = [...new Set(getAllTasks(db).map((t) => t.repoPath))];
+        const oneHour = 60 * 60 * 1000;
+        for (const repoPath of repoPaths) {
+          await worktreePool.refreshStale(repoPath, oneHour);
+        }
+      }
 
       // Delete cron runs older than 7 days
       const sevenDaysAgo = new Date(

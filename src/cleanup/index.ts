@@ -7,6 +7,7 @@ import {
   rmSyncWithRetry,
   rmWithRetry,
 } from "../worktree/index.js";
+import type { WorktreePoolService } from "../worktree/pool.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
@@ -109,7 +110,10 @@ function listWorktreePaths(cwd: string): string[] {
  * - Never deletes branches with open PRs
  * - Never deletes branches younger than `cleanupBranchMaxAgeMin`
  */
-export function cleanupStaleResources(deps: CleanupDeps): void {
+export function cleanupStaleResources(
+  deps: CleanupDeps,
+  worktreePool?: WorktreePoolService,
+): void {
   const { db, config } = deps;
 
   // Collect unique repo paths from all tasks
@@ -155,6 +159,13 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
     if (inv?.worktreePath) {
       preservedWorktreePaths.add(inv.worktreePath);
+    }
+  }
+
+  // Also preserve pool reserved worktrees
+  if (worktreePool) {
+    for (const p of worktreePool.getReservedPaths()) {
+      preservedWorktreePaths.add(p);
     }
   }
 
@@ -422,6 +433,7 @@ async function listWorktreePathsAsync(cwd: string): Promise<string[]> {
  */
 export async function cleanupStaleResourcesAsync(
   deps: CleanupDeps,
+  worktreePool?: WorktreePoolService,
 ): Promise<void> {
   const { db, config } = deps;
 
@@ -462,6 +474,13 @@ export async function cleanupStaleResourcesAsync(
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
     if (inv?.worktreePath) {
       preservedWorktreePaths.add(inv.worktreePath);
+    }
+  }
+
+  // Also preserve pool reserved worktrees
+  if (worktreePool) {
+    for (const p of worktreePool.getReservedPaths()) {
+      preservedWorktreePaths.add(p);
     }
   }
 

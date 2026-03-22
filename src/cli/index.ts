@@ -33,6 +33,7 @@ import { functions as inngestFunctions } from "../inngest/functions.js";
 import { setSchedulerDeps, markReady } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
+import { WorktreePoolService } from "../worktree/pool.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
@@ -143,6 +144,18 @@ program
 
     // Validate every project resolves to a valid directory
     validateProjectRepoPaths(config);
+
+    // Initialize worktree pool (non-blocking background creation)
+    const worktreePool = new WorktreePoolService();
+    const poolRepoPaths = [
+      ...new Set([
+        ...config.projectRepoMap.values(),
+        ...(config.defaultCwd ? [config.defaultCwd] : []),
+      ]),
+    ];
+    if (poolRepoPaths.length > 0) {
+      worktreePool.initialize(poolRepoPaths, config.worktreePoolSize);
+    }
 
     // Mark orphaned invocations as failed FIRST. At startup activeHandles
     // is empty, so ALL "running" invocations are orphans from a previous
@@ -396,7 +409,7 @@ program
       logger.info("startup grace period ended — initializing Inngest");
 
       // Initialize Inngest workflow deps (must happen before workflows fire)
-      setSchedulerDeps({ db, config, graph, client, stateMap });
+      setSchedulerDeps({ db, config, graph, client, stateMap, worktreePool });
       logger.info("task lifecycle deps initialized");
 
       // Verify Inngest server is reachable before self-registration.
@@ -523,6 +536,9 @@ program
 
       // Stop cloudflared tunnel
       if (tunnel) tunnel.stop();
+
+      // Destroy worktree pool (best-effort, non-blocking)
+      worktreePool.destroy().catch(() => {});
 
       // 1. Gracefully kill all active Claude sessions
       const killPromises: Promise<void>[] = [];

@@ -565,7 +565,8 @@ export const taskLifecycle = inngest.createFunction(
         isFixPhase: boolean;
         startedAt: number;
       } | null => {
-        const { db, config, client } = getSchedulerDeps();
+        const deps = getSchedulerDeps();
+        const { db, config, client } = deps;
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -640,23 +641,42 @@ export const taskLifecycle = inngest.createFunction(
           const baseRef = isFixPhase
             ? (task.prBranchName ?? undefined)
             : undefined;
-          let wtResult;
-          try {
-            wtResult = createWorktree(task.repoPath, taskId, 0, {
-              baseRef,
-            });
-          } catch (err) {
-            log(
-              `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
-            );
-            updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_worktree_error",
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            return null;
+
+          // Try pool first for implement phase (not fix, not resume)
+          let pooled: { worktreePath: string; branchName: string } | null =
+            null;
+          if (!isFixPhase) {
+            pooled = deps.worktreePool?.claim(task.repoPath, taskId, 0) ?? null;
+            if (pooled) {
+              log(
+                `task ${taskId}: claimed pooled worktree at ${pooled.worktreePath}`,
+              );
+            }
           }
-          worktreePath = wtResult.worktreePath;
-          branchName = wtResult.branchName;
+
+          if (pooled) {
+            worktreePath = pooled.worktreePath;
+            branchName = pooled.branchName;
+          } else {
+            // Fall back to synchronous createWorktree (fix phase, or pool empty)
+            let wtResult;
+            try {
+              wtResult = createWorktree(task.repoPath, taskId, 0, {
+                baseRef,
+              });
+            } catch (err) {
+              log(
+                `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_worktree_error",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              return null;
+            }
+            worktreePath = wtResult.worktreePath;
+            branchName = wtResult.branchName;
+          }
         }
 
         let agentPrompt = task.agentPrompt ?? "";

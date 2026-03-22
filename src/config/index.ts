@@ -53,6 +53,7 @@ export interface OrcaConfig {
   cronRetentionDays: number;
   strandedTaskThresholdMin: number;
   stateMapOverrides: Record<string, string> | undefined;
+  worktreePoolSize: number;
 
   logLevel: string;
 }
@@ -265,10 +266,12 @@ Steps:
 6. Commit and push your changes to this branch
 7. Do NOT create a new PR — the existing PR will be updated automatically`;
 
+  const concurrencyCap = readIntOrDefault("ORCA_CONCURRENCY_CAP", 1);
+
   return {
     defaultCwd,
     projectRepoMap: new Map(),
-    concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 1),
+    concurrencyCap,
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
     budgetWindowHours: readPositiveNumberOrDefault(
@@ -338,6 +341,11 @@ Steps:
     resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
     resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),
     maxWorktreeRetries: readIntOrDefault("ORCA_MAX_WORKTREE_RETRIES", 3),
+    worktreePoolSize: (() => {
+      const raw = process.env.ORCA_WORKTREE_POOL_SIZE;
+      if (raw === undefined) return concurrencyCap + 1;
+      return parsePositiveInt("ORCA_WORKTREE_POOL_SIZE", raw);
+    })(),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),
