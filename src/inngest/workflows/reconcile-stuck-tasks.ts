@@ -107,7 +107,9 @@ export async function runReconciliation(deps: {
     const totalAttempts = retryCount + newStaleCount;
     const targetStatus = totalAttempts > maxRetries ? "failed" : "ready";
 
-    updateTaskStatus(db, linearIssueId, targetStatus);
+    updateTaskStatus(db, linearIssueId, targetStatus, {
+      reason: `reconciled_stranded: ${reason}`,
+    });
 
     insertSystemEvent(db, {
       type: "health_check",
@@ -191,7 +193,9 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
 
       for (const task of failedTasks) {
         const totalAttempts = task.retryCount + task.staleSessionRetryCount;
-        updateTaskStatus(db, task.linearIssueId, "ready");
+        updateTaskStatus(db, task.linearIssueId, "ready", {
+          reason: "auto_retry",
+        });
         insertSystemEvent(db, {
           type: "auto_retry",
           message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${totalAttempts}/${config.maxRetries})`,

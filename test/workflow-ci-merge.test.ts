@@ -297,7 +297,12 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "merged", nextStatus: "done" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "done",
+      { reason: "pr_merged" },
+    );
   });
 
   test("CI success → merges → deploying (deploy strategy: github_actions)", async () => {
@@ -331,6 +336,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "deploying",
+      { reason: "pr_merged" },
     );
 
     // Restore config
@@ -383,6 +389,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "changes_requested",
+      { reason: "ci_failed_changes_requested" },
     );
     expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
       mockDb,
@@ -411,6 +418,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "ci_failed_cycles_exhausted" },
     );
     expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
   });
@@ -466,6 +474,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "changes_requested",
+      { reason: "merge_conflict" },
     );
   });
 
@@ -584,6 +593,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "ci_poll_exhausted" },
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -643,6 +653,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "ci_poll_exhausted" },
     );
   });
 

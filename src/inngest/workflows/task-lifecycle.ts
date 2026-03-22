@@ -181,7 +181,9 @@ export function bridgeSessionCompletion(
               inputTokens: result.inputTokens ?? null,
               outputTokens: result.outputTokens ?? null,
             });
-            updateTaskStatus(db, linearIssueId, "failed");
+            updateTaskStatus(db, linearIssueId, "failed", {
+              reason: "session_failed_db_fallback",
+            });
             log(
               `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
             );
@@ -230,7 +232,9 @@ export function bridgeSessionCompletion(
               status: "failed",
               endedAt: new Date().toISOString(),
             });
-            updateTaskStatus(db, linearIssueId, "failed");
+            updateTaskStatus(db, linearIssueId, "failed", {
+              reason: "runner_error_db_fallback",
+            });
             log(
               `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
             );
@@ -452,7 +456,7 @@ export const taskLifecycle = inngest.createFunction(
 
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
-        updateAndEmit(db, taskId, "ready");
+        updateAndEmit(db, taskId, "ready", "budget_exceeded");
       });
       return { outcome: "budget_exceeded", reason: budgetCheck.reason };
     }
@@ -615,7 +619,9 @@ export const taskLifecycle = inngest.createFunction(
           log(
             `task ${taskId}: implement spawn blocked (${reason}), resetting to ready`,
           );
-          updateTaskStatus(db, taskId, "ready");
+          updateTaskStatus(db, taskId, "ready", {
+            reason: "spawn_blocked_capacity",
+          });
           emitTaskUpdated(getTask(db, taskId)!);
           return null;
         }
@@ -639,7 +645,9 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
             );
-            updateTaskStatus(db, taskId, "ready");
+            updateTaskStatus(db, taskId, "ready", {
+              reason: "spawn_blocked_worktree_error",
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
           }
@@ -764,7 +772,7 @@ export const taskLifecycle = inngest.createFunction(
       worktreePath: string,
       reason: string,
     ): Promise<{ outcome: "done" }> {
-      updateAndEmit(db, taskId, "done");
+      updateAndEmit(db, taskId, "done", reason);
       insertSystemEvent(db, {
         type: "task_completed",
         message: `Task ${taskId} completed`,
@@ -805,7 +813,7 @@ export const taskLifecycle = inngest.createFunction(
             endedAt: new Date().toISOString(),
             outputSummary: "session timed out after 45 minutes",
           });
-          updateAndEmit(db, taskId, "failed");
+          updateAndEmit(db, taskId, "failed", "session_timed_out");
           try {
             removeWorktree(worktreePath);
           } catch {
@@ -863,7 +871,7 @@ export const taskLifecycle = inngest.createFunction(
                   guardBTask.repoPath,
                 );
                 if (ciStatus === "success") {
-                  updateAndEmit(db, taskId, "awaiting_ci");
+                  updateAndEmit(db, taskId, "awaiting_ci", "rescued_green_pr");
                   updateTaskCiInfo(db, taskId, {
                     ciStartedAt: new Date().toISOString(),
                   });
@@ -906,7 +914,7 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          updateAndEmit(db, taskId, "failed");
+          updateAndEmit(db, taskId, "failed", "implement_failed");
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
@@ -986,7 +994,7 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: "Post-implementation gate failed: no branch name",
           });
-          updateAndEmit(db, taskId, "failed");
+          updateAndEmit(db, taskId, "failed", "gate2_no_branch");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -1037,7 +1045,7 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
-          updateAndEmit(db, taskId, "failed");
+          updateAndEmit(db, taskId, "failed", "gate2_no_pr");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -1093,7 +1101,7 @@ export const taskLifecycle = inngest.createFunction(
         }
 
         resetStaleSessionRetryCount(db, taskId);
-        updateAndEmit(db, taskId, "in_review");
+        updateAndEmit(db, taskId, "in_review", "pr_found");
         transitionToFinalState(
           { client, stateMap },
           taskId,
@@ -1216,7 +1224,9 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: review spawn blocked by worktree error: ${err}`,
             );
-            updateTaskStatus(db, taskId, "ready");
+            updateTaskStatus(db, taskId, "ready", {
+              reason: "spawn_blocked_worktree_error",
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
           }
@@ -1229,7 +1239,9 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: review spawn blocked (${reason}), resetting to ready`,
             );
-            updateTaskStatus(db, taskId, "ready");
+            updateTaskStatus(db, taskId, "ready", {
+              reason: "spawn_blocked_capacity",
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             try {
               removeWorktree(wtResult.worktreePath);
@@ -1279,7 +1291,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateAndEmit(db, taskId, "running");
+          updateAndEmit(db, taskId, "running", "review_dispatched");
           client
             .createComment(
               taskId,
@@ -1343,7 +1355,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "review session timed out after 45 minutes",
             });
-            updateAndEmit(db, taskId, "in_review");
+            updateAndEmit(db, taskId, "in_review", "review_session_timed_out");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1372,7 +1384,7 @@ export const taskLifecycle = inngest.createFunction(
           recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
 
           if (!isSuccess) {
-            updateAndEmit(db, taskId, "in_review");
+            updateAndEmit(db, taskId, "in_review", "review_session_failed");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1418,7 +1430,7 @@ export const taskLifecycle = inngest.createFunction(
           const ciStartedAt = new Date().toISOString();
           updateTaskCiInfo(db, taskId, { ciStartedAt });
           resetStaleSessionRetryCount(db, taskId);
-          updateAndEmit(db, taskId, "awaiting_ci");
+          updateAndEmit(db, taskId, "awaiting_ci", "review_approved");
           const task = getTask(db, taskId);
           transitionToFinalState(
             { client, stateMap },
@@ -1470,7 +1482,7 @@ export const taskLifecycle = inngest.createFunction(
       if (reviewResult.outcome === "no_marker" || isLastCycle) {
         await step.run(`cycles-exhausted-${cycle}`, () => {
           const { db, client, config } = getSchedulerDeps();
-          updateAndEmit(db, taskId, "in_review");
+          updateAndEmit(db, taskId, "in_review", "review_cycles_exhausted");
           const reason =
             reviewResult.outcome === "no_marker"
               ? "no REVIEW_RESULT marker found"
@@ -1537,7 +1549,12 @@ export const taskLifecycle = inngest.createFunction(
           if (!task) throw new Error(`task ${taskId} not found`);
 
           incrementReviewCycleCount(db, taskId);
-          updateAndEmit(db, taskId, "changes_requested");
+          updateAndEmit(
+            db,
+            taskId,
+            "changes_requested",
+            "review_changes_requested",
+          );
           transitionToFinalState(
             { client, stateMap },
             taskId,
@@ -1558,7 +1575,9 @@ export const taskLifecycle = inngest.createFunction(
             });
           } catch (err) {
             log(`task ${taskId}: fix spawn blocked by worktree error: ${err}`);
-            updateTaskStatus(db, taskId, "ready");
+            updateTaskStatus(db, taskId, "ready", {
+              reason: "spawn_blocked_worktree_error",
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
           }
@@ -1578,7 +1597,9 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: fix spawn blocked (${reason}), resetting to ready`,
             );
-            updateTaskStatus(db, taskId, "ready");
+            updateTaskStatus(db, taskId, "ready", {
+              reason: "spawn_blocked_capacity",
+            });
             emitTaskUpdated(getTask(db, taskId)!);
             try {
               removeWorktree(wtResult.worktreePath);
@@ -1629,7 +1650,7 @@ export const taskLifecycle = inngest.createFunction(
           );
 
           emitInvocationStarted({ taskId, invocationId });
-          updateAndEmit(db, taskId, "running");
+          updateAndEmit(db, taskId, "running", "fix_dispatched");
 
           const reviewCycle = task.reviewCycleCount + 1;
           client
@@ -1688,7 +1709,7 @@ export const taskLifecycle = inngest.createFunction(
               endedAt: new Date().toISOString(),
               outputSummary: "fix session timed out after 45 minutes",
             });
-            updateAndEmit(db, taskId, "in_review");
+            updateAndEmit(db, taskId, "in_review", "fix_session_timed_out");
             try {
               removeWorktree(worktreePath);
             } catch {
@@ -1736,16 +1757,16 @@ export const taskLifecycle = inngest.createFunction(
                   `Fix resume session not found (stale session ID) — restarting as fresh session`,
                 )
                 .catch(() => {});
-              updateAndEmit(db, taskId, "in_review");
+              updateAndEmit(db, taskId, "in_review", "fix_resume_not_found");
               return { ok: false, timedOut: false, resumeNotFound: true };
             }
-            updateAndEmit(db, taskId, "in_review");
+            updateAndEmit(db, taskId, "in_review", "fix_session_failed");
             return { ok: false, timedOut: false, resumeNotFound: false };
           }
 
           // Fix succeeded — transition back to in_review for next review cycle
           resetStaleSessionRetryCount(db, taskId);
-          updateAndEmit(db, taskId, "in_review");
+          updateAndEmit(db, taskId, "in_review", "fix_succeeded");
           transitionToFinalState(
             { client, stateMap },
             taskId,

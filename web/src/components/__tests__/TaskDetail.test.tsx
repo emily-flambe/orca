@@ -5,6 +5,7 @@ import type { TaskWithInvocations, Invocation } from "../../types";
 
 vi.mock("../../hooks/useApi", () => ({
   fetchTaskDetail: vi.fn(),
+  fetchTaskTransitions: vi.fn().mockResolvedValue([]),
   abortInvocation: vi.fn(),
   retryTask: vi.fn().mockResolvedValue({}),
   updateTaskStatus: vi.fn().mockResolvedValue({}),

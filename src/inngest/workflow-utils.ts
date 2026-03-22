@@ -111,8 +111,9 @@ export function updateAndEmit(
   db: OrcaDb,
   taskId: string,
   status: TaskStatus,
+  reason?: string,
 ): void {
-  updateTaskStatus(db, taskId, status);
+  updateTaskStatus(db, taskId, status, reason ? { reason } : undefined);
   const task = getTask(db, taskId);
   if (task) emitTaskUpdated(task);
 }

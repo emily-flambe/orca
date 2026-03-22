@@ -190,7 +190,9 @@ program
         t.orcaStatus === "running" &&
         !runningInvIssueIds.has(t.linearIssueId)
       ) {
-        updateTaskStatus(db, t.linearIssueId, "ready");
+        updateTaskStatus(db, t.linearIssueId, "ready", {
+          reason: "manual_cli_add",
+        });
         updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
         clearSessionIds(db, t.linearIssueId);
         recovered++;
@@ -566,7 +568,9 @@ program
             }
           }
         }
-        updateTaskStatus(db, inv.linearIssueId, "ready");
+        updateTaskStatus(db, inv.linearIssueId, "ready", {
+          reason: "manual_cli_reset",
+        });
         // Only clear session IDs for non-deploy shutdowns so the new instance
         // can use --resume for deploy-interrupted sessions.
         if (!deployInProgress) {

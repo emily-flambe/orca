@@ -413,9 +413,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   Sentinel: table doesn't exist.
   // ---------------------------------------------------------------------------
   const transitionTableExists =
-    (
-      sqlite.pragma("table_info(task_state_transitions)") as { name: string }[]
-    ).length > 0;
+    (sqlite.pragma("table_info(task_state_transitions)") as { name: string }[])
+      .length > 0;
   if (!transitionTableExists) {
     sqlite.exec(`CREATE TABLE task_state_transitions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
