@@ -823,6 +823,30 @@ export const taskLifecycle = inngest.createFunction(
           } catch {
             /* ignore */
           }
+          const timedOutTask = getTask(db, taskId);
+          if (timedOutTask && timedOutTask.retryCount >= config.maxRetries) {
+            insertSystemEvent(db, {
+              type: "task_failed",
+              message: `Task ${taskId} permanently failed`,
+              metadata: {
+                taskId,
+                phase: "implement",
+                reason: "session_timed_out",
+                retries: config.maxRetries,
+              },
+            });
+            sendPermanentFailureAlert(
+              getSchedulerDeps(),
+              taskId,
+              `Session timed out after ${config.maxRetries} retries (implement phase)`,
+            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "failed_permanent",
+            ).catch(() => {});
+            return { outcome: "permanent_fail" };
+          }
           return { outcome: "timed_out" };
         }
 
