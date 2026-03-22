@@ -12,6 +12,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  triggerCron,
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 
@@ -566,6 +567,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [triggeringId, setTriggeringId] = useState<number | null>(null);
   const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(
     null,
   );
@@ -640,6 +642,21 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
       );
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  async function handleTrigger(s: CronSchedule) {
+    if (triggeringId === s.id) return;
+    setTriggeringId(s.id);
+    try {
+      await triggerCron(s.id);
+      onToast?.success(`Triggered: ${s.name}`);
+    } catch (err) {
+      onToast?.error(
+        err instanceof Error ? err.message : "Failed to trigger schedule",
+      );
+    } finally {
+      setTriggeringId(null);
     }
   }
 
@@ -740,6 +757,14 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                   </button>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleTrigger(s)}
+                    disabled={triggeringId === s.id}
+                    className="px-2 py-1 text-xs text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Run now"
+                  >
+                    {triggeringId === s.id ? "Running..." : "Run now"}
+                  </button>
                   <button
                     onClick={() => setEditingId(s.id)}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
