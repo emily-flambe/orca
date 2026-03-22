@@ -288,10 +288,7 @@ Steps:
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     implementSystemPrompt: readEnvOrDefault(
       "ORCA_IMPLEMENT_SYSTEM_PROMPT",
-      readEnvOrDefault(
-        "ORCA_APPEND_SYSTEM_PROMPT",
-        DEFAULT_IMPLEMENT_SYSTEM_PROMPT,
-      ),
+      DEFAULT_IMPLEMENT_SYSTEM_PROMPT,
     ),
     reviewSystemPrompt: readEnvOrDefault(
       "ORCA_REVIEW_SYSTEM_PROMPT",

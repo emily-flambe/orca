@@ -15,8 +15,6 @@
     "lint": "eslint src",
     "format": "prettier --write src",
     "format:check": "prettier --check src web/src",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
     "test:e2e": "playwright test",
     "inngest:start": "bash scripts/start-inngest.sh",
     "pm2:start": "npx pm2 start ecosystem.config.cjs",
@@ -36,18 +34,17 @@
     "@hono/node-server": "^1.19.9",
     "@inquirer/prompts": "^8.3.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@vitest/coverage-v8": "^4.1.0",
     "better-sqlite3": "^12.6.2",
     "commander": "^14.0.3",
     "cron-parser": "^5.5.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.12.3",
-    "inngest": "^3.52.6",
-    "pm2": "^6.0.14"
+    "inngest": "^3.52.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@vitest/coverage-v8": "^4.1.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.3.2",
     "eslint": "^10.0.3",
@@ -58,6 +55,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.57.1",
+    "pm2": "^6.0.14",
     "vitest": "^4.1.0"
   }
 }
