@@ -262,6 +262,63 @@ describe("LinearClient", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Request timeout
+  // -------------------------------------------------------------------------
+
+  describe("request timeout", () => {
+    it("aborts and retries when fetch takes longer than 30 seconds", async () => {
+      vi.useFakeTimers();
+
+      // First attempt hangs (AbortError), second succeeds
+      vi.mocked(fetch)
+        .mockImplementationOnce(
+          (_url, opts) =>
+            new Promise((_resolve, reject) => {
+              const signal = (opts as RequestInit).signal;
+              signal?.addEventListener("abort", () => {
+                const err = new Error("The operation was aborted");
+                (err as Error & { name: string }).name = "AbortError";
+                reject(err);
+              });
+            }),
+        )
+        .mockResolvedValueOnce(mockResponse(viewerResponse()));
+
+      const client = new LinearClient("key");
+      const promise = client.fetchViewer();
+      await vi.runAllTimersAsync();
+
+      const result = await promise;
+      expect(result.name).toBe("Alice");
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws timeout error after exhausting all retries", async () => {
+      vi.useFakeTimers();
+
+      // All attempts hang
+      vi.mocked(fetch).mockImplementation(
+        (_url, opts) =>
+          new Promise((_resolve, reject) => {
+            const signal = (opts as RequestInit).signal;
+            signal?.addEventListener("abort", () => {
+              const err = new Error("The operation was aborted");
+              (err as Error & { name: string }).name = "AbortError";
+              reject(err);
+            });
+          }),
+      );
+
+      const client = new LinearClient("key");
+      const promise = client.fetchViewer();
+      const assertion = expect(promise).rejects.toThrow("timed out");
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(fetch).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Rate limit header warning
   // -------------------------------------------------------------------------
 
