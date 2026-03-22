@@ -328,6 +328,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       await new Promise<void>((resolve) => {
         let doneSent = false;
         let streamClosed = false;
+        let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
         const sendDone = () => {
           if (doneSent || streamClosed) return;
@@ -351,6 +352,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         };
 
         const cleanup = () => {
+          if (heartbeatTimer !== undefined) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = undefined;
+          }
           logState.emitter.off("line", onLine);
           logState.emitter.off("done", onDone);
         };
@@ -358,6 +363,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         // Subscribe first — no events can be missed after this point.
         logState.emitter.on("line", onLine);
         logState.emitter.on("done", onDone);
+
+        // Send SSE comment heartbeats every 15 s so proxies and the Cloudflare
+        // tunnel don't close the idle connection between log lines.
+        heartbeatTimer = setInterval(() => {
+          if (streamClosed || doneSent) {
+            cleanup();
+            resolve();
+            return;
+          }
+          stream.write(":heartbeat\n\n").catch(() => {
+            streamClosed = true;
+            cleanup();
+            resolve();
+          });
+        }, 15_000);
 
         stream.onAbort(() => {
           streamClosed = true;

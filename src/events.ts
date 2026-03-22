@@ -6,6 +6,7 @@ import type { Task } from "./db/queries.js";
 // ---------------------------------------------------------------------------
 
 export const orcaEvents = new EventEmitter();
+orcaEvents.setMaxListeners(50);
 
 // ---------------------------------------------------------------------------
 // Event types
