@@ -56,9 +56,8 @@ export default function TaskDetail({
   // Focus first menu item when the status menu opens
   useEffect(() => {
     if (!showStatusMenu || !statusMenuRef.current) return;
-    const first = statusMenuRef.current.querySelector<HTMLElement>(
-      '[role="menuitem"]',
-    );
+    const first =
+      statusMenuRef.current.querySelector<HTMLElement>('[role="menuitem"]');
     first?.focus();
   }, [showStatusMenu]);
 

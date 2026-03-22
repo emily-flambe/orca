@@ -217,7 +217,6 @@ export default function Sidebar({
             aria-label="Dashboard"
             className={navItemClass("dashboard")}
             onClick={() => onNavigate("dashboard")}
-            aria-label="Dashboard"
           >
             <span>Dashboard</span>
             {status && status.activeSessions > 0 && (
@@ -238,7 +237,6 @@ export default function Sidebar({
             aria-label="Metrics"
             className={navItemClass("metrics")}
             onClick={() => onNavigate("metrics")}
-            aria-label="Metrics"
           >
             <span>Metrics</span>
           </button>
@@ -248,7 +246,6 @@ export default function Sidebar({
             aria-label="New ticket"
             className="flex items-center gap-2.5 px-3 py-2 rounded text-sm cursor-pointer transition-colors w-full text-left text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
             onClick={() => setShowModal(true)}
-            aria-label="New ticket"
           >
             <span className="text-gray-500">+</span>
             <span>New ticket</span>
@@ -261,7 +258,6 @@ export default function Sidebar({
             aria-label="Tasks"
             className={navItemClass("tasks")}
             onClick={() => onNavigate("tasks")}
-            aria-label="Tasks"
           >
             <span>Tasks</span>
             {activeTaskCount > 0 && (
@@ -276,7 +272,6 @@ export default function Sidebar({
             aria-label="Cron"
             className={navItemClass("cron")}
             onClick={() => onNavigate("cron")}
-            aria-label="Cron"
           >
             <span>Cron</span>
           </button>
@@ -286,7 +281,6 @@ export default function Sidebar({
             aria-label="Inngest"
             className={navItemClass("inngest")}
             onClick={() => onNavigate("inngest")}
-            aria-label="Inngest"
           >
             <span>Inngest</span>
           </button>
@@ -296,7 +290,6 @@ export default function Sidebar({
             aria-label="Logs"
             className={navItemClass("logs")}
             onClick={() => onNavigate("logs")}
-            aria-label="Logs"
           >
             <span>Logs</span>
           </button>
@@ -343,8 +336,6 @@ export default function Sidebar({
             }
             className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-400 transition-colors w-full text-left"
             onClick={() => setProjectsExpanded((v) => !v)}
-            aria-expanded={projectsExpanded}
-            aria-label={projectsExpanded ? "Collapse projects" : "Expand projects"}
           >
             <span className="uppercase tracking-wider font-medium">
               Projects
@@ -386,7 +377,6 @@ export default function Sidebar({
             aria-label="Settings"
             className={navItemClass("settings")}
             onClick={() => onNavigate("settings")}
-            aria-label="Settings"
           >
             <span>Settings</span>
           </button>

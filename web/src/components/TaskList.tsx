@@ -150,9 +150,8 @@ export default function TaskList({
   // Focus first menu item when the per-task status menu opens
   useEffect(() => {
     if (!statusMenuTaskId || !statusMenuRef.current) return;
-    const first = statusMenuRef.current.querySelector<HTMLElement>(
-      '[role="menuitem"]',
-    );
+    const first =
+      statusMenuRef.current.querySelector<HTMLElement>('[role="menuitem"]');
     first?.focus();
   }, [statusMenuTaskId]);
 
@@ -601,7 +600,11 @@ export default function TaskList({
                   }
                 >
                   <button
-                    ref={statusMenuTaskId === task.linearIssueId ? statusMenuTriggerRef : undefined}
+                    ref={
+                      statusMenuTaskId === task.linearIssueId
+                        ? statusMenuTriggerRef
+                        : undefined
+                    }
                     aria-haspopup="menu"
                     aria-expanded={statusMenuTaskId === task.linearIssueId}
                     aria-label={`Change status: ${getStatusDisplayText(task.orcaStatus)}`}

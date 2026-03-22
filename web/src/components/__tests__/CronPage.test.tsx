@@ -208,7 +208,9 @@ describe("CronPage", () => {
     render(<CronPage />);
 
     await waitFor(() => {
-      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("switch", { name: /Disable/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));
@@ -324,7 +326,9 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("switch", { name: /Disable/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));
@@ -345,7 +349,9 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("switch", { name: /Enable/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("switch", { name: /Enable/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("switch", { name: /Enable/i }));
@@ -365,7 +371,9 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("switch", { name: /Disable/i }),
+      ).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));

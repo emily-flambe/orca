@@ -116,7 +116,9 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
         className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 id={titleId} className="text-base font-semibold text-gray-100">New ticket</h2>
+          <h2 id={titleId} className="text-base font-semibold text-gray-100">
+            New ticket
+          </h2>
           <button
             onClick={onClose}
             aria-label="Close dialog"

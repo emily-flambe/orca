@@ -734,7 +734,9 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                   <button
                     role="switch"
                     aria-checked={s.enabled === 1 ? "true" : "false"}
-                    aria-label={s.enabled === 1 ? `Disable ${s.name}` : `Enable ${s.name}`}
+                    aria-label={
+                      s.enabled === 1 ? `Disable ${s.name}` : `Enable ${s.name}`
+                    }
                     onClick={() => handleToggleEnabled(s)}
                     disabled={togglingId === s.id}
                     className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"} disabled:opacity-50`}
