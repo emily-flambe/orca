@@ -19,7 +19,7 @@ import type { Hono } from "hono";
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../src/scheduler/index.js", () => ({ activeHandles: new Map() }));
+vi.mock("../src/session-handles.js", () => ({ activeHandles: new Map() }));
 vi.mock("../src/runner/index.js", () => ({
   killSession: vi.fn().mockResolvedValue(undefined),
   invocationLogs: new Map(),

@@ -16,14 +16,17 @@ import {
   sendAlert,
   sendAlertThrottled,
   trackHealingAttempt,
-  shouldEscalate,
-  resetHealingCounters,
-  lastHealingAttemptTimestamp,
   initAlertSystem,
   _getHealingCounters,
   _getAlertCooldowns,
   type AlertPayload,
 } from "../src/scheduler/alerts.js";
+
+/** Test-only helper: clears all healing counters and alert cooldowns. */
+function resetHealingCounters(): void {
+  _getHealingCounters().clear();
+  _getAlertCooldowns().clear();
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,7 +78,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 3600,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -536,99 +538,3 @@ describe("trackHealingAttempt", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// shouldEscalate
-// ---------------------------------------------------------------------------
-
-describe("shouldEscalate", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    resetHealingCounters();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  test("returns false with no attempts", () => {
-    expect(shouldEscalate("unknown-key")).toBe(false);
-  });
-
-  test("returns false after 2 attempts", () => {
-    trackHealingAttempt("esc-2");
-    trackHealingAttempt("esc-2");
-    expect(shouldEscalate("esc-2")).toBe(false);
-  });
-
-  test("returns true after 3 attempts", () => {
-    trackHealingAttempt("esc-3");
-    trackHealingAttempt("esc-3");
-    trackHealingAttempt("esc-3");
-    expect(shouldEscalate("esc-3")).toBe(true);
-  });
-
-  test("returns false after 1h inactivity reset", () => {
-    vi.useFakeTimers();
-    trackHealingAttempt("esc-stale");
-    trackHealingAttempt("esc-stale");
-    trackHealingAttempt("esc-stale");
-    expect(shouldEscalate("esc-stale")).toBe(true);
-
-    vi.advanceTimersByTime(3_600_001);
-    expect(shouldEscalate("esc-stale")).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// resetHealingCounters
-// ---------------------------------------------------------------------------
-
-describe("resetHealingCounters", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    resetHealingCounters();
-  });
-
-  test("clears all counters", () => {
-    trackHealingAttempt("reset-a");
-    trackHealingAttempt("reset-a");
-    trackHealingAttempt("reset-a");
-    trackHealingAttempt("reset-b");
-
-    expect(shouldEscalate("reset-a")).toBe(true);
-    expect(_getHealingCounters().size).toBe(2);
-
-    resetHealingCounters();
-
-    expect(shouldEscalate("reset-a")).toBe(false);
-    expect(_getHealingCounters().size).toBe(0);
-    expect(_getAlertCooldowns().size).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// lastHealingAttemptTimestamp
-// ---------------------------------------------------------------------------
-
-describe("lastHealingAttemptTimestamp", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    resetHealingCounters();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  test("returns null with no attempts", () => {
-    expect(lastHealingAttemptTimestamp()).toBeNull();
-  });
-
-  test("returns correct timestamp after attempts", () => {
-    vi.useFakeTimers({ now: 1_000_000 });
-    trackHealingAttempt("ts-key");
-
-    const ts = lastHealingAttemptTimestamp();
-    expect(ts).toBe(1_000_000);
-  });
-});

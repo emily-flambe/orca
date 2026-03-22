@@ -69,7 +69,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxCostUsd: 10.0,
-    schedulerIntervalSec: 10,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -353,7 +352,7 @@ describe("Config - loadConfig defaults for deploy fields", () => {
 // ===========================================================================
 
 // Mock scheduler and runner modules (same pattern as linear-integration.test.ts)
-vi.mock("../src/scheduler/index.js", () => ({
+vi.mock("../src/session-handles.js", () => ({
   activeHandles: new Map(),
 }));
 
