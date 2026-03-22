@@ -814,6 +814,26 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "session timed out after 45 minutes",
           });
           updateAndEmit(db, taskId, "failed", "session_timed_out");
+          insertSystemEvent(db, {
+            type: "task_failed",
+            message: `Task ${taskId} permanently failed`,
+            metadata: {
+              taskId,
+              phase: "implement",
+              reason: "session_timed_out",
+            },
+          });
+          sendPermanentFailureAlert(
+            getSchedulerDeps(),
+            taskId,
+            `Implement session timed out after 45 minutes`,
+          );
+          transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            "failed_permanent",
+            `Task permanently failed: implement session timed out`,
+          ).catch(() => {});
           try {
             removeWorktree(worktreePath);
           } catch {
