@@ -330,7 +330,7 @@ describe("GET /api/health", () => {
     expect(typeof body.version).toBe("string");
   });
 
-  it("returns 503 with degraded status when budget is exhausted", async () => {
+  it("returns 200 with degraded status when budget is exhausted", async () => {
     // Insert task first (FK constraint requires task before invocation)
     insertTask(db, makeTask({ linearIssueId: "BUDGET-1" }));
     const invId = insertInvocation(db, {
@@ -345,7 +345,9 @@ describe("GET /api/health", () => {
     });
 
     const res = await app.request("/api/health");
-    expect(res.status).toBe(503);
+    // Budget exhaustion is a normal operational state — must not fail health check
+    // (deploy script uses curl -sf which fails on non-2xx)
+    expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("degraded");
     expect(body.budgetExhausted).toBe(true);

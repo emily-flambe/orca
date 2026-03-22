@@ -72,3 +72,17 @@ export function setDraining(): void {
   draining = true;
   log("draining flag set (external deploy mode)");
 }
+
+/**
+ * Clear the draining flag, re-enabling task dispatch.
+ * Used by the /api/deploy/unpause endpoint to recover from
+ * failed deploys that left the instance stuck in draining mode.
+ */
+export function clearDraining(): void {
+  if (!draining) {
+    log("not draining — ignoring clearDraining()");
+    return;
+  }
+  draining = false;
+  log("draining flag cleared (unpause)");
+}

@@ -61,7 +61,7 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining } from "../deploy.js";
+import { isDraining, setDraining, clearDraining } from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -776,7 +776,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Determine overall status
     let status: "healthy" | "degraded" | "draining";
-    if (!dbOk || budgetExhausted) {
+    if (!dbOk) {
+      status = "degraded";
+    } else if (budgetExhausted) {
       status = "degraded";
     } else if (draining) {
       status = "draining";
@@ -797,8 +799,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       },
     };
 
-    // 503 when budget exhausted or DB unreachable
-    const httpStatus = !dbOk || budgetExhausted ? 503 : 200;
+    // 503 only when DB is unreachable — budget exhaustion is a normal
+    // operational state and must not break deploy health checks
+    const httpStatus = !dbOk ? 503 : 200;
     return c.json(body, httpStatus);
   });
 
@@ -1717,8 +1720,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   // POST /api/deploy/unpause
   // -----------------------------------------------------------------------
-  // Legacy unpause — Inngest mode has no scheduler to unpause
-  app.post("/api/deploy/unpause", (c) => c.json({ status: "ok" }));
+  app.post("/api/deploy/unpause", (c) => {
+    const wasDraining = isDraining();
+    clearDraining();
+    logger.info("audit: unpause triggered");
+    return c.json({ ok: true, wasDraining, draining: false });
+  });
 
   // -----------------------------------------------------------------------
   // POST /api/deploy/event  — log deploy success/failure to system_events
