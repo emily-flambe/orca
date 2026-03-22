@@ -643,21 +643,6 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
     }
   }
 
-  async function handleTrigger(s: CronSchedule) {
-    if (triggeringId === s.id) return;
-    setTriggeringId(s.id);
-    try {
-      await triggerCron(s.id);
-      onToast?.success(`Triggered: ${s.name}`);
-    } catch (err) {
-      onToast?.error(
-        err instanceof Error ? err.message : "Failed to trigger schedule",
-      );
-    } finally {
-      setTriggeringId(null);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
