@@ -188,6 +188,40 @@ log_deploy_event() {
 }
 
 # ---------------------------------------------------------------------------
+# Drain old instance BEFORE switching tunnel — prevents new sessions starting
+# on old instance after traffic is cut over.
+# ---------------------------------------------------------------------------
+DRAIN_TIMEOUT_S=600  # Max seconds to wait for sessions to finish (10 min)
+if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
+  log "signaling drain on old instance (port $ACTIVE_PORT) before tunnel switch..."
+  curl -sf --max-time 5 -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
+
+  # Poll active sessions — wait for them to finish before switching tunnel
+  DRAIN_START=$(date +%s)
+  while true; do
+    ACTIVE_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
+      | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
+      || echo "0")
+
+    if [[ "$ACTIVE_SESSIONS" == "0" ]]; then
+      log "all sessions drained — proceeding with tunnel switch"
+      break
+    fi
+
+    ELAPSED=$(( $(date +%s) - DRAIN_START ))
+    if [[ "$ELAPSED" -ge "$DRAIN_TIMEOUT_S" ]]; then
+      log "drain timeout after ${ELAPSED}s with $ACTIVE_SESSIONS active session(s) — proceeding with tunnel switch anyway"
+      break
+    fi
+
+    log "waiting for $ACTIVE_SESSIONS active session(s) to finish (${ELAPSED}s/${DRAIN_TIMEOUT_S}s)..."
+    sleep 10
+  done
+else
+  log "no old instance running on port $ACTIVE_PORT — skipping drain"
+fi
+
+# ---------------------------------------------------------------------------
 # Update Cloudflare tunnel origin (if vars are set)
 # ---------------------------------------------------------------------------
 if [[ -f "$PROJECT_DIR/.env" ]]; then
@@ -297,36 +331,10 @@ if [[ "$POST_SWITCH_OK" != "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stop old instance: signal drain, wait for active sessions to finish, then kill.
+# Stop old instance: sessions already drained before tunnel switch, so kill immediately.
 # ---------------------------------------------------------------------------
-DRAIN_TIMEOUT_S=600  # Max seconds to wait for sessions to finish (10 min)
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
-  log "signaling drain on old instance (port $ACTIVE_PORT)..."
-  curl -sf --max-time 5 -X POST "http://localhost:$ACTIVE_PORT/api/deploy/drain" > /dev/null 2>&1 || true
-
-  # Poll active sessions — wait for them to finish before killing
-  DRAIN_START=$(date +%s)
-  while true; do
-    ACTIVE_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-      | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
-      || echo "0")
-
-    if [[ "$ACTIVE_SESSIONS" == "0" ]]; then
-      log "all sessions drained — stopping old instance"
-      break
-    fi
-
-    ELAPSED=$(( $(date +%s) - DRAIN_START ))
-    if [[ "$ELAPSED" -ge "$DRAIN_TIMEOUT_S" ]]; then
-      log "drain timeout after ${ELAPSED}s with $ACTIVE_SESSIONS active session(s) — force stopping"
-      break
-    fi
-
-    log "waiting for $ACTIVE_SESSIONS active session(s) to finish (${ELAPSED}s/${DRAIN_TIMEOUT_S}s)..."
-    sleep 10
-  done
-
-  log "stopping old instance..."
+  log "stopping old instance (sessions already drained)..."
   $PM2 delete "orca-${ACTIVE_PORT}" 2>/dev/null || true
 fi
 
