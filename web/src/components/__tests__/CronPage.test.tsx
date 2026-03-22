@@ -208,10 +208,10 @@ describe("CronPage", () => {
     render(<CronPage />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("Disable"));
+    fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));
 
     await waitFor(() => {
       expect(mockUpdateCronSchedule).toHaveBeenCalledWith(1, { enabled: 0 });
@@ -324,10 +324,10 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("Disable"));
+    fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));
 
     await waitFor(() => {
       expect(onToast.success).toHaveBeenCalledWith("Schedule disabled");
@@ -345,10 +345,10 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Enable")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: /Enable/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("Enable"));
+    fireEvent.click(screen.getByRole("switch", { name: /Enable/i }));
 
     await waitFor(() => {
       expect(onToast.success).toHaveBeenCalledWith("Schedule enabled");
@@ -365,10 +365,10 @@ describe("CronPage", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTitle("Disable"));
+    fireEvent.click(screen.getByRole("switch", { name: /Disable/i }));
 
     await waitFor(() => {
       expect(onToast.error).toHaveBeenCalledWith("Network error");

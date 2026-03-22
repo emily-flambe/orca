@@ -53,6 +53,15 @@ export default function TaskDetail({
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
 
+  // Focus first menu item when the status menu opens
+  useEffect(() => {
+    if (!showStatusMenu || !statusMenuRef.current) return;
+    const first = statusMenuRef.current.querySelector<HTMLElement>(
+      '[role="menuitem"]',
+    );
+    first?.focus();
+  }, [showStatusMenu]);
+
   useEffect(() => {
     fetchTaskDetail(taskId)
       .then((d) => {
@@ -119,6 +128,7 @@ export default function TaskDetail({
               className="absolute top-full left-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
+                  e.stopPropagation();
                   setShowStatusMenu(false);
                   statusTriggerRef.current?.focus();
                   return;

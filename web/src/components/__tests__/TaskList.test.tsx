@@ -126,8 +126,8 @@ describe("TaskList", () => {
     fireEvent.click(dropdownButton);
 
     // Find the backlog filter row and verify its count shows 2
-    const allMenuItems = screen.getAllByRole("menuitem");
-    const backlogFilterBtn = allMenuItems.find((btn) =>
+    const allFilterOptions = screen.getAllByRole("option");
+    const backlogFilterBtn = allFilterOptions.find((btn) =>
       btn.textContent?.includes("backlog"),
     );
     expect(backlogFilterBtn).toBeTruthy();

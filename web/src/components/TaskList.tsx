@@ -147,6 +147,15 @@ export default function TaskList({
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const statusMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
+  // Focus first menu item when the per-task status menu opens
+  useEffect(() => {
+    if (!statusMenuTaskId || !statusMenuRef.current) return;
+    const first = statusMenuRef.current.querySelector<HTMLElement>(
+      '[role="menuitem"]',
+    );
+    first?.focus();
+  }, [statusMenuTaskId]);
+
   // Re-render periodically so stale done tasks auto-hide
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), 30_000);
@@ -316,7 +325,7 @@ export default function TaskList({
             <button
               ref={statusFilterTriggerRef}
               id="status-filter-btn"
-              aria-haspopup="menu"
+              aria-haspopup="listbox"
               aria-expanded={statusDropdownOpen}
               aria-controls="status-filter-menu"
               aria-label="Filter by status"
@@ -351,10 +360,12 @@ export default function TaskList({
             {statusDropdownOpen && (
               <div
                 id="status-filter-menu"
-                role="menu"
+                role="listbox"
+                aria-multiselectable="true"
                 className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
+                    e.preventDefault();
                     setStatusDropdownOpen(false);
                     statusFilterTriggerRef.current?.focus();
                     return;
@@ -363,7 +374,7 @@ export default function TaskList({
                     e.preventDefault();
                     const items = Array.from(
                       e.currentTarget.querySelectorAll<HTMLElement>(
-                        '[role="menuitem"]',
+                        '[role="option"]',
                       ),
                     );
                     const idx = items.indexOf(
@@ -414,8 +425,8 @@ export default function TaskList({
                   return (
                     <button
                       key={f.value}
-                      role="menuitem"
-                      tabIndex={-1}
+                      role="option"
+                      aria-selected={active}
                       onClick={() => toggleStatus(f.value)}
                       className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
                     >
@@ -612,6 +623,7 @@ export default function TaskList({
                       className="absolute top-full right-0 mt-1 z-50 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
                       onKeyDown={(e) => {
                         if (e.key === "Escape") {
+                          e.stopPropagation();
                           setStatusMenuTaskId(null);
                           statusMenuTriggerRef.current?.focus();
                           return;

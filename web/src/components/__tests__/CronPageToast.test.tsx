@@ -120,10 +120,10 @@ describe("CronPage - delete success toast", () => {
     render(<CronPage onToast={onToast} />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Disable")).toBeInTheDocument();
+      expect(screen.getByRole("switch", { name: /Disable/i })).toBeInTheDocument();
     });
 
-    const toggleBtn = screen.getByTitle("Disable");
+    const toggleBtn = screen.getByRole("switch", { name: /Disable/i });
 
     // Rapid double-click
     fireEvent.click(toggleBtn);

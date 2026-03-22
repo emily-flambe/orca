@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useId } from "react";
 import { fetchProjects, createTask, type ProjectOption } from "../hooks/useApi";
 
 interface Props {
@@ -24,7 +24,8 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -36,28 +37,32 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
       .catch(() => {});
   }, []);
 
-  // Close on Escape
+  // Focus trap + Escape to close
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+    const modal = modalRef.current;
+    if (!modal) return;
 
-  const handleFocusTrap = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const FOCUSABLE =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
       if (e.key !== "Tab") return;
-      const el = dialogRef.current;
-      if (!el) return;
+
       const focusable = Array.from(
-        el.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input, textarea, select, [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-      if (focusable.length === 0) return;
+        modal.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => !el.hasAttribute("disabled"));
+      if (focusable.length === 0) {
+        e.preventDefault();
+        return;
+      }
+
       const first = focusable[0]!;
       const last = focusable[focusable.length - 1]!;
+
       if (e.shiftKey) {
         if (document.activeElement === first) {
           e.preventDefault();
@@ -69,9 +74,11 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
           first.focus();
         }
       }
-    },
-    [],
-  );
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,20 +109,14 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
       }}
     >
       <div
-        ref={dialogRef}
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="create-ticket-title"
+        aria-labelledby={titleId}
         className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4"
-        onKeyDown={handleFocusTrap}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2
-            id="create-ticket-title"
-            className="text-base font-semibold text-gray-100"
-          >
-            New ticket
-          </h2>
+          <h2 id={titleId} className="text-base font-semibold text-gray-100">New ticket</h2>
           <button
             onClick={onClose}
             aria-label="Close dialog"
