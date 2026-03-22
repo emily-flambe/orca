@@ -4,11 +4,24 @@
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-import {
-  isTransientGitError,
-  isDllInitError,
-  type ExecError,
-} from "../src/git.js";
+import { isTransientGitError, type ExecError } from "../src/git.js";
+
+/** Windows STATUS_DLL_INIT_FAILED exit code (0xC0000142 unsigned). */
+const WIN_DLL_INIT_FAILED = 3221225794;
+/** Signed 32-bit representation of the same exit code. */
+const WIN_DLL_INIT_FAILED_SIGNED = -1073741502;
+
+/**
+ * Local helper (mirrors the removed src/git.ts export) — used by cooldown
+ * simulation tests that need to distinguish DLL errors from other transient errors.
+ */
+function isDllInitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const status = (err as ExecError).status;
+  return (
+    status === WIN_DLL_INIT_FAILED || status === WIN_DLL_INIT_FAILED_SIGNED
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

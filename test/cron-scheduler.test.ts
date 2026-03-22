@@ -52,7 +52,6 @@ vi.mock("../src/github/index.js", () => ({
 
 vi.mock("../src/git.js", () => ({
   isTransientGitError: vi.fn().mockReturnValue(false),
-  isDllInitError: vi.fn().mockReturnValue(false),
   git: vi.fn().mockReturnValue(""),
 }));
 
@@ -65,7 +64,6 @@ vi.mock("../src/events.js", () => ({
   emitTaskUpdated: vi.fn(),
   emitInvocationStarted: vi.fn(),
   emitInvocationCompleted: vi.fn(),
-  emitStatusUpdated: vi.fn(),
 }));
 
 vi.mock("../src/cleanup/index.js", () => ({

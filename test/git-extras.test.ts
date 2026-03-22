@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Tests for cleanStaleLockFiles(), isTransientGitError(), isDllInitError()
+// Tests for cleanStaleLockFiles(), isTransientGitError()
 // in src/git.ts
 // ---------------------------------------------------------------------------
 
@@ -62,7 +62,6 @@ afterEach(() => {
 import {
   cleanStaleLockFiles,
   isTransientGitError,
-  isDllInitError,
   probeDllHealth,
   type ExecError,
 } from "../src/git.js";
@@ -309,40 +308,5 @@ describe("isTransientGitError", () => {
     expect(isTransientGitError(null)).toBe(false);
     expect(isTransientGitError(undefined)).toBe(false);
     expect(isTransientGitError(42)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isDllInitError
-// ---------------------------------------------------------------------------
-
-describe("isDllInitError", () => {
-  test("returns true for unsigned DLL exit code", () => {
-    expect(isDllInitError(makeDllError(false))).toBe(true);
-  });
-
-  test("returns true for signed DLL exit code", () => {
-    expect(isDllInitError(makeDllError(true))).toBe(true);
-  });
-
-  test("returns false for normal exit code 1", () => {
-    const err = new Error("git failed") as Error & ExecError;
-    err.status = 1;
-    expect(isDllInitError(err)).toBe(false);
-  });
-
-  test("returns false for normal exit code 128", () => {
-    const err = new Error("git failed") as Error & ExecError;
-    err.status = 128;
-    expect(isDllInitError(err)).toBe(false);
-  });
-
-  test("returns false for non-Error values", () => {
-    expect(isDllInitError(null)).toBe(false);
-    expect(isDllInitError("string")).toBe(false);
-  });
-
-  test("returns false for Error with no status property", () => {
-    expect(isDllInitError(new Error("oops"))).toBe(false);
   });
 });

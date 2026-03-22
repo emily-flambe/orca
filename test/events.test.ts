@@ -8,7 +8,6 @@ import {
   emitTaskUpdated,
   emitInvocationStarted,
   emitInvocationCompleted,
-  emitStatusUpdated,
   emitTasksRefreshed,
 } from "../src/events.js";
 import type { Task } from "../src/db/queries.js";
@@ -101,29 +100,6 @@ describe("emitInvocationCompleted", () => {
     });
 
     emitInvocationCompleted(payload);
-
-    expect(received).toEqual(payload);
-  });
-});
-
-describe("emitStatusUpdated", () => {
-  test("fires status:updated event with correct payload", () => {
-    const payload = {
-      activeSessions: 2,
-      queuedTasks: 5,
-      costInWindow: 1.23,
-      budgetLimit: 100,
-      budgetWindowHours: 4,
-      tokensInWindow: 50000,
-      tokenBudgetLimit: 1000000,
-    };
-    let received: typeof payload | null = null;
-
-    orcaEvents.on("status:updated", (p) => {
-      received = p as typeof payload;
-    });
-
-    emitStatusUpdated(payload);
 
     expect(received).toEqual(payload);
   });

@@ -537,4 +537,3 @@ describe("trackHealingAttempt", () => {
     initAlertSystem(null as any);
   });
 });
-
