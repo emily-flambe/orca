@@ -8,11 +8,14 @@ export {
   type TaskStatus,
   INVOCATION_STATUSES,
   type InvocationStatus,
+  PR_STATES,
+  type PrState,
 } from "../shared/types.js";
 import {
   CRON_TYPES,
   TASK_STATUSES,
   INVOCATION_STATUSES,
+  PR_STATES,
 } from "../shared/types.js";
 
 export const tasks = sqliteTable("tasks", {
@@ -40,7 +43,7 @@ export const tasks = sqliteTable("tasks", {
   taskType: text("task_type").notNull().default("linear"),
   cronScheduleId: integer("cron_schedule_id"),
   prUrl: text("pr_url"),
-  prState: text("pr_state"),
+  prState: text("pr_state", { enum: PR_STATES }),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

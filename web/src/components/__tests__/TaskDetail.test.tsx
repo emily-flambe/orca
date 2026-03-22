@@ -79,6 +79,8 @@ function makeTaskWithInvocations(
     updatedAt: new Date().toISOString(),
     taskType: "linear",
     cronScheduleId: null,
+    prUrl: null,
+    prState: null,
     invocations: [],
     ...overrides,
   };
