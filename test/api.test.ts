@@ -1611,3 +1611,4 @@ describe("GET /api/invocations/:id/logs — cron_shell", () => {
     expect(body.lines[0]).toMatchObject({ type: "shell_output", exitCode: 1 });
   });
 });
+

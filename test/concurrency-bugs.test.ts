@@ -395,6 +395,7 @@ describe("bridgeSessionCompletion DB fallback", () => {
       mockDb,
       "TASK-1",
       "failed",
+      { reason: "session_failed_db_fallback" },
     );
   });
 
@@ -507,6 +508,7 @@ describe("bridgeSessionCompletion DB fallback", () => {
       mockDb,
       "TASK-4",
       "failed",
+      { reason: "runner_error_db_fallback" },
     );
   });
 });
@@ -806,6 +808,7 @@ describe("claim-task capacity rejection", () => {
       expect.anything(),
       "TEST-1",
       "ready",
+      { reason: "spawn_blocked_capacity" },
     );
   });
 });
@@ -853,6 +856,7 @@ describe("bridgeSessionCompletion DB fallback edge cases", () => {
       mockDb,
       "TASK-EXHAUSTED",
       "failed",
+      { reason: "session_failed_db_fallback" },
     );
   });
 
@@ -901,6 +905,7 @@ describe("bridgeSessionCompletion DB fallback edge cases", () => {
       mockDb,
       "TASK-SUCCESS",
       "failed",
+      { reason: "session_failed_db_fallback" },
     );
   });
 });
@@ -1024,6 +1029,7 @@ describe("resource leaks on capacity rejection", () => {
       expect.anything(),
       "TEST-1",
       "ready",
+      { reason: "spawn_blocked_capacity" },
     );
   });
 });

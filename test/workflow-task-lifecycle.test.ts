@@ -400,6 +400,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "session_timed_out" },
     );
   });
 
@@ -436,6 +437,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "in_review",
+      { reason: "pr_found" },
     );
   });
 
@@ -461,7 +463,12 @@ describe("task-lifecycle workflow", () => {
     });
 
     expect(result).toMatchObject({ outcome: "done" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "done",
+      { reason: "already_done" },
+    );
   });
 
   test("implement succeeds, no PR found, retries remain → returns retry", async () => {
@@ -554,6 +561,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "awaiting_ci",
+      { reason: "review_approved" },
     );
   });
 
@@ -613,6 +621,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "changes_requested",
+      { reason: "review_changes_requested" },
     );
   });
 
@@ -746,6 +755,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "implement_failed" },
     );
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
   });
@@ -1125,6 +1135,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "awaiting_ci",
+      { reason: "rescued_green_pr" },
     );
     expect(mockInsertSystemEvent).toHaveBeenCalledWith(
       expect.anything(),
@@ -1176,6 +1187,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "implement_failed" },
     );
   });
 
@@ -1213,6 +1225,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "implement_failed" },
     );
   });
 
@@ -1250,6 +1263,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "implement_failed" },
     );
   });
 });

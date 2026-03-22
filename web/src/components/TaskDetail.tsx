@@ -2,9 +2,11 @@ import { useState, useEffect, useRef, Fragment } from "react";
 import type { TaskWithInvocations } from "../types";
 import {
   fetchTaskDetail,
+  fetchTaskTransitions,
   abortInvocation,
   retryTask,
   updateTaskStatus,
+  type TaskStateTransition,
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import LiveRunWidget from "./LiveRunWidget";
@@ -47,6 +49,7 @@ export default function TaskDetail({
   >(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [transitions, setTransitions] = useState<TaskStateTransition[]>([]);
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -57,6 +60,9 @@ export default function TaskDetail({
         setLastUpdated(new Date());
       })
       .catch(console.error);
+    fetchTaskTransitions(taskId)
+      .then(setTransitions)
+      .catch(() => setTransitions([]));
   }, [taskId, refreshTrigger]);
 
   useEffect(() => {
@@ -418,6 +424,29 @@ export default function TaskDetail({
           </>
         )}
       </div>
+
+      {/* State Transitions */}
+      {transitions.length > 0 && (
+        <div>
+          <h3 className="text-sm text-gray-400 mb-2">State Transitions</h3>
+          <div className="space-y-1">
+            {[...transitions].reverse().map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center gap-3 text-xs py-1.5 border-b border-gray-800/50"
+              >
+                <span className="text-gray-500 whitespace-nowrap">
+                  {formatDate(t.createdAt)}
+                </span>
+                <span className="text-gray-400">
+                  {t.fromStatus ?? "—"} → {t.toStatus}
+                </span>
+                {t.reason && <span className="text-gray-600">{t.reason}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
