@@ -68,6 +68,7 @@ import {
   getPrCheckStatus,
 } from "../../github/index.js";
 import { activeHandles } from "../../session-handles.js";
+import { isDraining } from "../../deploy.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import {
@@ -87,6 +88,9 @@ import {
 export function assertSessionCapacity(
   db: import("../../db/index.js").OrcaDb,
 ): void {
+  if (isDraining()) {
+    throw new Error("instance is draining — rejecting new session dispatch");
+  }
   const cap = getSchedulerDeps().config.concurrencyCap ?? 1;
   const handleCount = activeHandles.size;
   const dbCount = countActiveSessions(db);
