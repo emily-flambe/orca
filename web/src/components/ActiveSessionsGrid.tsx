@@ -1,60 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
 import type { Invocation } from "../types";
-import { fetchRunningInvocations } from "../hooks/useApi";
-import { useSSE } from "../hooks/useSSE";
 import LiveRunWidget from "./LiveRunWidget";
 import { formatTokens } from "../utils/formatTokens";
 import { timeAgo } from "../utils/time.js";
 
-export default function ActiveSessionsGrid() {
-  const [running, setRunning] = useState<Invocation[]>([]);
-  const [lastCompleted, setLastCompleted] = useState<Invocation | null>(null);
+interface ActiveSessionsGridProps {
+  running: Invocation[];
+  lastCompleted: Invocation | null;
+  onReload: () => void;
+}
 
-  const reload = useCallback(() => {
-    fetchRunningInvocations().then(setRunning).catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  const handleInvocationStarted = useCallback(() => {
-    // Re-fetch to get the full invocation object
-    fetchRunningInvocations().then(setRunning).catch(console.error);
-  }, []);
-
-  const handleInvocationCompleted = useCallback(
-    (data: {
-      taskId: string;
-      invocationId: number;
-      status: string;
-      costUsd: number;
-      inputTokens?: number;
-      outputTokens?: number;
-    }) => {
-      setRunning((prev) => {
-        const completed = prev.find((inv) => inv.id === data.invocationId);
-        if (completed) {
-          setLastCompleted({
-            ...completed,
-            status: data.status as Invocation["status"],
-            costUsd: data.costUsd,
-            inputTokens: data.inputTokens ?? null,
-            outputTokens: data.outputTokens ?? null,
-            endedAt: new Date().toISOString(),
-          });
-        }
-        return prev.filter((inv) => inv.id !== data.invocationId);
-      });
-    },
-    [],
-  );
-
-  useSSE({
-    onInvocationStarted: handleInvocationStarted,
-    onInvocationCompleted: handleInvocationCompleted,
-  });
-
+export default function ActiveSessionsGrid({
+  running,
+  lastCompleted,
+  onReload,
+}: ActiveSessionsGridProps) {
   return (
     <div className="p-4">
       <h2 className="text-sm font-semibold text-gray-400 mb-3 uppercase tracking-wide">
@@ -94,7 +53,11 @@ export default function ActiveSessionsGrid() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {running.map((inv) => (
-            <LiveRunWidget key={inv.id} invocation={inv} onCancelled={reload} />
+            <LiveRunWidget
+              key={inv.id}
+              invocation={inv}
+              onCancelled={onReload}
+            />
           ))}
         </div>
       )}
