@@ -1770,7 +1770,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/hooks/:invocationId", async (c) => {
     const invocationId = parseInt(c.req.param("invocationId"), 10);
-    if (isNaN(invocationId)) {
+    if (isNaN(invocationId) || invocationId <= 0) {
       return c.json({ error: "invalid invocationId" }, 400);
     }
 
@@ -1788,7 +1788,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       payload: body,
     });
 
-    logger.info(`hook event for invocation ${invocationId}: ${JSON.stringify(body).slice(0, 200)}`);
+    logger.info(
+      `hook event for invocation ${invocationId}: ${JSON.stringify(body).slice(0, 200)}`,
+    );
 
     // Emit into the invocation log stream (SSE) if the session is active
     const logState = invocationLogs.get(invocationId);

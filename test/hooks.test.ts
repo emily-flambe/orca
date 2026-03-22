@@ -11,15 +11,7 @@
 //      large body, concurrent requests, SSE buffer cap
 // ---------------------------------------------------------------------------
 
-import {
-  describe,
-  it,
-  test,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-} from "vitest";
+import { describe, it, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -108,8 +100,13 @@ describe("writeHookConfig", () => {
     writeHookConfig("/some/worktree", 42, 3000);
 
     expect(mockWriteFileSync).toHaveBeenCalledOnce();
-    const [writtenPath] = mockWriteFileSync.mock.calls[0] as [string, ...unknown[]];
-    expect(writtenPath).toBe(join("/some/worktree", ".claude", "settings.local.json"));
+    const [writtenPath] = mockWriteFileSync.mock.calls[0] as [
+      string,
+      ...unknown[],
+    ];
+    expect(writtenPath).toBe(
+      join("/some/worktree", ".claude", "settings.local.json"),
+    );
   });
 
   test("creates .claude directory with recursive:true before writing", async () => {
@@ -144,7 +141,10 @@ describe("writeHookConfig", () => {
     const content = mockWriteFileSync.mock.calls[0][1] as string;
     const parsed = JSON.parse(content) as unknown;
     expect(parsed).toHaveProperty("hooks");
-    const hooks = (parsed as Record<string, unknown>).hooks as Record<string, unknown>;
+    const hooks = (parsed as Record<string, unknown>).hooks as Record<
+      string,
+      unknown
+    >;
     expect(hooks).toHaveProperty("Notification");
     expect(hooks).toHaveProperty("Stop");
   });
@@ -155,7 +155,11 @@ describe("writeHookConfig", () => {
     writeHookConfig("/repo/worktree", 99, 4001);
 
     const content = mockWriteFileSync.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ type: string; url: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: {
+        Notification: Array<{ hooks: Array<{ type: string; url: string }> }>;
+      };
+    };
     const notifUrl = parsed.hooks.Notification[0].hooks[0].url;
     expect(notifUrl).toBe("http://localhost:4001/api/hooks/99");
   });
@@ -166,7 +170,12 @@ describe("writeHookConfig", () => {
     writeHookConfig("/repo/worktree", 99, 4001);
 
     const content = mockWriteFileSync.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ url: string }> }>; Stop: Array<{ hooks: Array<{ url: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: {
+        Notification: Array<{ hooks: Array<{ url: string }> }>;
+        Stop: Array<{ hooks: Array<{ url: string }> }>;
+      };
+    };
     const notifUrl = parsed.hooks.Notification[0].hooks[0].url;
     const stopUrl = parsed.hooks.Stop[0].hooks[0].url;
     expect(stopUrl).toBe(notifUrl);
@@ -178,7 +187,9 @@ describe("writeHookConfig", () => {
     writeHookConfig("/repo/worktree", 1, 3000);
 
     const content = mockWriteFileSync.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ type: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: { Notification: Array<{ hooks: Array<{ type: string }> }> };
+    };
     expect(parsed.hooks.Notification[0].hooks[0].type).toBe("http");
   });
 
@@ -206,7 +217,9 @@ describe("writeHookConfig", () => {
     writeHookConfig("/repo/worktree", 0, 3000);
 
     const content = mockWriteFileSync.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> };
+    };
     const url = parsed.hooks.Notification[0].hooks[0].url;
     expect(url).toBe("http://localhost:3000/api/hooks/0");
     expect(url).not.toContain("NaN");
@@ -221,7 +234,9 @@ describe("writeHookConfig", () => {
     writeHookConfig("/repo/worktree", 5, 5000);
 
     const content = mockWriteFileSync.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> };
+    };
     expect(parsed.hooks.Notification[0].hooks[0].url).toContain(":5000/");
   });
 });
@@ -264,15 +279,21 @@ describe("cleanupHookConfig", () => {
 
   test("does NOT throw when file was never created (rmSync throws ENOENT)", async () => {
     const { cleanupHookConfig } = await import("../src/hooks/index.js");
-    const err = Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
-    mockRmSync.mockImplementation(() => { throw err; });
+    const err = Object.assign(new Error("ENOENT: no such file"), {
+      code: "ENOENT",
+    });
+    mockRmSync.mockImplementation(() => {
+      throw err;
+    });
 
     expect(() => cleanupHookConfig("/missing-dir")).not.toThrow();
   });
 
   test("does NOT throw when rmSync throws a generic error", async () => {
     const { cleanupHookConfig } = await import("../src/hooks/index.js");
-    mockRmSync.mockImplementation(() => { throw new Error("permission denied"); });
+    mockRmSync.mockImplementation(() => {
+      throw new Error("permission denied");
+    });
 
     expect(() => cleanupHookConfig("/locked-dir")).not.toThrow();
   });
@@ -324,7 +345,7 @@ describe("POST /api/hooks/:invocationId", () => {
       body: JSON.stringify({ event: "notification", message: "hello" }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as { ok: boolean };
+    const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
   });
 
@@ -352,7 +373,11 @@ describe("POST /api/hooks/:invocationId", () => {
     });
 
     expect(lines).toHaveLength(1);
-    const entry = JSON.parse(lines[0]) as { type: string; invocationId: number; payload: unknown };
+    const entry = JSON.parse(lines[0]) as {
+      type: string;
+      invocationId: number;
+      payload: unknown;
+    };
     expect(entry.type).toBe("hook_event");
     expect(entry.invocationId).toBe(5);
     expect(entry.payload).toEqual({ event: "notification", data: "test" });
@@ -406,7 +431,7 @@ describe("POST /api/hooks/:invocationId", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeDefined();
   });
 
@@ -431,17 +456,26 @@ describe("POST /api/hooks/:invocationId", () => {
     expect(res.status).toBe(400);
   });
 
-  test("negative invocationId passes NaN check but should not crash", async () => {
-    // parseInt("-1", 10) = -1, which is NOT NaN, so it passes the isNaN gate.
-    // This is a potential bug: negative IDs are treated as valid.
-    // The test documents the current behavior and checks no crash occurs.
+  test("returns 400 for negative invocationId", async () => {
     const res = await app.request("/api/hooks/-1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event: "test" }),
     });
-    // Should not 500. Current implementation returns 200 for -1.
-    expect(res.status).not.toBe(500);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBeDefined();
+  });
+
+  test("returns 400 for zero invocationId", async () => {
+    const res = await app.request("/api/hooks/0", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "test" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBeDefined();
   });
 
   test("float invocationId (e.g. '1.5') is accepted as integer 1 by parseInt", async () => {
@@ -466,7 +500,7 @@ describe("POST /api/hooks/:invocationId", () => {
       body: "{not valid json",
     });
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBeDefined();
   });
 
@@ -527,7 +561,9 @@ describe("POST /api/hooks/:invocationId", () => {
     // Buffer should still be 100 (oldest evicted, newest pushed)
     expect(state.buffer).toHaveLength(100);
     // The last entry should be the new hook event
-    const lastEntry = JSON.parse(state.buffer[state.buffer.length - 1]) as { type: string };
+    const lastEntry = JSON.parse(state.buffer[state.buffer.length - 1]) as {
+      type: string;
+    };
     expect(lastEntry.type).toBe("hook_event");
     // The very first entry (index 0) should NOT be "line-0" (it was evicted)
     expect(state.buffer[0]).not.toBe("line-0");
@@ -605,7 +641,9 @@ describe("POST /api/hooks/:invocationId", () => {
     writeHookConfig("/some/worktree", 77, 3000);
 
     const content = mockWrite.mock.calls[0][1] as string;
-    const parsed = JSON.parse(content) as { hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> } };
+    const parsed = JSON.parse(content) as {
+      hooks: { Notification: Array<{ hooks: Array<{ url: string }> }> };
+    };
     const hookUrl = parsed.hooks.Notification[0].hooks[0].url;
 
     // Extract path from URL and verify the route exists

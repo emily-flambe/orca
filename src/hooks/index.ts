@@ -56,7 +56,9 @@ export function writeHookConfig(
       `wrote hook config for invocation ${invocationId} at port ${port}`,
     );
   } catch (err) {
-    logger.warn(`failed to write hook config for invocation ${invocationId}: ${err}`);
+    logger.warn(
+      `failed to write hook config for invocation ${invocationId}: ${err}`,
+    );
   }
 }
 
