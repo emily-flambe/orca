@@ -48,6 +48,7 @@ import {
   insertTask,
   deleteTask,
   insertSystemEvent,
+  getTaskStateTransitions,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -230,6 +231,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const invocations = getInvocationsByTask(db, taskId);
     return c.json({ ...task, invocations });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/tasks/:id/transitions
+  // -----------------------------------------------------------------------
+  app.get("/api/tasks/:id/transitions", (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "Task not found" }, 404);
+    }
+    const transitions = getTaskStateTransitions(db, taskId);
+    return c.json(transitions);
   });
 
   // -----------------------------------------------------------------------
@@ -419,7 +433,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
 
     // Reset task to ready with zeroed counters
-    updateTaskStatus(db, taskId, "ready");
+    updateTaskStatus(db, taskId, "ready", { reason: "aborted_by_user" });
     updateTaskFields(db, taskId, {
       retryCount: 0,
       reviewCycleCount: 0,
@@ -572,7 +586,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Update DB
     if (newStatus === "done") {
-      updateTaskStatus(db, taskId, "done");
+      updateTaskStatus(db, taskId, "done", { reason: "manual_status_update" });
     } else {
       updateTaskFields(db, taskId, {
         orcaStatus: newStatus,
@@ -639,7 +653,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     // Reset to ready with fresh retry/review counters
-    updateTaskStatus(db, taskId, "ready");
+    updateTaskStatus(db, taskId, "ready", { reason: "manual_retry" });
     updateTaskFields(db, taskId, {
       retryCount: 0,
       reviewCycleCount: 0,

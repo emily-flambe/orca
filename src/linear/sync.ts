@@ -231,7 +231,9 @@ function upsertTask(
   if (issue.state.type === "canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      updateTaskStatus(db, issue.identifier, "failed");
+      updateTaskStatus(db, issue.identifier, "failed", {
+        reason: "linear_canceled",
+      });
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
     }
@@ -372,7 +374,9 @@ export async function evaluateParentStatuses(
     );
 
     if (allDone && parent.orcaStatus !== "done") {
-      updateTaskStatus(db, parent.linearIssueId, "done");
+      updateTaskStatus(db, parent.linearIssueId, "done", {
+        reason: "all_children_done",
+      });
       writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch(
         (err) => {
           log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
@@ -380,7 +384,9 @@ export async function evaluateParentStatuses(
       );
       log(`parent ${parent.linearIssueId} → done (all children done)`);
     } else if (anyActive && parent.orcaStatus === "ready") {
-      updateTaskStatus(db, parent.linearIssueId, "running");
+      updateTaskStatus(db, parent.linearIssueId, "running", {
+        reason: "child_activity_detected",
+      });
       writeBackStatus(client, parent.linearIssueId, "running", stateMap).catch(
         (err) => {
           log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
@@ -687,7 +693,7 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed");
+    updateTaskStatus(db, taskId, "failed", { reason: "linear_canceled" });
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     closePrsForCanceledTask(taskId, task.repoPath);
     return;
@@ -754,14 +760,14 @@ export function resolveConflict(
 
   // Conflict case 2: Orca ready, Linear Done → set done
   if (task.orcaStatus === "ready" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done");
+    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
 
   // Conflict case 5: in_review, Linear Done → mark done (human override)
   if (task.orcaStatus === "in_review" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done");
+    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`,
     );
@@ -788,7 +794,7 @@ export function resolveConflict(
 
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
   if (task.orcaStatus === "deploying" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done");
+    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`,
     );
@@ -797,7 +803,7 @@ export function resolveConflict(
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
   if (task.orcaStatus === "awaiting_ci" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done");
+    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`,
     );

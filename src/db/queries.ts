@@ -23,6 +23,7 @@ import {
   cronSchedules,
   cronRuns,
   systemEvents,
+  taskStateTransitions,
   type TaskStatus,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
@@ -47,7 +48,14 @@ export function updateTaskStatus(
   db: OrcaDb,
   taskId: string,
   status: TaskStatus,
+  options?: { reason?: string; invocationId?: number },
 ): void {
+  const current = db
+    .select({ orcaStatus: tasks.orcaStatus })
+    .from(tasks)
+    .where(eq(tasks.linearIssueId, taskId))
+    .get();
+
   db.update(tasks)
     .set({
       orcaStatus: status,
@@ -56,6 +64,14 @@ export function updateTaskStatus(
     })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
+
+  insertTaskStateTransition(db, {
+    linearIssueId: taskId,
+    fromStatus: current?.orcaStatus ?? null,
+    toStatus: status,
+    reason: options?.reason,
+    invocationId: options?.invocationId,
+  });
 }
 
 /**
@@ -67,7 +83,14 @@ export function claimTaskForDispatch(
   db: OrcaDb,
   taskId: string,
   fromStatuses: TaskStatus[],
+  options?: { reason?: string; invocationId?: number },
 ): boolean {
+  const current = db
+    .select({ orcaStatus: tasks.orcaStatus })
+    .from(tasks)
+    .where(eq(tasks.linearIssueId, taskId))
+    .get();
+
   const result = db
     .update(tasks)
     .set({
@@ -81,6 +104,17 @@ export function claimTaskForDispatch(
       ),
     )
     .run();
+
+  if (result.changes === 1) {
+    insertTaskStateTransition(db, {
+      linearIssueId: taskId,
+      fromStatus: current?.orcaStatus ?? null,
+      toStatus: "running",
+      reason: options?.reason ?? "claimed for dispatch",
+      invocationId: options?.invocationId,
+    });
+  }
+
   return result.changes === 1;
 }
 
@@ -89,7 +123,14 @@ export function incrementRetryCount(
   db: OrcaDb,
   taskId: string,
   resetStatus: TaskStatus = "ready",
+  options?: { reason?: string; invocationId?: number },
 ): void {
+  const current = db
+    .select({ orcaStatus: tasks.orcaStatus })
+    .from(tasks)
+    .where(eq(tasks.linearIssueId, taskId))
+    .get();
+
   db.update(tasks)
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
@@ -99,6 +140,14 @@ export function incrementRetryCount(
     })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
+
+  insertTaskStateTransition(db, {
+    linearIssueId: taskId,
+    fromStatus: current?.orcaStatus ?? null,
+    toStatus: resetStatus,
+    reason: options?.reason ?? "retry",
+    invocationId: options?.invocationId,
+  });
 }
 
 /** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */
@@ -1134,4 +1183,49 @@ export function countZeroCostFailuresInWindow(
     )
     .get();
   return result?.count ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// Task state transition types
+// ---------------------------------------------------------------------------
+export type TaskStateTransition = typeof taskStateTransitions.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Task state transition queries
+// ---------------------------------------------------------------------------
+
+/** Insert a task state transition record. */
+export function insertTaskStateTransition(
+  db: OrcaDb,
+  transition: {
+    linearIssueId: string;
+    fromStatus: string | null;
+    toStatus: string;
+    reason?: string;
+    invocationId?: number;
+  },
+): void {
+  db.insert(taskStateTransitions)
+    .values({
+      linearIssueId: transition.linearIssueId,
+      fromStatus: transition.fromStatus ?? null,
+      toStatus: transition.toStatus,
+      reason: transition.reason ?? null,
+      invocationId: transition.invocationId ?? null,
+      createdAt: new Date().toISOString(),
+    })
+    .run();
+}
+
+/** Get all state transitions for a task, ordered oldest-first. */
+export function getTaskStateTransitions(
+  db: OrcaDb,
+  taskId: string,
+): TaskStateTransition[] {
+  return db
+    .select()
+    .from(taskStateTransitions)
+    .where(eq(taskStateTransitions.linearIssueId, taskId))
+    .orderBy(asc(taskStateTransitions.id))
+    .all();
 }
