@@ -204,18 +204,6 @@ export function isTransientGitError(err: unknown): boolean {
 }
 
 /**
- * Returns true if the error is specifically a Windows DLL init failure.
- * Used to apply longer backoffs than other transient errors.
- */
-export function isDllInitError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const status = (err as ExecError).status;
-  return (
-    status === WIN_DLL_INIT_FAILED || status === WIN_DLL_INIT_FAILED_SIGNED
-  );
-}
-
-/**
  * Remove stale .git/index.lock files that are older than `maxAgeMs`.
  *
  * Git leaves index.lock behind when a process is killed mid-operation.

@@ -8,13 +8,11 @@
 // instance can resume them.
 // ---------------------------------------------------------------------------
 
-import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
-let startupSha: string | null = null;
 
 const logger = createLogger("deploy");
 
@@ -23,20 +21,9 @@ function log(msg: string): void {
 }
 
 /**
- * Read the current git HEAD SHA. Called once at startup to enable SHA dedup.
+ * Read deploy state from deploy-state.json. Called once at startup.
  */
 export function initDeployState(): void {
-  // Read startup SHA from git
-  try {
-    startupSha = execFileSync("git", ["rev-parse", "HEAD"], {
-      encoding: "utf-8",
-      timeout: 5000,
-    }).trim();
-    log(`startup SHA: ${startupSha.slice(0, 12)}`);
-  } catch {
-    log("warning: could not read git HEAD SHA for deploy dedup");
-  }
-
   // Read last deploy timestamp from deploy-state.json for informational logging
   try {
     const stateFile = join(process.cwd(), "deploy-state.json");

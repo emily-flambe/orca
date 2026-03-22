@@ -57,7 +57,6 @@ import {
   emitInvocationCompleted,
   type InvocationStartedPayload,
   type InvocationCompletedPayload,
-  type StatusPayload,
 } from "../events.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
@@ -1221,17 +1220,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
-      const onStatusUpdated = (data: StatusPayload) => {
-        try {
-          stream.writeSSE({
-            event: "status:updated",
-            data: JSON.stringify(data),
-          });
-        } catch {
-          // Connection likely closed; ignore
-        }
-      };
-
       const onTasksRefreshed = () => {
         try {
           stream.writeSSE({ event: "tasks:refreshed", data: "" });
@@ -1243,7 +1231,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       orcaEvents.on("task:updated", onTaskUpdated);
       orcaEvents.on("invocation:started", onInvocationStarted);
       orcaEvents.on("invocation:completed", onInvocationCompleted);
-      orcaEvents.on("status:updated", onStatusUpdated);
       orcaEvents.on("tasks:refreshed", onTasksRefreshed);
 
       // Keep-alive ping every 30s
@@ -1261,7 +1248,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         orcaEvents.off("task:updated", onTaskUpdated);
         orcaEvents.off("invocation:started", onInvocationStarted);
         orcaEvents.off("invocation:completed", onInvocationCompleted);
-        orcaEvents.off("status:updated", onStatusUpdated);
         orcaEvents.off("tasks:refreshed", onTasksRefreshed);
       });
 

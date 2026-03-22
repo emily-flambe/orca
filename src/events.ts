@@ -26,16 +26,6 @@ export interface InvocationCompletedPayload {
   outputTokens: number;
 }
 
-export interface StatusPayload {
-  activeSessions: number;
-  queuedTasks: number;
-  costInWindow: number;
-  budgetLimit: number;
-  budgetWindowHours: number;
-  tokensInWindow: number;
-  tokenBudgetLimit: number;
-}
-
 // ---------------------------------------------------------------------------
 // Typed emit helpers
 // ---------------------------------------------------------------------------
@@ -52,10 +42,6 @@ export function emitInvocationCompleted(
   payload: InvocationCompletedPayload,
 ): void {
   orcaEvents.emit("invocation:completed", payload);
-}
-
-export function emitStatusUpdated(status: StatusPayload): void {
-  orcaEvents.emit("status:updated", status);
 }
 
 export function emitTasksRefreshed(): void {

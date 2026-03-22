@@ -31,7 +31,6 @@ export interface AlertPayload {
 // Constants
 // ---------------------------------------------------------------------------
 
-const ESCALATION_THRESHOLD = 3;
 const POST_DEPLOY_GRACE_MS = 600_000; // 10 min
 const HEALING_INACTIVITY_RESET_MS = 3_600_000; // 1h
 
@@ -248,43 +247,6 @@ export function trackHealingAttempt(key: string): number {
   healingCounters.set(key, current);
 
   return current.count;
-}
-
-/**
- * Returns true after 3 healing attempts in 1h for the same key.
- */
-export function shouldEscalate(key: string): boolean {
-  const entry = healingCounters.get(key);
-  if (!entry) return false;
-
-  const now = Date.now();
-  if (now - entry.lastAttemptAt > HEALING_INACTIVITY_RESET_MS) {
-    healingCounters.delete(key);
-    return false;
-  }
-
-  return entry.count >= ESCALATION_THRESHOLD;
-}
-
-/**
- * Clear all counters. Called on auto-undrain.
- */
-export function resetHealingCounters(): void {
-  healingCounters.clear();
-  alertCooldowns.clear();
-}
-
-/**
- * Returns the timestamp of the most recent healing attempt across all keys.
- */
-export function lastHealingAttemptTimestamp(): number | null {
-  let latest: number | null = null;
-  for (const entry of healingCounters.values()) {
-    if (latest === null || entry.lastAttemptAt > latest) {
-      latest = entry.lastAttemptAt;
-    }
-  }
-  return latest;
 }
 
 // ---------------------------------------------------------------------------
