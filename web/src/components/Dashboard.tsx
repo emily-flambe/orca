@@ -16,11 +16,21 @@ interface DashboardProps {
     invocationId: number,
   ) => void;
   refreshTrigger?: number;
+  invocationStartedTrigger?: number;
+  lastCompletedEvent?: {
+    invocationId: number;
+    status: string;
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } | null;
 }
 
 export default function Dashboard({
   onNavigateToInvocation,
   refreshTrigger,
+  invocationStartedTrigger,
+  lastCompletedEvent,
 }: DashboardProps) {
   const [data, setData] = useState<MetricsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +72,10 @@ export default function Dashboard({
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* Active sessions */}
-      <ActiveSessionsGrid />
+      <ActiveSessionsGrid
+        invocationStartedTrigger={invocationStartedTrigger}
+        lastCompletedEvent={lastCompletedEvent}
+      />
 
       {/* Activity feed */}
       <Card>

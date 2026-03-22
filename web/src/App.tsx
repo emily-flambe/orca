@@ -304,6 +304,14 @@ export default function App() {
   const [detailKey, setDetailKey] = useState(0);
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(0);
   const [detailRefreshTrigger, setDetailRefreshTrigger] = useState(0);
+  const [invocationStartedTrigger, setInvocationStartedTrigger] = useState(0);
+  const [lastCompletedEvent, setLastCompletedEvent] = useState<{
+    invocationId: number;
+    status: string;
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  } | null>(null);
   const [expandedInvocationId, setExpandedInvocationId] = useState<
     number | null
   >(null);
@@ -363,8 +371,20 @@ export default function App() {
     setStatus(s as OrcaStatus);
   }, []);
 
+  const handleInvocationStarted = useCallback(() => {
+    setInvocationStartedTrigger((n) => n + 1);
+  }, []);
+
   const handleInvocationCompleted = useCallback(
-    (data: { taskId: string }) => {
+    (data: {
+      taskId: string;
+      invocationId: number;
+      status: string;
+      costUsd: number;
+      inputTokens?: number;
+      outputTokens?: number;
+    }) => {
+      setLastCompletedEvent(data);
       if (data.taskId === selectedTaskId) {
         setDetailKey((k) => k + 1);
       }
@@ -435,6 +455,7 @@ export default function App() {
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
+    onInvocationStarted: handleInvocationStarted,
     onInvocationCompleted: handleInvocationCompleted,
     onTasksRefreshed: handleTasksRefreshed,
     onReconnect: handleReconnect,
@@ -549,6 +570,8 @@ export default function App() {
           <Dashboard
             onNavigateToInvocation={handleNavigateToInvocation}
             refreshTrigger={dashboardRefreshTrigger}
+            invocationStartedTrigger={invocationStartedTrigger}
+            lastCompletedEvent={lastCompletedEvent}
           />
         )}
 
