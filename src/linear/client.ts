@@ -103,6 +103,8 @@ export class LinearClient {
       }
 
       let response: Response;
+      const abortController = new AbortController();
+      const abortTimer = setTimeout(() => abortController.abort(), 30_000);
       try {
         response = await fetch(LINEAR_API_URL, {
           method: "POST",
@@ -111,16 +113,23 @@ export class LinearClient {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ query: graphql, variables }),
+          signal: abortController.signal,
         });
       } catch (err) {
-        // Network error -- transient, retry
-        lastError = err instanceof Error ? err : new Error(String(err));
+        // Timeout or network error -- transient, retry
+        if (err instanceof Error && err.name === "AbortError") {
+          lastError = new Error("Linear API request timed out after 30s");
+        } else {
+          lastError = err instanceof Error ? err : new Error(String(err));
+        }
         if (attempt < MAX_RETRIES) {
           continue;
         }
         throw new Error(
           `LinearClient: network error after ${MAX_RETRIES + 1} attempts: ${lastError.message}`,
         );
+      } finally {
+        clearTimeout(abortTimer);
       }
 
       // Rate limit monitoring (2.5)
