@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import type { Task, OrcaStatus } from "./types";
+import type { Task, OrcaStatus, Invocation } from "./types";
 import {
   fetchTasks,
   fetchStatus,
   triggerSync,
   updateConfig,
   fetchVersion,
+  fetchRunningInvocations,
 } from "./hooks/useApi";
 import { useSSE } from "./hooks/useSSE";
 import { useToast } from "./hooks/useToast";
@@ -299,6 +300,8 @@ export default function App() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [status, setStatus] = useState<OrcaStatus | null>(null);
+  const [running, setRunning] = useState<Invocation[]>([]);
+  const [lastCompleted, setLastCompleted] = useState<Invocation | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
   const [detailKey, setDetailKey] = useState(0);
@@ -327,6 +330,7 @@ export default function App() {
       // Only show banner when the two critical endpoints both fail (fetchVersion is cosmetic)
       setBackendDown(failCount >= 2);
     });
+    fetchRunningInvocations().then(setRunning).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -363,12 +367,37 @@ export default function App() {
     setStatus(s as OrcaStatus);
   }, []);
 
+  const handleInvocationStarted = useCallback(() => {
+    fetchRunningInvocations().then(setRunning).catch(console.error);
+  }, []);
+
   const handleInvocationCompleted = useCallback(
-    (data: { taskId: string }) => {
+    (data: {
+      taskId: string;
+      invocationId: number;
+      status: string;
+      costUsd: number;
+      inputTokens?: number;
+      outputTokens?: number;
+    }) => {
       if (data.taskId === selectedTaskId) {
         setDetailKey((k) => k + 1);
       }
       setDashboardRefreshTrigger((n) => n + 1);
+      setRunning((prev) => {
+        const completed = prev.find((inv) => inv.id === data.invocationId);
+        if (completed) {
+          setLastCompleted({
+            ...completed,
+            status: data.status as Invocation["status"],
+            costUsd: data.costUsd,
+            inputTokens: data.inputTokens ?? null,
+            outputTokens: data.outputTokens ?? null,
+            endedAt: new Date().toISOString(),
+          });
+        }
+        return prev.filter((inv) => inv.id !== data.invocationId);
+      });
     },
     [selectedTaskId],
   );
@@ -435,6 +464,7 @@ export default function App() {
   useSSE({
     onTaskUpdated: handleTaskUpdated,
     onStatusUpdated: handleStatusUpdated,
+    onInvocationStarted: handleInvocationStarted,
     onInvocationCompleted: handleInvocationCompleted,
     onTasksRefreshed: handleTasksRefreshed,
     onReconnect: handleReconnect,
@@ -549,6 +579,9 @@ export default function App() {
           <Dashboard
             onNavigateToInvocation={handleNavigateToInvocation}
             refreshTrigger={dashboardRefreshTrigger}
+            running={running}
+            lastCompleted={lastCompleted}
+            onCancelled={handleInvocationStarted}
           />
         )}
 
