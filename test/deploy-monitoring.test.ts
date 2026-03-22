@@ -7,7 +7,6 @@ import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
   getTask,
-  getDeployingTasks,
   updateTaskDeployInfo,
   updateTaskStatus,
   updateTaskFields,
@@ -182,43 +181,8 @@ describe("Database migration - new columns and no CHECK constraint", () => {
 });
 
 // ===========================================================================
-// 2. Queries: getDeployingTasks and updateTaskDeployInfo
+// 2. Queries: updateTaskDeployInfo
 // ===========================================================================
-
-describe("Queries - getDeployingTasks", () => {
-  let db: OrcaDb;
-
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("returns only tasks with orcaStatus 'deploying'", () => {
-    seedTask(db, { linearIssueId: "D-1", orcaStatus: "deploying" });
-    seedTask(db, { linearIssueId: "D-2", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "D-3", orcaStatus: "deploying" });
-    seedTask(db, { linearIssueId: "D-4", orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "D-5", orcaStatus: "running" });
-
-    const deploying = getDeployingTasks(db);
-    expect(deploying).toHaveLength(2);
-
-    const ids = deploying.map((t) => t.linearIssueId).sort();
-    expect(ids).toEqual(["D-1", "D-3"]);
-  });
-
-  test("returns empty array when no deploying tasks exist", () => {
-    seedTask(db, { linearIssueId: "ND-1", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "ND-2", orcaStatus: "done" });
-
-    const deploying = getDeployingTasks(db);
-    expect(deploying).toHaveLength(0);
-  });
-
-  test("returns empty array on empty database", () => {
-    const deploying = getDeployingTasks(db);
-    expect(deploying).toHaveLength(0);
-  });
-});
 
 describe("Queries - updateTaskDeployInfo", () => {
   let db: OrcaDb;
@@ -791,19 +755,6 @@ describe("Edge cases", () => {
     db = freshDb();
   });
 
-  test("getDeployingTasks does not return tasks that were deploying but changed", () => {
-    const taskId = seedTask(db, {
-      linearIssueId: "EDGE-1",
-      orcaStatus: "deploying",
-    });
-
-    // Now change status to done
-    updateTaskStatus(db, taskId, "done");
-
-    const deploying = getDeployingTasks(db);
-    expect(deploying).toHaveLength(0);
-  });
-
   test("updateTaskDeployInfo with empty object only updates updatedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-2",
@@ -818,18 +769,6 @@ describe("Edge cases", () => {
     // Fields should remain unchanged
     expect(task.mergeCommitSha).toBe("original-sha");
     expect(task.prNumber).toBe(10);
-  });
-
-  test("multiple deploying tasks are all returned by getDeployingTasks", () => {
-    for (let i = 1; i <= 10; i++) {
-      seedTask(db, {
-        linearIssueId: `MULTI-DEPLOY-${i}`,
-        orcaStatus: "deploying",
-      });
-    }
-
-    const deploying = getDeployingTasks(db);
-    expect(deploying).toHaveLength(10);
   });
 
   test("deploying task with all deploy fields populated", () => {

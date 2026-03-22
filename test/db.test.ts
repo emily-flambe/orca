@@ -16,8 +16,6 @@ import {
   incrementStaleSessionRetryCount,
   resetStaleSessionRetryCount,
   incrementReviewCycleCount,
-  getDeployingTasks,
-  getAwaitingCiTasks,
   updateTaskCiInfo,
   updateTaskDeployInfo,
   getTask,
@@ -474,26 +472,6 @@ describe("incrementReviewCycleCount", () => {
     const id = seedTask(db, { reviewCycleCount: 1 });
     incrementReviewCycleCount(db, id);
     expect(getTask(db, id)!.reviewCycleCount).toBe(2);
-  });
-});
-
-describe("getDeployingTasks / getAwaitingCiTasks", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("getDeployingTasks returns only deploying tasks", () => {
-    seedTask(db, { orcaStatus: "deploying" });
-    seedTask(db, { orcaStatus: "deploying" });
-    seedTask(db, { orcaStatus: "done" });
-    expect(getDeployingTasks(db)).toHaveLength(2);
-  });
-
-  test("getAwaitingCiTasks returns only awaiting_ci tasks", () => {
-    seedTask(db, { orcaStatus: "awaiting_ci" });
-    seedTask(db, { orcaStatus: "done" });
-    expect(getAwaitingCiTasks(db)).toHaveLength(1);
   });
 });
 

@@ -7,7 +7,6 @@ import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
   getTask,
-  getAwaitingCiTasks,
   updateTaskCiInfo,
   updateTaskStatus,
   updateTaskFields,
@@ -148,41 +147,8 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
 });
 
 // ===========================================================================
-// 2. Queries: getAwaitingCiTasks and updateTaskCiInfo
+// 2. Queries: updateTaskCiInfo
 // ===========================================================================
-
-describe("Queries - getAwaitingCiTasks", () => {
-  let db: OrcaDb;
-
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("returns only tasks with orcaStatus 'awaiting_ci'", () => {
-    seedTask(db, { linearIssueId: "ACI-1", orcaStatus: "awaiting_ci" });
-    seedTask(db, { linearIssueId: "ACI-2", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "ACI-3", orcaStatus: "awaiting_ci" });
-    seedTask(db, { linearIssueId: "ACI-4", orcaStatus: "deploying" });
-
-    const awaiting = getAwaitingCiTasks(db);
-    expect(awaiting).toHaveLength(2);
-    const ids = awaiting.map((t) => t.linearIssueId).sort();
-    expect(ids).toEqual(["ACI-1", "ACI-3"]);
-  });
-
-  test("returns empty array when no awaiting_ci tasks exist", () => {
-    seedTask(db, { linearIssueId: "ACI-NONE-1", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "ACI-NONE-2", orcaStatus: "deploying" });
-
-    const awaiting = getAwaitingCiTasks(db);
-    expect(awaiting).toHaveLength(0);
-  });
-
-  test("returns empty array on empty database", () => {
-    const awaiting = getAwaitingCiTasks(db);
-    expect(awaiting).toHaveLength(0);
-  });
-});
 
 describe("Queries - updateTaskCiInfo", () => {
   let db: OrcaDb;
@@ -589,18 +555,6 @@ describe("Edge cases - awaiting_ci", () => {
     db = freshDb();
   });
 
-  test("getAwaitingCiTasks does not return tasks that changed away from awaiting_ci", () => {
-    const taskId = seedTask(db, {
-      linearIssueId: "EDGE-ACI-1",
-      orcaStatus: "awaiting_ci",
-    });
-
-    updateTaskStatus(db, taskId, "done");
-
-    const awaiting = getAwaitingCiTasks(db);
-    expect(awaiting).toHaveLength(0);
-  });
-
   test("updateTaskFields can set orcaStatus to awaiting_ci", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-2",
@@ -628,18 +582,6 @@ describe("Edge cases - awaiting_ci", () => {
     expect(task.prNumber).toBe(42);
     expect(task.prBranchName).toBe("orca/EDGE-ACI-FULL/1");
     expect(task.ciStartedAt).toBe(ts);
-  });
-
-  test("multiple awaiting_ci tasks are all returned by getAwaitingCiTasks", () => {
-    for (let i = 1; i <= 5; i++) {
-      seedTask(db, {
-        linearIssueId: `MULTI-ACI-${i}`,
-        orcaStatus: "awaiting_ci",
-      });
-    }
-
-    const awaiting = getAwaitingCiTasks(db);
-    expect(awaiting).toHaveLength(5);
   });
 
   test("awaiting_ci task with null prNumber and null ciStartedAt", () => {
