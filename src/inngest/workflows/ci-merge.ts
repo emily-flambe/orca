@@ -76,7 +76,7 @@ export const ciMergeWorkflow = inngest.createFunction(
       if (hasPollingTimedOut(ciStartedAt, deps.config.deployTimeoutMin)) {
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed");
+          updateAndEmit(db, linearIssueId, "failed", "ci_timeout");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -240,7 +240,12 @@ export const ciMergeWorkflow = inngest.createFunction(
 
               if (freshTask.reviewCycleCount < config.maxReviewCycles) {
                 incrementReviewCycleCount(db, linearIssueId);
-                updateAndEmit(db, linearIssueId, "changes_requested");
+                updateAndEmit(
+                  db,
+                  linearIssueId,
+                  "changes_requested",
+                  "ci_failed_changes_requested",
+                );
                 await transitionToFinalState(
                   { client, stateMap },
                   linearIssueId,
@@ -257,7 +262,12 @@ export const ciMergeWorkflow = inngest.createFunction(
                 };
               } else {
                 // Cycles exhausted — mark as failed
-                updateAndEmit(db, linearIssueId, "failed");
+                updateAndEmit(
+                  db,
+                  linearIssueId,
+                  "failed",
+                  "ci_failed_cycles_exhausted",
+                );
                 await transitionToFinalState(
                   { client, stateMap },
                   linearIssueId,
@@ -308,7 +318,7 @@ export const ciMergeWorkflow = inngest.createFunction(
       await step.run("ci-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateAndEmit(db, linearIssueId, "failed");
+        updateAndEmit(db, linearIssueId, "failed", "ci_poll_exhausted");
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,
@@ -380,7 +390,7 @@ async function mergeAndFinalizeStep(
       if (task.reviewCycleCount < config.maxReviewCycles) {
         incrementReviewCycleCount(db, taskId);
         updateTaskFixReason(db, taskId, "merge_conflict");
-        updateAndEmit(db, taskId, "changes_requested");
+        updateAndEmit(db, taskId, "changes_requested", "merge_conflict");
 
         client
           .createComment(
@@ -396,7 +406,7 @@ async function mergeAndFinalizeStep(
         );
       } else {
         // Review cycles exhausted — fail the task
-        updateAndEmit(db, taskId, "failed");
+        updateAndEmit(db, taskId, "failed", "merge_conflict_cycles_exhausted");
         await transitionToFinalState(
           { client, stateMap },
           taskId,
@@ -465,7 +475,7 @@ async function mergeAndFinalizeStep(
               incrementReviewCycleCount(db, taskId);
               updateTaskFixReason(db, taskId, "merge_conflict");
               resetMergeAttemptCount(db, taskId);
-              updateAndEmit(db, taskId, "changes_requested");
+              updateAndEmit(db, taskId, "changes_requested", "merge_conflict");
 
               client
                 .createComment(
@@ -483,7 +493,12 @@ async function mergeAndFinalizeStep(
               );
             } else {
               // Review cycles exhausted — fail the task
-              updateAndEmit(db, taskId, "failed");
+              updateAndEmit(
+                db,
+                taskId,
+                "failed",
+                "merge_conflict_cycles_exhausted",
+              );
               await transitionToFinalState(
                 { client, stateMap },
                 taskId,
@@ -522,7 +537,7 @@ async function mergeAndFinalizeStep(
         }
 
         // Exhausted retries — escalate to failed but preserve the PR
-        updateAndEmit(db, taskId, "failed");
+        updateAndEmit(db, taskId, "failed", "merge_attempts_exhausted");
         await transitionToFinalState(
           { client, stateMap },
           taskId,
@@ -552,7 +567,7 @@ async function mergeAndFinalizeStep(
       prNumber: task.prNumber ?? null,
       deployStartedAt: now,
     });
-    updateAndEmit(db, taskId, "deploying");
+    updateAndEmit(db, taskId, "deploying", "pr_merged");
 
     client
       .createComment(
@@ -577,7 +592,7 @@ async function mergeAndFinalizeStep(
     };
   } else {
     // deploy_strategy = "none" — go straight to done
-    updateAndEmit(db, taskId, "done");
+    updateAndEmit(db, taskId, "done", "pr_merged");
     await transitionToFinalState(
       { client, stateMap },
       taskId,

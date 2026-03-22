@@ -58,7 +58,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (hasPollingTimedOut(deployStartedAt, deps.config.deployTimeoutMin)) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed");
+          updateAndEmit(db, linearIssueId, "failed", "deploy_timeout");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -76,7 +76,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (!mergeCommitSha) {
         await step.run("deploy-no-sha", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "done");
+          updateAndEmit(db, linearIssueId, "done", "deploy_no_sha");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -107,7 +107,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       if (deployStatus.status === "success") {
         await step.run("deploy-success", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "done");
+          updateAndEmit(db, linearIssueId, "done", "deploy_succeeded");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -123,7 +123,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed");
+          updateAndEmit(db, linearIssueId, "failed", "deploy_ci_failed");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -148,7 +148,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
       await step.run("deploy-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateAndEmit(db, linearIssueId, "failed");
+        updateAndEmit(db, linearIssueId, "failed", "deploy_poll_exhausted");
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,

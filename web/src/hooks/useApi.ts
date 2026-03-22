@@ -236,6 +236,24 @@ export function createTask(data: {
   });
 }
 
+export interface TaskStateTransition {
+  id: number;
+  linearIssueId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string | null;
+  invocationId: number | null;
+  createdAt: string;
+}
+
+export function fetchTaskTransitions(
+  id: string,
+): Promise<TaskStateTransition[]> {
+  return fetchJson<TaskStateTransition[]>(
+    `/tasks/${encodeURIComponent(id)}/transitions`,
+  );
+}
+
 export function fetchCronSchedules(): Promise<CronSchedule[]> {
   return fetchJson<CronSchedule[]>("/cron");
 }

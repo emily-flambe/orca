@@ -242,6 +242,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "deploy_timeout" },
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -261,7 +262,12 @@ describe("deploy-monitor workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "done", reason: "no_sha" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "done",
+      { reason: "deploy_no_sha" },
+    );
   });
 
   test("deploy success → updates task to done, writes back to Linear", async () => {
@@ -279,7 +285,12 @@ describe("deploy-monitor workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "done" });
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(mockDb, "TEST-1", "done");
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
+      mockDb,
+      "TEST-1",
+      "done",
+      { reason: "deploy_succeeded" },
+    );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
       "TEST-1",
@@ -310,6 +321,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "deploy_ci_failed" },
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -379,6 +391,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "deploy_poll_exhausted" },
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -429,6 +442,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
+      { reason: "deploy_poll_exhausted" },
     );
   });
 
