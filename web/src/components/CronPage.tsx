@@ -252,6 +252,9 @@ function CronForm({
       <div className="flex items-center gap-2">
         <button
           type="button"
+          role="switch"
+          aria-checked={form.enabled}
+          aria-label="Enabled"
           onClick={() => set("enabled", !form.enabled)}
           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${form.enabled ? "bg-blue-600" : "bg-gray-600"}`}
         >
@@ -729,6 +732,11 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                     />
                   )}
                   <button
+                    role="switch"
+                    aria-checked={s.enabled === 1}
+                    aria-label={
+                      s.enabled === 1 ? "Disable cron job" : "Enable cron job"
+                    }
                     onClick={() => handleToggleEnabled(s)}
                     disabled={togglingId === s.id}
                     className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors shrink-0 ${s.enabled === 1 ? "bg-blue-600" : "bg-gray-600"} disabled:opacity-50`}

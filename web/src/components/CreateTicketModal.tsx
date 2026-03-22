@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchProjects, createTask, type ProjectOption } from "../hooks/useApi";
 
 interface Props {
@@ -24,6 +24,7 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -43,6 +44,34 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handleFocusTrap = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Tab") return;
+      const el = dialogRef.current;
+      if (!el) return;
+      const focusable = Array.from(
+        el.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input, textarea, select, [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    },
+    [],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,11 +101,24 @@ export default function CreateTicketModal({ onClose, onCreated }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-ticket-title"
+        className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-lg mx-4"
+        onKeyDown={handleFocusTrap}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-          <h2 className="text-base font-semibold text-gray-100">New ticket</h2>
+          <h2
+            id="create-ticket-title"
+            className="text-base font-semibold text-gray-100"
+          >
+            New ticket
+          </h2>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-500 hover:text-gray-300 transition-colors text-lg leading-none"
           >
             ×
