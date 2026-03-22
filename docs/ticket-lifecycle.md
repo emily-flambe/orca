@@ -35,7 +35,7 @@ When a Linear issue has sub-issues:
 
 **Parent status rollup** (`evaluateParentStatuses`):
 - Runs after `fullSync`, after webhook processing of child tasks, and after task completion/deploy success.
-- If any child is in an active state (`dispatched`, `running`, `in_review`, `changes_requested`, `deploying`) and the parent is `ready` → parent transitions to `running`, Linear write-back to "In Progress".
+- If any child is in an active state (`running`, `in_review`, `changes_requested`, `deploying`) and the parent is `ready` → parent transitions to `running`, Linear write-back to "In Progress".
 - If all children are `done` and the parent is not `done` → parent transitions to `done`, Linear write-back to "Done".
 
 | Scenario | Behavior |
@@ -44,25 +44,32 @@ When a Linear issue has sub-issues:
 | Last child removed from parent | Next `fullSync` sets `is_parent = 0`, parent becomes dispatchable |
 | Parent manually set to "Todo" in Linear | Conflict resolution resets to `ready`, but `is_parent = 1` prevents dispatch. Next child activity re-triggers "In Progress". |
 
-## 2. Scheduler picks up the task
+## 2. Inngest dispatches the task
 
-The scheduler ticks every 10s (`ORCA_SCHEDULER_INTERVAL_SEC`). Each tick:
+Tasks are dispatched via Inngest durable workflows, not polling. Each status transition emits an Inngest event:
 
-1. **Timeout check** — kill timed-out invocations, mark failed, attempt retry.
-2. **Deploy check** — poll GitHub Actions for tasks in `deploying` status (throttled by `ORCA_DEPLOY_POLL_INTERVAL_SEC`).
-3. **Cleanup** — periodically (every `ORCA_CLEANUP_INTERVAL_MIN`) remove stale `orca/*` branches and orphaned worktrees. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN`. Worktrees preserved for session resume are also protected.
-4. **Concurrency check** — if active sessions >= `ORCA_CONCURRENCY_CAP` (default 3), skip.
-5. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($100), skip.
-6. **Get dispatchable tasks** — query all tasks with `orca_status` in (`ready`, `in_review`, `changes_requested`).
-7. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), tasks with running invocations, and tasks blocked by the dependency graph (for `ready` tasks only; `in_review` and `changes_requested` skip dependency checks).
-8. **Sort** — prioritize review/fix phases over new implementations, then by effective priority (ascending), tiebreak by `created_at`.
-9. **Dispatch the top task** with the appropriate phase.
+| DB status | Inngest event | Workflow triggered |
+|---|---|---|
+| `ready` | `task/ready` | **task-lifecycle** — implement → Gate 2 → review → fix loop |
+| `awaiting_ci` | `task/awaiting-ci` | **ci-gate-merge** — poll PR checks, merge on success |
+| `deploying` | `task/deploying` | **deploy-monitor** — poll GitHub Actions |
+
+Additionally:
+- **Cleanup cron** runs every 5 minutes via Inngest cron. Removes stale `orca/*` branches, orphaned worktrees, and abandoned PRs. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN`.
+- **Stuck task reconciler** runs every 5 minutes. Re-emits events for tasks stuck in `ready`, `awaiting_ci`, or `deploying` with no active workflow.
+
+When the **task-lifecycle** workflow starts:
+
+1. **Concurrency check** — Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`.
+2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($100), skip.
+3. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), and tasks with running invocations.
+4. **Dispatch** with the appropriate phase.
 
 ## 3. Dispatch (Implementation Phase)
 
 For tasks in `ready` status, dispatch with phase `"implement"`:
 
-1. Set task status to `dispatched`.
+1. Set task status to `running`.
 2. **Write-back to Linear:** move issue to **"In Progress"** (fire-and-forget).
 3. Insert an `invocations` row with status `running` and `phase = 'implement'`.
 4. **Create git worktree:**
@@ -71,9 +78,8 @@ For tasks in `ready` status, dispatch with phase `"implement"`:
    - Create worktree as sibling directory: `<repoDir>-<taskId>`.
    - Copy `.env*` files from the base repo.
    - Run `npm install` if `package.json` exists.
-5. **Spawn Claude Code CLI** with `ORCA_APPEND_SYSTEM_PROMPT`.
-6. Set task status to `running`.
-7. Store the session handle and attach a completion callback.
+5. **Spawn Claude Code CLI** with `ORCA_IMPLEMENT_SYSTEM_PROMPT`.
+6. Store the session handle. `bridgeSessionCompletion()` watches the process and emits a `session/completed` event when it ends.
 
 **Result:** A Claude Code agent is working in an isolated worktree. Linear shows "In Progress".
 
@@ -101,12 +107,11 @@ For tasks in `ready` status, dispatch with phase `"implement"`:
 
 For tasks in `in_review` status, dispatch with phase `"review"`:
 
-1. Set task status to `dispatched`.
+1. Set task status to `running`.
 2. **No write-back** (already "In Review" in Linear).
 3. Insert an `invocations` row with `phase = 'review'`.
 4. **Create git worktree** based on the PR branch (`origin/<prBranchName>`).
 5. **Spawn Claude Code CLI** with `ORCA_REVIEW_SYSTEM_PROMPT`.
-6. Set task status to `running`.
 
 The review agent:
 1. Reads the full diff: `git diff origin/main...HEAD`
@@ -154,19 +159,18 @@ If the review agent doesn't output a `REVIEW_RESULT:*` marker:
 
 ## 6e. Deploy monitoring (`ORCA_DEPLOY_STRATEGY=github_actions`)
 
-When a task is in `deploying` status, the scheduler polls GitHub Actions on each tick:
+When a task is in `deploying` status, the **deploy-monitor** Inngest workflow polls GitHub Actions:
 
-1. **Throttle** — skip if last poll was less than `ORCA_DEPLOY_POLL_INTERVAL_SEC` (default 30s) ago.
-2. **Timeout** — if `deployStartedAt` + `ORCA_DEPLOY_TIMEOUT_MIN` (default 30min) exceeded → mark `failed`, write-back **"Canceled"** to Linear.
+1. **Timeout** — if `deployStartedAt` + `ORCA_DEPLOY_TIMEOUT_MIN` (default 30min) exceeded → mark `failed`, write-back **"Canceled"** to Linear.
 3. **No SHA** — if no `mergeCommitSha` (defensive) → mark `done` with warning.
 4. **Poll** `gh run list --commit <sha>`:
    - All runs succeeded → set task to `done`, write-back **"Done"** to Linear.
    - Any run failed → set task to `failed`, write-back **"Canceled"** to Linear. No retry — code is already merged, the deploy pipeline needs manual attention.
-   - Runs still pending/in progress → skip, poll again next interval.
+   - Runs still pending/in progress → sleep and poll again.
 
 `deploying` tasks do NOT consume a concurrency slot (no Claude session is running).
 
-On Orca restart, `deploying` tasks resume polling automatically — they have `mergeCommitSha` stored in the database.
+On Orca restart, `deploying` tasks resume via the stuck task reconciler, which re-emits `task/deploying` events.
 
 **Linear conflict resolution for `deploying`:**
 - Linear "In Review" → no-op (expected state, already there)
@@ -176,14 +180,13 @@ On Orca restart, `deploying` tasks resume polling automatically — they have `m
 
 ## 7. Dispatch (Fix Phase)
 
-For tasks in `changes_requested` status, dispatch with phase `"implement"` on the existing PR branch:
+For tasks in `changes_requested` status, dispatch with phase `"fix"` on the existing PR branch:
 
-1. Set task status to `dispatched`.
+1. Set task status to `running`.
 2. **Write-back to Linear:** move issue to **"In Progress"**.
-3. Insert an `invocations` row with `phase = 'implement'`.
+3. Insert an `invocations` row with `phase = 'fix'`.
 4. **Create git worktree** based on the PR branch (`origin/<prBranchName>`).
 5. **Spawn Claude Code CLI** with `ORCA_FIX_SYSTEM_PROMPT`.
-6. Set task status to `running`.
 
 The fix agent reads review comments and makes corrections on the existing branch.
 
@@ -195,7 +198,7 @@ If `retry_count < ORCA_MAX_RETRIES` (default 3):
 
 1. Increment retry count, set task back to `ready`.
 2. **Write-back to Linear:** move issue back to **"Todo"**.
-3. The scheduler will pick it up again on a future tick (fresh worktree from `origin/main`).
+3. A `task/ready` event is emitted, triggering a new task-lifecycle workflow (fresh worktree from `origin/main`).
 
 If retries exhausted:
 
@@ -212,72 +215,71 @@ If retries exhausted:
               │       │                                                   │
               │       │ webhook/sync                                      │
               │       ▼                                                   │
-              │   ready ──── scheduler ────► dispatched                   │
-              │                                  │                        │
-              │                          write-back "In Progress"         │
-              │                                  │                        │
-              │                                  ▼                        │
-              │   In Progress ◄──────────── running [implement]           │
-              │                                  │                        │
-              │                          agent completes                  │
-              │                            /          \                   │
-              │                        success      failure              │
-              │                       (PR exists)      │                  │
-              │                          │           retry?               │
-              │                          ▼                                │
-              │                      in_review ◄─────────────────── PR exists
-              │                          │
-              │                  write-back "In Review"
-              │                          │
-              │                          ▼
-              │                  dispatched [review]
-              │                          │
-              │                          ▼
-              │                  running [review]
-              │                    /           \
-              │                approved    changes requested
-              │                  │              │
-              │                  │              ▼
-              │                  │        changes_requested
-              │                  │              │
-              │                  │       write-back "In Progress"
-              │                  │              │
-              │                  ▼              │
-              │            PR merged            │
-              │             /       \           │
-              │    strategy=none  strategy=github_actions
-              │         │              │        │
-              │         ▼              ▼        │
-              │   Done ◄─ done    deploying     │
-              │          │         (polls CI)   │
-              │   write-back       /      \     │
-              │    "Done"     success   failure  │
-              │                 │          │    │
-              │                 ▼          ▼    │
-              │               done       failed │
-              │                │                │
-              │                                 ▼
-              │                         dispatched [fix]
-              │                                 │
-              │                                 ▼
-              │                         running [implement/fix]
-              │                                 │
-              └──── In Progress ◄───── write-back "In Progress"
-                                                │
-                                         agent completes
-                                                │
-                                         back to in_review ───►
+              │   ready ──── task/ready event                             │
+              │                    │                                      │
+              │             write-back "In Progress"                      │
+              │                    │                                      │
+              │                    ▼                                      │
+              │   In Progress ◄── running [implement]                     │
+              │                        │                                  │
+              │                 agent completes                           │
+              │                  /          \                             │
+              │              success      failure                        │
+              │             (PR exists)      │                            │
+              │                │           retry?                         │
+              │                ▼                                          │
+              │            in_review ◄─────────────────── PR exists
+              │                │
+              │        write-back "In Review"
+              │                │
+              │                ▼
+              │        running [review]
+              │          /           \
+              │      approved    changes requested
+              │        │              │
+              │        │              ▼
+              │        │        changes_requested
+              │        │              │
+              │        │       write-back "In Progress"
+              │        │              │
+              │        ▼              │
+              │   PR merged           │
+              │    /       \          │
+              │  none    github_actions
+              │   │           │       │
+              │   ▼           ▼       │
+              │  done     awaiting_ci  │
+              │   │        (CI gate)  │
+              │  write-back   │       │
+              │  "Done"    merged     │
+              │              │        │
+              │           deploying   │
+              │           (polls CI)  │
+              │           /      \    │
+              │      success   failure │
+              │        │          │   │
+              │        ▼          ▼   │
+              │      done       failed │
+              │                       │
+              │                       ▼
+              │               running [fix]
+              │                       │
+              └──── In Progress ◄── write-back "In Progress"
+                                      │
+                               agent completes
+                                      │
+                               back to in_review ───►
 ```
 
 ## Linear state transitions (automated)
 
 ```
-Todo → In Progress (implement dispatched)
+Todo → In Progress (implement started)
      → In Review (implementation done, PR exists)
-     → In Progress (changes requested, fix dispatched)
+     → In Progress (changes requested, fix started)
      → In Review (fix done)
      → Done (reviewer approved + merged, strategy=none)
-     → deploying (reviewer approved + merged, strategy=github_actions)
+     → awaiting_ci → deploying (reviewer approved + merged, strategy=github_actions)
      → Done (deploy CI passes)
      → Canceled (deploy CI fails or times out)
 ```
@@ -288,15 +290,15 @@ When `ORCA_RESUME_ON_MAX_TURNS` is `true` (default) and a fresh implementation s
 
 1. The worktree is **preserved** (not removed).
 2. The task enters `failed` → retry logic sets it back to `ready`.
-3. On the next dispatch, the scheduler detects a previous max-turns invocation with a preserved worktree.
+3. On the next dispatch, the workflow detects a previous max-turns invocation with a preserved worktree.
 4. Instead of creating a fresh worktree, it **reuses the existing one** and passes `--resume` with the previous session ID.
 5. The continuation prompt tells the agent: "You hit the maximum turn limit. Continue where you left off."
 
-Resume only applies to fresh implement phases — fix sessions (implement on `changes_requested`) are not resumed.
+Resume only applies to fresh implement phases — fix sessions are not resumed.
 
 ## 10. Resource cleanup
 
-A periodic cleanup runs every `ORCA_CLEANUP_INTERVAL_MIN` (default 10min) during the scheduler tick:
+A periodic cleanup runs every 5 minutes via Inngest cron workflow:
 
 - **Stale branches**: Local `orca/*` branches older than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` (default 60min) with no running invocations, no active tasks, and no open PRs are deleted.
 - **Orphaned worktrees**: Registered and unregistered worktree directories matching the `<repo>-<taskId>` pattern are removed if not actively in use or preserved for resume.
@@ -328,7 +330,9 @@ Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
 | `src/linear/sync.ts` | State mapping, upsert, write-back, conflict resolution |
 | `src/linear/poller.ts` | Fallback polling when tunnel is down |
 | `src/linear/client.ts` | GraphQL API client, WorkflowStateMap |
-| `src/scheduler/index.ts` | Multi-phase dispatch loop, session lifecycle, retry logic |
+| `src/inngest/workflows/` | Durable workflows: task-lifecycle, ci-merge, deploy-monitor, cron-dispatch |
+| `src/inngest/functions.ts` | Workflow registration and Inngest function definitions |
+| `src/inngest/events.ts` | Event type definitions (`task/ready`, `task/awaiting-ci`, `task/deploying`, `session/completed`) |
 | `src/runner/index.ts` | Spawns/kills Claude CLI child processes |
 | `src/worktree/index.ts` | Git worktree create/remove (supports baseRef for review/fix) |
 | `src/github/index.ts` | PR verification, merge commit SHA, workflow run status via `gh` CLI |
@@ -340,17 +344,15 @@ Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
 
 | Env Var | Default | Description |
 |---|---|---|
+| `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents |
 | `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
 | `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
 | `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix cycles before human intervention |
 | `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
 | `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
-| `ORCA_DEPLOY_POLL_INTERVAL_SEC` | 30 | How often to poll GitHub Actions |
 | `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed |
-| `ORCA_CLEANUP_INTERVAL_MIN` | 10 | How often the cleanup loop runs (minutes) |
 | `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | 60 | Min age before stale `orca/*` branches are deleted (minutes) |
 | `ORCA_RESUME_ON_MAX_TURNS` | true | Resume sessions that hit max turns (preserves worktree) |
-| `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents (replaces `ORCA_APPEND_SYSTEM_PROMPT`) |
 | `ORCA_CLOUDFLARED_PATH` | cloudflared | Path to cloudflared binary |
 
 ## Known gaps

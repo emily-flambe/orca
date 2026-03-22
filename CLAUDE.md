@@ -48,10 +48,10 @@ cd web && npm run build  # Build frontend (vite)
 Full state machine with diagrams: `docs/ticket-lifecycle.md`
 
 ```
-backlog → ready → dispatched → running [implement]
-  → in_review → dispatched → running [review]
+backlog → ready → running [implement]
+  → in_review → running [review]
     → approved → awaiting_ci → merge → deploying → done
-    → changes_requested → dispatched → running [fix] → back to in_review
+    → changes_requested → running [fix] → back to in_review
   → failed (retries up to ORCA_MAX_RETRIES, then permanent failure)
 ```
 
