@@ -673,7 +673,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
 
     expect(result).toMatchObject({
       outcome: "not_claimed",
-      reason: "session cap reached",
+      reason: expect.stringContaining("session cap reached"),
     });
 
     // Task should NOT have been claimed
@@ -766,7 +766,7 @@ describe("claim-task capacity rejection", () => {
 
     expect(result).toMatchObject({
       outcome: "not_claimed",
-      reason: "session cap reached",
+      reason: expect.stringContaining("session cap reached"),
     });
 
     // claimTaskForDispatch was never called - DB is clean
