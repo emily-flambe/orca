@@ -16,10 +16,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_number INTEGER,
   deploy_started_at TEXT,
   ci_started_at TEXT,
+  fix_reason TEXT,
+  merge_attempt_count INTEGER NOT NULL DEFAULT 0,
+  stale_session_retry_count INTEGER NOT NULL DEFAULT 0,
   done_at TEXT,
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
   project_name TEXT,
+  task_type TEXT NOT NULL DEFAULT 'linear',
+  cron_schedule_id INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -36,6 +41,8 @@ CREATE TABLE IF NOT EXISTS invocations (
   worktree_path TEXT,
   worktree_preserved INTEGER NOT NULL DEFAULT 0,
   cost_usd REAL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
   num_turns INTEGER,
   output_summary TEXT,
   log_path TEXT,
@@ -48,6 +55,8 @@ CREATE TABLE IF NOT EXISTS budget_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invocation_id INTEGER NOT NULL REFERENCES invocations(id),
   cost_usd REAL NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
   recorded_at TEXT NOT NULL
 )`;
 
@@ -76,6 +85,7 @@ CREATE TABLE IF NOT EXISTS cron_schedules (
   enabled INTEGER NOT NULL DEFAULT 1,
   last_run_at TEXT,
   next_run_at TEXT,
+  last_run_status TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
