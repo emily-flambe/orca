@@ -544,7 +544,7 @@ export const taskLifecycle = inngest.createFunction(
         isFixPhase: boolean;
         startedAt: number;
       } | null => {
-        const { db, config, client } = getSchedulerDeps();
+        const { db, config, client, worktreePool } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -617,9 +617,21 @@ export const taskLifecycle = inngest.createFunction(
             : undefined;
           let wtResult;
           try {
-            wtResult = createWorktree(task.repoPath, taskId, 0, {
-              baseRef,
-            });
+            if (!baseRef) {
+              // Try pool first for fresh implement (not fix/review)
+              const poolResult = worktreePool?.claim(
+                task.repoPath,
+                taskId,
+                0,
+              );
+              if (poolResult) {
+                wtResult = poolResult;
+              } else {
+                wtResult = createWorktree(task.repoPath, taskId, 0);
+              }
+            } else {
+              wtResult = createWorktree(task.repoPath, taskId, 0, { baseRef });
+            }
           } catch (err) {
             log(
               `task ${taskId}: implement spawn blocked by worktree error: ${err}`,

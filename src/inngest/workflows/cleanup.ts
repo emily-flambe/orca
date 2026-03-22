@@ -16,8 +16,11 @@ export const cleanupCronWorkflow = inngest.createFunction(
   async ({ step }) => {
     await step.run("cleanup", async () => {
       sweepExitedHandles();
-      const { db, config } = getSchedulerDeps();
-      cleanupStaleResources({ db, config });
+      const { db, config, worktreePool } = getSchedulerDeps();
+      worktreePool?.refresh();
+      const pooledWorktreePaths =
+        worktreePool?.getPooledPaths() ?? new Set<string>();
+      cleanupStaleResources({ db, config, pooledWorktreePaths });
       cleanupOldInvocationLogs({ db, config });
 
       // Delete cron runs older than 7 days

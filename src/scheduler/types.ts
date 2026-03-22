@@ -9,4 +9,5 @@ export interface SchedulerDeps {
   graph: DependencyGraph;
   client: LinearClient;
   stateMap: WorkflowStateMap;
+  worktreePool?: import("../worktree/pool.js").WorktreePoolService;
 }

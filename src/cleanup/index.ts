@@ -24,6 +24,7 @@ const MAX_REMOVAL_ATTEMPTS = 5;
 export interface CleanupDeps {
   db: OrcaDb;
   config: OrcaConfig;
+  pooledWorktreePaths?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,12 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
     }
   }
 
+  // Normalize pooled worktree paths for case-insensitive comparison
+  const normalizePath = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  const pooledNormalized = new Set(
+    [...(deps.pooledWorktreePaths ?? [])].map(normalizePath),
+  );
+
   const now = Date.now();
   const maxAgeMs = config.cleanupBranchMaxAgeMin * 60 * 1000;
 
@@ -162,6 +169,7 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
         runningBranches,
         runningWorktreePaths,
         preservedWorktreePaths,
+        pooledNormalized,
         activeBranches,
         now,
         maxAgeMs,
@@ -178,6 +186,7 @@ function cleanupRepo(
     runningBranches: Set<string>;
     runningWorktreePaths: Set<string>;
     preservedWorktreePaths: Set<string>;
+    pooledNormalized: Set<string>;
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
@@ -234,6 +243,9 @@ function cleanupRepo(
     // Never remove worktrees preserved for session resume
     if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
 
+    // Never remove pool worktrees
+    if (ctx.pooledNormalized.has(normalizePath(wtPath))) continue;
+
     // Skip directories that have failed too many times
     const wtAttempts = failedRemovalAttempts.get(wtPath) ?? 0;
     if (wtAttempts >= MAX_REMOVAL_ATTEMPTS) continue;
@@ -275,6 +287,9 @@ function cleanupRepo(
 
       // Skip if preserved for session resume
       if (normalizedPreservedWtPaths.has(normalizePath(fullPath))) continue;
+
+      // Skip if it's a pool worktree
+      if (ctx.pooledNormalized.has(normalizePath(fullPath))) continue;
 
       // Check it's a directory
       try {

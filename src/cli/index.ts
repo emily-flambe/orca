@@ -31,6 +31,7 @@ import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
 import { setSchedulerDeps } from "../inngest/deps.js";
+import { WorktreePoolService } from "../worktree/pool.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
 import { probeDllHealth } from "../git.js";
@@ -376,8 +377,25 @@ program
     poller.start();
 
     // Initialize Inngest workflow deps (must happen before workflows fire)
-    setSchedulerDeps({ db, config, graph, client, stateMap });
+    const worktreePool = new WorktreePoolService(config.worktreePoolSize);
+    setSchedulerDeps({ db, config, graph, client, stateMap, worktreePool });
     logger.info("task lifecycle deps initialized");
+
+    // Start pool pre-creation in background (non-blocking)
+    const poolRepoPaths = [
+      ...new Set([
+        ...config.projectRepoMap.values(),
+        ...(config.defaultCwd ? [config.defaultCwd] : []),
+      ]),
+    ];
+    if (poolRepoPaths.length > 0) {
+      setImmediate(() => {
+        worktreePool.start(poolRepoPaths);
+        logger.info(
+          `worktree pool started for ${poolRepoPaths.length} repo(s), target size ${config.worktreePoolSize}`,
+        );
+      });
+    }
 
     // Verify Inngest server is reachable before self-registration.
     const inngestBaseUrl =
