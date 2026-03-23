@@ -664,11 +664,10 @@ describe("reserved key protection", () => {
 
       spy.mockRestore();
 
-      // BUG: spread order in emitJson is baseFields → inlineFields → extraFields
-      // meaning inlineFields CAN override 'level'. This is a security/correctness issue.
+      // Reserved keys (timestamp, level, module, message) are placed after all spreads
+      // in the object literal, so caller fields cannot override them.
+      // This test verifies this protection is working correctly.
       const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      // If level was overridden, this will be "error" instead of "info"
-      // We assert the expected correct behavior (level should stay "info"):
       expect(entry.level).toBe("info");
     });
   });
@@ -686,8 +685,8 @@ describe("reserved key protection", () => {
       spy.mockRestore();
 
       const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      // timestamp should be an ISO string, not "fake-time"
-      // BUG: spread order allows inlineFields to override timestamp
+      // Reserved keys (timestamp, level, module, message) are placed after all spreads,
+      // so caller fields cannot override them. Timestamp should be a real ISO string.
       expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
   });
