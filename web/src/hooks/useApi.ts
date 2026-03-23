@@ -210,14 +210,6 @@ export function fetchSystemLogs(params?: {
   return fetchJson<SystemLogsData>(`/logs${query ? `?${query}` : ""}`);
 }
 
-export interface SystemEvent {
-  id: number;
-  type: string;
-  message: string;
-  metadata: string | null;
-  createdAt: string;
-}
-
 export function fetchSystemEvents(params?: {
   limit?: number;
   type?: string;

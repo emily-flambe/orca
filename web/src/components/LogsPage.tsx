@@ -22,15 +22,7 @@ function statusBadge(metadata: Record<string, unknown> | null) {
 
 function EventRow({ event }: { event: SystemEvent }) {
   const [expanded, setExpanded] = useState(false);
-  const meta = event.metadata
-    ? (() => {
-        try {
-          return JSON.parse(event.metadata) as Record<string, unknown>;
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const meta = event.metadata as Record<string, unknown> | null;
 
   const date = new Date(event.createdAt);
   const timeStr = date.toLocaleTimeString([], {
@@ -126,12 +118,8 @@ export default function LogsPage() {
 
   const deployEvents = events.filter((e) => e.type === "deploy");
   const lastDeploy = deployEvents.find((e) => {
-    try {
-      const m = JSON.parse(e.metadata ?? "{}") as Record<string, unknown>;
-      return m.status === "success";
-    } catch {
-      return false;
-    }
+    const m = e.metadata as Record<string, unknown> | null;
+    return m?.status === "success";
   });
 
   return (
@@ -143,10 +131,8 @@ export default function LogsPage() {
       {/* Summary card — last deploy */}
       {lastDeploy &&
         (() => {
-          const m = JSON.parse(lastDeploy.metadata ?? "{}") as Record<
-            string,
-            unknown
-          >;
+          const m =
+            (lastDeploy.metadata as Record<string, unknown> | null) ?? {};
           return (
             <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-sm space-y-1">
               <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">

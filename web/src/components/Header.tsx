@@ -7,6 +7,7 @@ const PAGE_TITLES: Record<Page, string> = {
   cron: "Cron",
   agents: "Agents",
   settings: "Settings",
+  logs: "System Events",
 };
 
 function HealthDot({ online }: { online: boolean | null }) {

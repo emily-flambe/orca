@@ -2072,7 +2072,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (typeParam) {
       events = events.filter((e) => e.type === typeParam);
     }
-    return c.json(events);
+    return c.json(
+      events.map((e) => ({
+        ...e,
+        metadata: e.metadata ? JSON.parse(e.metadata) : null,
+      })),
+    );
   });
 
   // -----------------------------------------------------------------------
