@@ -332,7 +332,7 @@ export const taskLifecycle = inngest.createFunction(
   },
   {
     event: "task/ready" as const,
-    if: "event.data.taskType != 'cron_claude' && event.data.taskType != 'cron_shell'",
+    if: "event.data.taskType != 'cron_claude' && event.data.taskType != 'cron_shell' && event.data.taskType != 'agent'",
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
