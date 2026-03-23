@@ -109,8 +109,6 @@ export interface OrcaStatus {
   activeSessions: number;
   activeTaskIds: string[];
   queuedTasks: number;
-  costInWindow: number;
-  budgetLimit: number;
   budgetWindowHours: number;
   tokensInWindow: number;
   tokenBudgetLimit: number;
@@ -120,8 +118,7 @@ export interface OrcaStatus {
   fixModel: string;
   draining: boolean;
   drainSessionCount: number;
-  // Session metrics (cc-statusline style)
-  burnRatePerHour: number | null;
+  // Session metrics
   tokensPerMinute: number | null;
   inputTokensInWindow: number;
   outputTokensInWindow: number;

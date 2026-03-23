@@ -18,7 +18,6 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_CONCURRENCY_CAP` | 1 | Max concurrent Claude sessions |
 | `ORCA_SESSION_TIMEOUT_MIN` | 45 | Hard timeout per session |
 | `ORCA_MAX_RETRIES` | 3 | Retry attempts before permanent failure |
-| `ORCA_BUDGET_MAX_COST_USD` | 100 | Rolling budget cap |
 | `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
 | `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix loops |
 
@@ -37,12 +36,6 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `INNGEST_EVENT_KEY` | — | Event key for Inngest server authentication |
 | `INNGEST_SIGNING_KEY` | — | Signing key for request verification |
 | `INNGEST_BASE_URL` | `http://localhost:8288` | URL of the self-hosted Inngest server |
-
-## Monitor
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MONITOR_BURN_RATE_ALERT_USD_PER_HOUR` | 20 | Budget burn rate alert threshold in USD/hour |
 
 ## Deploy
 
