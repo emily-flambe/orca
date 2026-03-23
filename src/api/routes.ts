@@ -1752,10 +1752,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       );
     }
 
-    if (
-      body.id.length > 1 &&
-      !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.id)
-    ) {
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(body.id)) {
       return c.json(
         { error: "id must be lowercase alphanumeric with hyphens" },
         400,

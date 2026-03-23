@@ -1308,7 +1308,7 @@ export function getAgentMemories(
     .select()
     .from(agentMemories)
     .where(eq(agentMemories.agentId, agentId))
-    .orderBy(desc(agentMemories.createdAt));
+    .orderBy(desc(agentMemories.createdAt), desc(agentMemories.id));
   if (limit) return query.limit(limit).all();
   return query.all();
 }
