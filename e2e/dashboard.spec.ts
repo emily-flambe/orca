@@ -138,7 +138,7 @@ test.describe("Dashboard smoke test", () => {
 
   test("dashboard token budget gauge is visible", async ({ page }) => {
     await expect(page.getByText(/active/).first()).toBeVisible();
-    await expect(page.getByText(/queued/i).first()).toBeVisible();
+    await expect(page.getByText(/Queued/).first()).toBeVisible();
   });
 
   test("SSE endpoint /api/events is requested", async ({ page }) => {
