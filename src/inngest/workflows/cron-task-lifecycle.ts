@@ -160,7 +160,6 @@ export const cronTaskLifecycle = inngest.createFunction(
           model,
           mcpServers: buildOrcaMcpServers(config),
           hookUrl: getHookUrl(invocationId),
-          mcpServers: buildOrcaMcpServers(config),
         });
 
         bridgeSessionCompletion(
