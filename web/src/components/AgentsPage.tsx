@@ -369,9 +369,7 @@ function TaskLogRow({ task }: { task: Task }) {
         <span className="text-gray-400 ml-auto shrink-0">
           {formatTimestamp(task.createdAt)}
         </span>
-        <span className="text-gray-500 shrink-0">
-          {expanded ? "▴" : "▾"}
-        </span>
+        <span className="text-gray-500 shrink-0">{expanded ? "▴" : "▾"}</span>
       </div>
       {expanded && (
         <div className="ml-2">
@@ -605,11 +603,7 @@ interface ToastCallbacks {
   error: (msg: string) => void;
 }
 
-export default function AgentsPage({
-  onToast,
-}: {
-  onToast?: ToastCallbacks;
-}) {
+export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -878,7 +872,12 @@ export default function AgentsPage({
                     Last: {formatLastRun(a.lastRunAt)}
                   </span>
                 )}
-                <span>Model: {a.model ?? "opus"}{!a.model && <span className="text-gray-600 ml-1">(default)</span>}</span>
+                <span>
+                  Model: {a.model ?? "opus"}
+                  {!a.model && (
+                    <span className="text-gray-600 ml-1">(default)</span>
+                  )}
+                </span>
                 {a.repoPath && (
                   <span className="truncate max-w-[200px]" title={a.repoPath}>
                     {a.repoPath}
@@ -908,10 +907,7 @@ export default function AgentsPage({
               </button>
 
               {expandedId === a.id && (
-                <AgentDetail
-                  agentId={a.id}
-                  onToast={onToast}
-                />
+                <AgentDetail agentId={a.id} onToast={onToast} />
               )}
             </div>
           )}
