@@ -828,6 +828,11 @@ export async function isCiFlakeOnMain(
   }
 }
 
+export {
+  enrichPrDescription,
+  isWellStructuredPrBody,
+} from "./pr-description.js";
+
 export type WorkflowRunStatus =
   | "pending"
   | "in_progress"
