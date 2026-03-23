@@ -17,6 +17,21 @@ import { insertTask, getTask, updateTaskStatus } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
+// Top-level module mock — must NOT be nested inside describe blocks.
+// Vitest hoists vi.mock calls regardless, but duplicate calls for the same
+// module cause ordering issues across environments. Single declaration here.
+// ---------------------------------------------------------------------------
+vi.mock("../src/linear/sync.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/linear/sync.js")>();
+  return {
+    ...actual,
+    fullSync: vi.fn().mockResolvedValue(undefined),
+    processWebhookEvent: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -730,15 +745,7 @@ describe("10.4 - Write-back loop prevention", () => {
 // ===========================================================================
 
 describe("10.5 - Webhook HMAC verification", () => {
-  // Mock processWebhookEvent to avoid needing real DB/scheduler deps in webhook route
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual =
-      await importOriginal<typeof import("../src/linear/sync.js")>();
-    return {
-      ...actual,
-      processWebhookEvent: vi.fn().mockResolvedValue(undefined),
-    };
-  });
+  // Uses top-level vi.mock for ../src/linear/sync.js (line ~24)
 
   let createWebhookRoute: typeof import("../src/linear/webhook.js").createWebhookRoute;
   let app: ReturnType<typeof createWebhookRoute>;
@@ -832,16 +839,7 @@ describe("10.5 - Webhook HMAC verification", () => {
 // ===========================================================================
 
 describe("10.6 - Polling fallback", () => {
-  // We need to mock fullSync to track calls without actually running it
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual =
-      await importOriginal<typeof import("../src/linear/sync.js")>();
-    return {
-      ...actual,
-      fullSync: vi.fn().mockResolvedValue(undefined),
-      processWebhookEvent: vi.fn().mockResolvedValue(undefined),
-    };
-  });
+  // Uses top-level vi.mock for ../src/linear/sync.js (line ~24)
 
   let createPoller: typeof import("../src/linear/poller.js").createPoller;
   let fullSyncMock: Mock;
