@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Orca MCP server — exposes Orca's internal DB state to agent sessions via
  * stdio JSON-RPC (Model Context Protocol).
