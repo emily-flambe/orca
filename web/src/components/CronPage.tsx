@@ -620,6 +620,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
     setTriggeringId(id);
     try {
       await triggerCronSchedule(id);
+      load();
       onToast?.success("Run triggered");
     } catch (err) {
       onToast?.error(
@@ -735,7 +736,7 @@ export default function CronPage({ onToast }: { onToast?: ToastCallbacks }) {
                     onClick={() => handleTrigger(s.id)}
                     disabled={triggeringId === s.id}
                     className="px-2 py-1 text-xs text-gray-400 hover:text-green-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Run now (one-time)"
+                    title="Run now (one-time execution)"
                   >
                     {triggeringId === s.id ? "Running..." : "Run now"}
                   </button>
