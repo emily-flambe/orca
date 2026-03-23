@@ -2060,6 +2060,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/system-events  — fetch recent system events (deploy, startup, etc.)
+  // -----------------------------------------------------------------------
+  app.get("/api/system-events", (c) => {
+    const limitParam = c.req.query("limit");
+    const typeParam = c.req.query("type");
+    const limit = limitParam
+      ? Math.min(parseInt(limitParam, 10) || 100, 500)
+      : 100;
+    let events = getRecentSystemEvents(db, limit);
+    if (typeParam) {
+      events = events.filter((e) => e.type === typeParam);
+    }
+    return c.json(events);
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/deploy/event  — log deploy success/failure to system_events
   // -----------------------------------------------------------------------
   app.post("/api/deploy/event", async (c) => {
@@ -2074,16 +2090,23 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }>();
     const validStatuses = ["start", "success", "failure"] as const;
     type DeployStatus = (typeof validStatuses)[number];
-    const status: DeployStatus = validStatuses.includes(body.status as DeployStatus)
-      ? (body.status as DeployStatus)
-      : "success";
+    if (!validStatuses.includes(body.status as DeployStatus)) {
+      return c.json(
+        {
+          error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        },
+        400,
+      );
+    }
+    const status = body.status as DeployStatus;
     const message = body.message ?? `Deploy ${status}`;
     const metadata: Record<string, unknown> = { status };
     if (body.deployId !== undefined) metadata.deployId = body.deployId;
     if (body.oldPort !== undefined) metadata.oldPort = body.oldPort;
     if (body.newPort !== undefined) metadata.newPort = body.newPort;
     if (body.commitSha !== undefined) metadata.commitSha = body.commitSha;
-    if (body.orphanedSessions !== undefined) metadata.orphanedSessions = body.orphanedSessions;
+    if (body.orphanedSessions !== undefined)
+      metadata.orphanedSessions = body.orphanedSessions;
     insertSystemEvent(db, {
       type: "deploy",
       message,

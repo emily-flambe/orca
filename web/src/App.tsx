@@ -22,6 +22,7 @@ import CreateTicketModal from "./components/CreateTicketModal";
 import CronPage from "./components/CronPage";
 import AgentsPage from "./components/AgentsPage";
 import MetricsPage from "./components/MetricsPage";
+import LogsPage from "./components/LogsPage";
 import PulsingDot from "./components/ui/PulsingDot";
 import { MODEL_OPTIONS } from "./constants.js";
 
@@ -415,6 +416,7 @@ export default function App() {
     if (path === "/metrics") return "metrics";
     if (path === "/cron") return "cron";
     if (path === "/agents") return "agents";
+    if (path === "/logs") return "logs";
     if (path === "/settings") return "settings";
     return "tasks"; // default to tasks, not dashboard
   }, [location.pathname]);
@@ -592,6 +594,7 @@ export default function App() {
         metrics: "/metrics",
         cron: "/cron",
         agents: "/agents",
+        logs: "/logs",
         settings: "/settings",
       };
       navigate(pathMap[page]);
@@ -670,6 +673,8 @@ export default function App() {
         {activePage === "cron" && <CronPage onToast={toast} />}
 
         {activePage === "agents" && <AgentsPage onToast={toast} />}
+
+        {activePage === "logs" && <LogsPage />}
 
         {/* Version footer */}
         {version && (

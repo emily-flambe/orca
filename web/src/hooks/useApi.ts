@@ -210,6 +210,25 @@ export function fetchSystemLogs(params?: {
   return fetchJson<SystemLogsData>(`/logs${query ? `?${query}` : ""}`);
 }
 
+export interface SystemEvent {
+  id: number;
+  type: string;
+  message: string;
+  metadata: string | null;
+  createdAt: string;
+}
+
+export function fetchSystemEvents(params?: {
+  limit?: number;
+  type?: string;
+}): Promise<SystemEvent[]> {
+  const qs = new URLSearchParams();
+  if (params?.limit != null) qs.set("limit", String(params.limit));
+  if (params?.type) qs.set("type", params.type);
+  const query = qs.toString();
+  return fetchJson<SystemEvent[]>(`/system-events${query ? `?${query}` : ""}`);
+}
+
 export interface ProjectOption {
   id: string;
   name: string;

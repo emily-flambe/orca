@@ -105,21 +105,38 @@ log_deploy_event() {
   local message="$3"
   local orphaned="${4:-}"
   local payload
-  payload=$(node -e "
-    var obj={
-      status:'$status',
-      message:$(node -e "process.stdout.write(JSON.stringify('$message'))"),
-      deployId:'$DEPLOY_ID',
-      oldPort:$ACTIVE_PORT,
-      newPort:$STANDBY_PORT,
-      commitSha:'$COMMIT_SHA'
-    };
-    if('$orphaned'!=='')obj.orphanedSessions=parseInt('$orphaned',10);
-    console.log(JSON.stringify(obj));
-  " 2>/dev/null || echo "{\"status\":\"$status\",\"message\":\"$message\"}")
-  curl -sf --max-time 5 -X POST "http://localhost:$port/api/deploy/event" \
+  # Pass values via env vars to avoid shell injection from message/commit strings
+  payload=$(
+    _EVT_STATUS="$status" \
+    _EVT_MESSAGE="$message" \
+    _EVT_DEPLOY_ID="$DEPLOY_ID" \
+    _EVT_OLD_PORT="$ACTIVE_PORT" \
+    _EVT_NEW_PORT="$STANDBY_PORT" \
+    _EVT_COMMIT="$COMMIT_SHA" \
+    _EVT_ORPHANED="$orphaned" \
+    node -e "
+      var obj = {
+        status: process.env._EVT_STATUS,
+        message: process.env._EVT_MESSAGE,
+        deployId: process.env._EVT_DEPLOY_ID,
+        oldPort: parseInt(process.env._EVT_OLD_PORT, 10),
+        newPort: parseInt(process.env._EVT_NEW_PORT, 10),
+        commitSha: process.env._EVT_COMMIT
+      };
+      var orphaned = process.env._EVT_ORPHANED;
+      if (orphaned !== '') obj.orphanedSessions = parseInt(orphaned, 10);
+      console.log(JSON.stringify(obj));
+    " 2>/dev/null
+  )
+  if [[ -z "$payload" ]]; then
+    echo "[deploy] warn: failed to build deploy event payload (status=$status)" >&2
+    return
+  fi
+  if ! curl -sf --max-time 5 -X POST "http://localhost:$port/api/deploy/event" \
     -H "Content-Type: application/json" \
-    -d "$payload" > /dev/null 2>&1 || true
+    -d "$payload" > /dev/null 2>&1; then
+    echo "[deploy] warn: failed to record deploy event to port $port (status=$status)" >&2
+  fi
 }
 
 # Log deploy start event to current active instance (best-effort)
@@ -218,9 +235,14 @@ fi
 # Count active sessions on old instance (these will be orphaned if they don't finish before kill)
 ORPHANED_SESSIONS=0
 if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
-  ORPHANED_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
-    | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
-    || echo "0")
+  _RAW_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
+    | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{var n=JSON.parse(d).activeSessions;console.log(n==null?'':String(n))}catch(e){console.log('')}})" 2>/dev/null \
+    || echo "")
+  if [[ -z "$_RAW_SESSIONS" ]]; then
+    log "warn: could not retrieve active session count from port $ACTIVE_PORT — defaulting to 0"
+  else
+    ORPHANED_SESSIONS="$_RAW_SESSIONS"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
