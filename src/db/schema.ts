@@ -8,9 +8,12 @@ export {
   type TaskStatus,
   INVOCATION_STATUSES,
   type InvocationStatus,
+  AGENT_MEMORY_TYPES,
+  type AgentMemoryType,
 } from "../shared/types.js";
 import {
   CRON_TYPES,
+  AGENT_MEMORY_TYPES,
   TASK_STATUSES,
   INVOCATION_STATUSES,
 } from "../shared/types.js";
@@ -39,6 +42,7 @@ export const tasks = sqliteTable("tasks", {
   projectName: text("project_name"),
   taskType: text("task_type").notNull().default("linear"),
   cronScheduleId: integer("cron_schedule_id"),
+  agentId: text("agent_id"),
   lastFailureReason: text("last_failure_reason"),
   lastFailedPhase: text("last_failed_phase"),
   lastFailedAt: text("last_failed_at"),
@@ -126,6 +130,36 @@ export const cronSchedules = sqliteTable("cron_schedules", {
   lastRunAt: text("last_run_at"),
   nextRunAt: text("next_run_at"),
   lastRunStatus: text("last_run_status"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const agents = sqliteTable("agents", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  systemPrompt: text("system_prompt").notNull(),
+  model: text("model"),
+  maxTurns: integer("max_turns"),
+  timeoutMin: integer("timeout_min").notNull().default(45),
+  repoPath: text("repo_path"),
+  schedule: text("schedule"),
+  maxMemories: integer("max_memories").notNull().default(200),
+  enabled: integer("enabled").notNull().default(1),
+  runCount: integer("run_count").notNull().default(0),
+  lastRunAt: text("last_run_at"),
+  nextRunAt: text("next_run_at"),
+  lastRunStatus: text("last_run_status"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const agentMemories = sqliteTable("agent_memories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentId: text("agent_id").notNull(),
+  type: text("type", { enum: AGENT_MEMORY_TYPES }).notNull(),
+  content: text("content").notNull(),
+  sourceRunId: text("source_run_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

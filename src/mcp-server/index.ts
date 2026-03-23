@@ -23,6 +23,10 @@ import {
   getInvocation,
   getInvocationsByTask,
   getChildTasks,
+  getAgentMemories,
+  insertAgentMemory,
+  updateAgentMemory,
+  deleteAgentMemory,
 } from "../db/queries.js";
 import { eq } from "drizzle-orm";
 
@@ -36,7 +40,10 @@ if (!dbPath) {
   process.exit(1);
 }
 
-const sqlite = new Database(dbPath, { readonly: true });
+const agentId = process.env.ORCA_AGENT_ID ?? null;
+const isAgentSession = agentId !== null;
+
+const sqlite = new Database(dbPath, { readonly: !isAgentSession });
 const db = drizzle(sqlite, { schema });
 
 // ---------------------------------------------------------------------------
@@ -324,6 +331,117 @@ server.registerTool(
     };
   },
 );
+
+// ---------------------------------------------------------------------------
+// Agent memory tools (only available when ORCA_AGENT_ID is set)
+// ---------------------------------------------------------------------------
+
+if (isAgentSession && agentId) {
+  server.registerTool(
+    "get_agent_memories",
+    {
+      description:
+        "Retrieve your accumulated memories from past runs. Returns memories grouped by type (episodic, semantic, procedural).",
+      inputSchema: {
+        type: z
+          .enum(["episodic", "semantic", "procedural"])
+          .optional()
+          .describe("Filter by memory type (optional)"),
+      },
+    },
+    ({ type }) => {
+      const memories = getAgentMemories(db, agentId);
+      const filtered = type ? memories.filter((m) => m.type === type) : memories;
+      return {
+        content: [
+          { type: "text", text: JSON.stringify(filtered, null, 2) },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "save_agent_memory",
+    {
+      description:
+        "Save a new memory for future runs. Use 'episodic' for events/outcomes, 'semantic' for knowledge/facts, 'procedural' for how-to/workflows.",
+      inputSchema: {
+        memory_type: z
+          .enum(["episodic", "semantic", "procedural"])
+          .describe("Type of memory to save"),
+        content: z
+          .string()
+          .describe("The memory content to persist across runs"),
+      },
+    },
+    ({ memory_type, content }) => {
+      const id = insertAgentMemory(db, {
+        agentId,
+        type: memory_type,
+        content,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ saved: true, memoryId: id }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "update_agent_memory",
+    {
+      description:
+        "Update the content of an existing memory by its ID.",
+      inputSchema: {
+        memory_id: z
+          .number()
+          .int()
+          .describe("The numeric ID of the memory to update"),
+        content: z.string().describe("The updated memory content"),
+      },
+    },
+    ({ memory_id, content }) => {
+      updateAgentMemory(db, memory_id, content);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ updated: true, memoryId: memory_id }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "forget_agent_memory",
+    {
+      description:
+        "Delete a memory by its ID. Use when a memory is outdated or no longer relevant.",
+      inputSchema: {
+        memory_id: z
+          .number()
+          .int()
+          .describe("The numeric ID of the memory to delete"),
+      },
+    },
+    ({ memory_id }) => {
+      deleteAgentMemory(db, memory_id);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ deleted: true, memoryId: memory_id }, null, 2),
+          },
+        ],
+      };
+    },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Start
