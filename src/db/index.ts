@@ -1,4 +1,5 @@
 import Database, { type Database as DatabaseType } from "better-sqlite3";
+import { execFileSync } from "node:child_process";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
 
@@ -25,6 +26,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   project_name TEXT,
   task_type TEXT NOT NULL DEFAULT 'linear',
   cron_schedule_id INTEGER,
+  agent_id TEXT,
+  pr_url TEXT,
+  pr_state TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -489,6 +493,69 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_agent_memories_agent_id ON agent_memories(agent_id)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 21 (PR URL and state tracking):
+  //   - Add pr_url column to tasks (stores the GitHub PR URL)
+  //   - Add pr_state column to tasks (draft | open | merged | closed)
+  //   Sentinel: pr_url column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "pr_url")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
+    // Backfill existing tasks that have a prNumber but no prState
+    backfillPrState(sqlite);
+  }
+}
+
+/**
+ * Backfill pr_url and pr_state for existing tasks that have pr_number set
+ * but pr_state is NULL. Runs gh pr view for each such task using the task's
+ * repo_path as cwd. Failures are silently skipped.
+ */
+function backfillPrState(sqlite: DatabaseType): void {
+  const rows = sqlite
+    .prepare(
+      "SELECT linear_issue_id, pr_number, repo_path FROM tasks WHERE pr_number IS NOT NULL AND pr_state IS NULL",
+    )
+    .all() as { linear_issue_id: string; pr_number: number; repo_path: string | null }[];
+
+  if (rows.length === 0) return;
+
+  const update = sqlite.prepare(
+    "UPDATE tasks SET pr_url = ?, pr_state = ?, updated_at = ? WHERE linear_issue_id = ?",
+  );
+
+  for (const row of rows) {
+    if (!row.repo_path) continue;
+    try {
+      const output = execFileSync(
+        "gh",
+        ["pr", "view", String(row.pr_number), "--json", "state,url,isDraft"],
+        {
+          encoding: "utf-8",
+          cwd: row.repo_path,
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      ).trim();
+      const data = JSON.parse(output) as {
+        state?: string;
+        url?: string;
+        isDraft?: boolean;
+      };
+      const ghState = data.state ?? "";
+      const isDraft = data.isDraft ?? false;
+      let prState: string;
+      if (ghState === "MERGED") prState = "merged";
+      else if (ghState === "CLOSED") prState = "closed";
+      else if (isDraft) prState = "draft";
+      else prState = "open";
+
+      update.run(data.url ?? null, prState, new Date().toISOString(), row.linear_issue_id);
+    } catch {
+      // Skip failures silently — best-effort backfill
+    }
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

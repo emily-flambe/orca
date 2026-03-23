@@ -19,6 +19,7 @@ export interface PrInfo {
   number?: number;
   merged?: boolean;
   headBranch?: string;
+  state?: "draft" | "open" | "merged" | "closed";
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,20 @@ function gh(args: string[], options?: { cwd?: string }): string {
     const detail = stderr || execErr.message || "unknown error";
     throw new Error(`gh command failed: gh ${args.join(" ")}\n${detail}`);
   }
+}
+
+/**
+ * Map GitHub PR state values (OPEN, MERGED, CLOSED) plus isDraft flag to
+ * the canonical PrState type used in Orca's DB.
+ */
+function mapGhPrState(
+  ghState: string,
+  isDraft: boolean,
+): "draft" | "open" | "merged" | "closed" {
+  if (ghState === "MERGED") return "merged";
+  if (ghState === "CLOSED") return "closed";
+  if (isDraft) return "draft";
+  return "open";
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +82,7 @@ export async function findPrForBranch(
           "--head",
           branchName,
           "--json",
-          "url,number,state,headRefName",
+          "url,number,state,headRefName,isDraft",
           "--limit",
           "1",
         ],
@@ -79,15 +94,18 @@ export async function findPrForBranch(
         number: number;
         state: string;
         headRefName: string;
+        isDraft: boolean;
       }[];
       if (prs.length > 0) {
         const pr = prs[0]!;
+        const prState = mapGhPrState(pr.state, pr.isDraft);
         return {
           exists: true,
           url: pr.url,
           number: pr.number,
           merged: pr.state === "MERGED",
           headBranch: pr.headRefName,
+          state: prState,
         };
       }
       // Empty result — may be GitHub API lag. Retry with backoff.
@@ -129,7 +147,7 @@ export async function findPrForBranch(
 export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
   try {
     const output = gh(
-      ["pr", "view", prUrl, "--json", "url,number,state,headRefName"],
+      ["pr", "view", prUrl, "--json", "url,number,state,headRefName,isDraft"],
       {
         cwd,
       },
@@ -139,6 +157,7 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       number?: number;
       state?: string;
       headRefName?: string;
+      isDraft?: boolean;
     };
     if (typeof data.number !== "number" || typeof data.url !== "string") {
       logger.warn(
@@ -146,12 +165,14 @@ export function findPrByUrl(prUrl: string, cwd: string): PrInfo {
       );
       return { exists: false };
     }
+    const prState = mapGhPrState(data.state ?? "", data.isDraft ?? false);
     return {
       exists: true,
       url: data.url,
       number: data.number,
       merged: data.state === "MERGED",
       headBranch: data.headRefName,
+      state: prState,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -406,7 +427,7 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
  * - Is not in `runningBranches` or `activeBranches`
  * - Was last updated more than `maxAgeMs` ago
  *
- * Returns the number of PRs closed.
+ * Returns an object with the count of PRs closed and the branch names closed.
  */
 export function closeOrphanedPrs(
   cwd: string,
@@ -416,7 +437,7 @@ export function closeOrphanedPrs(
     maxAgeMs: number;
     now: number;
   },
-): number {
+): { count: number; closedBranches: string[] } {
   let prs: { headRefName: string; number: number; updatedAt: string }[];
   try {
     const output = gh(
@@ -439,10 +460,11 @@ export function closeOrphanedPrs(
       ? " (transient, will retry next cycle)"
       : "";
     logger.warn(`closeOrphanedPrs: failed to list PRs${detail}: ${msg}`);
-    return 0;
+    return { count: 0, closedBranches: [] };
   }
 
   let closed = 0;
+  const closedBranches: string[] = [];
   for (const pr of prs) {
     if (!pr.headRefName.startsWith("orca/")) continue;
     if (opts.runningBranches.has(pr.headRefName)) continue;
@@ -457,9 +479,10 @@ export function closeOrphanedPrs(
         `closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
       );
       closed++;
+      closedBranches.push(pr.headRefName);
     }
   }
-  return closed;
+  return { count: closed, closedBranches };
 }
 
 export type PrCheckStatus =

@@ -204,6 +204,73 @@ export default function TaskDetail({
         />
       )}
 
+      {/* PR info */}
+      {detail.prNumber != null && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">PR</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            style={{
+              color:
+                detail.prState === "merged"
+                  ? "#8250df"
+                  : detail.prState === "closed"
+                    ? "#cf222e"
+                    : detail.prState === "draft"
+                      ? "#6e7781"
+                      : "#1a7f37",
+            }}
+          >
+            <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+          </svg>
+          {detail.prUrl ? (
+            <a
+              href={detail.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              #{detail.prNumber}
+            </a>
+          ) : (
+            <span className="text-sm text-gray-300">#{detail.prNumber}</span>
+          )}
+          {detail.prState && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded-full"
+              style={{
+                color:
+                  detail.prState === "merged"
+                    ? "#8250df"
+                    : detail.prState === "closed"
+                      ? "#cf222e"
+                      : detail.prState === "draft"
+                        ? "#6e7781"
+                        : "#1a7f37",
+                backgroundColor:
+                  detail.prState === "merged"
+                    ? "rgba(130,80,223,0.1)"
+                    : detail.prState === "closed"
+                      ? "rgba(207,34,46,0.1)"
+                      : detail.prState === "draft"
+                        ? "rgba(110,119,129,0.1)"
+                        : "rgba(26,127,55,0.1)",
+              }}
+            >
+              {detail.prState}
+            </span>
+          )}
+          {detail.prBranchName && (
+            <span className="text-xs text-gray-500 font-mono">
+              {detail.prBranchName}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>

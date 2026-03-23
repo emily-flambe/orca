@@ -176,6 +176,19 @@ export function updateTaskPrBranch(
     .run();
 }
 
+/** Update the PR URL and state on a task. */
+export function updateTaskPrState(
+  db: OrcaDb,
+  taskId: string,
+  prUrl: string | null,
+  prState: "draft" | "open" | "merged" | "closed" | null,
+): void {
+  db.update(tasks)
+    .set({ prUrl, prState, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Set the fix_reason on a task (used to customize fix-phase agent prompt). */
 export function updateTaskFixReason(
   db: OrcaDb,

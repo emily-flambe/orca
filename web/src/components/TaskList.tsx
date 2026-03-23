@@ -574,12 +574,56 @@ export default function TaskList({
                 isSelected ? "bg-gray-800" : ""
               }`}
             >
-              {/* Top row: priority + ID + status */}
+              {/* Top row: priority + ID + PR + status */}
               <div className="flex items-center gap-2">
                 <PriorityDot priority={task.priority} />
                 <span className="text-xs font-mono text-gray-400 shrink-0">
                   {task.linearIssueId}
                 </span>
+                {task.prNumber != null && (
+                  <a
+                    href={task.prUrl ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-0.5 shrink-0 hover:opacity-80 transition-opacity"
+                    title={`PR #${task.prNumber} (${task.prState ?? "open"})`}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 16 16"
+                      fill="currentColor"
+                      style={{
+                        color:
+                          task.prState === "merged"
+                            ? "#8250df"
+                            : task.prState === "closed"
+                              ? "#cf222e"
+                              : task.prState === "draft"
+                                ? "#6e7781"
+                                : "#1a7f37",
+                      }}
+                    >
+                      <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+                    </svg>
+                    <span
+                      className="text-[10px] tabular-nums"
+                      style={{
+                        color:
+                          task.prState === "merged"
+                            ? "#8250df"
+                            : task.prState === "closed"
+                              ? "#cf222e"
+                              : task.prState === "draft"
+                                ? "#6e7781"
+                                : "#1a7f37",
+                      }}
+                    >
+                      #{task.prNumber}
+                    </span>
+                  </a>
+                )}
                 {(task.taskType === "cron_claude" ||
                   task.taskType === "cron_shell") && (
                   <Badge className="shrink-0 !text-[10px] !px-1.5 !py-0 !text-orange-400 !bg-orange-900/20 !border-orange-700/40">
