@@ -305,7 +305,8 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () => fullSync(db, client, graph, config, stateMap, inngest),
+      syncTasks: () =>
+        fullSync(db, client, graph, config, stateMap, undefined, inngest),
       client,
       stateMap,
       projectMeta,

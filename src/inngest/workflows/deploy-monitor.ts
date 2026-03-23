@@ -55,7 +55,9 @@ export const deployMonitorWorkflow = inngest.createFunction(
       }
 
       // Timeout check
-      if (hasPollingTimedOut(deployStartedAt, deps.config.deployTimeoutMin)) {
+      if (
+        hasPollingTimedOut(deployStartedAt, deps.config.maxDeployPollAttempts)
+      ) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           updateAndEmit(db, linearIssueId, "failed", "deploy_timeout");
@@ -63,10 +65,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
             { client, stateMap },
             linearIssueId,
             "failed_permanent",
-            `Deploy timed out after ${config.deployTimeoutMin}min — task failed permanently`,
+            `Deploy timed out after ${config.maxDeployPollAttempts}min — task failed permanently`,
           );
           log(
-            `task ${linearIssueId} deploy timed out after ${config.deployTimeoutMin}min`,
+            `task ${linearIssueId} deploy timed out after ${config.maxDeployPollAttempts}min`,
           );
         });
         return { status: "failed", reason: "deploy_timeout" };

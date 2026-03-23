@@ -41,10 +41,12 @@ vi.mock("../src/deploy.js", () => ({
 function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   return {
     defaultCwd: "/tmp",
+    projectRepoMap: new Map(),
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
+    budgetMaxTokens: 1_000_000_000,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -53,18 +55,23 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
     disallowedTools: "",
+    model: "sonnet",
+    reviewModel: "haiku",
+    deployStrategy: "none",
+    maxDeployPollAttempts: 60,
+    maxCiPollAttempts: 240,
     port: 3000,
     dbPath: ":memory:",
+    logPath: "./orca.log",
     linearApiKey: "test",
     linearWebhookSecret: "test",
     linearProjectIds: ["test-project"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
-    projectRepoMap: new Map(),
-    implementModel: "sonnet",
-    reviewModel: "haiku",
-    fixModel: "sonnet",
-    logPath: "./orca.log",
+    alertWebhookUrl: undefined,
+    tunnelToken: "",
+    cloudflaredPath: "cloudflared",
+    externalTunnel: false,
+    logLevel: "info",
     ...overrides,
   };
 }
@@ -511,9 +518,8 @@ describe("GET /api/status — contract", () => {
     expect(typeof body.queuedTasks).toBe("number");
     expect(typeof body.budgetWindowHours).toBe("number");
     expect(typeof body.concurrencyCap).toBe("number");
-    expect(typeof body.implementModel).toBe("string");
+    expect(typeof body.model).toBe("string");
     expect(typeof body.reviewModel).toBe("string");
-    expect(typeof body.fixModel).toBe("string");
     expect(typeof body.draining).toBe("boolean");
     expect(typeof body.drainSessionCount).toBe("number");
     expect(typeof body.inngestReachable).toBe("boolean");
@@ -533,7 +539,7 @@ describe("POST /api/config — contract", () => {
     app = makeApp(db);
   });
 
-  it("200: valid update — returns { ok: true, concurrencyCap, implementModel, reviewModel, fixModel }", async () => {
+  it("200: valid update — returns { ok: true, concurrencyCap, model, reviewModel }", async () => {
     const res = await app.request("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -543,9 +549,8 @@ describe("POST /api/config — contract", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(typeof body.concurrencyCap).toBe("number");
-    expect(typeof body.implementModel).toBe("string");
+    expect(typeof body.model).toBe("string");
     expect(typeof body.reviewModel).toBe("string");
-    expect(typeof body.fixModel).toBe("string");
   });
 
   it("400: invalid concurrencyCap — returns { error: string }", async () => {
@@ -563,7 +568,7 @@ describe("POST /api/config — contract", () => {
     const res = await app.request("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ implementModel: "gpt-4" }),
+      body: JSON.stringify({ model: "gpt-4" }),
     });
     expect(res.status).toBe(400);
     const body = await res.json();

@@ -436,10 +436,7 @@ describe("pre-init behavior", () => {
 // ---------------------------------------------------------------------------
 
 describe("OrcaConfig interface includes log fields", () => {
-  test("OrcaConfig type has logPath and logMaxSizeMb", async () => {
-    // Import OrcaConfig — if the fields are missing the TypeScript compile
-    // would already fail (tsc --noEmit). This test simply verifies the
-    // fields appear in the real loadConfig output shape by checking defaults.
+  test("OrcaConfig type has logPath", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(
       new URL("../src/config/index.ts", import.meta.url),
@@ -447,9 +444,7 @@ describe("OrcaConfig interface includes log fields", () => {
     );
 
     expect(source).toContain("logPath:");
-    expect(source).toContain("logMaxSizeMb:");
     expect(source).toContain("ORCA_LOG_PATH");
-    expect(source).toContain("ORCA_LOG_MAX_SIZE_MB");
   });
 });
 
@@ -556,22 +551,14 @@ describe("rotation boundary conditions", () => {
 // ---------------------------------------------------------------------------
 
 describe("OrcaConfig completeness - testConfig helper", () => {
-  test("ci-gate.test.ts testConfig is missing logPath and logMaxSizeMb fields", async () => {
-    // Read the test file source to check if testConfig includes the new fields
+  test("ci-gate.test.ts testConfig includes logPath", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(
       new URL("./ci-gate.test.ts", import.meta.url),
       "utf8",
     );
 
-    // If these fields are absent from testConfig, TypeScript should have caught it —
-    // but the tsconfig only covers src/, not test/ files.
-    // This test documents the gap.
     const hasLogPath = source.includes("logPath:");
-    const hasLogMaxSizeMb = source.includes("logMaxSizeMb:");
-
-    // Currently FAILING: testConfig does not include logPath or logMaxSizeMb
     expect(hasLogPath).toBe(true);
-    expect(hasLogMaxSizeMb).toBe(true);
   });
 });

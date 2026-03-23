@@ -243,7 +243,7 @@ function upsertTask(
   const orcaStatus = mapLinearStateToOrcaStatus(
     issue.state.name,
     issue.state.type,
-    config.stateMapOverrides,
+    undefined,
   );
 
   // Skip backlog and unknown states
@@ -412,35 +412,13 @@ export async function fullSync(
 ): Promise<LinearIssue[]> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
 
-  // Label filtering: if ORCA_TASK_FILTER_LABEL is set, only process matching issues
-  let filteredIssues = issues;
-  if (config.taskFilterLabel && labelIdCache) {
-    // Refresh the label cache
-    labelIdCache.clear();
-    const labelId = await client.fetchLabelIdByName(config.taskFilterLabel);
-    if (labelId) {
-      labelIdCache.set(config.taskFilterLabel, labelId);
-      filteredIssues = issues.filter((issue) =>
-        issue.labels.includes(config.taskFilterLabel!),
-      );
-      log(
-        `label filter: ${filteredIssues.length}/${issues.length} issues match label "${config.taskFilterLabel}"`,
-      );
-    } else {
-      // Fail open: label not found in Linear, process all issues
-      log(
-        `label filter: label "${config.taskFilterLabel}" not found in Linear, processing all issues (fail open)`,
-      );
-    }
-  }
-
   const readyToEmit: string[] = [];
-  for (const issue of filteredIssues) {
+  for (const issue of issues) {
     const shouldEmit = upsertTask(db, issue, config);
     if (shouldEmit) readyToEmit.push(issue.identifier);
   }
 
-  graph.rebuild(filteredIssues);
+  graph.rebuild(issues);
 
   // Evaluate parent statuses after all upserts
   if (stateMap) {
@@ -471,8 +449,8 @@ export async function fullSync(
   }
 
   emitTasksRefreshed();
-  log(`full sync complete: ${filteredIssues.length} issues`);
-  return filteredIssues;
+  log(`full sync complete: ${issues.length} issues`);
+  return issues;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,20 +467,6 @@ export async function processWebhookEvent(
   labelIdCache?: Map<string, string>,
   inngest?: InngestClient,
 ): Promise<void> {
-  // Label filtering: if configured and cache is populated, check labelIds
-  if (config.taskFilterLabel && labelIdCache && labelIdCache.size > 0) {
-    const requiredLabelId = labelIdCache.get(config.taskFilterLabel);
-    if (requiredLabelId) {
-      const eventLabelIds = event.data.labelIds;
-      if (!eventLabelIds || !eventLabelIds.includes(requiredLabelId)) {
-        log(
-          `label filter: skipping webhook for ${event.data.identifier} (missing required label)`,
-        );
-        return;
-      }
-    }
-  }
-
   // Check for write-back echo
   const stateName = event.data.state?.name;
   if (stateName && isExpectedChange(event.data.identifier, stateName)) {
@@ -565,7 +529,7 @@ export async function processWebhookEvent(
       event.data.identifier,
       event.data.state.name,
       event.data.state.type,
-      config.stateMapOverrides,
+      undefined,
     );
 
     upsertTask(db, issueFromEvent, config);

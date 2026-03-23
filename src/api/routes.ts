@@ -975,10 +975,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
-    for (const field of [
-      "model",
-      "reviewModel",
-    ] as const) {
+    for (const field of ["model", "reviewModel"] as const) {
       if (field in body) {
         const val = body[field];
         if (typeof val !== "string" || val.length === 0) {
@@ -1747,10 +1744,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }>();
 
     if (!body.id || !body.name || !body.systemPrompt) {
-      return c.json(
-        { error: "id, name, and systemPrompt are required" },
-        400,
-      );
+      return c.json({ error: "id, name, and systemPrompt are required" }, 400);
     }
 
     if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(body.id)) {

@@ -320,7 +320,6 @@ describe("reconciler re-dispatch-ready-tasks gap during drain", () => {
     vi.clearAllMocks();
 
     const mockConfig = {
-      strandedTaskThresholdMin: 30,
       maxRetries: 3,
     } as never;
 
@@ -368,7 +367,6 @@ describe("reconciler re-dispatch-ready-tasks gap during drain", () => {
     vi.mocked(incrementStaleSessionRetryCount).mockReturnValue(1);
 
     const mockConfig = {
-      strandedTaskThresholdMin: 5, // 5 min threshold — task is 10 min old = stranded
       maxRetries: 3,
     } as never;
 

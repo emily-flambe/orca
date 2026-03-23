@@ -126,7 +126,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           return null;
         }
 
-        const model = config.implementModel;
+        const model = config.model;
         const wtResult = createWorktree(task.repoPath, taskId, 0);
         const { worktreePath, branchName } = wtResult;
 

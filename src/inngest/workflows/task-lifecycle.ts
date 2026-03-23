@@ -507,7 +507,7 @@ export const taskLifecycle = inngest.createFunction(
         let resumeBranchName: string | undefined;
         let isDeployResume = false;
 
-        if (config.resumeOnMaxTurns) {
+        if (true) {
           const prevInv = getLastMaxTurnsInvocation(db, taskId);
           if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
             resumeSessionId = prevInv.sessionId ?? undefined;
@@ -534,14 +534,14 @@ export const taskLifecycle = inngest.createFunction(
 
         const isFixPhase = task.orcaStatus === "changes_requested";
         let fixPhaseResumeSessionId: string | undefined;
-        if (isFixPhase && config.resumeOnFix) {
+        if (isFixPhase) {
           const prevInv = getLastCompletedImplementInvocation(db, taskId);
           if (prevInv?.sessionId) {
             fixPhaseResumeSessionId = prevInv.sessionId;
           }
         }
 
-        const model = isFixPhase ? config.fixModel : config.implementModel;
+        const model = config.model;
 
         // Check capacity BEFORE creating worktree or inserting invocation —
         // creating resources first would leak them if the check throws.
@@ -1518,7 +1518,7 @@ export const taskLifecycle = inngest.createFunction(
           ).catch(() => {});
 
           let resumeSessionId: string | undefined;
-          if (config.resumeOnFix) {
+          {
             const prevInv = getLastCompletedImplementInvocation(db, taskId);
             if (prevInv?.sessionId) resumeSessionId = prevInv.sessionId;
           }
@@ -1571,7 +1571,7 @@ export const taskLifecycle = inngest.createFunction(
             startedAt: now,
             status: "running",
             phase: "implement",
-            model: config.fixModel,
+            model: config.model,
             worktreePath: wtResult.worktreePath,
             branchName: wtResult.branchName,
             logPath: "logs/0.ndjson",
@@ -1592,7 +1592,7 @@ export const taskLifecycle = inngest.createFunction(
             disallowedTools: buildDisallowedTools(config),
             resumeSessionId,
             repoPath: task.repoPath,
-            model: config.fixModel,
+            model: config.model,
             mcpServers: buildOrcaMcpServers(config),
           });
 

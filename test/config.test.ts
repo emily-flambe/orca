@@ -254,9 +254,9 @@ describe("default values", () => {
     expect(cfg.reviewMaxTurns).toBe(30);
   });
 
-  test("implementModel defaults to 'sonnet'", async () => {
+  test("model defaults to 'sonnet'", async () => {
     const cfg = await loadConfig();
-    expect(cfg.implementModel).toBe("sonnet");
+    expect(cfg.model).toBe("sonnet");
   });
 
   test("reviewModel defaults to 'haiku'", async () => {
@@ -264,24 +264,9 @@ describe("default values", () => {
     expect(cfg.reviewModel).toBe("haiku");
   });
 
-  test("fixModel defaults to 'sonnet'", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.fixModel).toBe("sonnet");
-  });
-
   test("deployStrategy defaults to 'none'", async () => {
     const cfg = await loadConfig();
     expect(cfg.deployStrategy).toBe("none");
-  });
-
-  test("resumeOnMaxTurns defaults to true", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(true);
-  });
-
-  test("resumeOnFix defaults to true", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnFix).toBe(true);
   });
 
   test("externalTunnel defaults to false", async () => {
@@ -292,11 +277,6 @@ describe("default values", () => {
   test("cloudflaredPath defaults to 'cloudflared'", async () => {
     const cfg = await loadConfig();
     expect(cfg.cloudflaredPath).toBe("cloudflared");
-  });
-
-  test("cronRetentionDays defaults to 7", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.cronRetentionDays).toBe(7);
   });
 
   test("port defaults to 3000", async () => {
@@ -314,25 +294,11 @@ describe("default values", () => {
     expect(cfg.logPath).toBe("./orca.log");
   });
 
-  test("logMaxSizeMb defaults to 10", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.logMaxSizeMb).toBe(10);
-  });
-
   test("tunnelToken defaults to empty string", async () => {
     const cfg = await loadConfig();
     expect(cfg.tunnelToken).toBe("");
   });
 
-  test("taskFilterLabel defaults to undefined", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.taskFilterLabel).toBeUndefined();
-  });
-
-  test("githubWebhookSecret defaults to undefined", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.githubWebhookSecret).toBeUndefined();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -352,10 +318,10 @@ describe("custom values override defaults", () => {
     expect(cfg.claudePath).toBe("/usr/bin/claude");
   });
 
-  test("ORCA_IMPLEMENT_MODEL=opus → implementModel: 'opus'", async () => {
+  test("ORCA_IMPLEMENT_MODEL=opus → model: 'opus'", async () => {
     process.env.ORCA_IMPLEMENT_MODEL = "opus";
     const cfg = await loadConfig();
-    expect(cfg.implementModel).toBe("opus");
+    expect(cfg.model).toBe("opus");
   });
 
   test("ORCA_DEPLOY_STRATEGY=github_actions → deployStrategy: 'github_actions'", async () => {
@@ -406,47 +372,6 @@ describe("malformed values → exit(1)", () => {
 // ---------------------------------------------------------------------------
 
 describe("boolean parsing", () => {
-  test("ORCA_RESUME_ON_MAX_TURNS=true → true", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "true";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(true);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=1 → true", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "1";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(true);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=false → false", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "false";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(false);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=0 → false", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "0";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(false);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=TRUE → true (case insensitive)", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "TRUE";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(true);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=FALSE → false (case insensitive)", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "FALSE";
-    const cfg = await loadConfig();
-    expect(cfg.resumeOnMaxTurns).toBe(false);
-  });
-
-  test("ORCA_RESUME_ON_MAX_TURNS=yes → exit(1)", async () => {
-    process.env.ORCA_RESUME_ON_MAX_TURNS = "yes";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
 
   test("ORCA_EXTERNAL_TUNNEL=true → true", async () => {
     process.env.ORCA_EXTERNAL_TUNNEL = "true";
@@ -471,93 +396,7 @@ describe("boolean parsing", () => {
 // ORCA_STATE_MAP
 // ---------------------------------------------------------------------------
 
-describe("ORCA_STATE_MAP", () => {
-  test("not set → stateMapOverrides is undefined", async () => {
-    delete process.env.ORCA_STATE_MAP;
-    const cfg = await loadConfig();
-    expect(cfg.stateMapOverrides).toBeUndefined();
-  });
-
-  test("valid JSON with valid values → parsed correctly", async () => {
-    process.env.ORCA_STATE_MAP =
-      '{"Done Pending Deployment":"done","QA Review":"in_review","In Progress":"running"}';
-    const cfg = await loadConfig();
-    expect(cfg.stateMapOverrides).toEqual({
-      "Done Pending Deployment": "done",
-      "QA Review": "in_review",
-      "In Progress": "running",
-    });
-  });
-
-  test("all valid status values accepted", async () => {
-    process.env.ORCA_STATE_MAP =
-      '{"a":"backlog","b":"ready","c":"running","d":"in_review","e":"done","f":"skip"}';
-    const cfg = await loadConfig();
-    expect(cfg.stateMapOverrides).toEqual({
-      a: "backlog",
-      b: "ready",
-      c: "running",
-      d: "in_review",
-      e: "done",
-      f: "skip",
-    });
-  });
-
-  test("empty object → parsed as empty record", async () => {
-    process.env.ORCA_STATE_MAP = "{}";
-    const cfg = await loadConfig();
-    expect(cfg.stateMapOverrides).toEqual({});
-  });
-
-  test("invalid JSON → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = "not-json";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("invalid JSON (truncated) → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '{"key":"done"';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("JSON array instead of object → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '["done"]';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("JSON string instead of object → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '"done"';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("unrecognized status value → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '{"My State":"invalid_status"}';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("typo in status value → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '{"My State":"In_Review"}';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("non-string value in map → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP = '{"My State":42}';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("one invalid value among valid ones → exit(1)", async () => {
-    process.env.ORCA_STATE_MAP =
-      '{"Good State":"done","Bad State":"completed"}';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-});
+// ORCA_STATE_MAP was removed — stateMapOverrides no longer exists in OrcaConfig.
 
 // ---------------------------------------------------------------------------
 // System prompt overrides

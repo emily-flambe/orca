@@ -43,12 +43,10 @@ vi.mock("../src/config/index.js", () => ({
     projectRepoMap: new Map(),
     // start command fields
     logPath: "/tmp/orca-test.log",
-    logMaxSizeMb: 10,
     port: 4000,
     concurrencyCap: 1,
 
     externalTunnel: true, // skip cloudflared spawn in tests
-    githubWebhookSecret: undefined,
     cloudflaredPath: "cloudflared",
     tunnelToken: undefined,
   })),

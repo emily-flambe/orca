@@ -351,11 +351,11 @@ if (isAgentSession && agentId) {
     },
     ({ type }) => {
       const memories = getAgentMemories(db, agentId);
-      const filtered = type ? memories.filter((m) => m.type === type) : memories;
+      const filtered = type
+        ? memories.filter((m) => m.type === type)
+        : memories;
       return {
-        content: [
-          { type: "text", text: JSON.stringify(filtered, null, 2) },
-        ],
+        content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }],
       };
     },
   );
@@ -394,8 +394,7 @@ if (isAgentSession && agentId) {
   server.registerTool(
     "update_agent_memory",
     {
-      description:
-        "Update the content of an existing memory by its ID.",
+      description: "Update the content of an existing memory by its ID.",
       inputSchema: {
         memory_id: z
           .number()
@@ -410,7 +409,11 @@ if (isAgentSession && agentId) {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ updated: true, memoryId: memory_id }, null, 2),
+            text: JSON.stringify(
+              { updated: true, memoryId: memory_id },
+              null,
+              2,
+            ),
           },
         ],
       };
@@ -435,7 +438,11 @@ if (isAgentSession && agentId) {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ deleted: true, memoryId: memory_id }, null, 2),
+            text: JSON.stringify(
+              { deleted: true, memoryId: memory_id },
+              null,
+              2,
+            ),
           },
         ],
       };

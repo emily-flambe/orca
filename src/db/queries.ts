@@ -1365,9 +1365,5 @@ export function pruneAgentMemories(
 
 /** Get all tasks spawned by a specific agent. */
 export function getTasksByAgent(db: OrcaDb, agentId: string): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.agentId, agentId))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.agentId, agentId)).all();
 }

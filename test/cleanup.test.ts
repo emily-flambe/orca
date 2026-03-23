@@ -110,10 +110,12 @@ function seedRunningInvocation(
 function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
     defaultCwd: "/tmp/test",
+    projectRepoMap: new Map(),
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
+    budgetMaxTokens: 1_000_000_000,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -122,21 +124,23 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
     disallowedTools: "",
+    model: "sonnet",
+    reviewModel: "haiku",
     deployStrategy: "none",
-    deployPollIntervalSec: 30,
-    deployTimeoutMin: 30,
-    cleanupIntervalMin: 10,
-    cleanupBranchMaxAgeMin: 60,
+    maxDeployPollAttempts: 60,
+    maxCiPollAttempts: 240,
     port: 3000,
     dbPath: ":memory:",
+    logPath: "./orca.log",
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
+    alertWebhookUrl: undefined,
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
-    projectRepoMap: new Map(),
+    externalTunnel: false,
+    logLevel: "info",
     ...overrides,
   };
 }
@@ -145,27 +149,8 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
 // Tests
 // ===========================================================================
 
-describe("Cleanup - config defaults", () => {
-  test("cleanupIntervalMin defaults to 10", () => {
-    const cfg = testConfig();
-    expect(cfg.cleanupIntervalMin).toBe(10);
-  });
-
-  test("cleanupBranchMaxAgeMin defaults to 60", () => {
-    const cfg = testConfig();
-    expect(cfg.cleanupBranchMaxAgeMin).toBe(60);
-  });
-
-  test("cleanupIntervalMin can be overridden", () => {
-    const cfg = testConfig({ cleanupIntervalMin: 30 });
-    expect(cfg.cleanupIntervalMin).toBe(30);
-  });
-
-  test("cleanupBranchMaxAgeMin can be overridden", () => {
-    const cfg = testConfig({ cleanupBranchMaxAgeMin: 120 });
-    expect(cfg.cleanupBranchMaxAgeMin).toBe(120);
-  });
-});
+// Config defaults for cleanup are now hardcoded constants in src/cleanup/index.ts
+// (cleanupBranchMaxAgeMin=60, invocationLogRetentionHours=168) — no config override tests needed.
 
 describe("Cleanup - branch safety filters", () => {
   let db: OrcaDb;
@@ -851,7 +836,7 @@ describe("cleanupOldInvocationLogs", () => {
   });
 
   function logConfig(): OrcaConfig {
-    return testConfig({ invocationLogRetentionHours: RETENTION_HOURS });
+    return testConfig();
   }
 
   function makeStatResult(
@@ -1070,71 +1055,6 @@ describe("Cleanup - config edge cases", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  // cleanupBranchMaxAgeMin=1 means branches older than 1 minute are eligible.
-  // A 2-minute-old branch should be deleted.
-  test("very small cleanupBranchMaxAgeMin (1 min) works correctly", () => {
-    seedTask(db, {
-      linearIssueId: "T-SMALL-AGE",
-      repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
-    });
-
-    // 2 minutes ago -- older than 1 minute max age
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-
-    gitMock.mockImplementation((args: string[]) => {
-      if (args[0] === "worktree" && args[1] === "prune") return "";
-      if (args[0] === "worktree" && args[1] === "list") return "";
-      if (args[0] === "for-each-ref") return "orca/T-SMALL-AGE-inv-1";
-      if (args[0] === "log") return twoMinAgo;
-      if (args[0] === "branch" && args[1] === "-D") return "";
-      return "";
-    });
-    listOpenPrBranchesMock.mockReturnValue(new Set());
-
-    cleanupStaleResources({
-      db,
-      config: testConfig({ cleanupBranchMaxAgeMin: 1 }),
-    });
-
-    const deleteCalls = gitMock.mock.calls.filter(
-      (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
-    );
-    expect(deleteCalls).toHaveLength(1);
-  });
-
-  // Very large max age -- nothing should be deleted
-  test("very large cleanupBranchMaxAgeMin prevents all deletions", () => {
-    seedTask(db, {
-      linearIssueId: "T-LARGE-AGE",
-      repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
-    });
-
-    // 2 hours ago -- but max age is 1 million minutes
-    const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
-
-    gitMock.mockImplementation((args: string[]) => {
-      if (args[0] === "worktree" && args[1] === "prune") return "";
-      if (args[0] === "worktree" && args[1] === "list") return "";
-      if (args[0] === "for-each-ref") return "orca/T-LARGE-AGE-inv-1";
-      if (args[0] === "log") return oldDate;
-      if (args[0] === "branch" && args[1] === "-D") return "";
-      return "";
-    });
-    listOpenPrBranchesMock.mockReturnValue(new Set());
-
-    cleanupStaleResources({
-      db,
-      config: testConfig({ cleanupBranchMaxAgeMin: 1_000_000 }),
-    });
-
-    const deleteCalls = gitMock.mock.calls.filter(
-      (call: string[][]) => call[0][0] === "branch" && call[0][1] === "-D",
-    );
-    expect(deleteCalls).toHaveLength(0);
   });
 
   // Branch at exactly the age boundary (edge of maxAge)
@@ -1794,7 +1714,7 @@ describe("BUG: timed_out invocation logs are never deleted (missing terminal sta
 
     cleanupOldInvocationLogs({
       db,
-      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+      config: testConfig(),
     });
 
     // timed_out is a terminal state — log should be deleted.
@@ -1830,7 +1750,7 @@ describe("BUG: timed_out invocation logs are never deleted (missing terminal sta
 
     cleanupOldInvocationLogs({
       db,
-      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+      config: testConfig(),
     });
 
     // BUG: still not deleted because timed_out is not in TERMINAL_STATUSES.
@@ -1908,7 +1828,7 @@ describe("BUG: parseInt partial parse — filename '123abc.ndjson' is not treate
 
     cleanupOldInvocationLogs({
       db,
-      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+      config: testConfig(),
     });
 
     // The filename is NOT a valid invocation log (has garbage suffix).
@@ -1951,7 +1871,7 @@ describe("BUG: parseInt partial parse — filename '123abc.ndjson' is not treate
 
     cleanupOldInvocationLogs({
       db,
-      config: testConfig({ invocationLogRetentionHours: RETENTION_HOURS }),
+      config: testConfig(),
     });
 
     // Should be treated as unparseable — age < 2x so NOT deleted.

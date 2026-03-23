@@ -352,10 +352,7 @@ export function createAgent(
   });
 }
 
-export function updateAgent(
-  id: string,
-  data: Partial<Agent>,
-): Promise<Agent> {
+export function updateAgent(id: string, data: Partial<Agent>): Promise<Agent> {
   return fetchJson<Agent>(`/agents/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

@@ -159,11 +159,8 @@ const mockConfig = {
   budgetWindowHours: 4,
   maxRetries: 3,
   maxReviewCycles: 3,
-  resumeOnMaxTurns: false,
-  resumeOnFix: false,
-  implementModel: "claude-sonnet-4-5",
+  model: "claude-sonnet-4-5",
   reviewModel: "claude-haiku-4-5",
-  fixModel: "claude-sonnet-4-5",
   defaultMaxTurns: 200,
   reviewMaxTurns: 50,
   claudePath: "claude",
@@ -171,7 +168,7 @@ const mockConfig = {
   reviewSystemPrompt: "",
   fixSystemPrompt: "",
   disallowedTools: "",
-  deployTimeoutMin: 30,
+  maxDeployPollAttempts: 60,
   deployStrategy: "none" as const,
 };
 

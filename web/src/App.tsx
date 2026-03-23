@@ -33,10 +33,7 @@ function StatusStrip({ status }: { status: OrcaStatus | null }) {
   if (!status) return null;
   const pct =
     status.tokenBudgetLimit > 0
-      ? Math.min(
-          (status.tokensInWindow / status.tokenBudgetLimit) * 100,
-          100,
-        )
+      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
       : 0;
   const barColor =
     pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
@@ -201,8 +198,7 @@ function SettingsPage({
           Models
         </div>
         {(["model", "review"] as const).map((phase) => {
-          const field =
-            phase === "model" ? "implementModel" : "reviewModel";
+          const field = phase === "model" ? "implementModel" : "reviewModel";
           return (
             <div key={phase} className="flex items-center gap-3">
               <span className="text-sm text-gray-400 w-20 capitalize">
@@ -620,7 +616,14 @@ export default function App() {
 
         {activePage === "cron" && <CronPage onToast={toast} />}
 
-        {activePage === "agents" && <AgentsPage onToast={toast} onNavigateToTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)} />}
+        {activePage === "agents" && (
+          <AgentsPage
+            onToast={toast}
+            onNavigateToTask={(taskId) =>
+              navigate(`/tasks/${encodeURIComponent(taskId)}`)
+            }
+          />
+        )}
 
         {/* Version footer */}
         {version && (

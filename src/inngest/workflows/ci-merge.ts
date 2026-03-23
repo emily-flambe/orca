@@ -73,7 +73,7 @@ export const ciMergeWorkflow = inngest.createFunction(
       }
 
       // Timeout check
-      if (hasPollingTimedOut(ciStartedAt, deps.config.deployTimeoutMin)) {
+      if (hasPollingTimedOut(ciStartedAt, deps.config.maxCiPollAttempts)) {
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           updateAndEmit(db, linearIssueId, "failed", "ci_timeout");
@@ -81,10 +81,10 @@ export const ciMergeWorkflow = inngest.createFunction(
             { client, stateMap },
             linearIssueId,
             "failed_permanent",
-            `CI timed out after ${config.deployTimeoutMin}min — task failed`,
+            `CI timed out after ${config.maxCiPollAttempts}min — task failed`,
           );
           log(
-            `task ${linearIssueId} CI timed out after ${config.deployTimeoutMin}min`,
+            `task ${linearIssueId} CI timed out after ${config.maxCiPollAttempts}min`,
           );
         });
         return { status: "failed", reason: "ci_timeout" };

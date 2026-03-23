@@ -110,7 +110,7 @@ function listWorktreePaths(cwd: string): string[] {
  * - Never deletes branches younger than `cleanupBranchMaxAgeMin`
  */
 export function cleanupStaleResources(deps: CleanupDeps): void {
-  const { db, config } = deps;
+  const { db } = deps;
 
   // Collect unique repo paths from all tasks
   const allTasks = getAllTasks(db);
@@ -159,7 +159,8 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   }
 
   const now = Date.now();
-  const maxAgeMs = config.cleanupBranchMaxAgeMin * 60 * 1000;
+  const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
+  const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
   for (const repoPath of repoPaths) {
     try {
@@ -423,7 +424,7 @@ async function listWorktreePathsAsync(cwd: string): Promise<string[]> {
 export async function cleanupStaleResourcesAsync(
   deps: CleanupDeps,
 ): Promise<void> {
-  const { db, config } = deps;
+  const { db } = deps;
 
   const allTasks = getAllTasks(db);
   const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))];
@@ -466,7 +467,8 @@ export async function cleanupStaleResourcesAsync(
   }
 
   const now = Date.now();
-  const maxAgeMs = config.cleanupBranchMaxAgeMin * 60 * 1000;
+  const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
+  const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
   for (const repoPath of repoPaths) {
     try {
@@ -656,8 +658,9 @@ async function cleanupRepoAsync(
  * Unknown/unmatched files are deleted only if older than 2x the retention window.
  */
 export function cleanupOldInvocationLogs(deps: CleanupDeps): void {
-  const { db, config } = deps;
-  const retentionMs = config.invocationLogRetentionHours * 60 * 60 * 1000;
+  const { db } = deps;
+  const INVOCATION_LOG_RETENTION_HOURS = 168;
+  const retentionMs = INVOCATION_LOG_RETENTION_HOURS * 60 * 60 * 1000;
   const now = Date.now();
 
   let files: string[];

@@ -42,6 +42,7 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
+    budgetMaxTokens: 1_000_000_000,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -50,31 +51,23 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
     disallowedTools: "",
-    implementModel: "sonnet",
+    model: "sonnet",
     reviewModel: "haiku",
-    fixModel: "sonnet",
     deployStrategy: "none",
-    deployPollIntervalSec: 30,
-    deployTimeoutMin: 30,
-    cleanupIntervalMin: 10,
-    cleanupBranchMaxAgeMin: 60,
-    invocationLogRetentionHours: 168,
-    resumeOnMaxTurns: true,
-    resumeOnFix: true,
-    maxWorktreeRetries: 3,
+    maxDeployPollAttempts: 60,
+    maxCiPollAttempts: 240,
     port: 3000,
     dbPath: ":memory:",
+    logPath: "./orca.log",
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    taskFilterLabel: undefined,
     tunnelHostname: "test.example.com",
+    alertWebhookUrl: undefined,
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
     externalTunnel: false,
-    logPath: "./orca.log",
-    logMaxSizeMb: 10,
-    githubWebhookSecret: undefined,
+    logLevel: "info",
     ...overrides,
   };
 }
@@ -124,7 +117,7 @@ function makeClient(overrides: Record<string, unknown> = {}) {
 // fullSync with label filter
 // ===========================================================================
 
-describe("fullSync — label filter active", () => {
+describe("fullSync — label filtering removed (all issues processed)", () => {
   let db: OrcaDb;
   let fullSync: typeof import("../src/linear/sync.js").fullSync;
 
@@ -139,19 +132,17 @@ describe("fullSync — label filter active", () => {
     vi.restoreAllMocks();
   });
 
-  test("only issues matching the label are upserted", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-    const labelIdCache = new Map<string, string>();
+  test("all issues are upserted regardless of labels", async () => {
+    const config = testConfig();
 
-    const matchingIssue = makeIssue("PROJ-1", ["orca"]);
-    const unmatchedIssue = makeIssue("PROJ-2", ["other-label"]);
-    const noLabelIssue = makeIssue("PROJ-3", []);
+    const issue1 = makeIssue("PROJ-1", ["orca"]);
+    const issue2 = makeIssue("PROJ-2", ["other-label"]);
+    const issue3 = makeIssue("PROJ-3", []);
 
     const client = makeClient({
       fetchProjectIssues: vi
         .fn()
-        .mockResolvedValue([matchingIssue, unmatchedIssue, noLabelIssue]),
-      fetchLabelIdByName: vi.fn().mockResolvedValue("label-id-123"),
+        .mockResolvedValue([issue1, issue2, issue3]),
     });
 
     const graph = makeGraph();
@@ -161,32 +152,25 @@ describe("fullSync — label filter active", () => {
       client as any,
       graph as any,
       config,
-      undefined,
-      labelIdCache,
     );
 
-    // Only matching issue should be in DB
+    // All issues should be in DB (no label filtering)
     expect(getTask(db, "PROJ-1")).toBeDefined();
-    expect(getTask(db, "PROJ-2")).toBeUndefined();
-    expect(getTask(db, "PROJ-3")).toBeUndefined();
+    expect(getTask(db, "PROJ-2")).toBeDefined();
+    expect(getTask(db, "PROJ-3")).toBeDefined();
 
-    // Label cache should be populated
-    expect(labelIdCache.get("orca")).toBe("label-id-123");
-
-    // Graph should only contain filtered issues
-    expect(graph.rebuild).toHaveBeenCalledWith([matchingIssue]);
+    // Graph should contain all issues
+    expect(graph.rebuild).toHaveBeenCalledWith([issue1, issue2, issue3]);
   });
 
-  test("all issues upserted when no filter configured", async () => {
-    const config = testConfig({ taskFilterLabel: undefined });
-    const labelIdCache = new Map<string, string>();
+  test("issues with no labels are still processed", async () => {
+    const config = testConfig();
 
     const issue1 = makeIssue("PROJ-1", []);
     const issue2 = makeIssue("PROJ-2", ["some-label"]);
 
     const client = makeClient({
       fetchProjectIssues: vi.fn().mockResolvedValue([issue1, issue2]),
-      fetchLabelIdByName: vi.fn().mockResolvedValue(undefined),
     });
 
     const graph = makeGraph();
@@ -196,77 +180,11 @@ describe("fullSync — label filter active", () => {
       client as any,
       graph as any,
       config,
-      undefined,
-      labelIdCache,
     );
 
     // Both issues should be in DB
     expect(getTask(db, "PROJ-1")).toBeDefined();
     expect(getTask(db, "PROJ-2")).toBeDefined();
-
-    // fetchLabelIdByName should NOT be called when no filter
-    expect(client.fetchLabelIdByName).not.toHaveBeenCalled();
-  });
-
-  test("all issues pass through when label not found in Linear", async () => {
-    const config = testConfig({ taskFilterLabel: "nonexistent-label" });
-    const labelIdCache = new Map<string, string>();
-
-    const issue1 = makeIssue("PROJ-1", []);
-    const issue2 = makeIssue("PROJ-2", ["some-label"]);
-
-    const client = makeClient({
-      fetchProjectIssues: vi.fn().mockResolvedValue([issue1, issue2]),
-      // Label not found in Linear → returns undefined
-      fetchLabelIdByName: vi.fn().mockResolvedValue(undefined),
-    });
-
-    const graph = makeGraph();
-
-    await fullSync(
-      db,
-      client as any,
-      graph as any,
-      config,
-      undefined,
-      labelIdCache,
-    );
-
-    // Label cache should be empty (label not found)
-    expect(labelIdCache.size).toBe(0);
-
-    // Fail open: when the label doesn't exist in Linear, all issues pass through.
-    // This matches webhook behavior (also fails open when cache is empty) and
-    // prevents silently dropping everything on a misconfigured label name.
-    expect(getTask(db, "PROJ-1")).toBeDefined();
-    expect(getTask(db, "PROJ-2")).toBeDefined();
-  });
-
-  test("label cache is refreshed on each fullSync call", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-    const labelIdCache = new Map<string, string>([["old-label", "old-id"]]);
-
-    const client = makeClient({
-      fetchProjectIssues: vi
-        .fn()
-        .mockResolvedValue([makeIssue("PROJ-1", ["orca"])]),
-      fetchLabelIdByName: vi.fn().mockResolvedValue("new-label-id"),
-    });
-
-    const graph = makeGraph();
-
-    await fullSync(
-      db,
-      client as any,
-      graph as any,
-      config,
-      undefined,
-      labelIdCache,
-    );
-
-    // Old entry should be gone, new one set
-    expect(labelIdCache.has("old-label")).toBe(false);
-    expect(labelIdCache.get("orca")).toBe("new-label-id");
   });
 });
 
@@ -274,7 +192,7 @@ describe("fullSync — label filter active", () => {
 // processWebhookEvent with label filter
 // ===========================================================================
 
-describe("processWebhookEvent — label filter", () => {
+describe("processWebhookEvent — label filtering removed (all events processed)", () => {
   let db: OrcaDb;
   let processWebhookEvent: typeof import("../src/linear/sync.js").processWebhookEvent;
 
@@ -307,16 +225,13 @@ describe("processWebhookEvent — label filter", () => {
     };
   }
 
-  test("webhook for unlabeled issue is skipped when filter active", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-    // Cache populated — label found in Linear
-    const labelIdCache = new Map([["orca", "label-id-123"]]);
+  test("webhook for unlabeled issue is always processed", async () => {
+    const config = testConfig();
 
     const client = makeClient();
     const graph = makeGraph();
     const stateMap = new Map();
 
-    // Event with no labelIds — should be skipped
     const event = makeEvent("PROJ-1", []);
 
     await processWebhookEvent(
@@ -326,22 +241,19 @@ describe("processWebhookEvent — label filter", () => {
       config,
       stateMap,
       event,
-      labelIdCache,
     );
 
-    // Task should NOT be created (webhook was skipped)
-    expect(getTask(db, "PROJ-1")).toBeUndefined();
+    // Task should be created (no label filtering)
+    expect(getTask(db, "PROJ-1")).toBeDefined();
   });
 
-  test("webhook passes through when issue has the required label", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-    const labelIdCache = new Map([["orca", "label-id-123"]]);
+  test("webhook for labeled issue is always processed", async () => {
+    const config = testConfig();
 
     const client = makeClient();
     const graph = makeGraph();
     const stateMap = new Map();
 
-    // Event WITH the required label ID
     const event = makeEvent("PROJ-2", ["label-id-123"]);
 
     await processWebhookEvent(
@@ -351,83 +263,9 @@ describe("processWebhookEvent — label filter", () => {
       config,
       stateMap,
       event,
-      labelIdCache,
     );
 
-    // Task should be created (webhook was processed)
+    // Task should be created (no label filtering)
     expect(getTask(db, "PROJ-2")).toBeDefined();
-  });
-
-  test("webhook passes through when no filter configured", async () => {
-    const config = testConfig({ taskFilterLabel: undefined });
-    const labelIdCache = new Map<string, string>();
-
-    const client = makeClient();
-    const graph = makeGraph();
-    const stateMap = new Map();
-
-    const event = makeEvent("PROJ-3", []);
-
-    await processWebhookEvent(
-      db,
-      client as any,
-      graph as any,
-      config,
-      stateMap,
-      event,
-      labelIdCache,
-    );
-
-    // Task should be created — no filter active
-    expect(getTask(db, "PROJ-3")).toBeDefined();
-  });
-
-  test("webhook passes through when labelIdCache is empty (fail open)", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-    // Empty cache means label was not found in Linear — fail open
-    const labelIdCache = new Map<string, string>();
-
-    const client = makeClient();
-    const graph = makeGraph();
-    const stateMap = new Map();
-
-    const event = makeEvent("PROJ-4", []);
-
-    await processWebhookEvent(
-      db,
-      client as any,
-      graph as any,
-      config,
-      stateMap,
-      event,
-      labelIdCache,
-    );
-
-    // Task should be created — fail open when cache is empty
-    expect(getTask(db, "PROJ-4")).toBeDefined();
-  });
-
-  test("webhook passes through when labelIdCache not provided", async () => {
-    const config = testConfig({ taskFilterLabel: "orca" });
-
-    const client = makeClient();
-    const graph = makeGraph();
-    const stateMap = new Map();
-
-    const event = makeEvent("PROJ-5", []);
-
-    // No labelIdCache passed at all
-    await processWebhookEvent(
-      db,
-      client as any,
-      graph as any,
-      config,
-      stateMap,
-      event,
-      // labelIdCache omitted
-    );
-
-    // Task should be created — no cache means filter is skipped
-    expect(getTask(db, "PROJ-5")).toBeDefined();
   });
 });

@@ -40,7 +40,8 @@ export async function runReconciliation(deps: {
 
   const { db, config } = deps;
   const handles = deps.activeHandles ?? activeHandles;
-  const thresholdMs = config.strandedTaskThresholdMin * 60 * 1000;
+  const STRANDED_TASK_THRESHOLD_MIN = 30;
+  const thresholdMs = STRANDED_TASK_THRESHOLD_MIN * 60 * 1000;
   const now = Date.now();
 
   // Get all tasks in intermediate states that could be stranded.
@@ -92,7 +93,7 @@ export async function runReconciliation(deps: {
       const ageMs = now - updatedMs;
       if (ageMs > thresholdMs) {
         isStranded = true;
-        reason = `task in ${orcaStatus} for ${Math.round(ageMs / 60000)} min (threshold: ${config.strandedTaskThresholdMin} min)`;
+        reason = `task in ${orcaStatus} for ${Math.round(ageMs / 60000)} min (threshold: ${STRANDED_TASK_THRESHOLD_MIN} min)`;
       }
     }
 

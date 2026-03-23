@@ -1,22 +1,11 @@
-import type { OrcaStatus, Task } from "../types";
+import type { OrcaStatus } from "../types";
 
-export type Page =
-  | "dashboard"
-  | "tasks"
-  | "metrics"
-  | "cron"
-  | "agents"
-  | "inngest"
-  | "settings"
-  | "logs";
+export type Page = "tasks" | "metrics" | "cron" | "agents" | "settings";
 
 interface SidebarProps {
   activePage: Page;
   onNavigate: (page: Page) => void;
   status: OrcaStatus | null;
-  tasks?: Task[];
-  onSync?: () => Promise<void>;
-  onNewTicket?: (identifier: string) => Promise<void>;
   isOpen: boolean; // mobile open state
 }
 

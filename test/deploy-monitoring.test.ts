@@ -64,10 +64,12 @@ function seedTask(
 function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
     defaultCwd: "/tmp/test",
+    projectRepoMap: new Map(),
     concurrencyCap: 3,
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
+    budgetMaxTokens: 1_000_000_000,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -76,19 +78,23 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
     disallowedTools: "",
+    model: "sonnet",
+    reviewModel: "haiku",
     deployStrategy: "none",
-    deployPollIntervalSec: 30,
-    deployTimeoutMin: 30,
+    maxDeployPollAttempts: 60,
+    maxCiPollAttempts: 240,
     port: 3000,
     dbPath: ":memory:",
+    logPath: "./orca.log",
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-webhook-secret",
     linearProjectIds: ["proj-1"],
-    linearReadyStateType: "unstarted",
     tunnelHostname: "test.example.com",
+    alertWebhookUrl: undefined,
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
-    projectRepoMap: new Map(),
+    externalTunnel: false,
+    logLevel: "info",
     ...overrides,
   };
 }
@@ -303,14 +309,14 @@ describe("Config - deploy defaults", () => {
     expect(cfg.deployStrategy).toBe("none");
   });
 
-  test("deployPollIntervalSec defaults to 30", () => {
+  test("maxDeployPollAttempts defaults to 60", () => {
     const cfg = testConfig();
-    expect(cfg.deployPollIntervalSec).toBe(30);
+    expect(cfg.maxDeployPollAttempts).toBe(60);
   });
 
-  test("deployTimeoutMin defaults to 30", () => {
+  test("maxCiPollAttempts defaults to 240", () => {
     const cfg = testConfig();
-    expect(cfg.deployTimeoutMin).toBe(30);
+    expect(cfg.maxCiPollAttempts).toBe(240);
   });
 
   test("deployStrategy can be overridden to 'github_actions'", () => {
@@ -318,31 +324,26 @@ describe("Config - deploy defaults", () => {
     expect(cfg.deployStrategy).toBe("github_actions");
   });
 
-  test("deployPollIntervalSec can be overridden", () => {
-    const cfg = testConfig({ deployPollIntervalSec: 60 });
-    expect(cfg.deployPollIntervalSec).toBe(60);
+  test("maxDeployPollAttempts can be overridden", () => {
+    const cfg = testConfig({ maxDeployPollAttempts: 120 });
+    expect(cfg.maxDeployPollAttempts).toBe(120);
   });
 
-  test("deployTimeoutMin can be overridden", () => {
-    const cfg = testConfig({ deployTimeoutMin: 120 });
-    expect(cfg.deployTimeoutMin).toBe(120);
+  test("maxCiPollAttempts can be overridden", () => {
+    const cfg = testConfig({ maxCiPollAttempts: 500 });
+    expect(cfg.maxCiPollAttempts).toBe(500);
   });
 });
 
-// We need to verify the actual loadConfig defaults. Since loadConfig calls
-// process.exit for missing required vars, we test the default env var parsing
-// indirectly by verifying the config structure above matches the implementation.
-
 describe("Config - loadConfig defaults for deploy fields", () => {
   test("ORCA_DEPLOY_STRATEGY env var read with default 'none'", () => {
-    // Verify the config interface includes the expected deploy fields
     const cfg = testConfig();
     expect(cfg).toHaveProperty("deployStrategy");
-    expect(cfg).toHaveProperty("deployPollIntervalSec");
-    expect(cfg).toHaveProperty("deployTimeoutMin");
+    expect(cfg).toHaveProperty("maxDeployPollAttempts");
+    expect(cfg).toHaveProperty("maxCiPollAttempts");
     expect(typeof cfg.deployStrategy).toBe("string");
-    expect(typeof cfg.deployPollIntervalSec).toBe("number");
-    expect(typeof cfg.deployTimeoutMin).toBe("number");
+    expect(typeof cfg.maxDeployPollAttempts).toBe("number");
+    expect(typeof cfg.maxCiPollAttempts).toBe("number");
   });
 });
 

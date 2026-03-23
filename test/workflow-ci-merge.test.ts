@@ -41,9 +41,8 @@ const mockDb = {} as never;
 
 const mockConfig = {
   maxReviewCycles: 3,
-  deployTimeoutMin: 30,
-  deployStrategy: "none" as const,
   maxCiPollAttempts: 240,
+  deployStrategy: "none" as const,
 };
 
 const mockLinearClient = {

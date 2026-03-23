@@ -81,6 +81,9 @@ git pull origin main
 log "installing dependencies..."
 npm install
 
+log "building backend (MCP server)..."
+npm run build
+
 log "building frontend..."
 (cd web && npm run build)
 

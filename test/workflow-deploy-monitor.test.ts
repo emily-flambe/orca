@@ -41,10 +41,9 @@ const mockDb = {} as never;
 
 const mockConfig = {
   maxReviewCycles: 3,
-  deployTimeoutMin: 30,
+  maxDeployPollAttempts: 60,
   deployStrategy: "github_actions" as const,
   maxRetries: 3,
-  maxDeployPollAttempts: 60,
 };
 
 const mockLinearClient = {

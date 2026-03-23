@@ -90,9 +90,9 @@ function seedRunningInvocation(db: OrcaDb, taskId: string): number {
 function makeConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
     defaultCwd: "/tmp/test",
+    projectRepoMap: new Map(),
     concurrencyCap: 1,
     sessionTimeoutMin: 45,
-    strandedTaskThresholdMin: 60,
     maxRetries: 3,
     budgetWindowHours: 4,
     budgetMaxTokens: 1_000_000_000,
@@ -104,38 +104,25 @@ function makeConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     maxReviewCycles: 3,
     reviewMaxTurns: 30,
     disallowedTools: "",
+    model: "sonnet",
+    reviewModel: "haiku",
     deployStrategy: "none",
-    deployPollIntervalSec: 30,
-    deployTimeoutMin: 30,
-    cleanupIntervalMin: 10,
-    cleanupBranchMaxAgeMin: 60,
-    invocationLogRetentionHours: 168,
-    resumeOnMaxTurns: true,
-    resumeOnFix: true,
-    maxWorktreeRetries: 3,
+    maxDeployPollAttempts: 60,
+    maxCiPollAttempts: 240,
     port: 3000,
     dbPath: ":memory:",
     logPath: "./orca.log",
-    logMaxSizeMb: 10,
     linearApiKey: "test-api-key",
     linearWebhookSecret: "test-secret",
     linearProjectIds: ["proj-1"],
-    taskFilterLabel: undefined,
     tunnelHostname: "test.example.com",
-    githubWebhookSecret: undefined,
     alertWebhookUrl: undefined,
     tunnelToken: "",
     cloudflaredPath: "cloudflared",
     externalTunnel: false,
-    cronRetentionDays: 7,
-    stateMapOverrides: undefined,
     logLevel: "info",
-    projectRepoMap: new Map(),
-    implementModel: "sonnet",
-    reviewModel: "haiku",
-    fixModel: "sonnet",
     ...overrides,
-  } as OrcaConfig;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +219,7 @@ describe("runReconciliation — running (handle-based detection)", () => {
 
 // ---------------------------------------------------------------------------
 
-describe("runReconciliation — in_review (time-based, strandedTaskThresholdMin)", () => {
+describe("runReconciliation — in_review (time-based, hardcoded 30 min threshold)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -241,7 +228,7 @@ describe("runReconciliation — in_review (time-based, strandedTaskThresholdMin)
     const db = freshDb();
     const id = seedTask(db, {
       orcaStatus: "in_review",
-      updatedAt: ago(70), // 70 min > 60 min threshold
+      updatedAt: ago(70), // 70 min > 30 min threshold
     });
     const handles = new Map<number, unknown>();
 
@@ -261,7 +248,7 @@ describe("runReconciliation — in_review (time-based, strandedTaskThresholdMin)
     const db = freshDb();
     const id = seedTask(db, {
       orcaStatus: "in_review",
-      updatedAt: ago(30), // 30 min < 60 min threshold
+      updatedAt: ago(25), // 25 min < 30 min threshold
     });
     const handles = new Map<number, unknown>();
 
@@ -304,7 +291,7 @@ describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
     const db = freshDb();
     const id = seedTask(db, {
       orcaStatus: "awaiting_ci",
-      updatedAt: ago(30),
+      updatedAt: ago(25),
     });
     const handles = new Map<number, unknown>();
 
@@ -422,25 +409,6 @@ describe("runReconciliation — multiple tasks in one pass", () => {
     expect(getTask(db, t3)?.orcaStatus).toBe("ready");
     expect(getTask(db, t4)?.orcaStatus).toBe("running"); // untouched
     expect(mockInngestSend).toHaveBeenCalledTimes(3);
-  });
-
-  test("configurable strandedTaskThresholdMin is respected", async () => {
-    const db = freshDb();
-    // Task is 20 min old — not caught by 60 min default
-    const id = seedTask(db, {
-      orcaStatus: "in_review",
-      updatedAt: ago(20),
-    });
-    const handles = new Map<number, unknown>();
-
-    // Override to 15 min — now it should be caught
-    await runReconciliation({
-      db,
-      config: makeConfig({ strandedTaskThresholdMin: 15 }),
-      activeHandles: handles,
-    });
-
-    expect(getTask(db, id)?.orcaStatus).toBe("ready");
   });
 
   test("task/ready event includes correct linearIssueId and repoPath", async () => {
