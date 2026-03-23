@@ -722,9 +722,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
-    const queuedTasks = allTasks.filter(
-      (t) => t.orcaStatus === "ready",
-    ).length;
+    const queuedTasks = allTasks.filter((t) => t.orcaStatus === "ready").length;
     const windowStart = budgetWindowStart(config.budgetWindowHours);
     const tokensInWindow = sumTokensInWindow(db, windowStart);
     const tokensSplit = sumTokensSplitInWindow(db, windowStart);

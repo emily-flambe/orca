@@ -9,6 +9,7 @@ const logger = createLogger("linear");
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 const MAX_RETRIES = 3;
 const RATE_LIMIT_WARN_THRESHOLD = 500;
+const REQUEST_TIMEOUT_MS = 30_000;
 const TRANSIENT_STATUS_CODES = new Set([429, 500, 502, 503]);
 
 // ---------------------------------------------------------------------------
@@ -103,6 +104,11 @@ export class LinearClient {
       }
 
       let response: Response;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(
+        () => controller.abort(),
+        REQUEST_TIMEOUT_MS,
+      );
       try {
         response = await fetch(LINEAR_API_URL, {
           method: "POST",
@@ -111,10 +117,19 @@ export class LinearClient {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ query: graphql, variables }),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
       } catch (err) {
-        // Network error -- transient, retry
-        lastError = err instanceof Error ? err : new Error(String(err));
+        clearTimeout(timeoutId);
+        // Timeout or network error -- transient, retry
+        if (err instanceof Error && err.name === "AbortError") {
+          lastError = new Error(
+            `LinearClient: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`,
+          );
+        } else {
+          lastError = err instanceof Error ? err : new Error(String(err));
+        }
         if (attempt < MAX_RETRIES) {
           continue;
         }
