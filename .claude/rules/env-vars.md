@@ -9,25 +9,48 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_LINEAR_API_KEY` | Linear API key (`lin_api_...`) |
 | `ORCA_LINEAR_WEBHOOK_SECRET` | HMAC-SHA256 webhook signing secret |
 | `ORCA_LINEAR_PROJECT_IDS` | JSON array of Linear project UUIDs |
-| `ORCA_TUNNEL_HOSTNAME` | Cloudflared tunnel hostname |
+| `ORCA_TUNNEL_HOSTNAME` | Cloudflared tunnel public hostname |
+
+## Paths & Server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCA_DEFAULT_CWD` | — | Fallback repo path when a project's Linear description has no `repo:` line |
+| `ORCA_PORT` | `3000` | HTTP server port |
+| `ORCA_DB_PATH` | `./orca.db` | Path to SQLite database file |
+| `ORCA_LOG_PATH` | `./orca.log` | Path to the Orca log file |
+| `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 
 ## Scheduler Tuning
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCA_CONCURRENCY_CAP` | 1 | Max concurrent Claude sessions |
-| `ORCA_AGENT_CONCURRENCY_CAP` | 12 | Max concurrent agent task sessions |
-| `ORCA_SESSION_TIMEOUT_MIN` | 45 | Hard timeout per session |
-| `ORCA_MAX_RETRIES` | 3 | Retry attempts before permanent failure |
-| `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
-| `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix loops |
+| `ORCA_CONCURRENCY_CAP` | `1` | Max concurrent Claude sessions |
+| `ORCA_AGENT_CONCURRENCY_CAP` | `12` | Max concurrent agent task sessions |
+| `ORCA_SESSION_TIMEOUT_MIN` | `45` | Hard timeout per session (minutes) |
+| `ORCA_MAX_RETRIES` | `3` | Retry attempts before permanent failure |
+| `ORCA_BUDGET_WINDOW_HOURS` | `4` | Rolling budget window (hours) |
+| `ORCA_BUDGET_MAX_TOKENS` | `1000000000` | Max cumulative tokens per budget window |
+| `ORCA_MAX_REVIEW_CYCLES` | `10` | Max review-fix loops before human intervention |
 
 ## Models
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCA_MODEL` | sonnet | Model for implement and fix phases |
-| `ORCA_REVIEW_MODEL` | haiku | Model for review phase |
+| `ORCA_MODEL` | `sonnet` | Model for implement and fix phases (alias: `ORCA_IMPLEMENT_MODEL`) |
+| `ORCA_REVIEW_MODEL` | `haiku` | Model for review phase |
+
+## Claude Code Agent
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCA_CLAUDE_PATH` | `claude` | Path to claude CLI binary |
+| `ORCA_DEFAULT_MAX_TURNS` | `50` | Default max turns per session |
+| `ORCA_REVIEW_MAX_TURNS` | `30` | Max turns for review agent sessions |
+| `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents |
+| `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
+| `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
+| `ORCA_DISALLOWED_TOOLS` | — | Comma-separated list of tools to block in agent sessions |
 
 ## Inngest
 
@@ -43,11 +66,27 @@ All config is in `.env` (see `.env.example`). Key variables:
 |----------|---------|-------------|
 | `GITHUB_MCP_PAT` | — | GitHub PAT for the official GitHub MCP server. When set, agents get structured PR/issue/Actions tools via `https://api.githubcopilot.com/mcp/`. Fine-grained PAT with repo + pr scopes. |
 
+## Tunnel
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCA_TUNNEL_TOKEN` | — | Dashboard-managed tunnel token; when set, cloudflared uses this instead of local config files |
+| `ORCA_CLOUDFLARED_PATH` | `cloudflared` | Path to cloudflared binary |
+| `ORCA_EXTERNAL_TUNNEL` | `false` | Skip spawning cloudflared and treat tunnel as always connected |
+
+## Alerts
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ORCA_ALERT_WEBHOOK_URL` | — | Webhook URL for permanent failure alerts (Slack/Discord compatible) |
+
 ## Deploy
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCA_DEPLOY_STRATEGY` | none | `none` or `github_actions` |
+| `ORCA_DEPLOY_STRATEGY` | `none` | `none` (mark done immediately after merge) or `github_actions` (poll CI) |
+| `ORCA_DEPLOY_MAX_POLL_ATTEMPTS` | `60` | Max attempts when polling GitHub Actions for deploy status |
+| `ORCA_CI_MAX_POLL_ATTEMPTS` | `240` | Max attempts when polling CI checks before merge |
 | `CLOUDFLARE_TUNNEL_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_ACCOUNT_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_API_TOKEN` | — | Required for blue/green deploy script |
