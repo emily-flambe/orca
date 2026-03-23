@@ -109,7 +109,8 @@ describe("enrichPrDescription — greedy JSON regex bug", () => {
     // But the greedy regex extracts the wrong span.
     // Check: did gh pr edit get called with the RIGHT title?
     const editCallCount = execSyncMock.mock.calls.filter(
-      (call: unknown[]) => call[0] === "gh" && (call[1] as string[]).includes("edit"),
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
     ).length;
     // The function should either apply the correct second JSON or skip — not silently apply wrong data
     // Currently the greedy regex fails on this case (JSON.parse throws), so it's non-fatal (0 edits).
@@ -142,7 +143,8 @@ describe("enrichPrDescription — greedy JSON regex bug", () => {
 
     // gh pr edit should NOT be called — title and body are missing at top level
     const editCalls = execSyncMock.mock.calls.filter(
-      (call: unknown[]) => call[0] === "gh" && (call[1] as string[]).includes("edit"),
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
     );
     expect(editCalls).toHaveLength(0);
   });
@@ -173,7 +175,7 @@ describe("enrichPrDescription — null/undefined body from GitHub API", () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({
         title: "[EMI-123] feat",
-        body: "## Summary\n- done\n\nCloses EMI-123",
+        body: "## Summary\n- done\n\n## Changes\n- x\n\n## Test Plan\n- y\n\nCloses EMI-123",
       }),
     );
     execSyncMock.mockReturnValueOnce(""); // gh pr edit
@@ -203,7 +205,7 @@ describe("enrichPrDescription — null/undefined body from GitHub API", () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({
         title: "[EMI-123] feat",
-        body: "## Summary\n- done\n\nCloses EMI-123",
+        body: "## Summary\n- done\n\n## Changes\n- x\n\n## Test Plan\n- y\n\nCloses EMI-123",
       }),
     );
     execSyncMock.mockReturnValueOnce("");
@@ -409,5 +411,141 @@ describe("enrichPrDescription — malformed JSON from gh pr view", () => {
     ).resolves.toBeUndefined();
 
     expect(execSyncMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Content validation — generated output must match requirements
+// ---------------------------------------------------------------------------
+describe("enrichPrDescription — content validation", () => {
+  beforeEach(() => {
+    execSyncMock.mockReset();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("skips gh pr edit when title does not start with [taskId]", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // git diff
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({
+        title: "feat: something without task prefix",
+        body: "## Summary\n- done\n\n## Changes\n- x\n\n## Test Plan\n- y\n\nCloses EMI-123",
+      }),
+    );
+
+    await enrichPrDescription({
+      prNumber: 42,
+      taskId: "EMI-123",
+      agentPrompt: "feature",
+      repoPath: "/repo",
+      claudePath: "claude",
+      model: "haiku",
+    });
+
+    const editCalls = execSyncMock.mock.calls.filter(
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
+    );
+    expect(editCalls).toHaveLength(0);
+  });
+
+  it("skips gh pr edit when body is missing required sections", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // git diff
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({
+        title: "[EMI-123] feat: something",
+        body: "## Summary\n- done\n\nCloses EMI-123",
+        // Missing ## Changes and ## Test Plan
+      }),
+    );
+
+    await enrichPrDescription({
+      prNumber: 42,
+      taskId: "EMI-123",
+      agentPrompt: "feature",
+      repoPath: "/repo",
+      claudePath: "claude",
+      model: "haiku",
+    });
+
+    const editCalls = execSyncMock.mock.calls.filter(
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
+    );
+    expect(editCalls).toHaveLength(0);
+  });
+
+  it("truncates title exceeding 70 chars but still applies", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // git diff
+    const longTitle =
+      "[EMI-123] feat: this title is way too long and exceeds the seventy char limit by a lot";
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({
+        title: longTitle,
+        body: "## Summary\n- done\n\n## Changes\n- x\n\n## Test Plan\n- y\n\nCloses EMI-123",
+      }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // gh pr edit
+
+    await enrichPrDescription({
+      prNumber: 42,
+      taskId: "EMI-123",
+      agentPrompt: "feature",
+      repoPath: "/repo",
+      claudePath: "claude",
+      model: "haiku",
+    });
+
+    const editCalls = execSyncMock.mock.calls.filter(
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
+    );
+    expect(editCalls).toHaveLength(1);
+    const titleIdx = (editCalls[0]![1] as string[]).indexOf("--title");
+    const appliedTitle = (editCalls[0]![1] as string[])[titleIdx + 1];
+    expect(appliedTitle!.length).toBeLessThanOrEqual(70);
+    expect(appliedTitle).toContain("[EMI-123]");
+  });
+
+  it("applies when title and body both meet requirements", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // git diff
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({
+        title: "[EMI-123] feat: add thing",
+        body: "## Summary\n- done\n\n## Changes\n- added x\n\n## Test Plan\n- ran tests\n\nCloses EMI-123",
+      }),
+    );
+    execSyncMock.mockReturnValueOnce(""); // gh pr edit
+
+    await enrichPrDescription({
+      prNumber: 42,
+      taskId: "EMI-123",
+      agentPrompt: "feature",
+      repoPath: "/repo",
+      claudePath: "claude",
+      model: "haiku",
+    });
+
+    const editCalls = execSyncMock.mock.calls.filter(
+      (call: unknown[]) =>
+        call[0] === "gh" && (call[1] as string[]).includes("edit"),
+    );
+    expect(editCalls).toHaveLength(1);
   });
 });

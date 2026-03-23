@@ -114,7 +114,7 @@ describe("enrichPrDescription", () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({
         title: "[EMI-123] Add feature",
-        body: "## Summary\n- Did it\n\nCloses EMI-123",
+        body: "## Summary\n- Did it\n\n## Changes\n- x\n\n## Test Plan\n- tested\n\nCloses EMI-123",
       }),
     );
     // Fourth call: gh pr edit
@@ -193,7 +193,7 @@ describe("enrichPrDescription", () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({
         title: "[EMI-123] Fix it",
-        body: "## Summary\n- fixed\n\nCloses EMI-123",
+        body: "## Summary\n- fixed\n\n## Changes\n- x\n\n## Test Plan\n- tested\n\nCloses EMI-123",
       }),
     );
     // gh pr edit fails
@@ -217,7 +217,7 @@ describe("enrichPrDescription", () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({
         title: "[EMI-123] title",
-        body: "## Summary\n- x\n\nCloses EMI-123",
+        body: "## Summary\n- x\n\n## Changes\n- y\n\n## Test Plan\n- z\n\nCloses EMI-123",
       }),
     );
     execSyncMock.mockReturnValueOnce("");
@@ -236,7 +236,7 @@ describe("enrichPrDescription", () => {
     execSyncMock.mockReturnValueOnce("");
     // Output with preamble before JSON
     execSyncMock.mockReturnValueOnce(
-      'Here is the JSON:\n{"title":"[EMI-123] feat","body":"## Summary\\n- done\\n\\nCloses EMI-123"}',
+      'Here is the JSON:\n{"title":"[EMI-123] feat","body":"## Summary\\n- done\\n\\n## Changes\\n- x\\n\\n## Test Plan\\n- y\\n\\nCloses EMI-123"}',
     );
     execSyncMock.mockReturnValueOnce("");
 

@@ -183,6 +183,31 @@ Output only the JSON object, nothing else.`;
     return;
   }
 
+  // 6b. Validate generated content matches requirements
+  const titlePrefix = `[${taskId}]`;
+  if (!generated.title.startsWith(titlePrefix)) {
+    logger.warn(
+      `[EMI-367] enrichPrDescription: generated title does not start with "${titlePrefix}" for PR #${prNumber}, skipping`,
+    );
+    return;
+  }
+  if (generated.title.length > 70) {
+    logger.warn(
+      `[EMI-367] enrichPrDescription: generated title exceeds 70 chars (${generated.title.length}) for PR #${prNumber}, truncating`,
+    );
+    generated.title = generated.title.slice(0, 70);
+  }
+  const requiredSections = ["## Summary", "## Changes", "## Test Plan"];
+  const missingSections = requiredSections.filter(
+    (s) => !generated!.body.includes(s),
+  );
+  if (missingSections.length > 0) {
+    logger.warn(
+      `[EMI-367] enrichPrDescription: generated body missing sections ${missingSections.join(", ")} for PR #${prNumber}, skipping`,
+    );
+    return;
+  }
+
   // 7. Apply via gh pr edit
   try {
     execFileSync(
