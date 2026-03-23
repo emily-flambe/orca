@@ -3,7 +3,7 @@ import prettierConfig from "eslint-config-prettier";
 
 export default tseslint.config(
   {
-    files: ["src/**/*.ts", "test/**/*.ts"],
+    files: ["src/**/*.ts"],
     extends: [tseslint.configs.recommended, prettierConfig],
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",
@@ -18,13 +18,19 @@ export default tseslint.config(
     },
   },
   {
-    // Relax rules that don't apply well to test files
     files: ["test/**/*.ts"],
+    extends: [tseslint.configs.recommended, prettierConfig],
     rules: {
-      "@typescript-eslint/no-unused-vars": "off",
-      "@typescript-eslint/ban-ts-comment": "off",
-      "no-unused-expressions": "off",
-      "@typescript-eslint/no-unused-expressions": "off",
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          varsIgnorePattern: "^_",
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
 );
