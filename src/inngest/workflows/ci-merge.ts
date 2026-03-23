@@ -4,8 +4,8 @@ import { createLogger } from "../../logger.js";
 import {
   getTask,
   updateTaskDeployInfo,
-  updateTaskFixReason,
   updateTaskPrState,
+  updateTaskFixReason,
   incrementMergeAttemptCount,
   resetMergeAttemptCount,
   incrementReviewCycleCount,
@@ -556,6 +556,8 @@ async function mergeAndFinalizeStep(
   }
 
   // After merge: transition to deploying (if github_actions) or done
+  updateTaskPrState(db, taskId, task.prUrl ?? null, "merged");
+
   if (config.deployStrategy === "github_actions") {
     let mergeCommitSha: string | null = null;
     if (task.prNumber) {

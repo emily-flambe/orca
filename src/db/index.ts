@@ -499,73 +499,13 @@ function migrateSchema(sqlite: DatabaseType): void {
 
   // ---------------------------------------------------------------------------
   // Migration 21 (PR URL and state tracking):
-  //   - Add pr_url column to tasks (stores the GitHub PR URL)
+  //   - Add pr_url column to tasks (stores full GitHub PR URL)
   //   - Add pr_state column to tasks (draft | open | merged | closed)
   //   Sentinel: pr_url column doesn't exist on tasks table.
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "tasks", "pr_url")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
-  }
-}
-
-/**
- * Backfill pr_url and pr_state for existing tasks that have pr_number set
- * but pr_state is NULL. Runs gh pr view for each such task using the task's
- * repo_path as cwd. Failures are silently skipped. Non-blocking — safe to
- * call fire-and-forget.
- */
-export async function backfillPrState(sqlite: DatabaseType): Promise<void> {
-  const rows = sqlite
-    .prepare(
-      "SELECT linear_issue_id, pr_number, repo_path FROM tasks WHERE pr_number IS NOT NULL AND pr_state IS NULL",
-    )
-    .all() as {
-    linear_issue_id: string;
-    pr_number: number;
-    repo_path: string | null;
-  }[];
-
-  if (rows.length === 0) return;
-
-  const update = sqlite.prepare(
-    "UPDATE tasks SET pr_url = ?, pr_state = ?, updated_at = ? WHERE linear_issue_id = ?",
-  );
-
-  for (const row of rows) {
-    if (!row.repo_path) continue;
-    try {
-      const { stdout } = await execFileAsync(
-        "gh",
-        ["pr", "view", String(row.pr_number), "--json", "state,url,isDraft"],
-        {
-          encoding: "utf-8",
-          cwd: row.repo_path,
-          timeout: 5000,
-        },
-      );
-      const data = JSON.parse(stdout.trim()) as {
-        state?: string;
-        url?: string;
-        isDraft?: boolean;
-      };
-      const ghState = data.state ?? "";
-      const isDraft = data.isDraft ?? false;
-      let prState: string;
-      if (ghState === "MERGED") prState = "merged";
-      else if (ghState === "CLOSED") prState = "closed";
-      else if (isDraft) prState = "draft";
-      else prState = "open";
-
-      update.run(
-        data.url ?? null,
-        prState,
-        new Date().toISOString(),
-        row.linear_issue_id,
-      );
-    } catch {
-      // Skip failures silently — best-effort backfill
-    }
   }
 }
 
@@ -598,9 +538,106 @@ export function createDb(dbPath: string) {
 
   // Fire-and-forget: backfill pr_url/pr_state for tasks that predate Migration 21.
   // Runs async to avoid blocking server startup.
-  backfillPrState(sqlite).catch(() => {
+  backfillPrState(dbPath).catch(() => {
     // Silently ignore — best-effort backfill
   });
 
   return db;
+}
+
+/**
+ * Backfill pr_url and pr_state for tasks that have a prNumber but no prState.
+ *
+ * Uses `gh pr view` to query the current state of each PR. Skips silently on
+ * any failure. Should be called once at startup after DB is initialized.
+ */
+export async function backfillPrState(dbPath: string): Promise<void> {
+  const sqlite = new Database(dbPath);
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+
+  const tasksToBackfill = sqlite
+    .prepare(
+      "SELECT linear_issue_id, pr_number, pr_branch_name, repo_path FROM tasks WHERE pr_number IS NOT NULL AND pr_state IS NULL",
+    )
+    .all() as {
+    linear_issue_id: string;
+    pr_number: number;
+    pr_branch_name: string | null;
+    repo_path: string;
+  }[];
+
+  for (const task of tasksToBackfill) {
+    try {
+      let url: string | null = null;
+      let state: "draft" | "open" | "merged" | "closed" | null = null;
+
+      if (task.pr_branch_name) {
+        // Prefer branch-based lookup: gh pr list --head <branch> --state all
+        const { stdout } = await execFileAsync(
+          "gh",
+          [
+            "pr",
+            "list",
+            "--head",
+            task.pr_branch_name,
+            "--state",
+            "all",
+            "--json",
+            "url,state,isDraft",
+            "--limit",
+            "1",
+          ],
+          { cwd: task.repo_path, encoding: "utf-8" },
+        );
+        const prs = JSON.parse(stdout.trim()) as {
+          url: string;
+          state: string;
+          isDraft: boolean;
+        }[];
+        if (prs.length > 0) {
+          const pr = prs[0]!;
+          url = pr.url;
+          state = mapBackfillState(pr.state, pr.isDraft);
+        }
+      }
+
+      if (!state) {
+        // Fall back to PR number lookup
+        const { stdout } = await execFileAsync(
+          "gh",
+          ["pr", "view", String(task.pr_number), "--json", "url,state,isDraft"],
+          { cwd: task.repo_path, encoding: "utf-8" },
+        );
+        const data = JSON.parse(stdout.trim()) as {
+          url: string;
+          state: string;
+          isDraft: boolean;
+        };
+        url = data.url;
+        state = mapBackfillState(data.state, data.isDraft);
+      }
+
+      if (state) {
+        sqlite
+          .prepare(
+            "UPDATE tasks SET pr_url = ?, pr_state = ?, updated_at = ? WHERE linear_issue_id = ?",
+          )
+          .run(url, state, new Date().toISOString(), task.linear_issue_id);
+      }
+    } catch {
+      // Skip failures silently — best-effort backfill
+    }
+  }
+}
+
+function mapBackfillState(
+  state: string,
+  isDraft: boolean,
+): "draft" | "open" | "merged" | "closed" {
+  if (isDraft && state === "OPEN") return "draft";
+  if (state === "OPEN") return "open";
+  if (state === "MERGED") return "merged";
+  return "closed";
 }

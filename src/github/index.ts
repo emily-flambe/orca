@@ -22,6 +22,17 @@ export interface PrInfo {
   state?: "draft" | "open" | "merged" | "closed";
 }
 
+/** Map GitHub API state + isDraft to our PrState enum. */
+function mapGhPrState(
+  state: string,
+  isDraft: boolean,
+): "draft" | "open" | "merged" | "closed" {
+  if (isDraft && state === "OPEN") return "draft";
+  if (state === "OPEN") return "open";
+  if (state === "MERGED") return "merged";
+  return "closed";
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -39,20 +50,6 @@ function gh(args: string[], options?: { cwd?: string }): string {
     const detail = stderr || execErr.message || "unknown error";
     throw new Error(`gh command failed: gh ${args.join(" ")}\n${detail}`);
   }
-}
-
-/**
- * Map GitHub PR state values (OPEN, MERGED, CLOSED) plus isDraft flag to
- * the canonical PrState type used in Orca's DB.
- */
-function mapGhPrState(
-  ghState: string,
-  isDraft: boolean,
-): "draft" | "open" | "merged" | "closed" {
-  if (ghState === "MERGED") return "merged";
-  if (ghState === "CLOSED") return "closed";
-  if (isDraft) return "draft";
-  return "open";
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +424,7 @@ export function closePrsForCanceledTask(taskId: string, cwd: string): number {
  * - Is not in `runningBranches` or `activeBranches`
  * - Was last updated more than `maxAgeMs` ago
  *
- * Returns an object with the count of PRs closed and the branch names closed.
+ * Returns an object with the count of PRs closed and the list of closed branch names.
  */
 export function closeOrphanedPrs(
   cwd: string,
@@ -463,7 +460,7 @@ export function closeOrphanedPrs(
     return { count: 0, closedBranches: [] };
   }
 
-  let closed = 0;
+  let count = 0;
   const closedBranches: string[] = [];
   for (const pr of prs) {
     if (!pr.headRefName.startsWith("orca/")) continue;
@@ -478,11 +475,11 @@ export function closeOrphanedPrs(
       logger.info(
         `closed orphaned PR #${pr.number} (branch: ${pr.headRefName})`,
       );
-      closed++;
+      count++;
       closedBranches.push(pr.headRefName);
     }
   }
-  return { count: closed, closedBranches };
+  return { count, closedBranches };
 }
 
 export type PrCheckStatus =

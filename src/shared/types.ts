@@ -55,6 +55,8 @@ export interface Task {
   reviewCycleCount: number;
   mergeCommitSha: string | null;
   prNumber: number | null;
+  prUrl: string | null;
+  prState: PrState | null;
   deployStartedAt: string | null;
   ciStartedAt: string | null;
   doneAt: string | null;
@@ -65,8 +67,6 @@ export interface Task {
   taskType: TaskType;
   cronScheduleId: number | null;
   agentId: string | null;
-  prUrl: string | null;
-  prState: PrState | null;
 }
 
 export interface CronSchedule {

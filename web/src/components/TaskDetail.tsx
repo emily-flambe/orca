@@ -206,8 +206,8 @@ export default function TaskDetail({
 
       {/* PR info */}
       {detail.prNumber != null && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-400">PR</span>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-500">PR</span>
           <svg
             width="14"
             height="14"
@@ -215,12 +215,12 @@ export default function TaskDetail({
             fill="currentColor"
             style={{
               color:
-                detail.prState === "merged"
-                  ? "#8250df"
-                  : detail.prState === "closed"
-                    ? "#cf222e"
-                    : detail.prState === "draft"
-                      ? "#6e7781"
+                detail.prState === "draft"
+                  ? "#6e7781"
+                  : detail.prState === "merged"
+                    ? "#8250df"
+                    : detail.prState === "closed"
+                      ? "#cf222e"
                       : "#1a7f37",
             }}
           >
@@ -231,32 +231,42 @@ export default function TaskDetail({
               href={detail.prUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+              className="font-medium hover:underline"
+              style={{
+                color:
+                  detail.prState === "draft"
+                    ? "#6e7781"
+                    : detail.prState === "merged"
+                      ? "#8250df"
+                      : detail.prState === "closed"
+                        ? "#cf222e"
+                        : "#1a7f37",
+              }}
             >
               #{detail.prNumber}
             </a>
           ) : (
-            <span className="text-sm text-gray-300">#{detail.prNumber}</span>
+            <span className="text-gray-300">#{detail.prNumber}</span>
           )}
           {detail.prState && (
             <span
               className="text-xs px-1.5 py-0.5 rounded-full"
               style={{
                 color:
-                  detail.prState === "merged"
-                    ? "#8250df"
-                    : detail.prState === "closed"
-                      ? "#cf222e"
-                      : detail.prState === "draft"
-                        ? "#6e7781"
+                  detail.prState === "draft"
+                    ? "#6e7781"
+                    : detail.prState === "merged"
+                      ? "#8250df"
+                      : detail.prState === "closed"
+                        ? "#cf222e"
                         : "#1a7f37",
                 backgroundColor:
-                  detail.prState === "merged"
-                    ? "rgba(130,80,223,0.1)"
-                    : detail.prState === "closed"
-                      ? "rgba(207,34,46,0.1)"
-                      : detail.prState === "draft"
-                        ? "rgba(110,119,129,0.1)"
+                  detail.prState === "draft"
+                    ? "rgba(110,119,129,0.1)"
+                    : detail.prState === "merged"
+                      ? "rgba(130,80,223,0.1)"
+                      : detail.prState === "closed"
+                        ? "rgba(207,34,46,0.1)"
                         : "rgba(26,127,55,0.1)",
               }}
             >

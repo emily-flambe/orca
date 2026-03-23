@@ -63,6 +63,7 @@ describe("findPrForBranch", () => {
       number: 1,
       state: "OPEN",
       headRefName: "orca/EMI-1-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
@@ -118,6 +119,7 @@ describe("findPrForBranch", () => {
       number: 3,
       state: "OPEN",
       headRefName: "orca/EMI-3-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify([pr]));
 
@@ -183,6 +185,7 @@ describe("findPrByUrl", () => {
       number: 10,
       state: "OPEN",
       headRefName: "orca/EMI-10-inv-1",
+      isDraft: false,
     };
     execSyncMock.mockReturnValue(JSON.stringify(data));
 
@@ -259,6 +262,7 @@ describe("findPrByUrl", () => {
         number: 13,
         state: "OPEN",
         headRefName: "orca/x",
+        isDraft: false,
       }),
     );
 
