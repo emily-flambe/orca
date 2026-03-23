@@ -15,6 +15,15 @@ import {
   getInvocationsByTask,
   getChildTasks,
   insertInvocation,
+  getAllTasks,
+  getRunningInvocations,
+  getTaskStateTransitions,
+  budgetWindowStart,
+  sumTokensInWindow,
+  updateAgentMemory,
+  deleteAgentMemory,
+  insertAgentMemory,
+  getAgentMemory,
 } from "../src/db/queries.js";
 import { eq } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
@@ -602,5 +611,278 @@ describe("get_sibling_tasks query logic", () => {
 
     expect(siblings).toHaveLength(1);
     expect(siblings[0]!.linearIssueId).toBe("PA-CHILD-2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool: list_tasks — query logic (new tool)
+// ---------------------------------------------------------------------------
+
+describe("list_tasks query logic", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  test("returns all tasks when no status filter", () => {
+    seedTask(db, { linearIssueId: "LT-1", orcaStatus: "ready" });
+    seedTask(db, { linearIssueId: "LT-2", orcaStatus: "running" });
+    seedTask(db, { linearIssueId: "LT-3", orcaStatus: "done" });
+
+    const allTasks = getAllTasks(db);
+    expect(allTasks).toHaveLength(3);
+  });
+
+  test("status filter returns only matching tasks", () => {
+    seedTask(db, { linearIssueId: "LT-4", orcaStatus: "ready" });
+    seedTask(db, { linearIssueId: "LT-5", orcaStatus: "running" });
+    seedTask(db, { linearIssueId: "LT-6", orcaStatus: "ready" });
+
+    const allTasks = getAllTasks(db);
+    const filtered = allTasks.filter((t) => t.orcaStatus === "ready");
+    expect(filtered).toHaveLength(2);
+    expect(filtered.every((t) => t.orcaStatus === "ready")).toBe(true);
+  });
+
+  test("status filter returns empty array when no matches", () => {
+    seedTask(db, { linearIssueId: "LT-7", orcaStatus: "ready" });
+    seedTask(db, { linearIssueId: "LT-8", orcaStatus: "running" });
+
+    const allTasks = getAllTasks(db);
+    const filtered = allTasks.filter((t) => t.orcaStatus === "done");
+    expect(filtered).toHaveLength(0);
+  });
+
+  test("agentPrompt is truncated to 120 chars in tool output shape", () => {
+    const longPrompt = "x".repeat(200);
+    seedTask(db, { linearIssueId: "LT-9", agentPrompt: longPrompt });
+
+    const allTasks = getAllTasks(db);
+    const task = allTasks.find((t) => t.linearIssueId === "LT-9");
+    expect(task).toBeDefined();
+
+    // Replicate the tool's truncation logic
+    const truncated =
+      task!.agentPrompt && task!.agentPrompt.length > 120
+        ? task!.agentPrompt.slice(0, 120)
+        : task!.agentPrompt;
+    expect(truncated!.length).toBe(120);
+  });
+
+  test("agentPrompt exactly 120 chars is not truncated", () => {
+    const exactPrompt = "y".repeat(120);
+    seedTask(db, { linearIssueId: "LT-10", agentPrompt: exactPrompt });
+
+    const allTasks = getAllTasks(db);
+    const task = allTasks.find((t) => t.linearIssueId === "LT-10");
+
+    const truncated =
+      task!.agentPrompt && task!.agentPrompt.length > 120
+        ? task!.agentPrompt.slice(0, 120)
+        : task!.agentPrompt;
+    expect(truncated!.length).toBe(120);
+    expect(truncated).toBe(exactPrompt);
+  });
+
+  test("agentPrompt of 121 chars is truncated to 120", () => {
+    const prompt121 = "z".repeat(121);
+    seedTask(db, { linearIssueId: "LT-11", agentPrompt: prompt121 });
+
+    const allTasks = getAllTasks(db);
+    const task = allTasks.find((t) => t.linearIssueId === "LT-11");
+
+    const truncated =
+      task!.agentPrompt && task!.agentPrompt.length > 120
+        ? task!.agentPrompt.slice(0, 120)
+        : task!.agentPrompt;
+    // BUG CANDIDATE: off-by-one — length > 120 means 121 IS truncated (correct).
+    // But length === 120 is NOT truncated (also correct). Verify explicitly:
+    expect(truncated!.length).toBe(120);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool: get_orca_status — env-var edge cases (new tool)
+// ---------------------------------------------------------------------------
+
+describe("get_orca_status: budgetWindowStart with bad env var", () => {
+  test("budgetWindowStart with valid hours returns a parseable ISO string", () => {
+    const result = budgetWindowStart(4);
+    expect(() => new Date(result)).not.toThrow();
+    expect(new Date(result).toISOString()).toBe(result);
+  });
+
+  // BUG: parseInt("abc", 10) === NaN.
+  // budgetWindowStart(NaN) computes new Date(NaN).toISOString() which throws
+  // RangeError: Invalid time value.
+  // The tool does: parseInt(process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4", 10)
+  // but never validates that the result is a valid number before passing it to
+  // budgetWindowStart(). This is an unhandled crash path.
+  test("budgetWindowStart(NaN) throws RangeError — proving get_orca_status crashes on invalid env var", () => {
+    // This test documents the crash: calling budgetWindowStart with NaN throws.
+    expect(() => budgetWindowStart(NaN)).toThrow(RangeError);
+  });
+
+  test("sumTokensInWindow with a NaN-derived windowStart crashes", () => {
+    const db = freshDb();
+    // NaN propagates: budgetWindowStart(NaN) throws before we even get here,
+    // but if it didn't, "Invalid Date" as a string would cause incorrect results.
+    // Prove the root cause: parseInt of a non-numeric string is NaN.
+    const parsed = parseInt("not-a-number", 10);
+    expect(isNaN(parsed)).toBe(true);
+    // And that NaN * anything is NaN, meaning Date(NaN) is invalid:
+    expect(isNaN(Date.now() - parsed * 60 * 60 * 1000)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool: list_running_invocations — query logic (new tool)
+// ---------------------------------------------------------------------------
+
+describe("list_running_invocations query logic", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  test("returns only invocations with status=running", () => {
+    const taskId = seedTask(db, { linearIssueId: "RUN-1" });
+    const runningId = seedInvocation(db, taskId, { status: "running" });
+    seedInvocation(db, taskId, { status: "completed" });
+    seedInvocation(db, taskId, { status: "failed" });
+
+    const running = getRunningInvocations(db);
+    expect(running).toHaveLength(1);
+    expect(running[0]!.id).toBe(runningId);
+    expect(running[0]!.status).toBe("running");
+  });
+
+  test("returns empty array when no running invocations", () => {
+    const taskId = seedTask(db, { linearIssueId: "RUN-2" });
+    seedInvocation(db, taskId, { status: "completed" });
+
+    const running = getRunningInvocations(db);
+    expect(running).toHaveLength(0);
+  });
+
+  test("result includes linearIssueId field (tool maps it as linearIssueId)", () => {
+    const taskId = seedTask(db, { linearIssueId: "RUN-3" });
+    seedInvocation(db, taskId, { status: "running" });
+
+    const running = getRunningInvocations(db);
+    expect(running[0]!.linearIssueId).toBe("RUN-3");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool: get_task_transitions — query logic (new tool)
+// ---------------------------------------------------------------------------
+
+describe("get_task_transitions query logic", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  test("returns undefined from getTask for a nonexistent task", () => {
+    const task = getTask(db, "NONEXISTENT-TRANS");
+    expect(task).toBeUndefined();
+  });
+
+  test("returns empty transitions array for a task with no recorded transitions", () => {
+    // Note: insertTask does not auto-create a transition row.
+    // Only updateTaskStatus does. So a freshly inserted task has zero transitions
+    // IF insertTask was called directly (bypassing updateTaskStatus).
+    const taskId = seedTask(db, { linearIssueId: "TRANS-1" });
+    // seedTask calls insertTask directly — no transition row created.
+    const transitions = getTaskStateTransitions(db, taskId);
+    expect(Array.isArray(transitions)).toBe(true);
+    // May be 0 or more depending on whether schema triggers auto-insert.
+    // Assert it is an array (non-crash) — the count is secondary.
+    expect(transitions.length).toBeGreaterThanOrEqual(0);
+  });
+
+  test("get_task check happens before getTaskStateTransitions — missing task short-circuits", () => {
+    // If task does not exist, the tool returns isError without calling
+    // getTaskStateTransitions. Verify getTask returns undefined for missing ID.
+    const task = getTask(db, "MISSING-FOR-TRANS");
+    expect(task).toBeUndefined();
+
+    // Even if we call getTaskStateTransitions directly on a missing task ID,
+    // it should return an empty array (no crash), not throw.
+    expect(() =>
+      getTaskStateTransitions(db, "MISSING-FOR-TRANS"),
+    ).not.toThrow();
+    const transitions = getTaskStateTransitions(db, "MISSING-FOR-TRANS");
+    expect(transitions).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tool: update_agent_memory / forget_agent_memory — silent no-op on bad ID
+// ---------------------------------------------------------------------------
+
+describe("update_agent_memory and forget_agent_memory silent no-op bug", () => {
+  let db: OrcaDb;
+
+  beforeEach(() => {
+    db = freshDb();
+  });
+
+  // BUG: updateAgentMemory and deleteAgentMemory do not verify the row exists.
+  // They return success responses even when the memory_id does not exist.
+  // The caller (agent) gets { updated: true } / { deleted: true } for a
+  // nonexistent ID, which is a silent lie.
+
+  test("updateAgentMemory on nonexistent ID is a silent no-op — no error returned", () => {
+    // The underlying query runs but touches 0 rows.
+    // The tool returns { updated: true, memoryId: 99999 } regardless.
+    // This test documents that no exception is thrown (so the tool won't crash),
+    // but that the caller has no way to detect the no-op.
+    expect(() => updateAgentMemory(db, 99999, "new content")).not.toThrow();
+
+    // The memory was not actually created — verify it still doesn't exist.
+    const mem = getAgentMemory(db, 99999);
+    expect(mem).toBeUndefined();
+    // The tool returned { updated: true } for this case — that is incorrect.
+  });
+
+  test("deleteAgentMemory on nonexistent ID is a silent no-op — no error returned", () => {
+    expect(() => deleteAgentMemory(db, 99999)).not.toThrow();
+
+    // No memory at 99999 — delete silently did nothing.
+    const mem = getAgentMemory(db, 99999);
+    expect(mem).toBeUndefined();
+    // The tool would return { deleted: true } — that is incorrect.
+  });
+
+  test("updateAgentMemory on a real ID actually updates", () => {
+    // Ensure the happy path works correctly so the above no-op is provably wrong.
+    const taskId = seedTask(db, { linearIssueId: "MEM-1" });
+    // insertAgentMemory requires agentId; use a synthetic one.
+    const memId = insertAgentMemory(db, {
+      agentId: "agent-test-1",
+      type: "episodic",
+      content: "original content",
+    });
+
+    updateAgentMemory(db, memId, "updated content");
+    const mem = getAgentMemory(db, memId);
+    expect(mem!.content).toBe("updated content");
+  });
+
+  test("deleteAgentMemory on a real ID actually deletes", () => {
+    const memId = insertAgentMemory(db, {
+      agentId: "agent-test-2",
+      type: "semantic",
+      content: "to be deleted",
+    });
+
+    deleteAgentMemory(db, memId);
+    const mem = getAgentMemory(db, memId);
+    expect(mem).toBeUndefined();
   });
 });

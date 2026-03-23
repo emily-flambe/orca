@@ -396,7 +396,11 @@ server.registerTool(
       content: [
         {
           type: "text",
-          text: JSON.stringify({ count: result.length, tasks: result }, null, 2),
+          text: JSON.stringify(
+            { count: result.length, tasks: result },
+            null,
+            2,
+          ),
         },
       ],
     };
@@ -417,10 +421,8 @@ server.registerTool(
   () => {
     const activeSessions = countActiveSessions(db);
     const activeAgentSessions = countActiveAgentSessions(db);
-    const budgetWindowHours = parseInt(
-      process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4",
-      10,
-    );
+    const budgetWindowHours =
+      parseInt(process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4", 10) || 4;
     const windowStart = budgetWindowStart(budgetWindowHours);
     const tokensInWindow = sumTokensInWindow(db, windowStart);
     const budgetMaxTokens = parseInt(
@@ -514,7 +516,11 @@ server.registerTool(
       content: [
         {
           type: "text",
-          text: JSON.stringify({ count: result.length, invocations: result }, null, 2),
+          text: JSON.stringify(
+            { count: result.length, invocations: result },
+            null,
+            2,
+          ),
         },
       ],
     };
