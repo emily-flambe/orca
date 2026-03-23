@@ -1,34 +1,7 @@
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import Sidebar from "../Sidebar";
-import type { OrcaStatus, Task } from "../../types";
-
-vi.mock("../CreateTicketModal", () => ({
-  default: () => null,
-}));
-
-function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    linearIssueId: "ENG-1",
-    agentPrompt: "Test task",
-    repoPath: "/repo",
-    orcaStatus: "ready",
-    priority: 3,
-    retryCount: 0,
-    prBranchName: null,
-    reviewCycleCount: 0,
-    mergeCommitSha: null,
-    prNumber: null,
-    deployStartedAt: null,
-    ciStartedAt: null,
-    doneAt: null,
-    projectName: null,
-    invocationCount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
+import type { OrcaStatus } from "../../types";
 
 function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
   return {
@@ -47,12 +20,9 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
 }
 
 const defaultProps = {
-  activePage: "dashboard" as const,
+  activePage: "tasks" as const,
   onNavigate: vi.fn(),
   status: null,
-  tasks: [],
-  onSync: vi.fn().mockResolvedValue(undefined),
-  onNewTicket: vi.fn(),
   isOpen: true,
 };
 
@@ -65,7 +35,6 @@ describe("Sidebar", () => {
     const status = makeStatus({ activeSessions: 3 });
     render(<Sidebar {...defaultProps} status={status} />);
 
-    // The count is displayed in a blue span
     const badge = screen.getByText("3");
     expect(badge).toBeInTheDocument();
     expect(badge.className).toContain("blue");
@@ -74,54 +43,56 @@ describe("Sidebar", () => {
   it("does not show badge when status is null", () => {
     render(<Sidebar {...defaultProps} status={null} />);
 
-    const dashboardButton = screen.getByText("Dashboard").closest("button");
-    expect(dashboardButton?.querySelector(".text-blue-400")).toBeNull();
+    const tasksButton = screen.getByRole("button", { name: "Tasks" });
+    expect(tasksButton.querySelector(".bg-blue-600")).toBeNull();
   });
 
   it("does not show badge when activeSessions is 0", () => {
     const status = makeStatus({ activeSessions: 0 });
     render(<Sidebar {...defaultProps} status={status} />);
 
-    const dashboardButton = screen.getByText("Dashboard").closest("button");
-    // The badge span with the count should not be in the dashboard button
-    expect(dashboardButton?.querySelector(".text-blue-400")).toBeNull();
+    const tasksButton = screen.getByRole("button", { name: "Tasks" });
+    expect(tasksButton.querySelector(".bg-blue-600")).toBeNull();
   });
 
-  it("shows task count in Tasks nav item", () => {
-    const tasks = [
-      makeTask({ linearIssueId: "ENG-1" }),
-      makeTask({ linearIssueId: "ENG-2" }),
-      makeTask({ linearIssueId: "ENG-3" }),
-    ];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
+  it("renders all nav items", () => {
+    render(<Sidebar {...defaultProps} />);
 
-    const tasksButton = screen.getByText("Tasks").closest("button");
-    expect(within(tasksButton!).getByText("3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Metrics" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cron" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Settings" }),
+    ).toBeInTheDocument();
   });
 
   it("calls onNavigate('tasks') when Tasks button clicked", () => {
     const onNavigate = vi.fn();
     render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
 
-    fireEvent.click(screen.getByText("Tasks"));
+    fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
     expect(onNavigate).toHaveBeenCalledWith("tasks");
   });
 
-  it("shows project list when tasks have projectName", () => {
-    const tasks = [
-      makeTask({ linearIssueId: "ENG-1", projectName: "ProjectAlpha" }),
-      makeTask({ linearIssueId: "ENG-2", projectName: "ProjectBeta" }),
-    ];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
+  it("calls onNavigate with correct page for each nav button", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
 
-    expect(screen.getByText("ProjectAlpha")).toBeInTheDocument();
-    expect(screen.getByText("ProjectBeta")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Metrics" }));
+    expect(onNavigate).toHaveBeenCalledWith("metrics");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cron" }));
+    expect(onNavigate).toHaveBeenCalledWith("cron");
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(onNavigate).toHaveBeenCalledWith("settings");
   });
 
-  it("shows 'No projects' when no tasks have a projectName", () => {
-    const tasks = [makeTask({ linearIssueId: "ENG-1", projectName: null })];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
+  it("applies active styling to the active page button", () => {
+    render(<Sidebar {...defaultProps} activePage="metrics" />);
 
-    expect(screen.getByText("No projects")).toBeInTheDocument();
+    const metricsButton = screen.getByRole("button", { name: "Metrics" });
+    expect(metricsButton.className).toContain("bg-gray-800");
+    expect(metricsButton.className).toContain("text-white");
   });
 });

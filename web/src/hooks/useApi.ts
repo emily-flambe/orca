@@ -8,8 +8,21 @@ import type {
 
 const BASE = "/api";
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const signal =
+    typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      : undefined;
+  const res = await fetch(`${BASE}${path}`, { ...init, signal }).catch(
+    (err: unknown) => {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        throw new Error("Request timed out");
+      }
+      throw err;
+    },
+  );
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "request failed" }));
     throw new Error(body.error || `HTTP ${res.status}`);
