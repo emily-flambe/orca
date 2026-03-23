@@ -597,13 +597,7 @@ export const taskLifecycle = inngest.createFunction(
           // Catch errors gracefully — with retries: 0, a throw kills the
           // workflow permanently and orphans the task.
           try {
-            const { worktreePool } = getSchedulerDeps();
-            if (worktreePool && !baseRef) {
-              // Implement phase with no baseRef — try pool first
-              wtResult = worktreePool.claim(task.repoPath, taskId, 0);
-            } else {
-              wtResult = createWorktree(task.repoPath, taskId, 0, { baseRef });
-            }
+            assertSessionCapacity(db);
           } catch (err) {
             const reason =
               err instanceof Error ? err.message : "session cap reached";
@@ -629,9 +623,15 @@ export const taskLifecycle = inngest.createFunction(
               : undefined;
             let wtResult;
             try {
-              wtResult = createWorktree(task.repoPath, taskId, 0, {
-                baseRef,
-              });
+              const { worktreePool } = getSchedulerDeps();
+              if (worktreePool && !baseRef) {
+                // Implement phase with no baseRef — try pool first
+                wtResult = worktreePool.claim(task.repoPath, taskId, 0);
+              } else {
+                wtResult = createWorktree(task.repoPath, taskId, 0, {
+                  baseRef,
+                });
+              }
             } catch (err) {
               log(
                 `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
@@ -1168,6 +1168,14 @@ export const taskLifecycle = inngest.createFunction(
             if (prInfo.number != null) {
               updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
             }
+            if (prInfo.url != null || prInfo.state != null) {
+              updateTaskPrState(
+                db,
+                taskId,
+                prInfo.url ?? null,
+                prInfo.state ?? null,
+              );
+            }
 
             if (prInfo.number != null) {
               try {
@@ -1221,249 +1229,13 @@ export const taskLifecycle = inngest.createFunction(
             log(
               `task ${taskId}: Gate 2 passed → in_review (PR #${prInfo.number ?? "?"})`,
             );
-            clearSessionIds(db, taskId);
-            client
-              .createComment(
-                taskId,
-                `Resume session not found (stale session ID) — restarting as fresh session`,
-              )
-              .catch((err: unknown) => {
-                logger.warn("Linear createComment failed (resume not found)", {
-                  taskId,
-                  error: String(err),
-                });
-              });
-            // Don't increment retry count — this is a setup failure, not a task failure
-            return { outcome: "retry" };
-          }
-
-          if (task.retryCount >= config.maxRetries) {
-            insertSystemEvent(db, {
-              type: "task_failed",
-              message: `Task ${taskId} permanently failed`,
-              metadata: {
-                taskId,
-                phase: "implement",
-                retries: config.maxRetries,
-              },
-            });
-            sendPermanentFailureAlert(
-              getSchedulerDeps(),
-              taskId,
-              `Session failed after ${config.maxRetries} retries (implement phase)`,
-            );
-            transitionToFinalState(
-              { client, stateMap },
-              taskId,
-              "failed_permanent",
-              `Task permanently failed after ${config.maxRetries} retries`,
-            ).catch((err: unknown) => {
-              logger.warn(
-                "transitionToFinalState failed (implement permanent fail)",
-                { taskId, error: String(err) },
-              );
-            });
-            return { outcome: "permanent_fail" };
-          }
-
-          incrementRetryCount(db, taskId);
-          // Skip "retry" (Todo) write-back — immediate re-dispatch will write
-          // "In Progress" within seconds, and the intermediate "Todo" webhook
-          // can arrive after echo TTL expires, killing the new session.
-          return { outcome: "retry" };
-        }
-
-        // --- Gate 2: verify PR exists ---
-
-        const task = getTask(db, taskId);
-        if (!task) return { outcome: "permanent_fail" };
-
-        const outputSummary = invRecord?.outputSummary?.toLowerCase() ?? "";
-        const isAlreadyDone = alreadyDonePatterns.some((p) =>
-          outputSummary.includes(p),
-        );
-        const noChanges = await worktreeHasNoChanges(worktreePath);
-
-        if (!branchName) {
-          if (isAlreadyDone || noChanges) {
-            log(`task ${taskId}: work already on main — marking done`);
-            return markAlreadyDone(
-              db,
-              taskId,
-              client,
-              stateMap,
-              worktreePath,
-              "already_on_main",
-            );
-          }
-          updateInvocation(db, invocationId, {
-            status: "failed",
-            outputSummary: "Post-implementation gate failed: no branch name",
-          });
-          updateAndEmit(db, taskId, "failed", "gate2_no_branch", {
-            failureReason: "Post-implementation gate failed: no branch name",
-            failedPhase: "gate2",
-          });
-          if (task.retryCount >= config.maxRetries) {
-            insertSystemEvent(db, {
-              type: "task_failed",
-              message: `Task ${taskId} permanently failed`,
-              metadata: {
-                taskId,
-                phase: "gate2",
-                reason: "no_branch_name",
-                retries: config.maxRetries,
-              },
-            });
-            sendPermanentFailureAlert(
-              getSchedulerDeps(),
-              taskId,
-              `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
-            );
-            transitionToFinalState(
-              { client, stateMap },
-              taskId,
-              "failed_permanent",
-            ).catch((err: unknown) => {
-              logger.warn(
-                "transitionToFinalState failed (gate2 no branch name)",
-                { taskId, error: String(err) },
-              );
-            });
-            return { outcome: "permanent_fail" };
-          }
-          incrementRetryCount(db, taskId);
-          return { outcome: "retry" };
-        }
-
-        const prInfo = await findPrForBranch(branchName, task.repoPath);
-
-        if (!prInfo.exists) {
-          if (isAlreadyDone || noChanges) {
-            log(
-              `task ${taskId}: no PR found but work is already done — marking done`,
-            );
-            return markAlreadyDone(
-              db,
-              taskId,
-              client,
-              stateMap,
-              worktreePath,
-              "already_done",
-            );
-          }
-          log(
-            `task ${taskId}: Gate 2 failed — no PR found for branch ${branchName}`,
-          );
-          updateInvocation(db, invocationId, {
-            status: "failed",
-            outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
-          });
-          updateAndEmit(db, taskId, "failed", "gate2_no_pr", {
-            failureReason: `Post-implementation gate failed: no PR found for branch ${branchName}`,
-            failedPhase: "gate2",
-          });
-          if (task.retryCount >= config.maxRetries) {
-            insertSystemEvent(db, {
-              type: "task_failed",
-              message: `Task ${taskId} permanently failed`,
-              metadata: {
-                taskId,
-                phase: "gate2",
-                reason: "no_pr_found",
-                retries: config.maxRetries,
-              },
-            });
-            sendPermanentFailureAlert(
-              getSchedulerDeps(),
-              taskId,
-              `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
-            );
-            transitionToFinalState(
-              { client, stateMap },
-              taskId,
-              "failed_permanent",
-            ).catch((err: unknown) => {
-              logger.warn("transitionToFinalState failed (gate2 no PR found)", {
-                taskId,
-                error: String(err),
-              });
-            });
-            return { outcome: "permanent_fail" };
-          }
-          incrementRetryCount(db, taskId);
-          return { outcome: "retry" };
-        }
-
-        // PR found — store branch + PR info
-        const storedBranch = prInfo.headBranch ?? branchName;
-        updateTaskPrBranch(db, taskId, storedBranch);
-        if (prInfo.number != null) {
-          updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
-        }
-        if (prInfo.url != null || prInfo.state != null) {
-          updateTaskPrState(
-            db,
-            taskId,
-            prInfo.url ?? null,
-            prInfo.state ?? null,
-          );
-        }
-
-        if (prInfo.number != null) {
-          try {
-            closeSupersededPrs(
-              taskId,
-              prInfo.number,
-              invocationId,
-              branchName,
-              task.repoPath,
-            );
-          } catch {
-            /* ignore */
-          }
-        }
-
-        if (prInfo.url) {
-          client
-            .createAttachment(task.linearIssueId, prInfo.url, "Pull Request")
-            .catch((err: unknown) => {
-              logger.warn("Linear createAttachment failed", {
-                taskId,
-                error: String(err),
-              });
-            });
-        }
-
-        resetStaleSessionRetryCount(db, taskId);
-        updateAndEmit(db, taskId, "in_review", "pr_found");
-        transitionToFinalState(
-          { client, stateMap },
-          taskId,
-          "in_review",
-          `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-        ).catch((err: unknown) => {
-          logger.warn("transitionToFinalState failed (gate2 → in_review)", {
-            taskId,
-            error: String(err),
-          });
-        });
-
-        try {
-          removeWorktree(worktreePath);
-        } catch {
-          /* ignore */
-        }
-
-        log(
-          `task ${taskId}: Gate 2 passed → in_review (PR #${prInfo.number ?? "?"})`,
-        );
-        return {
-          outcome: "in_review",
-          prBranch: storedBranch,
-          prNumber: prInfo.number,
-        };
-      },
+            return {
+              outcome: "in_review",
+              prBranch: storedBranch,
+              prNumber: prInfo.number,
+            };
+          },
+        ),
     );
 
     // Terminal outcomes after implement phase
