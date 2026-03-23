@@ -10,7 +10,6 @@ import {
   insertInvocation,
   getTask,
   updateInvocation,
-  getInvocationsByTask,
 } from "../src/db/queries.js";
 import { orcaEvents } from "../src/events.js";
 import type { OrcaDb } from "../src/db/index.js";
@@ -451,13 +450,13 @@ describe("GET /api/events (SSE)", () => {
 describe("POST /api/tasks/:id/status", () => {
   let db: OrcaDb;
   let app: Hono;
-  let writeBackStatusMock: ReturnType<typeof vi.fn>;
+  let _writeBackStatusMock: ReturnType<typeof vi.fn>;
   let stateMap: WorkflowStateMap;
   let taskUpdatedSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     db = createDb(":memory:");
-    writeBackStatusMock = vi.fn().mockResolvedValue(undefined);
+    _writeBackStatusMock = vi.fn().mockResolvedValue(undefined);
     stateMap = new Map([
       ["Backlog", { id: "state-backlog", type: "backlog" }],
       ["Todo", { id: "state-todo", type: "unstarted" }],
@@ -809,7 +808,7 @@ describe("POST /api/tasks/:id/status", () => {
       }),
     );
 
-    const { updateTaskFields, incrementStaleSessionRetryCount } =
+    const { updateTaskFields: _updateTaskFields, incrementStaleSessionRetryCount } =
       await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
     incrementStaleSessionRetryCount(db, "T-STALE-1");

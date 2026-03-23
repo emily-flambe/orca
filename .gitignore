@@ -24,3 +24,6 @@ bugs/
 
 # PM2
 .pm2/
+
+# Coverage
+coverage/

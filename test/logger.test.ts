@@ -14,13 +14,12 @@
 //   9. initFileLogger does NOT patch stdout before it is called
 //  10. Config: logPath/logMaxSizeMb present in OrcaConfig interface
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
   readFileSync,
   existsSync,
-  unlinkSync,
   rmSync,
   statSync,
 } from "node:fs";

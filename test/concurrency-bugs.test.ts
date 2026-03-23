@@ -5,7 +5,7 @@
 // cron task capacity enforcement, and TOCTOU race conditions.
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -139,7 +139,6 @@ import {
   sumTokensInWindow,
   budgetWindowStart,
   countActiveSessions,
-  insertSystemEvent,
   getLastMaxTurnsInvocation,
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
