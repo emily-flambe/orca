@@ -2060,16 +2060,62 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/system-events  — fetch recent system events (deploy, startup, etc.)
+  // -----------------------------------------------------------------------
+  app.get("/api/system-events", (c) => {
+    const limitParam = c.req.query("limit");
+    const typeParam = c.req.query("type");
+    const limit = limitParam
+      ? Math.min(parseInt(limitParam, 10) || 100, 500)
+      : 100;
+    let events = getRecentSystemEvents(db, limit);
+    if (typeParam) {
+      events = events.filter((e) => e.type === typeParam);
+    }
+    return c.json(
+      events.map((e) => ({
+        ...e,
+        metadata: e.metadata ? JSON.parse(e.metadata) : null,
+      })),
+    );
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/deploy/event  — log deploy success/failure to system_events
   // -----------------------------------------------------------------------
   app.post("/api/deploy/event", async (c) => {
-    const body = await c.req.json<{ status: string; message?: string }>();
-    const status = body.status === "failure" ? "failure" : "success";
+    const body = await c.req.json<{
+      status: string;
+      message?: string;
+      deployId?: string;
+      oldPort?: number;
+      newPort?: number;
+      commitSha?: string;
+      orphanedSessions?: number;
+    }>();
+    const validStatuses = ["start", "success", "failure"] as const;
+    type DeployStatus = (typeof validStatuses)[number];
+    if (!validStatuses.includes(body.status as DeployStatus)) {
+      return c.json(
+        {
+          error: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+        },
+        400,
+      );
+    }
+    const status = body.status as DeployStatus;
     const message = body.message ?? `Deploy ${status}`;
+    const metadata: Record<string, unknown> = { status };
+    if (body.deployId !== undefined) metadata.deployId = body.deployId;
+    if (body.oldPort !== undefined) metadata.oldPort = body.oldPort;
+    if (body.newPort !== undefined) metadata.newPort = body.newPort;
+    if (body.commitSha !== undefined) metadata.commitSha = body.commitSha;
+    if (body.orphanedSessions !== undefined)
+      metadata.orphanedSessions = body.orphanedSessions;
     insertSystemEvent(db, {
       type: "deploy",
       message,
-      metadata: { status },
+      metadata,
     });
     logger.info(`audit: deploy event status=${status}`);
     return c.json({ ok: true });

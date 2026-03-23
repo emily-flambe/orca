@@ -1,6 +1,12 @@
 import type { OrcaStatus } from "../types";
 
-export type Page = "tasks" | "metrics" | "cron" | "agents" | "settings";
+export type Page =
+  | "tasks"
+  | "metrics"
+  | "cron"
+  | "agents"
+  | "logs"
+  | "settings";
 
 interface SidebarProps {
   activePage: Page;
@@ -82,6 +88,15 @@ export default function Sidebar({
           onClick={() => onNavigate("agents")}
         >
           <span>Agents</span>
+        </button>
+
+        {/* Logs */}
+        <button
+          aria-label="Logs"
+          className={navItemClass("logs")}
+          onClick={() => onNavigate("logs")}
+        >
+          <span>Logs</span>
         </button>
 
         {/* Settings */}
