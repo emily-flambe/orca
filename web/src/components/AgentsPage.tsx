@@ -497,6 +497,7 @@ export default function AgentsPage({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [promptExpandedId, setPromptExpandedId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetchAgents()
@@ -560,9 +561,7 @@ export default function AgentsPage({
       // Refetch to get the updated state
       const updated = await fetchAgents();
       setAgents(updated);
-      onToast?.success(
-        a.enabled === 1 ? "Agent disabled" : "Agent enabled",
-      );
+      onToast?.success(a.enabled === 1 ? "Agent disabled" : "Agent enabled");
     } catch (err) {
       onToast?.error(
         err instanceof Error ? err.message : "Failed to toggle agent",
@@ -679,9 +678,7 @@ export default function AgentsPage({
                     role="switch"
                     aria-checked={a.enabled === 1 ? "true" : "false"}
                     aria-label={
-                      a.enabled === 1
-                        ? `Disable ${a.name}`
-                        : `Enable ${a.name}`
+                      a.enabled === 1 ? `Disable ${a.name}` : `Enable ${a.name}`
                     }
                     onClick={() => handleToggle(a)}
                     disabled={togglingId === a.id}
@@ -744,9 +741,7 @@ export default function AgentsPage({
                     {a.schedule}
                   </span>
                 )}
-                {a.schedule && (
-                  <span>Next: {formatNextRun(a.nextRunAt)}</span>
-                )}
+                {a.schedule && <span>Next: {formatNextRun(a.nextRunAt)}</span>}
                 <span>Runs: {a.runCount}</span>
                 {a.lastRunAt && (
                   <span
@@ -763,32 +758,33 @@ export default function AgentsPage({
                 )}
                 {a.model && <span>Model: {a.model}</span>}
                 {a.repoPath && (
-                  <span
-                    className="truncate max-w-[200px]"
-                    title={a.repoPath}
-                  >
+                  <span className="truncate max-w-[200px]" title={a.repoPath}>
                     {a.repoPath}
                   </span>
                 )}
               </div>
 
-              <p className="text-xs text-gray-400 line-clamp-2">
+              <p
+                className={`text-xs text-gray-400 cursor-pointer hover:text-gray-300 transition-colors whitespace-pre-wrap ${promptExpandedId === a.id ? "" : "line-clamp-2"}`}
+                onClick={() => setPromptExpandedId(promptExpandedId === a.id ? null : a.id)}
+                title={promptExpandedId === a.id ? "Click to collapse" : "Click to expand"}
+              >
                 {a.systemPrompt}
               </p>
 
               <button
-                onClick={() =>
-                  setExpandedId(expandedId === a.id ? null : a.id)
-                }
+                onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}
                 className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
               >
-                {expandedId === a.id
-                  ? "Hide details"
-                  : "Memories & tasks"}
+                {expandedId === a.id ? "Hide details" : "Memories & tasks"}
               </button>
 
               {expandedId === a.id && (
-                <AgentDetail agentId={a.id} onToast={onToast} onNavigateToTask={onNavigateToTask} />
+                <AgentDetail
+                  agentId={a.id}
+                  onToast={onToast}
+                  onNavigateToTask={onNavigateToTask}
+                />
               )}
             </div>
           )}
