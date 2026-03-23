@@ -314,7 +314,7 @@ Steps:
     tunnelHostname,
     alertWebhookUrl: readEnv("ORCA_ALERT_WEBHOOK_URL"),
     tunnelToken,
-    githubMcpPat: readEnv("GITHUB_MCP_PAT"),
+    githubMcpPat: readEnv("GITHUB_MCP_PAT") ?? readEnv("GITHUB_TOKEN"),
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
 
