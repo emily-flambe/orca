@@ -46,13 +46,13 @@
 - [x] Pass `ORCA_AGENT_ID` env var when spawning agent sessions via MCP config
 - [ ] Add tests for MCP memory tools
 
-## Phase 5: Dashboard
+## Phase 5: Dashboard ✅
 
-- [ ] Create `web/src/pages/AgentsPage.tsx` — agent list with create/edit/delete
-- [ ] Create `web/src/pages/AgentDetailPage.tsx` — agent detail with memory timeline + task history
-- [ ] Create `web/src/components/AgentForm.tsx` — create/edit form
-- [ ] Add `/agents` route to `web/src/App.tsx`
-- [ ] Add Agents nav item to `web/src/components/Sidebar.tsx`
+- [x] Create `web/src/components/AgentsPage.tsx` — agent list with create/edit/delete/toggle/trigger + inline memory view
+- [x] Add `/agents` route to `web/src/App.tsx`
+- [x] Add Agents nav item to `web/src/components/Sidebar.tsx`
+- [x] Add Agent/AgentMemory types to `web/src/types.ts`
+- [x] Add agent API hooks to `web/src/hooks/useApi.ts`
 - [ ] Add frontend tests
 
 ## Phase 6: Orca SRE Agent
