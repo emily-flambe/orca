@@ -217,6 +217,8 @@ export const cronTaskLifecycle = inngest.createFunction(
         });
         updateTaskStatus(db, taskId, "failed", {
           reason: "cron_session_timeout",
+          failureReason: `Cron session timed out after ${SESSION_TIMEOUT}`,
+          failedPhase: "implement",
         });
         emitTaskUpdated(getTask(db, taskId)!);
         return { outcome: "permanent_fail" as const };
@@ -231,7 +233,11 @@ export const cronTaskLifecycle = inngest.createFunction(
         return { outcome: "done" as const };
       }
 
-      updateTaskStatus(db, taskId, "failed", { reason: "cron_session_failed" });
+      updateTaskStatus(db, taskId, "failed", {
+        reason: "cron_session_failed",
+        failureReason: `Cron session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
+        failedPhase: "implement",
+      });
       emitTaskUpdated(getTask(db, taskId)!);
       log(
         `cron task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,

@@ -76,7 +76,10 @@ export const ciMergeWorkflow = inngest.createFunction(
       if (hasPollingTimedOut(ciStartedAt, deps.config.maxCiPollAttempts)) {
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed", "ci_timeout");
+          updateAndEmit(db, linearIssueId, "failed", "ci_timeout", {
+            failureReason: `CI timed out after ${config.maxCiPollAttempts} minutes`,
+            failedPhase: "ci",
+          });
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -267,6 +270,10 @@ export const ciMergeWorkflow = inngest.createFunction(
                   linearIssueId,
                   "failed",
                   "ci_failed_cycles_exhausted",
+                  {
+                    failureReason: `CI failed and review cycle limit (${config.maxReviewCycles}) exhausted`,
+                    failedPhase: "ci",
+                  },
                 );
                 await transitionToFinalState(
                   { client, stateMap },
@@ -318,7 +325,10 @@ export const ciMergeWorkflow = inngest.createFunction(
       await step.run("ci-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateAndEmit(db, linearIssueId, "failed", "ci_poll_exhausted");
+        updateAndEmit(db, linearIssueId, "failed", "ci_poll_exhausted", {
+          failureReason: `CI status never resolved after ${maxPollAttempts} poll attempts`,
+          failedPhase: "ci",
+        });
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,
@@ -406,7 +416,10 @@ async function mergeAndFinalizeStep(
         );
       } else {
         // Review cycles exhausted — fail the task
-        updateAndEmit(db, taskId, "failed", "merge_conflict_cycles_exhausted");
+        updateAndEmit(db, taskId, "failed", "merge_conflict_cycles_exhausted", {
+          failureReason: `PR #${task.prNumber} has merge conflicts and review cycle limit (${config.maxReviewCycles}) reached`,
+          failedPhase: "merge",
+        });
         await transitionToFinalState(
           { client, stateMap },
           taskId,
@@ -498,6 +511,10 @@ async function mergeAndFinalizeStep(
                 taskId,
                 "failed",
                 "merge_conflict_cycles_exhausted",
+                {
+                  failureReason: `Merge failed for PR #${task.prNumber}: rebase has conflicts and review cycle limit (${config.maxReviewCycles}) reached`,
+                  failedPhase: "merge",
+                },
               );
               await transitionToFinalState(
                 { client, stateMap },
@@ -537,7 +554,10 @@ async function mergeAndFinalizeStep(
         }
 
         // Exhausted retries — escalate to failed but preserve the PR
-        updateAndEmit(db, taskId, "failed", "merge_attempts_exhausted");
+        updateAndEmit(db, taskId, "failed", "merge_attempts_exhausted", {
+          failureReason: `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}`,
+          failedPhase: "merge",
+        });
         await transitionToFinalState(
           { client, stateMap },
           taskId,

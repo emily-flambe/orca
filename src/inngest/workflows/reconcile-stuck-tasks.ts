@@ -12,6 +12,7 @@ import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import { isDraining } from "../../deploy.js";
 import {
+  getAllTasks,
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
@@ -20,6 +21,7 @@ import {
   updateTaskStatus,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
+import { writeMonitorSnapshot } from "../../scheduler/monitor-snapshot.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -263,6 +265,14 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       logger.info(
         `re-dispatched ${readyTasks.length} orphaned ready task(s): ${readyTasks.map((t) => t.linearIssueId).join(", ")}`,
       );
+    });
+
+    // Step 5: Write monitor snapshot — NDJSON file of all tasks,
+    // including lastFailureReason (truncated to 80 chars) for failed tasks.
+    await step.run("write-monitor-snapshot", async () => {
+      const { db } = getSchedulerDeps();
+      const allTasks = getAllTasks(db);
+      await writeMonitorSnapshot(allTasks);
     });
   },
 );

@@ -415,7 +415,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "ci_failed_cycles_exhausted" },
+      expect.objectContaining({ reason: "ci_failed_cycles_exhausted" }),
     );
     expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
   });
@@ -590,7 +590,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "ci_poll_exhausted" },
+      expect.objectContaining({ reason: "ci_poll_exhausted" }),
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -650,7 +650,7 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "ci_poll_exhausted" },
+      expect.objectContaining({ reason: "ci_poll_exhausted" }),
     );
   });
 

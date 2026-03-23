@@ -60,7 +60,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
       ) {
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed", "deploy_timeout");
+          updateAndEmit(db, linearIssueId, "failed", "deploy_timeout", {
+            failureReason: `Deploy timed out after ${config.maxDeployPollAttempts} minutes`,
+            failedPhase: "deploy",
+          });
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -125,7 +128,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
       } else if (deployStatus.status === "failure") {
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed", "deploy_ci_failed");
+          updateAndEmit(db, linearIssueId, "failed", "deploy_ci_failed", {
+            failureReason: `Deploy CI failed for commit ${mergeCommitSha}`,
+            failedPhase: "deploy",
+          });
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -150,7 +156,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
       await step.run("deploy-poll-exhausted", async () => {
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
-        updateAndEmit(db, linearIssueId, "failed", "deploy_poll_exhausted");
+        updateAndEmit(db, linearIssueId, "failed", "deploy_poll_exhausted", {
+          failureReason: `Deploy status never resolved after ${maxPollAttempts} poll attempts`,
+          failedPhase: "deploy",
+        });
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,

@@ -377,7 +377,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "session_timed_out" },
+      expect.objectContaining({ reason: "session_timed_out" }),
     );
   });
 
@@ -732,7 +732,7 @@ describe("task-lifecycle workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "implement_failed" },
+      expect.objectContaining({ reason: "implement_failed" }),
     );
     expect(mockIncrementRetryCount).toHaveBeenCalledWith(mockDb, "TEST-1");
   });
@@ -1164,7 +1164,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "implement_failed" },
+      expect.objectContaining({ reason: "implement_failed" }),
     );
   });
 
@@ -1202,7 +1202,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "implement_failed" },
+      expect.objectContaining({ reason: "implement_failed" }),
     );
   });
 
@@ -1240,7 +1240,7 @@ describe("Guard B — orphaned green PR recovery", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "implement_failed" },
+      expect.objectContaining({ reason: "implement_failed" }),
     );
   });
 });

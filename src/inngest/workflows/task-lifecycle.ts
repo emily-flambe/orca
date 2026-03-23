@@ -212,6 +212,8 @@ export function bridgeSessionCompletion(
             });
             updateTaskStatus(db, linearIssueId, "failed", {
               reason: "session_failed_db_fallback",
+              failureReason: `Session failed (DB fallback, phase: ${phase})`,
+              failedPhase: phase,
             });
             log(
               `DB fallback: invocation ${invocationId} marked ${invStatus}, task ${linearIssueId} set to failed`,
@@ -263,6 +265,8 @@ export function bridgeSessionCompletion(
             });
             updateTaskStatus(db, linearIssueId, "failed", {
               reason: "runner_error_db_fallback",
+              failureReason: `Runner error (DB fallback, phase: ${phase})`,
+              failedPhase: phase,
             });
             log(
               `DB fallback: invocation ${invocationId} marked failed, task ${linearIssueId} set to failed`,
@@ -790,7 +794,10 @@ export const taskLifecycle = inngest.createFunction(
             endedAt: new Date().toISOString(),
             outputSummary: "session timed out after 45 minutes",
           });
-          updateAndEmit(db, taskId, "failed", "session_timed_out");
+          updateAndEmit(db, taskId, "failed", "session_timed_out", {
+            failureReason: "Implement session timed out after 45 minutes",
+            failedPhase: "implement",
+          });
           try {
             removeWorktree(worktreePath);
           } catch {
@@ -913,7 +920,10 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          updateAndEmit(db, taskId, "failed", "implement_failed");
+          updateAndEmit(db, taskId, "failed", "implement_failed", {
+            failureReason: `Implement session failed (exit code ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns reached" : ""})`,
+            failedPhase: "implement",
+          });
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
@@ -993,7 +1003,10 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: "Post-implementation gate failed: no branch name",
           });
-          updateAndEmit(db, taskId, "failed", "gate2_no_branch");
+          updateAndEmit(db, taskId, "failed", "gate2_no_branch", {
+            failureReason: "Post-implementation gate failed: no branch name",
+            failedPhase: "gate2",
+          });
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -1044,7 +1057,10 @@ export const taskLifecycle = inngest.createFunction(
             status: "failed",
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
-          updateAndEmit(db, taskId, "failed", "gate2_no_pr");
+          updateAndEmit(db, taskId, "failed", "gate2_no_pr", {
+            failureReason: `Post-implementation gate failed: no PR found for branch ${branchName}`,
+            failedPhase: "gate2",
+          });
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
