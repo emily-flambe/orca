@@ -181,6 +181,24 @@ export function bridgeSessionCompletion(
 
       activeHandles.delete(invocationId);
 
+      // Always finalize the invocation in DB — don't rely solely on Inngest
+      // workflow processing the session/completed event.
+      try {
+        const { db } = getSchedulerDeps();
+        updateInvocation(db, invocationId, {
+          status: invStatus,
+          endedAt: new Date().toISOString(),
+          costUsd: result.costUsd ?? null,
+          inputTokens: result.inputTokens ?? null,
+          outputTokens: result.outputTokens ?? null,
+          numTurns: result.numTurns ?? null,
+          sessionId: handle.sessionId ?? null,
+          outputSummary: result.outputSummary ?? null,
+        });
+      } catch (err) {
+        log(`failed to finalize invocation ${invocationId} in DB: ${err}`);
+      }
+
       inngest
         .send({
           name: "session/completed",
@@ -230,6 +248,17 @@ export function bridgeSessionCompletion(
     })
     .catch((err) => {
       activeHandles.delete(invocationId);
+
+      // Finalize invocation as failed in DB immediately
+      try {
+        const { db } = getSchedulerDeps();
+        updateInvocation(db, invocationId, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+        });
+      } catch (dbErr) {
+        log(`failed to finalize invocation ${invocationId} in DB: ${dbErr}`);
+      }
 
       // Process-level error — send a synthetic failure event so the workflow
       // doesn't wait forever before timing out.

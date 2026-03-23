@@ -238,7 +238,7 @@ export function createWorktree(
   const parentDir = dirname(repoPath);
   let worktreePath = join(parentDir, `${repoDirname}-${taskId}`);
   const baseRef = options?.baseRef;
-  const branchName = baseRef ?? `orca/${taskId}-inv-${invocationId}`;
+  let branchName = baseRef ?? `orca/${taskId}-inv-${invocationId}`;
 
   // Prune stale worktree references (directory removed but git still
   // tracks it) before anything else — this must run before fetch so that
@@ -350,15 +350,29 @@ export function createWorktree(
     }
   } else {
     // If branch exists locally, delete it so we can create fresh from origin/main.
-    // We only delete local branches here; remote-tracking refs are handled below.
-    try {
-      git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
-        cwd: repoPath,
-      });
-      // Local branch exists — delete it
-      git(["branch", "-D", branchName], { cwd: repoPath });
-    } catch {
-      // No local branch to delete
+    // If deletion fails because the branch is checked out in another worktree,
+    // auto-increment the suffix to find a free name (prevents infinite retry loops
+    // when a user has manually checked out an orca-managed branch).
+    if (localBranchExists(repoPath, branchName)) {
+      let suffix = Number(invocationId);
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+          git(["branch", "-D", branchName], { cwd: repoPath });
+          break; // deleted successfully — use this branch name
+        } catch (deleteErr) {
+          const msg = (deleteErr as Error).message ?? "";
+          if (msg.includes("used by worktree")) {
+            suffix++;
+            branchName = `orca/${taskId}-inv-${suffix}`;
+            logger.warn(
+              `branch locked by another worktree, trying suffix ${suffix}: ${branchName}`,
+            );
+            if (!localBranchExists(repoPath, branchName)) break; // new name is free
+          } else {
+            break; // different error — let worktree add handle it
+          }
+        }
+      }
     }
     // Create worktree with new branch based on origin/main.
     // If -b fails because the branch name conflicts with a remote-tracking ref

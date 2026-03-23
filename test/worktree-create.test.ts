@@ -505,3 +505,84 @@ describe("createWorktree — non-baseRef branch exists on remote only", () => {
     expect(branchDCalls).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createWorktree — branch locked by another worktree (auto-increment suffix)
+// ---------------------------------------------------------------------------
+
+describe("createWorktree — branch locked by another worktree", () => {
+  let mockGit: ReturnType<typeof vi.fn>;
+  let mockExistsSync: ReturnType<typeof vi.fn>;
+  let mockReaddirSync: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    const gitModule = await import("../src/git.js");
+    mockGit = vi.mocked(gitModule.git);
+
+    const fsModule = await import("node:fs");
+    mockExistsSync = vi.mocked(fsModule.existsSync);
+    mockReaddirSync = vi.mocked(fsModule.readdirSync);
+
+    mockReaddirSync.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("auto-increments branch suffix when inv-0 is checked out in another worktree", async () => {
+    const { createWorktree } = await import("../src/worktree/index.js");
+
+    const repoPath = join(PARENT, "orca");
+    const taskId = "EMI-368";
+    const worktreePath = join(PARENT, `orca-${taskId}`);
+    const lockedBranch = `orca/${taskId}-inv-0`;
+    const freeBranch = `orca/${taskId}-inv-1`;
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p === repoPath) return true;
+      return false;
+    });
+
+    mockGit.mockImplementation((args: string[]) => {
+      if (args[0] === "worktree" && args[1] === "list") return "";
+      if (args[0] === "worktree" && args[1] === "prune") return "";
+      // show-ref: inv-0 EXISTS locally, inv-1 does NOT
+      if (args[0] === "show-ref" && args[3] === `refs/heads/${lockedBranch}`) {
+        return ""; // branch exists
+      }
+      if (args[0] === "show-ref" && args[3] === `refs/heads/${freeBranch}`) {
+        throw new Error("fatal: not a valid ref");
+      }
+      // git branch -D inv-0: fails — checked out in another worktree
+      if (args[0] === "branch" && args[1] === "-D" && args[2] === lockedBranch) {
+        throw new Error(
+          `error: cannot delete branch '${lockedBranch}' used by worktree at '/some/path'`,
+        );
+      }
+      // all other git calls succeed
+      return "";
+    });
+
+    const result = createWorktree(repoPath, taskId, 0);
+
+    // Should have auto-incremented to inv-1
+    expect(result.branchName).toBe(freeBranch);
+    expect(result.worktreePath).toBe(worktreePath);
+
+    // worktree add should have used -b with the new branch name (inv-1)
+    const worktreeAddCalls = mockGit.mock.calls.filter(
+      (call) => call[0][0] === "worktree" && call[0][1] === "add",
+    );
+    expect(worktreeAddCalls).toHaveLength(1);
+    expect(worktreeAddCalls[0][0]).toContain(freeBranch);
+    expect(worktreeAddCalls[0][0]).toContain("-b");
+
+    // Should NOT have tried to delete the locked branch more than once
+    const branchDCalls = mockGit.mock.calls.filter(
+      (call) => call[0][0] === "branch" && call[0][1] === "-D",
+    );
+    expect(branchDCalls).toHaveLength(1);
+    expect(branchDCalls[0][0][2]).toBe(lockedBranch);
+  });
+});
