@@ -59,7 +59,7 @@ import {
   transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
-import { writeHookConfig } from "../../hooks.js";
+import { writeHookConfig, cleanHookConfig } from "../../hooks.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
@@ -105,6 +105,24 @@ export function assertSessionCapacity(
       `resource constrained: ${snapshot.memAvailableMb.toFixed(0)}MB available, ${snapshot.cpuLoadPercent.toFixed(1)}% CPU load`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Cleanup helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove hook config then tear down the worktree.
+ * Both operations are best-effort; errors are swallowed by the caller's
+ * existing try/catch so this just ensures cleanHookConfig always runs first.
+ */
+function cleanupWorktree(worktreePath: string): void {
+  try {
+    cleanHookConfig(worktreePath);
+  } catch {
+    /* ignore */
+  }
+  removeWorktree(worktreePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -721,7 +739,7 @@ export const taskLifecycle = inngest.createFunction(
         () => {},
       );
       try {
-        removeWorktree(worktreePath);
+        cleanupWorktree(worktreePath);
       } catch {
         /* ignore */
       }
@@ -754,7 +772,7 @@ export const taskLifecycle = inngest.createFunction(
           });
           updateAndEmit(db, taskId, "failed", "session_timed_out");
           try {
-            removeWorktree(worktreePath);
+            cleanupWorktree(worktreePath);
           } catch {
             /* ignore */
           }
@@ -812,7 +830,7 @@ export const taskLifecycle = inngest.createFunction(
           );
           if (!isMaxTurns) {
             try {
-              removeWorktree(worktreePath);
+              cleanupWorktree(worktreePath);
             } catch {
               /* ignore */
             }
@@ -1071,7 +1089,7 @@ export const taskLifecycle = inngest.createFunction(
         ).catch(() => {});
 
         try {
-          removeWorktree(worktreePath);
+          cleanupWorktree(worktreePath);
         } catch {
           /* ignore */
         }
@@ -1205,7 +1223,7 @@ export const taskLifecycle = inngest.createFunction(
             });
             emitTaskUpdated(getTask(db, taskId)!);
             try {
-              removeWorktree(wtResult.worktreePath);
+              cleanupWorktree(wtResult.worktreePath);
             } catch {
               /* ignore */
             }
@@ -1320,7 +1338,7 @@ export const taskLifecycle = inngest.createFunction(
             });
             updateAndEmit(db, taskId, "in_review", "review_session_timed_out");
             try {
-              removeWorktree(worktreePath);
+              cleanupWorktree(worktreePath);
             } catch {
               /* ignore */
             }
@@ -1347,7 +1365,7 @@ export const taskLifecycle = inngest.createFunction(
           if (!isSuccess) {
             updateAndEmit(db, taskId, "in_review", "review_session_failed");
             try {
-              removeWorktree(worktreePath);
+              cleanupWorktree(worktreePath);
             } catch {
               /* ignore */
             }
@@ -1370,7 +1388,7 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           try {
-            removeWorktree(worktreePath);
+            cleanupWorktree(worktreePath);
           } catch {
             /* ignore */
           }
@@ -1563,7 +1581,7 @@ export const taskLifecycle = inngest.createFunction(
             });
             emitTaskUpdated(getTask(db, taskId)!);
             try {
-              removeWorktree(wtResult.worktreePath);
+              cleanupWorktree(wtResult.worktreePath);
             } catch {
               /* ignore */
             }
@@ -1674,7 +1692,7 @@ export const taskLifecycle = inngest.createFunction(
             });
             updateAndEmit(db, taskId, "in_review", "fix_session_timed_out");
             try {
-              removeWorktree(worktreePath);
+              cleanupWorktree(worktreePath);
             } catch {
               /* ignore */
             }
@@ -1699,7 +1717,7 @@ export const taskLifecycle = inngest.createFunction(
             outputTokens: fixEvent.data.outputTokens ?? null,
           });
           try {
-            removeWorktree(worktreePath);
+            cleanupWorktree(worktreePath);
           } catch {
             /* ignore */
           }

@@ -9,6 +9,12 @@ import { fetchInvocationLogs } from "../hooks/useApi";
 import { formatTokens } from "../utils/formatTokens";
 import PulsingDot from "./ui/PulsingDot";
 
+interface HookEvent {
+  timestamp: string;
+  invocationId: number;
+  payload: unknown;
+}
+
 interface Props {
   invocationId: number;
   isRunning?: boolean;
@@ -235,6 +241,97 @@ function ResultFooter({ line }: { line: LogLine }) {
 }
 
 // ---------------------------------------------------------------------------
+// Hook events panel
+// ---------------------------------------------------------------------------
+
+function HookEventsPanel({
+  invocationId,
+  isRunning,
+}: {
+  invocationId: number;
+  isRunning?: boolean;
+}) {
+  const [events, setEvents] = useState<HookEvent[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    async function fetchEvents() {
+      try {
+        const res = await fetch(`/api/hooks/${invocationId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as { events: HookEvent[] };
+        if (!cancelled) setEvents(data.events ?? []);
+      } catch {
+        // ignore
+      }
+    }
+
+    fetchEvents();
+    if (isRunning) {
+      interval = setInterval(fetchEvents, 5000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [invocationId, isRunning]);
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="mt-2 border border-gray-800 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-mono text-gray-400 bg-gray-900 hover:bg-gray-800 transition-colors"
+      >
+        <span>
+          Hook Events{" "}
+          <span className="text-gray-600">({events.length})</span>
+        </span>
+        <span>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="max-h-48 overflow-y-auto bg-gray-950 divide-y divide-gray-800">
+          {events.map((ev, idx) => {
+            const payload = ev.payload as Record<string, unknown> | null;
+            const hookType =
+              typeof payload?.hook_type === "string" ? payload.hook_type : null;
+            const message =
+              typeof payload?.message === "string" ? payload.message : null;
+            return (
+              <div key={idx} className="px-3 py-1.5 text-xs font-mono">
+                <span className="text-gray-600 mr-2">
+                  {ev.timestamp
+                    ? (() => {
+                        const t = new Date(ev.timestamp);
+                        return `${t.getHours().toString().padStart(2, "0")}:${t.getMinutes().toString().padStart(2, "0")}:${t.getSeconds().toString().padStart(2, "0")}`;
+                      })()
+                    : ""}
+                </span>
+                {hookType && (
+                  <span className="text-amber-400 mr-2">[{hookType}]</span>
+                )}
+                {message ? (
+                  <span className="text-gray-300">{message}</span>
+                ) : (
+                  <span className="text-gray-500">
+                    {JSON.stringify(ev.payload).slice(0, 120)}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -427,7 +524,8 @@ export default function LogViewer({
   }
 
   return (
-    <div className="relative">
+    <div>
+      <div className="relative">
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -550,6 +648,8 @@ export default function LogViewer({
           ↓ Jump to bottom
         </button>
       )}
+    </div>
+      <HookEventsPanel invocationId={invocationId} isRunning={isRunning} />
     </div>
   );
 }
