@@ -25,32 +25,120 @@ function getMinLevel(): LogLevel {
   return "info";
 }
 
-export function createLogger(module: string) {
+function isJsonMode(): boolean {
+  return process.env.LOG_FORMAT === "json";
+}
+
+/**
+ * Extracts a fields object from the last argument if it is a plain object
+ * (not an Error, not an Array, not null). Returns [remaining args, fields].
+ */
+function extractFields(
+  args: unknown[],
+): [unknown[], Record<string, unknown> | undefined] {
+  if (args.length === 0) return [args, undefined];
+  const last = args[args.length - 1];
+  if (
+    last !== null &&
+    typeof last === "object" &&
+    !Array.isArray(last) &&
+    !(last instanceof Error)
+  ) {
+    return [args.slice(0, -1), last as Record<string, unknown>];
+  }
+  return [args, undefined];
+}
+
+export interface Logger {
+  debug(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
+  child(fields: Record<string, unknown>): Logger;
+}
+
+export function createLogger(
+  module: string,
+  baseFields?: Record<string, unknown>,
+): Logger {
   const tag = `[orca/${module}]`;
 
   function shouldLog(level: LogLevel): boolean {
     return LEVEL_ORDER[level] >= LEVEL_ORDER[getMinLevel()];
   }
 
-  function format(level: LogLevel, args: unknown[]): string {
+  function formatHuman(level: LogLevel, args: unknown[]): string {
     const msg = args
-      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+      .map((a) => {
+        if (typeof a === "string") return a;
+        if (a instanceof Error) return String(a);
+        return JSON.stringify(a);
+      })
       .join(" ");
     return `[${level.toUpperCase()}] ${tag} ${msg}`;
   }
 
+  function emitJson(
+    level: LogLevel,
+    args: unknown[],
+    extraFields?: Record<string, unknown>,
+  ): string {
+    const [msgArgs, inlineFields] = extractFields(args);
+    const message = msgArgs
+      .map((a) => {
+        if (typeof a === "string") return a;
+        if (a instanceof Error) return String(a);
+        return JSON.stringify(a);
+      })
+      .join(" ");
+    // Reserved keys are placed last so caller fields cannot clobber metadata.
+    const entry: Record<string, unknown> = {
+      ...baseFields,
+      ...inlineFields,
+      ...extraFields,
+      timestamp: new Date().toISOString(),
+      level,
+      module: `orca/${module}`,
+      message,
+    };
+    return JSON.stringify(entry);
+  }
+
   return {
-    debug: (...args: unknown[]) => {
-      if (shouldLog("debug")) console.log(format("debug", args));
+    debug(...args: unknown[]) {
+      if (!shouldLog("debug")) return;
+      if (isJsonMode()) {
+        console.log(emitJson("debug", args));
+      } else {
+        console.log(formatHuman("debug", args));
+      }
     },
-    info: (...args: unknown[]) => {
-      if (shouldLog("info")) console.log(format("info", args));
+    info(...args: unknown[]) {
+      if (!shouldLog("info")) return;
+      if (isJsonMode()) {
+        console.log(emitJson("info", args));
+      } else {
+        console.log(formatHuman("info", args));
+      }
     },
-    warn: (...args: unknown[]) => {
-      if (shouldLog("warn")) console.warn(format("warn", args));
+    warn(...args: unknown[]) {
+      if (!shouldLog("warn")) return;
+      if (isJsonMode()) {
+        console.warn(emitJson("warn", args));
+      } else {
+        console.warn(formatHuman("warn", args));
+      }
     },
-    error: (...args: unknown[]) => {
-      if (shouldLog("error")) console.error(format("error", args));
+    error(...args: unknown[]) {
+      if (!shouldLog("error")) return;
+      if (isJsonMode()) {
+        console.error(emitJson("error", args));
+      } else {
+        console.error(formatHuman("error", args));
+      }
+    },
+    child(fields: Record<string, unknown>): Logger {
+      return createLogger(module, { ...baseFields, ...fields });
     },
   };
 }

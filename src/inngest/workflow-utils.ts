@@ -12,6 +12,9 @@ import { writeBackStatus } from "../linear/sync.js";
 import type { OrcaDb } from "../db/index.js";
 import type { TaskStatus } from "../shared/types.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
+import { createLogger } from "../logger.js";
+
+const log = createLogger("inngest/workflow-utils");
 
 // ---------------------------------------------------------------------------
 // alreadyDonePatterns — patterns in output summary indicating task is complete
@@ -159,9 +162,17 @@ export async function transitionToFinalState(
   comment?: string,
 ): Promise<void> {
   await writeBackStatus(deps.client, taskId, targetStatus, deps.stateMap).catch(
-    () => {},
+    (err: unknown) => {
+      log.warn("Linear write-back failed", {
+        taskId,
+        targetStatus,
+        error: String(err),
+      });
+    },
   );
   if (comment !== undefined) {
-    await deps.client.createComment(taskId, comment).catch(() => {});
+    await deps.client.createComment(taskId, comment).catch((err: unknown) => {
+      log.warn("Linear createComment failed", { taskId, error: String(err) });
+    });
   }
 }

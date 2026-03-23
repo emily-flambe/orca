@@ -477,7 +477,11 @@ export const taskLifecycle = inngest.createFunction(
 
         emitTaskUpdated(getTask(db, taskId)!);
         transitionToFinalState({ client, stateMap }, taskId, "running").catch(
-          () => {},
+          (err) =>
+            logger.warn("Linear write-back failed for running status", {
+              taskId,
+              error: String(err),
+            }),
         );
 
         return { claimed: true, phase: task.orcaStatus as string };
@@ -702,7 +706,12 @@ export const taskLifecycle = inngest.createFunction(
             : isFixPhase
               ? `Dispatched to fix review feedback (invocation #${invocationId})`
               : `Dispatched for implementation (invocation #${invocationId})`;
-        client.createComment(taskId, dispatchMsg).catch(() => {});
+        client.createComment(taskId, dispatchMsg).catch((err: unknown) => {
+          logger.warn("Linear createComment failed (dispatch)", {
+            taskId,
+            error: String(err),
+          });
+        });
 
         log(
           `task ${taskId}: implement session spawned as invocation ${invocationId}`,
@@ -762,7 +771,11 @@ export const taskLifecycle = inngest.createFunction(
         metadata: { taskId, phase: "implement", reason },
       });
       transitionToFinalState({ client, stateMap }, taskId, "done").catch(
-        () => {},
+        (err) =>
+          logger.warn("Linear write-back failed for done status", {
+            taskId,
+            error: String(err),
+          }),
       );
       try {
         removeWorktree(worktreePath);
@@ -826,7 +839,12 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => {
+              logger.warn("transitionToFinalState failed (implement timeout)", {
+                taskId,
+                error: String(err),
+              });
+            });
             return { outcome: "permanent_fail" };
           }
           return { outcome: "timed_out" };
@@ -942,7 +960,12 @@ export const taskLifecycle = inngest.createFunction(
                 taskId,
                 `Resume session not found (stale session ID) — restarting as fresh session`,
               )
-              .catch(() => {});
+              .catch((err: unknown) => {
+                logger.warn("Linear createComment failed (resume not found)", {
+                  taskId,
+                  error: String(err),
+                });
+              });
             // Don't increment retry count — this is a setup failure, not a task failure
             return { outcome: "retry" };
           }
@@ -967,7 +990,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               "failed_permanent",
               `Task permanently failed after ${config.maxRetries} retries`,
-            ).catch(() => {});
+            ).catch((err: unknown) => {
+              logger.warn(
+                "transitionToFinalState failed (implement permanent fail)",
+                { taskId, error: String(err) },
+              );
+            });
             return { outcome: "permanent_fail" };
           }
 
@@ -1029,7 +1057,12 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => {
+              logger.warn(
+                "transitionToFinalState failed (gate2 no branch name)",
+                { taskId, error: String(err) },
+              );
+            });
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -1083,7 +1116,12 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => {
+              logger.warn("transitionToFinalState failed (gate2 no PR found)", {
+                taskId,
+                error: String(err),
+              });
+            });
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -1122,7 +1160,12 @@ export const taskLifecycle = inngest.createFunction(
         if (prInfo.url) {
           client
             .createAttachment(task.linearIssueId, prInfo.url, "Pull Request")
-            .catch(() => {});
+            .catch((err: unknown) => {
+              logger.warn("Linear createAttachment failed", {
+                taskId,
+                error: String(err),
+              });
+            });
         }
 
         resetStaleSessionRetryCount(db, taskId);
@@ -1132,7 +1175,12 @@ export const taskLifecycle = inngest.createFunction(
           taskId,
           "in_review",
           `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-        ).catch(() => {});
+        ).catch((err: unknown) => {
+          logger.warn("transitionToFinalState failed (gate2 → in_review)", {
+            taskId,
+            error: String(err),
+          });
+        });
 
         try {
           removeWorktree(worktreePath);
@@ -1323,7 +1371,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Dispatched for code review (invocation #${invocationId}, cycle ${cycle + 1}/${config.maxReviewCycles})`,
             )
-            .catch(() => {});
+            .catch((err: unknown) => {
+              logger.warn("Linear createComment failed (review dispatch)", {
+                taskId,
+                error: String(err),
+              });
+            });
 
           log(
             `task ${taskId}: review session spawned as invocation ${invocationId} (cycle ${cycle + 1})`,
@@ -1461,7 +1514,12 @@ export const taskLifecycle = inngest.createFunction(
             taskId,
             "awaiting_ci",
             `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
-          ).catch(() => {});
+          ).catch((err: unknown) => {
+            logger.warn(
+              "transitionToFinalState failed (review approved → awaiting_ci)",
+              { taskId, error: String(err) },
+            );
+          });
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
@@ -1516,7 +1574,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Review loop ended: ${reason} — manual intervention required`,
             )
-            .catch(() => {});
+            .catch((err: unknown) => {
+              logger.warn(
+                "Linear createComment failed (review cycles exhausted)",
+                { taskId, error: String(err) },
+              );
+            });
           log(`task ${taskId}: ${reason} — leaving at in_review`);
         });
         return { outcome: "in_review_needs_human" };
@@ -1583,7 +1646,12 @@ export const taskLifecycle = inngest.createFunction(
             { client, stateMap },
             taskId,
             "changes_requested",
-          ).catch(() => {});
+          ).catch((err: unknown) => {
+            logger.warn(
+              "transitionToFinalState failed (review → changes_requested)",
+              { taskId, error: String(err) },
+            );
+          });
 
           let resumeSessionId: string | undefined;
           {
@@ -1685,7 +1753,12 @@ export const taskLifecycle = inngest.createFunction(
                 ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`
                 : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`,
             )
-            .catch(() => {});
+            .catch((err: unknown) => {
+              logger.warn("Linear createComment failed (fix dispatch)", {
+                taskId,
+                error: String(err),
+              });
+            });
 
           log(
             `task ${taskId}: fix session spawned as invocation ${invocationId} (review cycle ${reviewCycle})`,
@@ -1779,7 +1852,12 @@ export const taskLifecycle = inngest.createFunction(
                   taskId,
                   `Fix resume session not found (stale session ID) — restarting as fresh session`,
                 )
-                .catch(() => {});
+                .catch((err: unknown) => {
+                  logger.warn(
+                    "Linear createComment failed (fix resume not found)",
+                    { taskId, error: String(err) },
+                  );
+                });
               updateAndEmit(db, taskId, "in_review", "fix_resume_not_found");
               return { ok: false, timedOut: false, resumeNotFound: true };
             }
@@ -1794,7 +1872,12 @@ export const taskLifecycle = inngest.createFunction(
             { client, stateMap },
             taskId,
             "in_review",
-          ).catch(() => {});
+          ).catch((err: unknown) => {
+            logger.warn("transitionToFinalState failed (fix → in_review)", {
+              taskId,
+              error: String(err),
+            });
+          });
           log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
           return { ok: true, timedOut: false, resumeNotFound: false };
         },
