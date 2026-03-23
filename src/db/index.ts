@@ -520,7 +520,11 @@ export async function backfillPrState(sqlite: DatabaseType): Promise<void> {
     .prepare(
       "SELECT linear_issue_id, pr_number, repo_path FROM tasks WHERE pr_number IS NOT NULL AND pr_state IS NULL",
     )
-    .all() as { linear_issue_id: string; pr_number: number; repo_path: string | null }[];
+    .all() as {
+    linear_issue_id: string;
+    pr_number: number;
+    repo_path: string | null;
+  }[];
 
   if (rows.length === 0) return;
 
@@ -553,7 +557,12 @@ export async function backfillPrState(sqlite: DatabaseType): Promise<void> {
       else if (isDraft) prState = "draft";
       else prState = "open";
 
-      update.run(data.url ?? null, prState, new Date().toISOString(), row.linear_issue_id);
+      update.run(
+        data.url ?? null,
+        prState,
+        new Date().toISOString(),
+        row.linear_issue_id,
+      );
     } catch {
       // Skip failures silently — best-effort backfill
     }

@@ -338,7 +338,12 @@ function cleanupRepo(
         const task = ctx.allTasks.find((t) => t.prBranchName === branch);
         if (task) {
           try {
-            updateTaskPrState(ctx.db, task.linearIssueId, task.prUrl ?? null, "closed");
+            updateTaskPrState(
+              ctx.db,
+              task.linearIssueId,
+              task.prUrl ?? null,
+              "closed",
+            );
           } catch {
             // best-effort
           }
@@ -642,7 +647,12 @@ async function cleanupRepoAsync(
         const task = ctx.allTasks.find((t) => t.prBranchName === branch);
         if (task) {
           try {
-            updateTaskPrState(ctx.db, task.linearIssueId, task.prUrl ?? null, "closed");
+            updateTaskPrState(
+              ctx.db,
+              task.linearIssueId,
+              task.prUrl ?? null,
+              "closed",
+            );
           } catch {
             // best-effort
           }
