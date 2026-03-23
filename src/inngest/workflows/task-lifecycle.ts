@@ -59,6 +59,7 @@ import {
   transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
+import { writeHookConfig, cleanupHookConfig } from "../../hooks.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
@@ -619,6 +620,7 @@ export const taskLifecycle = inngest.createFunction(
         updateInvocation(db, invocationId, {
           logPath: `logs/${invocationId}.ndjson`,
         });
+        writeHookConfig(worktreePath, invocationId);
 
         const startedAt = Date.now();
         const handle = spawnSession({
@@ -813,6 +815,8 @@ export const taskLifecycle = inngest.createFunction(
             } catch {
               /* ignore */
             }
+          } else {
+            cleanupHookConfig(worktreePath);
           }
 
           // Guard B: check for orphaned green PR before writing failed status
@@ -1223,6 +1227,7 @@ export const taskLifecycle = inngest.createFunction(
           updateInvocation(db, invocationId, {
             logPath: `logs/${invocationId}.ndjson`,
           });
+          writeHookConfig(wtResult.worktreePath, invocationId);
 
           const startedAt = Date.now();
           const handle = spawnSession({
@@ -1579,6 +1584,7 @@ export const taskLifecycle = inngest.createFunction(
           updateInvocation(db, invocationId, {
             logPath: `logs/${invocationId}.ndjson`,
           });
+          writeHookConfig(wtResult.worktreePath, invocationId);
 
           const startedAt = Date.now();
           const handle = spawnSession({
