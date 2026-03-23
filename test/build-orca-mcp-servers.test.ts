@@ -48,12 +48,21 @@ let buildOrcaMcpServers: Awaited<
 // Setup / Teardown
 // ---------------------------------------------------------------------------
 
+let savedGithubToken: string | undefined;
+
 beforeEach(async () => {
+  savedGithubToken = process.env.GITHUB_TOKEN;
+  delete process.env.GITHUB_TOKEN;
   mockExistsSync.mockReturnValue(false);
   buildOrcaMcpServers = await importBuildOrcaMcpServers();
 });
 
 afterEach(() => {
+  if (savedGithubToken !== undefined) {
+    process.env.GITHUB_TOKEN = savedGithubToken;
+  } else {
+    delete process.env.GITHUB_TOKEN;
+  }
   vi.restoreAllMocks();
 });
 
@@ -107,12 +116,48 @@ describe("buildOrcaMcpServers", () => {
       });
     });
 
-    test("excluded when GITHUB_MCP_PAT is not set", () => {
+    test("excluded when GITHUB_MCP_PAT is not set and GITHUB_TOKEN is not set", () => {
       mockExistsSync.mockReturnValue(false);
+      delete process.env.GITHUB_TOKEN;
       const result = buildOrcaMcpServers(
         baseConfig({ githubMcpPat: undefined }),
       );
       expect(result).toBeUndefined();
+    });
+
+    test("uses GITHUB_TOKEN as fallback when GITHUB_MCP_PAT is not set", () => {
+      mockExistsSync.mockReturnValue(false);
+      process.env.GITHUB_TOKEN = "ghp_fallback_token";
+      try {
+        const result = buildOrcaMcpServers(
+          baseConfig({ githubMcpPat: undefined }),
+        );
+        expect(result).toBeDefined();
+        expect(result).toHaveProperty("github");
+        expect(result!.github).toMatchObject({
+          type: "http",
+          url: "https://api.githubcopilot.com/mcp/",
+          headers: { Authorization: "Bearer ghp_fallback_token" },
+        });
+      } finally {
+        delete process.env.GITHUB_TOKEN;
+      }
+    });
+
+    test("GITHUB_MCP_PAT takes precedence over GITHUB_TOKEN", () => {
+      mockExistsSync.mockReturnValue(false);
+      process.env.GITHUB_TOKEN = "ghp_env_token";
+      try {
+        const result = buildOrcaMcpServers(
+          baseConfig({ githubMcpPat: "ghp_pat_token" }),
+        );
+        expect(result).toBeDefined();
+        expect(result!.github).toMatchObject({
+          headers: { Authorization: "Bearer ghp_pat_token" },
+        });
+      } finally {
+        delete process.env.GITHUB_TOKEN;
+      }
     });
 
     test("Bearer token header formatted correctly", () => {

@@ -319,7 +319,7 @@ export function buildOrcaMcpServers(
     };
   }
 
-  const githubToken = config.githubMcpPat ?? process.env.GITHUB_TOKEN;
+  const githubToken = config.githubMcpPat || process.env.GITHUB_TOKEN;
   if (githubToken) {
     servers.github = {
       type: "http",
