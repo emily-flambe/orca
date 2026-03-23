@@ -415,3 +415,21 @@ describe("system prompt overrides", () => {
     expect(cfg.implementSystemPrompt).toContain("autonomous coding agent");
   });
 });
+
+// ---------------------------------------------------------------------------
+// GITHUB_MCP_PAT
+// ---------------------------------------------------------------------------
+
+describe("GITHUB_MCP_PAT", () => {
+  test("not set → githubMcpPat is undefined", async () => {
+    delete process.env.GITHUB_MCP_PAT;
+    const cfg = await loadConfig();
+    expect(cfg.githubMcpPat).toBeUndefined();
+  });
+
+  test("set → githubMcpPat is the token value", async () => {
+    process.env.GITHUB_MCP_PAT = "ghp_test1234";
+    const cfg = await loadConfig();
+    expect(cfg.githubMcpPat).toBe("ghp_test1234");
+  });
+});
