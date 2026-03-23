@@ -17,4 +17,14 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // Relax rules that don't apply well to test files
+    files: ["test/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
+      "no-unused-expressions": "off",
+      "@typescript-eslint/no-unused-expressions": "off",
+    },
+  },
 );
