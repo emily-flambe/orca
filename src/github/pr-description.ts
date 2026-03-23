@@ -6,13 +6,21 @@ const logger = createLogger("github/pr-description");
 
 /**
  * Returns true if the PR body already looks well-structured:
- * - has ## markdown headers
- * - references the Linear issue ID
+ * - has at least 2 top-level ## markdown headers (multiple sections)
+ * - references the Linear issue ID as a whole word (not as a substring of another ID)
  * - is longer than 100 chars
  * If all three are true, we skip AI regeneration.
  */
 export function isWellStructuredPrBody(body: string, taskId: string): boolean {
-  return body.length > 100 && body.includes("## ") && body.includes(taskId);
+  if (body.length <= 100) return false;
+  // Count top-level ## headers (at start of line)
+  const headerMatches = body.match(/^## /gm);
+  if (!headerMatches || headerMatches.length < 2) return false;
+  // Word-boundary match for taskId so "EMI-1" doesn't match inside "EMI-10"
+  const escapedId = taskId.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+  if (!new RegExp(`(?<![A-Za-z0-9-])${escapedId}(?![A-Za-z0-9-])`).test(body))
+    return false;
+  return true;
 }
 
 /**
@@ -132,27 +140,45 @@ Output only the JSON object, nothing else.`;
     return;
   }
 
-  // 6. Parse JSON from output
-  let generated: { title: string; body: string };
+  // 6. Parse JSON from output — try each `{` position to find a valid object
+  let generated: { title: string; body: string } | null = null;
   try {
-    // Extract first JSON object from output (claude sometimes adds preamble)
-    const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      logger.warn(
-        `[EMI-367] enrichPrDescription: no JSON found in claude output for PR #${prNumber}`,
-      );
-      return;
+    // Walk through all `{` positions and try to parse from each one.
+    // This handles cases where Claude emits preamble JSON or thinking blocks
+    // before the actual answer object.
+    let pos = 0;
+    while ((pos = rawOutput.indexOf("{", pos)) !== -1) {
+      try {
+        const candidate = JSON.parse(rawOutput.slice(pos)) as unknown;
+        if (
+          candidate !== null &&
+          typeof candidate === "object" &&
+          "title" in candidate &&
+          "body" in candidate &&
+          typeof (candidate as Record<string, unknown>).title === "string" &&
+          typeof (candidate as Record<string, unknown>).body === "string"
+        ) {
+          generated = candidate as { title: string; body: string };
+          break;
+        }
+      } catch {
+        // Not valid JSON from this position — try next `{`
+      }
+      pos++;
     }
-    generated = JSON.parse(jsonMatch[0]) as { title: string; body: string };
-    if (!generated.title || !generated.body) {
-      logger.warn(
-        `[EMI-367] enrichPrDescription: generated JSON missing title or body for PR #${prNumber}`,
-      );
-      return;
-    }
-  } catch (err) {
+  } catch {
+    // Outer catch for any unexpected errors in the loop
+  }
+
+  if (!generated) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: JSON parse failed for PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
+      `[EMI-367] enrichPrDescription: no valid JSON with title+body found in claude output for PR #${prNumber}`,
+    );
+    return;
+  }
+  if (!generated.title || !generated.body) {
+    logger.warn(
+      `[EMI-367] enrichPrDescription: generated JSON missing title or body for PR #${prNumber}`,
     );
     return;
   }
