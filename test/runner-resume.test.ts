@@ -141,38 +141,10 @@ describe("Runner isResumeNotFound detection", () => {
     expect(result.isResumeNotFound).toBe(true);
   });
 
-  // -------------------------------------------------------------------------
-  // BUG CANDIDATE 4: per-chunk detection misses error string split across
-  // two writes (documents a known limitation of the per-chunk approach)
-  // -------------------------------------------------------------------------
-
-  test("isResumeNotFound is false when error string is split across two stderr writes", async () => {
-    const script = join(tmpDir, "split-stderr.js");
-    // The runner checks each chunk with .includes(); a split string won't match.
-    writeFileSync(
-      script,
-      [
-        'process.stderr.write("No conversation found");',
-        'process.stderr.write(" with session ID abc\\n");',
-        "process.exit(1);",
-      ].join("\n"),
-    );
-
-    const result = await spawnSession({
-      agentPrompt: "test",
-      worktreePath: tmpDir,
-      maxTurns: 5,
-      invocationId: nextId(),
-      projectRoot: tmpDir,
-      claudePath: process.execPath,
-      claudeArgs: [script],
-      resumeSessionId: "abc",
-    }).done;
-
-    // Per-chunk check: string split across chunks is NOT detected.
-    // This is a known limitation — documents it so the Implementer is aware.
-    expect(result.isResumeNotFound).toBe(false);
-  });
+  // NOTE: A test for "error string split across two stderr writes" was removed
+  // because the behavior is platform-dependent: on Linux, consecutive writes
+  // typically arrive as one chunk (detected), but on Windows they may arrive
+  // separately (not detected). The per-chunk detection approach is best-effort.
 
   // -------------------------------------------------------------------------
   // BUG CANDIDATE 5: false positive — detection fires even when --resume was
