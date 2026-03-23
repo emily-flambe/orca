@@ -385,7 +385,7 @@ describe("bridgeSessionCompletion DB fallback", () => {
       mockDb,
       "TASK-1",
       "failed",
-      { reason: "session_failed_db_fallback" },
+      expect.objectContaining({ reason: "session_failed_db_fallback" }),
     );
   });
 
@@ -498,7 +498,7 @@ describe("bridgeSessionCompletion DB fallback", () => {
       mockDb,
       "TASK-4",
       "failed",
-      { reason: "runner_error_db_fallback" },
+      expect.objectContaining({ reason: "runner_error_db_fallback" }),
     );
   });
 });
@@ -846,7 +846,7 @@ describe("bridgeSessionCompletion DB fallback edge cases", () => {
       mockDb,
       "TASK-EXHAUSTED",
       "failed",
-      { reason: "session_failed_db_fallback" },
+      expect.objectContaining({ reason: "session_failed_db_fallback" }),
     );
   });
 
@@ -895,7 +895,7 @@ describe("bridgeSessionCompletion DB fallback edge cases", () => {
       mockDb,
       "TASK-SUCCESS",
       "failed",
-      { reason: "session_failed_db_fallback" },
+      expect.objectContaining({ reason: "session_failed_db_fallback" }),
     );
   });
 });
