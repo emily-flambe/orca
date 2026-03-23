@@ -23,6 +23,7 @@ import CronPage from "./components/CronPage";
 import AgentsPage from "./components/AgentsPage";
 import MetricsPage from "./components/MetricsPage";
 import LogsPage from "./components/LogsPage";
+import HealthPage from "./components/HealthPage";
 import PulsingDot from "./components/ui/PulsingDot";
 import { MODEL_OPTIONS } from "./constants.js";
 
@@ -418,6 +419,7 @@ export default function App() {
     if (path === "/agents") return "agents";
     if (path === "/logs") return "logs";
     if (path === "/settings") return "settings";
+    if (path === "/health") return "health";
     return "tasks"; // default to tasks, not dashboard
   }, [location.pathname]);
 
@@ -596,6 +598,7 @@ export default function App() {
         agents: "/agents",
         logs: "/logs",
         settings: "/settings",
+        health: "/health",
       };
       navigate(pathMap[page]);
       setSidebarOpen(false);
@@ -675,6 +678,8 @@ export default function App() {
         {activePage === "agents" && <AgentsPage onToast={toast} />}
 
         {activePage === "logs" && <LogsPage />}
+
+        {activePage === "health" && <HealthPage />}
 
         {/* Version footer */}
         {version && (
