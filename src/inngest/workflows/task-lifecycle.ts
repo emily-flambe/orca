@@ -313,7 +313,7 @@ export function buildOrcaMcpServers(
     servers.orca = {
       command: process.execPath,
       args: [mcpServerPath],
-      env: { ORCA_DB_PATH: config.dbPath ? resolve(config.dbPath) : config.dbPath },
+      env: { ORCA_DB_PATH: resolve(config.dbPath) },
     };
   }
 
