@@ -5,6 +5,7 @@ web/dist/
 *.db-*
 logs/
 *.log
+!audits/*.log
 orca.log
 orca.log.1
 .env

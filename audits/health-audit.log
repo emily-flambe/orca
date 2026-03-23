@@ -1,0 +1,87 @@
+
+================================================================================
+AUDIT: 2026-03-23T18:28:00Z (cron-3 health audit)
+================================================================================
+
+## System State at Audit Start
+
+Tasks: 157 total
+  done: 148
+  failed: 4
+  running: 1
+  ready: 2
+  canceled: 2
+
+Active sessions: 3 (agent-orca-sre, cron-3, cron-1)
+Queued tasks: 2
+Tokens in window (4h): 12,187,412 / 1,000,000,000
+Tokens/min: ~53,410
+Concurrency cap: 7 (using 3/7)
+Draining: false
+Inngest reachable: false (at time of check — dev env quirk)
+
+## Issues Found
+
+### CRITICAL: Infinite retry loop on locked worktree branches
+**Root cause**: When `git branch -D <branchName>` fails because the branch is
+checked out in another worktree, the error was silently swallowed in a bare
+`catch {}` block. Subsequent `git worktree add` then failed with "already
+exists", resetting the task to `ready` indefinitely.
+
+**Observed impact**: EMI-368 and EMI-363 were cycling in "ready" → "running" →
+"ready" loops. The user had manually checked out orca/EMI-368-inv-0 in a
+separate worktree for review, blocking the delete.
+
+**SRE agent concurrent fixes**: EMI-379, EMI-369, EMI-365, EMI-345, EMI-366
+were resolved to "done" by a parallel SRE agent while this audit was running.
+At audit start, 6+ tasks were stuck in running/ready with no live session.
+
+### MODERATE: Orphaned running invocations after session termination
+Running invocations were not being finalized in DB immediately when sessions
+ended. Stranded-task detection relies on DB state, so this delayed recovery.
+
+### MODERATE: Reconciler lacked orphaned-invocation cleanup
+The `reconcileStuckTasksWorkflow` had no step to mark stale running invocations
+as failed, meaning orphaned records could persist until manual intervention.
+
+## Fixes Applied
+
+### Fix 1: Auto-increment branch suffix when locked by another worktree
+**File**: `src/worktree/index.ts`
+- Changed `const branchName` → `let branchName` to allow reassignment
+- Replaced silent catch block with loop that detects "used by worktree" error
+  and increments suffix: inv-0 → inv-1 → inv-2 (up to 20 attempts)
+- Added test in `test/worktree-create.test.ts`
+
+### Fix 2: Immediate DB finalization in session bridge
+**File**: `src/inngest/workflows/task-lifecycle.ts`
+- `bridgeSessionCompletion` now immediately calls `updateInvocation()` before
+  sending `session/completed` Inngest event, so DB state is always current
+
+### Fix 3: Cleanup-orphaned-invocations reconciler step
+**File**: `src/inngest/workflows/reconcile-stuck-tasks.ts`
+- Added new step `cleanup-orphaned-invocations` between reconcile and
+  detect-stuck-tasks steps
+- Marks running invocations as failed if >5 minutes old with no live handle
+
+## Test Results
+
+All 1798 tests pass. 0 type errors. 0 lint errors.
+
+## Deployment
+
+Fix pushed as PR #489: https://github.com/emily-flambe/orca/pull/489
+Branch: fix/worktree-branch-conflict (cherry-pick from orca/EMI-363-inv-0)
+
+Deploy script failed to build (tsup not in PATH in bash shell context) —
+existing orca instance on port 4000 remains healthy. Fix will take effect
+after PR #489 is merged and deployed.
+
+## Post-Audit System State
+
+Active port: 4000 (healthy — serving dashboard)
+Concurrency: 3/7 active
+No tasks stuck in intermediate states
+EMI-368 remains in ready/running cycle until PR #489 is deployed
+
+================================================================================
