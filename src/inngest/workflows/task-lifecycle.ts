@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
 import {
@@ -60,6 +60,7 @@ import {
   transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
+import { getWorktreePool } from "../../worktree/pool.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
@@ -313,7 +314,7 @@ export function buildOrcaMcpServers(
     orca: {
       command: process.execPath,
       args: [mcpServerPath],
-      env: { ORCA_DB_PATH: resolve(config.dbPath) },
+      env: { ORCA_DB_PATH: config.dbPath },
     },
   };
 }
@@ -517,13 +518,13 @@ export const taskLifecycle = inngest.createFunction(
 
     const implementCtx = await step.run(
       "start-implement",
-      (): {
+      async (): Promise<{
         invocationId: number;
         worktreePath: string;
         branchName: string;
         isFixPhase: boolean;
         startedAt: number;
-      } | null => {
+      } | null> => {
         const { db, config, client } = getSchedulerDeps();
         const task = getTask(db, taskId);
         if (!task) throw new Error(`task ${taskId} not found`);
@@ -601,9 +602,25 @@ export const taskLifecycle = inngest.createFunction(
             : undefined;
           let wtResult;
           try {
-            wtResult = createWorktree(task.repoPath, taskId, 0, {
-              baseRef,
-            });
+            // For fresh implement phase (not fix), try the pool first
+            if (!isFixPhase) {
+              const pool = getWorktreePool();
+              if (pool) {
+                const poolResult = await pool.claim(task.repoPath, taskId, 0);
+                if (poolResult) {
+                  wtResult = poolResult;
+                  log(
+                    `task ${taskId}: claimed pool worktree ${poolResult.worktreePath}`,
+                  );
+                }
+              }
+            }
+            // Fall back to synchronous creation if pool miss or fix phase
+            if (!wtResult) {
+              wtResult = createWorktree(task.repoPath, taskId, 0, {
+                baseRef,
+              });
+            }
           } catch (err) {
             log(
               `task ${taskId}: implement spawn blocked by worktree error: ${err}`,

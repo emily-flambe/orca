@@ -6,6 +6,7 @@ export interface OrcaConfig {
   projectRepoMap: Map<string, string>;
   concurrencyCap: number;
   agentConcurrencyCap: number;
+  worktreePoolSize: number;
   sessionTimeoutMin: number;
   maxRetries: number;
   budgetWindowHours: number;
@@ -249,11 +250,17 @@ Steps:
 6. Commit and push your changes to this branch
 7. Do NOT create a new PR — the existing PR will be updated automatically`;
 
+  const concurrencyCap = readIntOrDefault("ORCA_CONCURRENCY_CAP", 1);
+
   return {
     defaultCwd,
     projectRepoMap: new Map(),
-    concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 1),
+    concurrencyCap,
     agentConcurrencyCap: readIntOrDefault("ORCA_AGENT_CONCURRENCY_CAP", 12),
+    worktreePoolSize: readIntOrDefault(
+      "ORCA_WORKTREE_POOL_SIZE",
+      concurrencyCap + 1,
+    ),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
     budgetWindowHours: readPositiveNumberOrDefault(

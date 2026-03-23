@@ -7,6 +7,7 @@ import {
   rmSyncWithRetry,
   rmWithRetry,
 } from "../worktree/index.js";
+import { getWorktreePool } from "../worktree/pool.js";
 import { listOpenPrBranches, closeOrphanedPrs } from "../github/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { OrcaDb } from "../db/index.js";
@@ -226,6 +227,12 @@ function cleanupRepo(
     [...ctx.preservedWorktreePaths].map(normalizePath),
   );
 
+  // Never remove pool reserve worktrees — build the set once outside loops
+  const pool = getWorktreePool();
+  const normalizedPoolPaths = pool
+    ? new Set([...pool.getReservePaths()].map(normalizePath))
+    : new Set<string>();
+
   for (const wtPath of worktreePaths) {
     // Skip the main worktree (the repo itself)
     if (normalizePath(wtPath) === normalizedRepoPath) continue;
@@ -239,6 +246,9 @@ function cleanupRepo(
 
     // Never remove worktrees preserved for session resume
     if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
+
+    // Never remove pool reserve worktrees
+    if (normalizedPoolPaths.has(normalizePath(wtPath))) continue;
 
     // Skip directories that have failed too many times
     const wtAttempts = failedRemovalAttempts.get(wtPath) ?? 0;
@@ -281,6 +291,9 @@ function cleanupRepo(
 
       // Skip if preserved for session resume
       if (normalizedPreservedWtPaths.has(normalizePath(fullPath))) continue;
+
+      // Skip if pool reserve
+      if (normalizedPoolPaths.has(normalizePath(fullPath))) continue;
 
       // Check it's a directory
       try {
@@ -527,6 +540,12 @@ async function cleanupRepoAsync(
     [...ctx.preservedWorktreePaths].map(normalizePath),
   );
 
+  // Never remove pool reserve worktrees — build the set once outside loops
+  const poolAsync = getWorktreePool();
+  const normalizedPoolPathsAsync = poolAsync
+    ? new Set([...poolAsync.getReservePaths()].map(normalizePath))
+    : new Set<string>();
+
   for (const wtPath of worktreePaths) {
     if (normalizePath(wtPath) === normalizedRepoPath) continue;
 
@@ -535,6 +554,7 @@ async function cleanupRepoAsync(
 
     if (normalizedRunningWtPaths.has(normalizePath(wtPath))) continue;
     if (normalizedPreservedWtPaths.has(normalizePath(wtPath))) continue;
+    if (normalizedPoolPathsAsync.has(normalizePath(wtPath))) continue;
 
     const wtAttempts = failedRemovalAttempts.get(wtPath) ?? 0;
     if (wtAttempts >= MAX_REMOVAL_ATTEMPTS) continue;
@@ -572,6 +592,7 @@ async function cleanupRepoAsync(
       if (normalizedWorktreePathSet.has(normalizePath(fullPath))) continue;
       if (normalizedRunningWtPaths.has(normalizePath(fullPath))) continue;
       if (normalizedPreservedWtPaths.has(normalizePath(fullPath))) continue;
+      if (normalizedPoolPathsAsync.has(normalizePath(fullPath))) continue;
 
       try {
         if (!statSync(fullPath).isDirectory()) continue;

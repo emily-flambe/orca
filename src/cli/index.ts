@@ -348,6 +348,22 @@ program
     });
     poller.start();
 
+    // Initialize worktree pool (non-blocking background fill)
+    if (config.worktreePoolSize > 0) {
+      const { initWorktreePool } = await import("../worktree/pool.js");
+      const repoPaths = [
+        ...new Set([
+          ...config.projectRepoMap.values(),
+          ...(config.defaultCwd ? [config.defaultCwd] : []),
+        ]),
+      ];
+      const pool = initWorktreePool(config.worktreePoolSize);
+      pool.startFilling(repoPaths);
+      logger.info(
+        `worktree pool initialized (size=${config.worktreePoolSize}) for ${repoPaths.length} repo(s)`,
+      );
+    }
+
     // Signal PM2 that the app is ready to accept traffic IMMEDIATELY after
     // port bind, before Inngest registration. This ensures health checks can
     // respond during the grace period.
@@ -510,6 +526,19 @@ program
         Promise.allSettled(killPromises),
         new Promise((resolve) => setTimeout(resolve, 10_000)),
       ]);
+
+      // Destroy pool reserves (best-effort)
+      try {
+        const { getWorktreePool } = await import("../worktree/pool.js");
+        const pool = getWorktreePool();
+        if (pool) {
+          await pool.destroy().catch((err) => {
+            logger.warn(`pool destroy error: ${err}`);
+          });
+        }
+      } catch {
+        // Ignore — pool may not be initialized
+      }
 
       // 2. Update DB records (preserve worktrees for ALL phases during deploy)
       for (const inv of running) {
