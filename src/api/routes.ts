@@ -47,6 +47,15 @@ import {
   deleteTask,
   insertSystemEvent,
   getTaskStateTransitions,
+  getAllAgents,
+  getAgent,
+  insertAgent,
+  updateAgent,
+  deleteAgent,
+  getTasksByAgent,
+  getAgentMemories,
+  deleteAgentMemory,
+  incrementAgentRunCount,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -751,9 +760,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tokensInWindow,
       tokenBudgetLimit: config.budgetMaxTokens,
       concurrencyCap: config.concurrencyCap,
-      implementModel: config.implementModel,
+      model: config.model,
       reviewModel: config.reviewModel,
-      fixModel: config.fixModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
       tokensPerMinute,
@@ -967,9 +975,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
     for (const field of [
-      "implementModel",
+      "model",
       "reviewModel",
-      "fixModel",
     ] as const) {
       if (field in body) {
         const val = body[field];
@@ -1011,9 +1018,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       ok: true,
       concurrencyCap: config.concurrencyCap,
       tokenBudgetLimit: config.budgetMaxTokens,
-      implementModel: config.implementModel,
+      model: config.model,
       reviewModel: config.reviewModel,
-      fixModel: config.fixModel,
     });
   });
 
@@ -1694,6 +1700,259 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     } catch {
       return c.json({ functions: [], error: "Inngest unreachable" });
     }
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/agents
+  // -----------------------------------------------------------------------
+  app.get("/api/agents", (c) => {
+    const agentList = getAllAgents(db);
+    return c.json(agentList);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/agents/:id
+  // -----------------------------------------------------------------------
+  app.get("/api/agents/:id", (c) => {
+    const id = c.req.param("id");
+    const agent = getAgent(db, id);
+    if (!agent) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const memories = getAgentMemories(db, id, 50);
+    const agentTasks = getTasksByAgent(db, id);
+    const sorted = [...agentTasks].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    return c.json({ ...agent, memories, tasks: sorted.slice(0, 50) });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/agents
+  // -----------------------------------------------------------------------
+  app.post("/api/agents", async (c) => {
+    const body = await c.req.json<{
+      id: string;
+      name: string;
+      description?: string;
+      systemPrompt: string;
+      model?: string;
+      maxTurns?: number;
+      timeoutMin?: number;
+      repoPath?: string;
+      schedule?: string;
+      maxMemories?: number;
+    }>();
+
+    if (!body.id || !body.name || !body.systemPrompt) {
+      return c.json(
+        { error: "id, name, and systemPrompt are required" },
+        400,
+      );
+    }
+
+    if (
+      body.id.length > 1 &&
+      !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.id)
+    ) {
+      return c.json(
+        { error: "id must be lowercase alphanumeric with hyphens" },
+        400,
+      );
+    }
+
+    if (getAgent(db, body.id)) {
+      return c.json({ error: "agent with this id already exists" }, 409);
+    }
+
+    if (body.schedule) {
+      const scheduleError = validateCronExpression(body.schedule);
+      if (scheduleError) {
+        return c.json({ error: `invalid schedule: ${scheduleError}` }, 400);
+      }
+    }
+
+    const now = new Date().toISOString();
+    insertAgent(db, {
+      id: body.id,
+      name: body.name,
+      description: body.description ?? null,
+      systemPrompt: body.systemPrompt,
+      model: body.model ?? null,
+      maxTurns: body.maxTurns ?? null,
+      timeoutMin: body.timeoutMin ?? 45,
+      repoPath: body.repoPath ?? null,
+      schedule: body.schedule ?? null,
+      maxMemories: body.maxMemories ?? 200,
+      enabled: 1,
+      runCount: 0,
+      lastRunAt: null,
+      nextRunAt: body.schedule ? computeNextRunAt(body.schedule) : null,
+      lastRunStatus: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = getAgent(db, body.id);
+    return c.json(created, 201);
+  });
+
+  // -----------------------------------------------------------------------
+  // PUT /api/agents/:id
+  // -----------------------------------------------------------------------
+  app.put("/api/agents/:id", async (c) => {
+    const id = c.req.param("id");
+    const existing = getAgent(db, id);
+    if (!existing) {
+      return c.json({ error: "not found" }, 404);
+    }
+
+    const body = await c.req.json<{
+      name?: string;
+      description?: string | null;
+      systemPrompt?: string;
+      model?: string | null;
+      maxTurns?: number | null;
+      timeoutMin?: number;
+      repoPath?: string | null;
+      schedule?: string | null;
+      maxMemories?: number;
+      enabled?: number;
+    }>();
+
+    if (body.schedule) {
+      const scheduleError = validateCronExpression(body.schedule);
+      if (scheduleError) {
+        return c.json({ error: `invalid schedule: ${scheduleError}` }, 400);
+      }
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.systemPrompt !== undefined)
+      updates.systemPrompt = body.systemPrompt;
+    if (body.model !== undefined) updates.model = body.model;
+    if (body.maxTurns !== undefined) updates.maxTurns = body.maxTurns;
+    if (body.timeoutMin !== undefined) updates.timeoutMin = body.timeoutMin;
+    if (body.repoPath !== undefined) updates.repoPath = body.repoPath;
+    if (body.maxMemories !== undefined) updates.maxMemories = body.maxMemories;
+    if (body.enabled !== undefined) updates.enabled = body.enabled;
+
+    if (body.schedule !== undefined) {
+      updates.schedule = body.schedule;
+      updates.nextRunAt = body.schedule
+        ? computeNextRunAt(body.schedule)
+        : null;
+    }
+
+    updateAgent(db, id, updates);
+    const updated = getAgent(db, id);
+    return c.json(updated);
+  });
+
+  // -----------------------------------------------------------------------
+  // DELETE /api/agents/:id
+  // -----------------------------------------------------------------------
+  app.delete("/api/agents/:id", (c) => {
+    const id = c.req.param("id");
+    const existing = getAgent(db, id);
+    if (!existing) {
+      return c.json({ error: "not found" }, 404);
+    }
+    deleteAgent(db, id);
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/agents/:id/toggle
+  // -----------------------------------------------------------------------
+  app.post("/api/agents/:id/toggle", (c) => {
+    const id = c.req.param("id");
+    const agent = getAgent(db, id);
+    if (!agent) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const newEnabled = agent.enabled === 1 ? 0 : 1;
+    updateAgent(db, id, { enabled: newEnabled });
+    const updated = getAgent(db, id);
+    return c.json(updated);
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/agents/:id/trigger
+  // -----------------------------------------------------------------------
+  app.post("/api/agents/:id/trigger", (c) => {
+    const id = c.req.param("id");
+    const agent = getAgent(db, id);
+    if (!agent) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const now = new Date().toISOString();
+    const taskId = `agent-${id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    insertTask(db, {
+      linearIssueId: taskId,
+      agentPrompt: agent.systemPrompt,
+      repoPath: agent.repoPath ?? "",
+      orcaStatus: "ready",
+      taskType: "agent",
+      agentId: agent.id,
+      createdAt: now,
+      updatedAt: now,
+      priority: 0,
+      retryCount: 0,
+      reviewCycleCount: 0,
+      mergeAttemptCount: 0,
+      staleSessionRetryCount: 0,
+      isParent: 0,
+    });
+    incrementAgentRunCount(
+      db,
+      id,
+      agent.schedule ? computeNextRunAt(agent.schedule) : null,
+    );
+
+    const agentTask = getTask(db, taskId);
+    if (agentTask) {
+      emitTaskReady(inngest, agentTask);
+    }
+
+    return c.json({ ok: true, taskId });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/agents/:id/memories
+  // -----------------------------------------------------------------------
+  app.get("/api/agents/:id/memories", (c) => {
+    const id = c.req.param("id");
+    const agent = getAgent(db, id);
+    if (!agent) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const typeFilter = c.req.query("type");
+    const memories = getAgentMemories(db, id);
+    if (typeFilter) {
+      return c.json(memories.filter((m) => m.type === typeFilter));
+    }
+    return c.json(memories);
+  });
+
+  // -----------------------------------------------------------------------
+  // DELETE /api/agents/:id/memories/:memoryId
+  // -----------------------------------------------------------------------
+  app.delete("/api/agents/:id/memories/:memoryId", (c) => {
+    const id = c.req.param("id");
+    const memoryId = Number(c.req.param("memoryId"));
+    if (Number.isNaN(memoryId)) {
+      return c.json({ error: "invalid memory id" }, 400);
+    }
+    const agent = getAgent(db, id);
+    if (!agent) {
+      return c.json({ error: "agent not found" }, 404);
+    }
+    deleteAgentMemory(db, memoryId);
+    return c.json({ ok: true });
   });
 
   // -----------------------------------------------------------------------
