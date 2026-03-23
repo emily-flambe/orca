@@ -18,40 +18,24 @@ export interface OrcaConfig {
   maxReviewCycles: number;
   reviewMaxTurns: number;
   disallowedTools: string;
-  implementModel: string;
+  model: string;
   reviewModel: string;
-  fixModel: string;
   deployStrategy: "none" | "github_actions";
-  deployPollIntervalSec: number;
-  deployTimeoutMin: number;
   maxDeployPollAttempts: number;
   maxCiPollAttempts: number;
-  cleanupIntervalMin: number;
-  cleanupBranchMaxAgeMin: number;
-  invocationLogRetentionHours: number;
-  resumeOnMaxTurns: boolean;
-  resumeOnFix: boolean;
-  maxWorktreeRetries: number;
   port: number;
   dbPath: string;
   logPath: string;
-  logMaxSizeMb: number;
   // Linear integration
   linearApiKey: string;
   linearWebhookSecret: string;
   linearProjectIds: string[];
-  taskFilterLabel: string | undefined;
   tunnelHostname: string;
-  // GitHub webhook (optional — enables auto-deploy on push to main)
-  githubWebhookSecret: string | undefined;
   // Alert webhook (optional — Slack/Discord compatible, fires on permanent failure)
   alertWebhookUrl: string | undefined;
   tunnelToken: string;
   cloudflaredPath: string;
   externalTunnel: boolean;
-  cronRetentionDays: number;
-  strandedTaskThresholdMin: number;
-  stateMapOverrides: Record<string, string> | undefined;
 
   logLevel: string;
 }
@@ -295,9 +279,11 @@ Steps:
     ),
     maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 10),
     reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
-    implementModel: readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
+    model: readEnvOrDefault(
+      "ORCA_MODEL",
+      readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
+    ),
     reviewModel: readEnvOrDefault("ORCA_REVIEW_MODEL", "haiku"),
-    fixModel: readEnvOrDefault("ORCA_FIX_MODEL", "sonnet"),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     deployStrategy: (() => {
       const val = readEnvOrDefault("ORCA_DEPLOY_STRATEGY", "none");
@@ -308,85 +294,23 @@ Steps:
       }
       return val as "none" | "github_actions";
     })(),
-    deployPollIntervalSec: readIntOrDefault(
-      "ORCA_DEPLOY_POLL_INTERVAL_SEC",
-      30,
-    ),
-    deployTimeoutMin: readIntOrDefault("ORCA_DEPLOY_TIMEOUT_MIN", 30),
     maxDeployPollAttempts: readIntOrDefault(
       "ORCA_DEPLOY_MAX_POLL_ATTEMPTS",
       60,
     ),
     maxCiPollAttempts: readIntOrDefault("ORCA_CI_MAX_POLL_ATTEMPTS", 240),
-    cleanupIntervalMin: readIntOrDefault("ORCA_CLEANUP_INTERVAL_MIN", 10),
-    cleanupBranchMaxAgeMin: readIntOrDefault(
-      "ORCA_CLEANUP_BRANCH_MAX_AGE_MIN",
-      60,
-    ),
-    invocationLogRetentionHours: readIntOrDefault(
-      "ORCA_INVOCATION_LOG_RETENTION_HOURS",
-      168,
-    ),
-    resumeOnMaxTurns: readBoolOrDefault("ORCA_RESUME_ON_MAX_TURNS", true),
-    resumeOnFix: readBoolOrDefault("ORCA_RESUME_ON_FIX", true),
-    maxWorktreeRetries: readIntOrDefault("ORCA_MAX_WORKTREE_RETRIES", 3),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),
-    logMaxSizeMb: readPositiveNumberOrDefault("ORCA_LOG_MAX_SIZE_MB", 10),
     // Linear integration
     linearApiKey,
     linearWebhookSecret,
     linearProjectIds,
-    taskFilterLabel: readEnv("ORCA_TASK_FILTER_LABEL"),
     tunnelHostname,
-    githubWebhookSecret: readEnv("ORCA_GITHUB_WEBHOOK_SECRET"),
     alertWebhookUrl: readEnv("ORCA_ALERT_WEBHOOK_URL"),
     tunnelToken,
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
-    cronRetentionDays: readIntOrDefault("ORCA_CRON_RETENTION_DAYS", 7),
-    strandedTaskThresholdMin: readIntOrDefault(
-      "ORCA_STRANDED_TASK_THRESHOLD_MIN",
-      30,
-    ),
-    stateMapOverrides: (() => {
-      const raw = readEnv("ORCA_STATE_MAP");
-      if (raw === undefined) return undefined;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        exitWithError(
-          'ORCA_STATE_MAP must be valid JSON (e.g. {"Done":"done","In Progress":"running"})',
-        );
-      }
-      if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-      ) {
-        exitWithError("ORCA_STATE_MAP must be a JSON object");
-      }
-      const VALID_STATUSES = new Set([
-        "backlog",
-        "ready",
-        "running",
-        "in_review",
-        "done",
-        "skip",
-      ]);
-      for (const [key, value] of Object.entries(
-        parsed as Record<string, unknown>,
-      )) {
-        if (typeof value !== "string" || !VALID_STATUSES.has(value)) {
-          exitWithError(
-            `ORCA_STATE_MAP: invalid status "${String(value)}" for key "${key}". Valid values: backlog, ready, running, in_review, done, skip`,
-          );
-        }
-      }
-      return parsed as Record<string, string>;
-    })(),
 
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();

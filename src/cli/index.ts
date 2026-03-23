@@ -21,7 +21,6 @@ import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
 import { fullSync, writeBackStatus, logStateMapping } from "../linear/sync.js";
 import { createWebhookRoute } from "../linear/webhook.js";
-import { createGithubWebhookRoute } from "../github/webhook.js";
 import { initDeployState, isDraining } from "../deploy.js";
 import { startTunnel, type TunnelHandle } from "../tunnel/index.js";
 import { createPoller, type PollerHandle } from "../linear/poller.js";
@@ -100,7 +99,7 @@ program
     const config = loadConfig();
     initFileLogger({
       logPath: config.logPath,
-      maxSizeBytes: config.logMaxSizeMb * 1024 * 1024,
+      maxSizeBytes: 10 * 1024 * 1024,
     });
     const db = createDb(config.dbPath);
     initAlertSystem(db);
@@ -200,9 +199,6 @@ program
       logger.info(`recovered ${recovered} orphaned task(s) → ready`);
     }
 
-    // Label filter cache (shared between fullSync and webhook handler)
-    const labelIdCache = new Map<string, string>();
-
     // Full sync: populate tasks table + dependency graph
     // Do NOT pass inngest here — the startup re-emit block below handles all
     // ready tasks after registration. Passing inngest would double-emit task/ready
@@ -213,7 +209,6 @@ program
       graph,
       config,
       undefined,
-      labelIdCache,
       undefined,
     );
 
@@ -222,7 +217,7 @@ program
     const stateMap = await client.fetchWorkflowStates(teamIds);
 
     // Log resolved state mapping + warn on ambiguity
-    logStateMapping(stateMap, config.stateMapOverrides);
+    logStateMapping(stateMap);
 
     // Reconcile failed tasks whose Linear status is still active.
     // On crash/restart, fire-and-forget write-backs may have been lost.
@@ -303,7 +298,6 @@ program
       graph,
       config,
       stateMap,
-      labelIdCache,
       inngest,
     });
 
@@ -311,8 +305,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () =>
-        fullSync(db, client, graph, config, stateMap, labelIdCache, inngest),
+      syncTasks: () => fullSync(db, client, graph, config, stateMap, inngest),
       client,
       stateMap,
       projectMeta,
@@ -330,18 +323,6 @@ program
     });
     app.on(["GET", "PUT", "POST"], "/api/inngest", (c) => inngestHandler(c));
     logger.info("serve endpoint mounted at /api/inngest");
-
-    // GitHub webhook route (optional — used for future integrations)
-    if (config.githubWebhookSecret) {
-      const githubWebhookApp = createGithubWebhookRoute({
-        secret: config.githubWebhookSecret,
-        onPushToMain: () => {
-          /* auto-deploy via webhook removed — deploy.sh handles deploys */
-        },
-      });
-      app.route("/", githubWebhookApp);
-      logger.info("github webhook registered");
-    }
 
     // Static files + SPA fallback (after API routes so API takes priority)
     app.use("/*", serveStatic({ root: "./web/dist" }));
@@ -368,7 +349,6 @@ program
       graph,
       config,
       stateMap,
-      labelIdCache,
       inngest,
       isTunnelConnected: () =>
         config.externalTunnel ? true : tunnel!.isTunnelConnected(),
