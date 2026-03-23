@@ -80,6 +80,7 @@ vi.mock("../src/db/queries.js", () => ({
   incrementRetryCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),
   updateTaskCiInfo: vi.fn(),
+  updateTaskPrState: vi.fn(),
   getLastMaxTurnsInvocation: vi.fn().mockReturnValue(null),
   getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),

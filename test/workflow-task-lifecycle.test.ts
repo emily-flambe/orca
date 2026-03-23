@@ -51,6 +51,7 @@ vi.mock("../src/db/queries.js", () => ({
   incrementReviewCycleCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),
   updateTaskCiInfo: vi.fn(),
+  updateTaskPrState: vi.fn(),
   updateTaskDeployInfo: vi.fn(),
   updateTaskFixReason: vi.fn(),
   getLastMaxTurnsInvocation: vi.fn().mockReturnValue(null),
