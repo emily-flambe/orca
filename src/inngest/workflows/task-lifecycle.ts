@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
 import {
@@ -313,7 +313,7 @@ export function buildOrcaMcpServers(
     orca: {
       command: process.execPath,
       args: [mcpServerPath],
-      env: { ORCA_DB_PATH: config.dbPath },
+      env: { ORCA_DB_PATH: resolve(config.dbPath) },
     },
   };
 }
