@@ -102,6 +102,7 @@ vi.mock("../src/github/index.js", () => ({
   updatePrBranch: vi.fn(),
   rebasePrBranch: vi.fn(),
   getMergeCommitSha: vi.fn(),
+  enrichPrDescription: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../src/git.js", () => ({
