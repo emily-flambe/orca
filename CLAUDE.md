@@ -41,6 +41,7 @@ cd web && npm run build  # Build frontend (vite)
 | `src/cleanup/` | Stale `orca/*` branch, orphaned worktree/PR cleanup |
 | `src/config/` | Env var loading + built-in system prompts (implement, review, fix) |
 | `src/tunnel/` | Cloudflared tunnel management |
+| `src/mcp-server/` | Orca-state MCP server — exposes task metadata, invocation history to agents |
 | `web/` | React dashboard (Vite + Tailwind) |
 
 ## Task Lifecycle
@@ -161,6 +162,14 @@ Unit tests with mocked Inngest steps cannot catch workflow-level failures (e.g.,
 - Unit tests verify individual step logic
 - Integration verification (post-deploy) verifies the workflow chain actually executes
 - Both are required. Shipping with only unit tests has caused repeated outages.
+
+## MCP Integration
+
+Orca adopts MCP for **agent-facing integrations only** — scheduler-side integrations (`src/linear/`, `src/github/`) remain hardcoded TypeScript. Full decision: `docs/mcp-architecture.md`, ADR: `docs/adr/EMI-349-mcp-extension-mechanism.md`.
+
+- **Runner**: generates an MCP config JSON at spawn time, passes `--mcp-config <path> --strict-mcp-config` to each Claude session
+- **Orca-state MCP server** (`src/mcp-server/`): stdio server exposing task metadata, invocation history, and parent issue context to agents
+- **Adding new MCP servers**: add entries to the `mcpServers` config in the runner's session options — no scheduler code changes needed
 
 ## Creating Linear Issues
 
