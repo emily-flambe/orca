@@ -1244,6 +1244,18 @@ describe("POST /api/tasks", () => {
     const body = await res.json();
     expect(body.error).toBe("Linear API down");
   });
+
+  it("returns 500 (not a hang) when createIssue rejects with timeout error", async () => {
+    createIssueMock.mockRejectedValueOnce(
+      new Error(
+        "LinearClient: network error after 4 attempts: The operation was aborted.",
+      ),
+    );
+    const res = await post({ title: "Timeout test" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1569,4 +1581,3 @@ describe("GET /api/invocations/:id/logs — cron_shell", () => {
     expect(body.lines[0]).toMatchObject({ type: "shell_output", exitCode: 1 });
   });
 });
-
