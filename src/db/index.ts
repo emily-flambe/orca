@@ -626,6 +626,8 @@ export async function backfillPrState(dbPath: string): Promise<void> {
       // Skip failures silently — best-effort backfill
     }
   }
+
+  sqlite.close();
 }
 
 function mapBackfillState(
