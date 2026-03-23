@@ -24,6 +24,7 @@ import { getHookUrl } from "../../hooks.js";
 import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { runWithLogContext } from "../../logger-context.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
   assertAgentSessionCapacity,
@@ -108,255 +109,263 @@ export const agentTaskLifecycle = inngest.createFunction(
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
 
-    log(`agent workflow started for task ${taskId}`);
+    return runWithLogContext({ taskId }, async () => {
+      log(`agent workflow started for task ${taskId}`);
 
-    // Step 1: Claim task
-    const claimResult = await step.run(
-      "claim-task",
-      (): { claimed: boolean; reason?: string } => {
-        const { db } = getSchedulerDeps();
+      // Step 1: Claim task
+      const claimResult = await step.run(
+        "claim-task",
+        (): { claimed: boolean; reason?: string } => {
+          const { db } = getSchedulerDeps();
 
-        try {
-          assertAgentSessionCapacity(db);
-        } catch (err) {
-          const reason =
-            err instanceof Error ? err.message : "session cap reached";
-          // Capacity blocked — delete the task so agent can re-dispatch next schedule
+          try {
+            assertAgentSessionCapacity(db);
+          } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
+            // Capacity blocked — delete the task so agent can re-dispatch next schedule
+            const task = getTask(db, taskId);
+            if (task && task.orcaStatus === "ready") {
+              deleteTask(db, taskId);
+              log(
+                `agent task ${taskId}: capacity blocked, deleted task for re-dispatch`,
+              );
+            }
+            return { claimed: false, reason };
+          }
+
           const task = getTask(db, taskId);
-          if (task && task.orcaStatus === "ready") {
-            deleteTask(db, taskId);
+          if (!task) return { claimed: false, reason: "task not found" };
+
+          const claimed = claimTaskForDispatch(db, taskId, ["ready"]);
+          if (!claimed) {
+            return {
+              claimed: false,
+              reason: `not in ready state (current: ${task.orcaStatus})`,
+            };
+          }
+
+          emitTaskUpdated(getTask(db, taskId)!);
+          return { claimed: true };
+        },
+      );
+
+      if (!claimResult.claimed) {
+        log(`agent task ${taskId}: claim failed — ${claimResult.reason}`);
+        return { outcome: "not_claimed", reason: claimResult.reason };
+      }
+
+      // Step 2: Load agent + memories, spawn session
+      const implementCtx = await step.run(
+        "start-agent-session",
+        (): {
+          invocationId: number;
+          worktreePath: string;
+          branchName: string;
+          agentId: string | null;
+        } | null => {
+          const { db, config } = getSchedulerDeps();
+          const task = getTask(db, taskId);
+          if (!task) throw new Error(`task ${taskId} not found`);
+
+          try {
+            assertAgentSessionCapacity(db);
+          } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
             log(
-              `agent task ${taskId}: capacity blocked, deleted task for re-dispatch`,
+              `agent task ${taskId}: spawn blocked (${reason}), resetting to ready`,
+            );
+            updateTaskStatus(db, taskId, "ready");
+            emitTaskUpdated(getTask(db, taskId)!);
+            return null;
+          }
+
+          // Load agent definition and memories
+          const agentId = task.agentId;
+          const agent = agentId ? getAgent(db, agentId) : null;
+          const model = agent?.model ?? "opus";
+          const maxTurns = agent?.maxTurns ?? config.defaultMaxTurns;
+
+          // Build system prompt with memories
+          let systemPrompt = config.implementSystemPrompt || "";
+          if (agent && agentId) {
+            const memories = getAgentMemories(db, agentId);
+            const memoryBlock = formatMemoriesForPrompt(memories);
+            if (memoryBlock) {
+              systemPrompt = systemPrompt
+                ? `${systemPrompt}\n\n${memoryBlock}`
+                : memoryBlock;
+            }
+          }
+
+          const repoPath =
+            task.repoPath || agent?.repoPath || config.defaultCwd;
+          if (!repoPath) {
+            throw new Error(
+              `agent task ${taskId}: no repoPath — set repoPath on the agent or ORCA_DEFAULT_CWD`,
             );
           }
-          return { claimed: false, reason };
-        }
+          const wtResult = createWorktree(repoPath, taskId, 0);
+          const { worktreePath, branchName } = wtResult;
 
-        const task = getTask(db, taskId);
-        if (!task) return { claimed: false, reason: "task not found" };
-
-        const claimed = claimTaskForDispatch(db, taskId, ["ready"]);
-        if (!claimed) {
-          return {
-            claimed: false,
-            reason: `not in ready state (current: ${task.orcaStatus})`,
-          };
-        }
-
-        emitTaskUpdated(getTask(db, taskId)!);
-        return { claimed: true };
-      },
-    );
-
-    if (!claimResult.claimed) {
-      log(`agent task ${taskId}: claim failed — ${claimResult.reason}`);
-      return { outcome: "not_claimed", reason: claimResult.reason };
-    }
-
-    // Step 2: Load agent + memories, spawn session
-    const implementCtx = await step.run(
-      "start-agent-session",
-      (): {
-        invocationId: number;
-        worktreePath: string;
-        branchName: string;
-        agentId: string | null;
-      } | null => {
-        const { db, config } = getSchedulerDeps();
-        const task = getTask(db, taskId);
-        if (!task) throw new Error(`task ${taskId} not found`);
-
-        try {
-          assertAgentSessionCapacity(db);
-        } catch (err) {
-          const reason =
-            err instanceof Error ? err.message : "session cap reached";
-          log(
-            `agent task ${taskId}: spawn blocked (${reason}), resetting to ready`,
-          );
-          updateTaskStatus(db, taskId, "ready");
-          emitTaskUpdated(getTask(db, taskId)!);
-          return null;
-        }
-
-        // Load agent definition and memories
-        const agentId = task.agentId;
-        const agent = agentId ? getAgent(db, agentId) : null;
-        const model = agent?.model ?? "opus";
-        const maxTurns = agent?.maxTurns ?? config.defaultMaxTurns;
-
-        // Build system prompt with memories
-        let systemPrompt = config.implementSystemPrompt || "";
-        if (agent && agentId) {
-          const memories = getAgentMemories(db, agentId);
-          const memoryBlock = formatMemoriesForPrompt(memories);
-          if (memoryBlock) {
-            systemPrompt = systemPrompt
-              ? `${systemPrompt}\n\n${memoryBlock}`
-              : memoryBlock;
-          }
-        }
-
-        const repoPath = task.repoPath || agent?.repoPath || config.defaultCwd;
-        if (!repoPath) {
-          throw new Error(
-            `agent task ${taskId}: no repoPath — set repoPath on the agent or ORCA_DEFAULT_CWD`,
-          );
-        }
-        const wtResult = createWorktree(repoPath, taskId, 0);
-        const { worktreePath, branchName } = wtResult;
-
-        const now = new Date().toISOString();
-        const invocationId = insertInvocation(db, {
-          linearIssueId: taskId,
-          startedAt: now,
-          status: "running",
-          phase: "implement",
-          model,
-          worktreePath,
-          branchName,
-          logPath: "logs/0.ndjson",
-        });
-        updateInvocation(db, invocationId, {
-          logPath: `logs/${invocationId}.ndjson`,
-        });
-
-        // Build MCP config with ORCA_AGENT_ID for memory write tools
-        const baseMcpServers = buildOrcaMcpServers(config) ?? {};
-        const mcpServers = agentId
-          ? Object.fromEntries(
-              Object.entries(baseMcpServers).map(([name, cfg]) => [
-                name,
-                "command" in cfg
-                  ? {
-                      ...cfg,
-                      env: { ...cfg.env, ORCA_AGENT_ID: agentId },
-                    }
-                  : cfg,
-              ]),
-            )
-          : baseMcpServers;
-
-        const handle = spawnSession({
-          agentPrompt: task.agentPrompt ?? "",
-          worktreePath,
-          maxTurns,
-          invocationId,
-          projectRoot: process.cwd(),
-          claudePath: config.claudePath,
-          appendSystemPrompt: systemPrompt || undefined,
-          disallowedTools: buildDisallowedTools(config),
-          repoPath: task.repoPath,
-          model,
-          mcpServers:
-            Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
-          hookUrl: getHookUrl(invocationId),
-        });
-
-        bridgeSessionCompletion(
-          invocationId,
-          taskId,
-          "implement",
-          handle,
-          branchName,
-          worktreePath,
-        );
-
-        emitInvocationStarted({ taskId, invocationId });
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        log(
-          `agent task ${taskId}: session spawned as invocation ${invocationId}`,
-        );
-        return { invocationId, worktreePath, branchName, agentId };
-      },
-    );
-
-    if (!implementCtx) return { outcome: "capacity_blocked" };
-
-    // Step 3: Wait for session to complete
-    const sessionEvent = await step.waitForEvent("await-session", {
-      event: "session/completed",
-      if: `async.data.invocationId == ${implementCtx.invocationId}`,
-      timeout: SESSION_TIMEOUT,
-    });
-
-    // Step 4: Finalize
-    const timedOut = !sessionEvent;
-    const succeeded = sessionEvent && sessionEvent.data.exitCode === 0;
-
-    const result = await step.run("finalize-agent-task", () => {
-      const { db } = getSchedulerDeps();
-      const { invocationId, agentId } = implementCtx;
-      const task = getTask(db, taskId);
-      if (!task) return { outcome: "permanent_fail" as const };
-
-      if (timedOut) {
-        log(
-          `agent task ${taskId}: session timed out (invocation ${invocationId})`,
-        );
-        const handle = activeHandles.get(invocationId);
-        if (handle) {
-          killSession(handle).catch((err: unknown) => {
-            logger.warn("killSession failed (agent timeout)", {
-              taskId,
-              invocationId,
-              error: String(err),
-            });
+          const now = new Date().toISOString();
+          const invocationId = insertInvocation(db, {
+            linearIssueId: taskId,
+            startedAt: now,
+            status: "running",
+            phase: "implement",
+            model,
+            worktreePath,
+            branchName,
+            logPath: "logs/0.ndjson",
           });
-          activeHandles.delete(invocationId);
-        }
-        updateInvocation(db, invocationId, {
-          status: "timed_out",
-          endedAt: new Date().toISOString(),
-          outputSummary: `agent session timed out after ${SESSION_TIMEOUT}`,
-        });
-        updateTaskStatus(db, taskId, "failed", {
-          reason: "agent_session_timeout",
-          failureReason: `Agent session timed out after ${SESSION_TIMEOUT}`,
-          failedPhase: "implement",
-        });
-        if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
-        emitTaskUpdated(getTask(db, taskId)!);
-        return { outcome: "permanent_fail" as const };
-      }
+          updateInvocation(db, invocationId, {
+            logPath: `logs/${invocationId}.ndjson`,
+          });
 
-      if (succeeded) {
-        updateTaskStatus(db, taskId, "done", {
-          reason: "agent_session_succeeded",
-        });
-        if (agentId) updateAgentLastRunStatus(db, agentId, "success");
-        emitTaskUpdated(getTask(db, taskId)!);
-        log(`agent task ${taskId} completed successfully`);
-        return { outcome: "done" as const };
-      }
+          // Build MCP config with ORCA_AGENT_ID for memory write tools
+          const baseMcpServers = buildOrcaMcpServers(config) ?? {};
+          const mcpServers = agentId
+            ? Object.fromEntries(
+                Object.entries(baseMcpServers).map(([name, cfg]) => [
+                  name,
+                  "command" in cfg
+                    ? {
+                        ...cfg,
+                        env: { ...cfg.env, ORCA_AGENT_ID: agentId },
+                      }
+                    : cfg,
+                ]),
+              )
+            : baseMcpServers;
 
-      updateTaskStatus(db, taskId, "failed", {
-        reason: "agent_session_failed",
-        failureReason: `Agent session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
-        failedPhase: "implement",
-      });
-      if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
-      emitTaskUpdated(getTask(db, taskId)!);
-      log(
-        `agent task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
-      );
-      return { outcome: "permanent_fail" as const };
-    });
+          const handle = spawnSession({
+            agentPrompt: task.agentPrompt ?? "",
+            worktreePath,
+            maxTurns,
+            invocationId,
+            projectRoot: process.cwd(),
+            claudePath: config.claudePath,
+            appendSystemPrompt: systemPrompt || undefined,
+            disallowedTools: buildDisallowedTools(config),
+            repoPath: task.repoPath,
+            model,
+            mcpServers:
+              Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
+            hookUrl: getHookUrl(invocationId),
+          });
 
-    // Step 5: Cleanup worktree
-    if (implementCtx.worktreePath) {
-      await step.run("cleanup-worktree", () => {
-        try {
-          removeWorktree(implementCtx.worktreePath);
-        } catch (err) {
-          log(
-            `failed to remove agent worktree ${implementCtx.worktreePath}: ${err}`,
+          bridgeSessionCompletion(
+            invocationId,
+            taskId,
+            "implement",
+            handle,
+            branchName,
+            worktreePath,
           );
-        }
-      });
-    }
 
-    return { outcome: result.outcome };
+          emitInvocationStarted({ taskId, invocationId });
+          emitTaskUpdated(getTask(db, taskId)!);
+
+          log(
+            `agent task ${taskId}: session spawned as invocation ${invocationId}`,
+          );
+          return { invocationId, worktreePath, branchName, agentId };
+        },
+      );
+
+      if (!implementCtx) return { outcome: "capacity_blocked" };
+
+      // Step 3: Wait for session to complete
+      const sessionEvent = await step.waitForEvent("await-session", {
+        event: "session/completed",
+        if: `async.data.invocationId == ${implementCtx.invocationId}`,
+        timeout: SESSION_TIMEOUT,
+      });
+
+      // Step 4: Finalize
+      const timedOut = !sessionEvent;
+      const succeeded = sessionEvent && sessionEvent.data.exitCode === 0;
+
+      const result = await step.run("finalize-agent-task", () =>
+        runWithLogContext(
+          { taskId, invocationId: String(implementCtx.invocationId) },
+          () => {
+            const { db } = getSchedulerDeps();
+            const { invocationId, agentId } = implementCtx;
+            const task = getTask(db, taskId);
+            if (!task) return { outcome: "permanent_fail" as const };
+
+            if (timedOut) {
+              log(
+                `agent task ${taskId}: session timed out (invocation ${invocationId})`,
+              );
+              const handle = activeHandles.get(invocationId);
+              if (handle) {
+                killSession(handle).catch((err: unknown) => {
+                  logger.warn("killSession failed (agent timeout)", {
+                    taskId,
+                    invocationId,
+                    error: String(err),
+                  });
+                });
+                activeHandles.delete(invocationId);
+              }
+              updateInvocation(db, invocationId, {
+                status: "timed_out",
+                endedAt: new Date().toISOString(),
+                outputSummary: `agent session timed out after ${SESSION_TIMEOUT}`,
+              });
+              updateTaskStatus(db, taskId, "failed", {
+                reason: "agent_session_timeout",
+                failureReason: `Agent session timed out after ${SESSION_TIMEOUT}`,
+                failedPhase: "implement",
+              });
+              if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
+              emitTaskUpdated(getTask(db, taskId)!);
+              return { outcome: "permanent_fail" as const };
+            }
+
+            if (succeeded) {
+              updateTaskStatus(db, taskId, "done", {
+                reason: "agent_session_succeeded",
+              });
+              if (agentId) updateAgentLastRunStatus(db, agentId, "success");
+              emitTaskUpdated(getTask(db, taskId)!);
+              log(`agent task ${taskId} completed successfully`);
+              return { outcome: "done" as const };
+            }
+
+            updateTaskStatus(db, taskId, "failed", {
+              reason: "agent_session_failed",
+              failureReason: `Agent session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
+              failedPhase: "implement",
+            });
+            if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
+            emitTaskUpdated(getTask(db, taskId)!);
+            log(
+              `agent task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
+            );
+            return { outcome: "permanent_fail" as const };
+          },
+        ),
+      );
+
+      // Step 5: Cleanup worktree
+      if (implementCtx.worktreePath) {
+        await step.run("cleanup-worktree", () => {
+          try {
+            removeWorktree(implementCtx.worktreePath);
+          } catch (err) {
+            log(
+              `failed to remove agent worktree ${implementCtx.worktreePath}: ${err}`,
+            );
+          }
+        });
+      }
+
+      return { outcome: result.outcome };
+    }); // end runWithLogContext({ taskId })
   },
 );

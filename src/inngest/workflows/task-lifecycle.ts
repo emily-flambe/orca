@@ -71,6 +71,7 @@ import { activeHandles } from "../../session-handles.js";
 import { isDraining } from "../../deploy.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
+import { runWithLogContext } from "../../logger-context.js";
 import {
   getResourceSnapshot,
   isResourceConstrained,
@@ -445,47 +446,48 @@ export const taskLifecycle = inngest.createFunction(
 
     const claimResult = await step.run(
       "claim-task",
-      (): { claimed: boolean; reason?: string; phase?: string } => {
-        const { db, client, stateMap } = getSchedulerDeps();
+      (): { claimed: boolean; reason?: string; phase?: string } =>
+        runWithLogContext({ taskId }, () => {
+          const { db, client, stateMap } = getSchedulerDeps();
 
-        // Check capacity BEFORE claiming — if we claim first and capacity is
-        // full, the DB row transitions to "running" with no session (zombie).
-        // Return gracefully instead of throwing — with retries: 0, a throw
-        // kills the workflow permanently and the task is never re-dispatched.
-        try {
-          assertSessionCapacity(db);
-        } catch (err) {
-          const reason =
-            err instanceof Error ? err.message : "session cap reached";
-          return { claimed: false, reason };
-        }
+          // Check capacity BEFORE claiming — if we claim first and capacity is
+          // full, the DB row transitions to "running" with no session (zombie).
+          // Return gracefully instead of throwing — with retries: 0, a throw
+          // kills the workflow permanently and the task is never re-dispatched.
+          try {
+            assertSessionCapacity(db);
+          } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
+            return { claimed: false, reason };
+          }
 
-        const task = getTask(db, taskId);
-        if (!task) return { claimed: false, reason: "task not found" };
+          const task = getTask(db, taskId);
+          if (!task) return { claimed: false, reason: "task not found" };
 
-        const claimed = claimTaskForDispatch(db, taskId, [
-          "ready",
-          "in_review",
-          "changes_requested",
-        ]);
-        if (!claimed) {
-          return {
-            claimed: false,
-            reason: `task ${taskId} not in a dispatchable state (current: ${task.orcaStatus})`,
-          };
-        }
+          const claimed = claimTaskForDispatch(db, taskId, [
+            "ready",
+            "in_review",
+            "changes_requested",
+          ]);
+          if (!claimed) {
+            return {
+              claimed: false,
+              reason: `task ${taskId} not in a dispatchable state (current: ${task.orcaStatus})`,
+            };
+          }
 
-        emitTaskUpdated(getTask(db, taskId)!);
-        transitionToFinalState({ client, stateMap }, taskId, "running").catch(
-          (err) =>
-            logger.warn("Linear write-back failed for running status", {
-              taskId,
-              error: String(err),
-            }),
-        );
+          emitTaskUpdated(getTask(db, taskId)!);
+          transitionToFinalState({ client, stateMap }, taskId, "running").catch(
+            (err) =>
+              logger.warn("Linear write-back failed for running status", {
+                taskId,
+                error: String(err),
+              }),
+          );
 
-        return { claimed: true, phase: task.orcaStatus as string };
-      },
+          return { claimed: true, phase: task.orcaStatus as string };
+        }),
     );
 
     if (!claimResult.claimed) {
@@ -542,83 +544,58 @@ export const taskLifecycle = inngest.createFunction(
         branchName: string;
         isFixPhase: boolean;
         startedAt: number;
-      } | null => {
-        const { db, config, client } = getSchedulerDeps();
-        const task = getTask(db, taskId);
-        if (!task) throw new Error(`task ${taskId} not found`);
+      } | null =>
+        runWithLogContext({ taskId }, () => {
+          const { db, config, client } = getSchedulerDeps();
+          const task = getTask(db, taskId);
+          if (!task) throw new Error(`task ${taskId} not found`);
 
-        // Detect resume scenarios
-        let resumeSessionId: string | undefined;
-        let resumeWorktreePath: string | undefined;
-        let resumeBranchName: string | undefined;
-        let isDeployResume = false;
+          // Detect resume scenarios
+          let resumeSessionId: string | undefined;
+          let resumeWorktreePath: string | undefined;
+          let resumeBranchName: string | undefined;
+          let isDeployResume = false;
 
-        if (true) {
-          const prevInv = getLastMaxTurnsInvocation(db, taskId);
-          if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
-            resumeSessionId = prevInv.sessionId ?? undefined;
-            resumeWorktreePath = prevInv.worktreePath;
-            resumeBranchName = prevInv.branchName ?? undefined;
-            log(
-              `task ${taskId}: resuming max-turns session ${resumeSessionId} at ${resumeWorktreePath}`,
-            );
+          if (true) {
+            const prevInv = getLastMaxTurnsInvocation(db, taskId);
+            if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
+              resumeSessionId = prevInv.sessionId ?? undefined;
+              resumeWorktreePath = prevInv.worktreePath;
+              resumeBranchName = prevInv.branchName ?? undefined;
+              log(
+                `task ${taskId}: resuming max-turns session ${resumeSessionId} at ${resumeWorktreePath}`,
+              );
+            }
           }
-        }
 
-        if (!resumeWorktreePath) {
-          const prevInv = getLastDeployInterruptedInvocation(db, taskId);
-          if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
-            resumeSessionId = prevInv.sessionId ?? undefined;
-            resumeWorktreePath = prevInv.worktreePath;
-            resumeBranchName = prevInv.branchName ?? undefined;
-            isDeployResume = true;
-            log(
-              `task ${taskId}: resuming deploy-interrupted session ${resumeSessionId ?? "none"} at ${resumeWorktreePath}`,
-            );
+          if (!resumeWorktreePath) {
+            const prevInv = getLastDeployInterruptedInvocation(db, taskId);
+            if (prevInv?.worktreePath && existsSync(prevInv.worktreePath)) {
+              resumeSessionId = prevInv.sessionId ?? undefined;
+              resumeWorktreePath = prevInv.worktreePath;
+              resumeBranchName = prevInv.branchName ?? undefined;
+              isDeployResume = true;
+              log(
+                `task ${taskId}: resuming deploy-interrupted session ${resumeSessionId ?? "none"} at ${resumeWorktreePath}`,
+              );
+            }
           }
-        }
 
-        const isFixPhase = task.orcaStatus === "changes_requested";
-        let fixPhaseResumeSessionId: string | undefined;
-        if (isFixPhase) {
-          const prevInv = getLastCompletedImplementInvocation(db, taskId);
-          if (prevInv?.sessionId) {
-            fixPhaseResumeSessionId = prevInv.sessionId;
+          const isFixPhase = task.orcaStatus === "changes_requested";
+          let fixPhaseResumeSessionId: string | undefined;
+          if (isFixPhase) {
+            const prevInv = getLastCompletedImplementInvocation(db, taskId);
+            if (prevInv?.sessionId) {
+              fixPhaseResumeSessionId = prevInv.sessionId;
+            }
           }
-        }
 
-        const model = config.model;
+          const model = config.model;
 
-        // Check capacity BEFORE creating worktree or inserting invocation —
-        // creating resources first would leak them if the check throws.
-        // Catch errors gracefully — with retries: 0, a throw kills the
-        // workflow permanently and orphans the task.
-        try {
-          assertSessionCapacity(db);
-        } catch (err) {
-          const reason =
-            err instanceof Error ? err.message : "session cap reached";
-          log(
-            `task ${taskId}: implement spawn blocked (${reason}), resetting to ready`,
-          );
-          updateTaskStatus(db, taskId, "ready", {
-            reason: "spawn_blocked_capacity",
-          });
-          emitTaskUpdated(getTask(db, taskId)!);
-          return null;
-        }
-
-        let worktreePath: string;
-        let branchName: string;
-
-        if (resumeWorktreePath) {
-          worktreePath = resumeWorktreePath;
-          branchName = resumeBranchName ?? "unknown";
-        } else {
-          const baseRef = isFixPhase
-            ? (task.prBranchName ?? undefined)
-            : undefined;
-          let wtResult;
+          // Check capacity BEFORE creating worktree or inserting invocation —
+          // creating resources first would leak them if the check throws.
+          // Catch errors gracefully — with retries: 0, a throw kills the
+          // workflow permanently and orphans the task.
           try {
             const { worktreePool } = getSchedulerDeps();
             if (worktreePool && !baseRef) {
@@ -628,102 +605,130 @@ export const taskLifecycle = inngest.createFunction(
               wtResult = createWorktree(task.repoPath, taskId, 0, { baseRef });
             }
           } catch (err) {
+            const reason =
+              err instanceof Error ? err.message : "session cap reached";
             log(
-              `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
+              `task ${taskId}: implement spawn blocked (${reason}), resetting to ready`,
             );
             updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_worktree_error",
+              reason: "spawn_blocked_capacity",
             });
             emitTaskUpdated(getTask(db, taskId)!);
             return null;
           }
-          worktreePath = wtResult.worktreePath;
-          branchName = wtResult.branchName;
-        }
 
-        let agentPrompt = task.agentPrompt ?? "";
-        let appendSystemPrompt: string | undefined;
+          let worktreePath: string;
+          let branchName: string;
 
-        if (isFixPhase) {
-          if (task.fixReason === "merge_conflict") {
-            agentPrompt +=
-              "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
-            updateTaskFixReason(db, taskId, null);
+          if (resumeWorktreePath) {
+            worktreePath = resumeWorktreePath;
+            branchName = resumeBranchName ?? "unknown";
+          } else {
+            const baseRef = isFixPhase
+              ? (task.prBranchName ?? undefined)
+              : undefined;
+            let wtResult;
+            try {
+              wtResult = createWorktree(task.repoPath, taskId, 0, {
+                baseRef,
+              });
+            } catch (err) {
+              log(
+                `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_worktree_error",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              return null;
+            }
+            worktreePath = wtResult.worktreePath;
+            branchName = wtResult.branchName;
           }
-          appendSystemPrompt = config.fixSystemPrompt || undefined;
-        } else {
-          appendSystemPrompt = config.implementSystemPrompt || undefined;
-        }
 
-        const now = new Date().toISOString();
-        const invocationId = insertInvocation(db, {
-          linearIssueId: taskId,
-          startedAt: now,
-          status: "running",
-          phase: "implement",
-          model,
-          worktreePath,
-          branchName,
-          logPath: "logs/0.ndjson",
-        });
-        updateInvocation(db, invocationId, {
-          logPath: `logs/${invocationId}.ndjson`,
-        });
+          let agentPrompt = task.agentPrompt ?? "";
+          let appendSystemPrompt: string | undefined;
 
-        const startedAt = Date.now();
-        const handle = spawnSession({
-          agentPrompt,
-          worktreePath,
-          maxTurns: config.defaultMaxTurns,
-          invocationId,
-          projectRoot: process.cwd(),
-          claudePath: config.claudePath,
-          appendSystemPrompt,
-          disallowedTools: buildDisallowedTools(config),
-          resumeSessionId: fixPhaseResumeSessionId ?? resumeSessionId,
-          repoPath: task.repoPath,
-          model,
-          mcpServers: buildOrcaMcpServers(config),
-          hookUrl: getHookUrl(invocationId),
-        });
+          if (isFixPhase) {
+            if (task.fixReason === "merge_conflict") {
+              agentPrompt +=
+                "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
+              updateTaskFixReason(db, taskId, null);
+            }
+            appendSystemPrompt = config.fixSystemPrompt || undefined;
+          } else {
+            appendSystemPrompt = config.implementSystemPrompt || undefined;
+          }
 
-        bridgeSessionCompletion(
-          invocationId,
-          taskId,
-          "implement",
-          handle,
-          branchName,
-          worktreePath,
-        );
-
-        emitInvocationStarted({ taskId, invocationId });
-        emitTaskUpdated(getTask(db, taskId)!);
-
-        const dispatchMsg = isDeployResume
-          ? `Resuming after deploy interruption (invocation #${invocationId})`
-          : resumeSessionId
-            ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
-            : isFixPhase
-              ? `Dispatched to fix review feedback (invocation #${invocationId})`
-              : `Dispatched for implementation (invocation #${invocationId})`;
-        client.createComment(taskId, dispatchMsg).catch((err: unknown) => {
-          logger.warn("Linear createComment failed (dispatch)", {
-            taskId,
-            error: String(err),
+          const now = new Date().toISOString();
+          const invocationId = insertInvocation(db, {
+            linearIssueId: taskId,
+            startedAt: now,
+            status: "running",
+            phase: "implement",
+            model,
+            worktreePath,
+            branchName,
+            logPath: "logs/0.ndjson",
           });
-        });
+          updateInvocation(db, invocationId, {
+            logPath: `logs/${invocationId}.ndjson`,
+          });
 
-        log(
-          `task ${taskId}: implement session spawned as invocation ${invocationId}`,
-        );
-        return {
-          invocationId,
-          worktreePath,
-          branchName,
-          isFixPhase,
-          startedAt,
-        };
-      },
+          const startedAt = Date.now();
+          const handle = spawnSession({
+            agentPrompt,
+            worktreePath,
+            maxTurns: config.defaultMaxTurns,
+            invocationId,
+            projectRoot: process.cwd(),
+            claudePath: config.claudePath,
+            appendSystemPrompt,
+            disallowedTools: buildDisallowedTools(config),
+            resumeSessionId: fixPhaseResumeSessionId ?? resumeSessionId,
+            repoPath: task.repoPath,
+            model,
+            mcpServers: buildOrcaMcpServers(config),
+            hookUrl: getHookUrl(invocationId),
+          });
+
+          bridgeSessionCompletion(
+            invocationId,
+            taskId,
+            "implement",
+            handle,
+            branchName,
+            worktreePath,
+          );
+
+          emitInvocationStarted({ taskId, invocationId });
+          emitTaskUpdated(getTask(db, taskId)!);
+
+          const dispatchMsg = isDeployResume
+            ? `Resuming after deploy interruption (invocation #${invocationId})`
+            : resumeSessionId
+              ? `Resuming session (invocation #${invocationId}, session ${resumeSessionId})`
+              : isFixPhase
+                ? `Dispatched to fix review feedback (invocation #${invocationId})`
+                : `Dispatched for implementation (invocation #${invocationId})`;
+          client.createComment(taskId, dispatchMsg).catch((err: unknown) => {
+            logger.warn("Linear createComment failed (dispatch)", {
+              taskId,
+              error: String(err),
+            });
+          });
+
+          log(
+            `task ${taskId}: implement session spawned as invocation ${invocationId}`,
+          );
+          return {
+            invocationId,
+            worktreePath,
+            branchName,
+            isFixPhase,
+            startedAt,
+          };
+        }),
     );
 
     // If implement spawn was blocked by capacity/worktree error, exit gracefully.
@@ -791,174 +796,430 @@ export const taskLifecycle = inngest.createFunction(
         outcome: Gate2Outcome;
         prBranch?: string;
         prNumber?: number | null;
-      }> => {
-        const { db, config, client, stateMap } = getSchedulerDeps();
-        const { invocationId, worktreePath, branchName } = implementCtx;
+      }> =>
+        runWithLogContext(
+          { taskId, invocationId: String(implementCtx.invocationId) },
+          async () => {
+            const { db, config, client, stateMap } = getSchedulerDeps();
+            const { invocationId, worktreePath, branchName } = implementCtx;
 
-        if (!implementEvent) {
-          log(
-            `task ${taskId}: implement session timed out (invocation ${invocationId})`,
-          );
-          const timedOutHandle = activeHandles.get(invocationId);
-          if (timedOutHandle) {
-            killSession(timedOutHandle).catch((err: unknown) => {
-              logger.warn("killSession failed (implement timeout)", {
-                taskId,
-                invocationId,
-                error: String(err),
+            if (!implementEvent) {
+              log(
+                `task ${taskId}: implement session timed out (invocation ${invocationId})`,
+              );
+              const timedOutHandle = activeHandles.get(invocationId);
+              if (timedOutHandle) {
+                killSession(timedOutHandle).catch((err: unknown) => {
+                  logger.warn("killSession failed (implement timeout)", {
+                    taskId,
+                    invocationId,
+                    error: String(err),
+                  });
+                });
+                activeHandles.delete(invocationId);
+              }
+              updateInvocation(db, invocationId, {
+                status: "timed_out",
+                endedAt: new Date().toISOString(),
+                outputSummary: "session timed out after 45 minutes",
               });
-            });
-            activeHandles.delete(invocationId);
-          }
-          updateInvocation(db, invocationId, {
-            status: "timed_out",
-            endedAt: new Date().toISOString(),
-            outputSummary: "session timed out after 45 minutes",
-          });
-          updateAndEmit(db, taskId, "failed", "session_timed_out", {
-            failureReason: "Implement session timed out after 45 minutes",
-            failedPhase: "implement",
-          });
-          try {
-            removeWorktree(worktreePath);
-          } catch {
-            /* ignore */
-          }
-          const timedOutTask = getTask(db, taskId);
-          if (timedOutTask && timedOutTask.retryCount >= config.maxRetries) {
-            insertSystemEvent(db, {
-              type: "task_failed",
-              message: `Task ${taskId} permanently failed`,
-              metadata: {
-                taskId,
-                phase: "implement",
-                reason: "session_timed_out",
-                retries: config.maxRetries,
-              },
-            });
-            sendPermanentFailureAlert(
-              getSchedulerDeps(),
+              updateAndEmit(db, taskId, "failed", "session_timed_out", {
+                failureReason: "Implement session timed out after 45 minutes",
+                failedPhase: "implement",
+              });
+              try {
+                removeWorktree(worktreePath);
+              } catch {
+                /* ignore */
+              }
+              const timedOutTask = getTask(db, taskId);
+              if (
+                timedOutTask &&
+                timedOutTask.retryCount >= config.maxRetries
+              ) {
+                insertSystemEvent(db, {
+                  type: "task_failed",
+                  message: `Task ${taskId} permanently failed`,
+                  metadata: {
+                    taskId,
+                    phase: "implement",
+                    reason: "session_timed_out",
+                    retries: config.maxRetries,
+                  },
+                });
+                sendPermanentFailureAlert(
+                  getSchedulerDeps(),
+                  taskId,
+                  `Session timed out after ${config.maxRetries} retries (implement phase)`,
+                );
+                transitionToFinalState(
+                  { client, stateMap },
+                  taskId,
+                  "failed_permanent",
+                ).catch((err: unknown) => {
+                  logger.warn(
+                    "transitionToFinalState failed (implement timeout)",
+                    {
+                      taskId,
+                      error: String(err),
+                    },
+                  );
+                });
+                return { outcome: "permanent_fail" };
+              }
+              return { outcome: "timed_out" };
+            }
+
+            const isSuccess =
+              implementEvent.data.exitCode === 0 &&
+              !implementEvent.data.isMaxTurns;
+            const invRecord = getInvocation(db, invocationId);
+            const isMaxTurns = implementEvent.data.isMaxTurns;
+
+            emitInvocationCompleted({
               taskId,
-              `Session timed out after ${config.maxRetries} retries (implement phase)`,
+              invocationId,
+              status: isSuccess ? "completed" : "failed",
+              costUsd: implementEvent.data.costUsd ?? 0,
+              inputTokens: implementEvent.data.inputTokens ?? 0,
+              outputTokens: implementEvent.data.outputTokens ?? 0,
+            });
+            updateInvocation(db, invocationId, {
+              status: isSuccess ? "completed" : "failed",
+              endedAt: new Date().toISOString(),
+              costUsd: implementEvent.data.costUsd ?? null,
+              inputTokens: implementEvent.data.inputTokens ?? null,
+              outputTokens: implementEvent.data.outputTokens ?? null,
+            });
+
+            if (!isSuccess) {
+              log(
+                `task ${taskId}: implement failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns" : ""}) — invocation ${invocationId}`,
+              );
+              if (!isMaxTurns) {
+                try {
+                  removeWorktree(worktreePath);
+                } catch {
+                  /* ignore */
+                }
+              }
+
+              // Guard B: check for orphaned green PR before writing failed status
+              const guardBTask = getTask(db, taskId);
+              if (guardBTask?.prBranchName) {
+                try {
+                  const prInfo = await findPrForBranch(
+                    guardBTask.prBranchName,
+                    guardBTask.repoPath,
+                  );
+                  if (prInfo.exists && prInfo.number) {
+                    const ciStatus = await getPrCheckStatus(
+                      prInfo.number,
+                      guardBTask.repoPath,
+                    );
+                    if (ciStatus === "success") {
+                      updateAndEmit(
+                        db,
+                        taskId,
+                        "awaiting_ci",
+                        "rescued_green_pr",
+                      );
+                      updateTaskCiInfo(db, taskId, {
+                        ciStartedAt: new Date().toISOString(),
+                      });
+                      sendAlert(getSchedulerDeps(), {
+                        severity: "info",
+                        title: "Rescued orphaned green PR",
+                        message: `Task ${taskId} had a passing PR on branch ${guardBTask.prBranchName} — transitioning to awaiting_ci instead of failing`,
+                        taskId,
+                        fields: [
+                          {
+                            title: "Branch",
+                            value: guardBTask.prBranchName!,
+                            short: true,
+                          },
+                          {
+                            title: "PR",
+                            value: `#${prInfo.number}`,
+                            short: true,
+                          },
+                        ],
+                      });
+                      log(
+                        `Guard B: rescued task ${taskId} — PR #${prInfo.number} has passing CI`,
+                      );
+                      await inngest.send({
+                        name: "task/awaiting-ci",
+                        data: {
+                          linearIssueId: taskId,
+                          repoPath: guardBTask.repoPath,
+                          prNumber: prInfo.number,
+                          prBranchName: guardBTask.prBranchName!,
+                          ciStartedAt: new Date().toISOString(),
+                        },
+                      });
+                      return { outcome: "rescued_pr" };
+                    }
+                  }
+                } catch (err) {
+                  log(`Guard B rescue check failed for ${taskId}: ${err}`);
+                }
+              }
+
+              updateAndEmit(db, taskId, "failed", "implement_failed", {
+                failureReason: `Implement session failed (exit code ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns reached" : ""})`,
+                failedPhase: "implement",
+              });
+
+              const task = getTask(db, taskId);
+              if (!task) return { outcome: "permanent_fail" };
+
+              // If the resume session ID was not found, clear the stale session ID and
+              // retry fresh without counting this against the retry budget.
+              if (implementEvent.data.isResumeNotFound) {
+                log(
+                  `task ${taskId}: resume session not found — clearing stale session ID and retrying fresh (invocation ${invocationId})`,
+                );
+                clearSessionIds(db, taskId);
+                client
+                  .createComment(
+                    taskId,
+                    `Resume session not found (stale session ID) — restarting as fresh session`,
+                  )
+                  .catch((err: unknown) => {
+                    logger.warn(
+                      "Linear createComment failed (resume not found)",
+                      {
+                        taskId,
+                        error: String(err),
+                      },
+                    );
+                  });
+                // Don't increment retry count — this is a setup failure, not a task failure
+                return { outcome: "retry" };
+              }
+
+              if (task.retryCount >= config.maxRetries) {
+                insertSystemEvent(db, {
+                  type: "task_failed",
+                  message: `Task ${taskId} permanently failed`,
+                  metadata: {
+                    taskId,
+                    phase: "implement",
+                    retries: config.maxRetries,
+                  },
+                });
+                sendPermanentFailureAlert(
+                  getSchedulerDeps(),
+                  taskId,
+                  `Session failed after ${config.maxRetries} retries (implement phase)`,
+                );
+                transitionToFinalState(
+                  { client, stateMap },
+                  taskId,
+                  "failed_permanent",
+                  `Task permanently failed after ${config.maxRetries} retries`,
+                ).catch((err: unknown) => {
+                  logger.warn(
+                    "transitionToFinalState failed (implement permanent fail)",
+                    { taskId, error: String(err) },
+                  );
+                });
+                return { outcome: "permanent_fail" };
+              }
+
+              incrementRetryCount(db, taskId);
+              // Skip "retry" (Todo) write-back — immediate re-dispatch will write
+              // "In Progress" within seconds, and the intermediate "Todo" webhook
+              // can arrive after echo TTL expires, killing the new session.
+              return { outcome: "retry" };
+            }
+
+            // --- Gate 2: verify PR exists ---
+
+            const task = getTask(db, taskId);
+            if (!task) return { outcome: "permanent_fail" };
+
+            const outputSummary = invRecord?.outputSummary?.toLowerCase() ?? "";
+            const isAlreadyDone = alreadyDonePatterns.some((p) =>
+              outputSummary.includes(p),
             );
+            const noChanges = await worktreeHasNoChanges(worktreePath);
+
+            if (!branchName) {
+              if (isAlreadyDone || noChanges) {
+                log(`task ${taskId}: work already on main — marking done`);
+                return markAlreadyDone(
+                  db,
+                  taskId,
+                  client,
+                  stateMap,
+                  worktreePath,
+                  "already_on_main",
+                );
+              }
+              updateInvocation(db, invocationId, {
+                status: "failed",
+                outputSummary:
+                  "Post-implementation gate failed: no branch name",
+              });
+              updateAndEmit(db, taskId, "failed", "gate2_no_branch", {
+                failureReason:
+                  "Post-implementation gate failed: no branch name",
+                failedPhase: "gate2",
+              });
+              if (task.retryCount >= config.maxRetries) {
+                insertSystemEvent(db, {
+                  type: "task_failed",
+                  message: `Task ${taskId} permanently failed`,
+                  metadata: {
+                    taskId,
+                    phase: "gate2",
+                    reason: "no_branch_name",
+                    retries: config.maxRetries,
+                  },
+                });
+                sendPermanentFailureAlert(
+                  getSchedulerDeps(),
+                  taskId,
+                  `Gate 2 failed: no branch name after ${config.maxRetries} retries`,
+                );
+                transitionToFinalState(
+                  { client, stateMap },
+                  taskId,
+                  "failed_permanent",
+                ).catch((err: unknown) => {
+                  logger.warn(
+                    "transitionToFinalState failed (gate2 no branch name)",
+                    { taskId, error: String(err) },
+                  );
+                });
+                return { outcome: "permanent_fail" };
+              }
+              incrementRetryCount(db, taskId);
+              return { outcome: "retry" };
+            }
+
+            const prInfo = await findPrForBranch(branchName, task.repoPath);
+
+            if (!prInfo.exists) {
+              if (isAlreadyDone || noChanges) {
+                log(
+                  `task ${taskId}: no PR found but work is already done — marking done`,
+                );
+                return markAlreadyDone(
+                  db,
+                  taskId,
+                  client,
+                  stateMap,
+                  worktreePath,
+                  "already_done",
+                );
+              }
+              log(
+                `task ${taskId}: Gate 2 failed — no PR found for branch ${branchName}`,
+              );
+              updateInvocation(db, invocationId, {
+                status: "failed",
+                outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
+              });
+              updateAndEmit(db, taskId, "failed", "gate2_no_pr", {
+                failureReason: `Post-implementation gate failed: no PR found for branch ${branchName}`,
+                failedPhase: "gate2",
+              });
+              if (task.retryCount >= config.maxRetries) {
+                insertSystemEvent(db, {
+                  type: "task_failed",
+                  message: `Task ${taskId} permanently failed`,
+                  metadata: {
+                    taskId,
+                    phase: "gate2",
+                    reason: "no_pr_found",
+                    retries: config.maxRetries,
+                  },
+                });
+                sendPermanentFailureAlert(
+                  getSchedulerDeps(),
+                  taskId,
+                  `Gate 2 failed: no PR found after ${config.maxRetries} retries`,
+                );
+                transitionToFinalState(
+                  { client, stateMap },
+                  taskId,
+                  "failed_permanent",
+                ).catch((err: unknown) => {
+                  logger.warn(
+                    "transitionToFinalState failed (gate2 no PR found)",
+                    {
+                      taskId,
+                      error: String(err),
+                    },
+                  );
+                });
+                return { outcome: "permanent_fail" };
+              }
+              incrementRetryCount(db, taskId);
+              return { outcome: "retry" };
+            }
+
+            // PR found — store branch + PR info
+            const storedBranch = prInfo.headBranch ?? branchName;
+            updateTaskPrBranch(db, taskId, storedBranch);
+            if (prInfo.number != null) {
+              updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
+            }
+
+            if (prInfo.number != null) {
+              try {
+                closeSupersededPrs(
+                  taskId,
+                  prInfo.number,
+                  invocationId,
+                  branchName,
+                  task.repoPath,
+                );
+              } catch {
+                /* ignore */
+              }
+            }
+
+            if (prInfo.url) {
+              client
+                .createAttachment(
+                  task.linearIssueId,
+                  prInfo.url,
+                  "Pull Request",
+                )
+                .catch((err: unknown) => {
+                  logger.warn("Linear createAttachment failed", {
+                    taskId,
+                    error: String(err),
+                  });
+                });
+            }
+
+            resetStaleSessionRetryCount(db, taskId);
+            updateAndEmit(db, taskId, "in_review", "pr_found");
             transitionToFinalState(
               { client, stateMap },
               taskId,
-              "failed_permanent",
+              "in_review",
+              `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
             ).catch((err: unknown) => {
-              logger.warn("transitionToFinalState failed (implement timeout)", {
+              logger.warn("transitionToFinalState failed (gate2 → in_review)", {
                 taskId,
                 error: String(err),
               });
             });
-            return { outcome: "permanent_fail" };
-          }
-          return { outcome: "timed_out" };
-        }
 
-        const isSuccess =
-          implementEvent.data.exitCode === 0 && !implementEvent.data.isMaxTurns;
-        const invRecord = getInvocation(db, invocationId);
-        const isMaxTurns = implementEvent.data.isMaxTurns;
-
-        emitInvocationCompleted({
-          taskId,
-          invocationId,
-          status: isSuccess ? "completed" : "failed",
-          costUsd: implementEvent.data.costUsd ?? 0,
-          inputTokens: implementEvent.data.inputTokens ?? 0,
-          outputTokens: implementEvent.data.outputTokens ?? 0,
-        });
-        updateInvocation(db, invocationId, {
-          status: isSuccess ? "completed" : "failed",
-          endedAt: new Date().toISOString(),
-          costUsd: implementEvent.data.costUsd ?? null,
-          inputTokens: implementEvent.data.inputTokens ?? null,
-          outputTokens: implementEvent.data.outputTokens ?? null,
-        });
-
-        if (!isSuccess) {
-          log(
-            `task ${taskId}: implement failed (exit ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns" : ""}) — invocation ${invocationId}`,
-          );
-          if (!isMaxTurns) {
             try {
               removeWorktree(worktreePath);
             } catch {
               /* ignore */
             }
-          }
 
-          // Guard B: check for orphaned green PR before writing failed status
-          const guardBTask = getTask(db, taskId);
-          if (guardBTask?.prBranchName) {
-            try {
-              const prInfo = await findPrForBranch(
-                guardBTask.prBranchName,
-                guardBTask.repoPath,
-              );
-              if (prInfo.exists && prInfo.number) {
-                const ciStatus = await getPrCheckStatus(
-                  prInfo.number,
-                  guardBTask.repoPath,
-                );
-                if (ciStatus === "success") {
-                  updateAndEmit(db, taskId, "awaiting_ci", "rescued_green_pr");
-                  updateTaskCiInfo(db, taskId, {
-                    ciStartedAt: new Date().toISOString(),
-                  });
-                  sendAlert(getSchedulerDeps(), {
-                    severity: "info",
-                    title: "Rescued orphaned green PR",
-                    message: `Task ${taskId} had a passing PR on branch ${guardBTask.prBranchName} — transitioning to awaiting_ci instead of failing`,
-                    taskId,
-                    fields: [
-                      {
-                        title: "Branch",
-                        value: guardBTask.prBranchName!,
-                        short: true,
-                      },
-                      {
-                        title: "PR",
-                        value: `#${prInfo.number}`,
-                        short: true,
-                      },
-                    ],
-                  });
-                  log(
-                    `Guard B: rescued task ${taskId} — PR #${prInfo.number} has passing CI`,
-                  );
-                  await inngest.send({
-                    name: "task/awaiting-ci",
-                    data: {
-                      linearIssueId: taskId,
-                      repoPath: guardBTask.repoPath,
-                      prNumber: prInfo.number,
-                      prBranchName: guardBTask.prBranchName!,
-                      ciStartedAt: new Date().toISOString(),
-                    },
-                  });
-                  return { outcome: "rescued_pr" };
-                }
-              }
-            } catch (err) {
-              log(`Guard B rescue check failed for ${taskId}: ${err}`);
-            }
-          }
-
-          updateAndEmit(db, taskId, "failed", "implement_failed", {
-            failureReason: `Implement session failed (exit code ${implementEvent.data.exitCode}${isMaxTurns ? ", max turns reached" : ""})`,
-            failedPhase: "implement",
-          });
-
-          const task = getTask(db, taskId);
-          if (!task) return { outcome: "permanent_fail" };
-
-          // If the resume session ID was not found, clear the stale session ID and
-          // retry fresh without counting this against the retry budget.
-          if (implementEvent.data.isResumeNotFound) {
             log(
-              `task ${taskId}: resume session not found — clearing stale session ID and retrying fresh (invocation ${invocationId})`,
+              `task ${taskId}: Gate 2 passed → in_review (PR #${prInfo.number ?? "?"})`,
             );
             clearSessionIds(db, taskId);
             client
@@ -1285,114 +1546,117 @@ export const taskLifecycle = inngest.createFunction(
           invocationId: number;
           worktreePath: string;
           startedAt: number;
-        } | null => {
-          const { db, config, client } = getSchedulerDeps();
-          const task = getTask(db, taskId);
-          if (!task) throw new Error(`task ${taskId} not found`);
+        } | null =>
+          runWithLogContext({ taskId }, () => {
+            const { db, config, client } = getSchedulerDeps();
+            const task = getTask(db, taskId);
+            if (!task) throw new Error(`task ${taskId} not found`);
 
-          const prRef = task.prNumber ? `#${task.prNumber}` : "on this branch";
-          const agentPrompt = `${task.agentPrompt ?? ""}\n\nReview PR ${prRef}. The PR branch is checked out in your working directory.`;
+            const prRef = task.prNumber
+              ? `#${task.prNumber}`
+              : "on this branch";
+            const agentPrompt = `${task.agentPrompt ?? ""}\n\nReview PR ${prRef}. The PR branch is checked out in your working directory.`;
 
-          const baseRef = task.prBranchName ?? undefined;
-          let wtResult;
-          try {
-            wtResult = createWorktree(task.repoPath, taskId, cycle, {
-              baseRef,
-            });
-          } catch (err) {
-            log(
-              `task ${taskId}: review spawn blocked by worktree error: ${err}`,
-            );
-            updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_worktree_error",
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            return null;
-          }
-
-          try {
-            assertSessionCapacity(db);
-          } catch (err) {
-            const reason =
-              err instanceof Error ? err.message : "session cap reached";
-            log(
-              `task ${taskId}: review spawn blocked (${reason}), resetting to ready`,
-            );
-            updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_capacity",
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
+            const baseRef = task.prBranchName ?? undefined;
+            let wtResult;
             try {
-              removeWorktree(wtResult.worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return null;
-          }
-
-          const now = new Date().toISOString();
-          const invocationId = insertInvocation(db, {
-            linearIssueId: taskId,
-            startedAt: now,
-            status: "running",
-            phase: "review",
-            model: config.reviewModel,
-            worktreePath: wtResult.worktreePath,
-            branchName: wtResult.branchName,
-            logPath: "logs/0.ndjson",
-          });
-          updateInvocation(db, invocationId, {
-            logPath: `logs/${invocationId}.ndjson`,
-          });
-
-          const startedAt = Date.now();
-          const handle = spawnSession({
-            agentPrompt,
-            worktreePath: wtResult.worktreePath,
-            maxTurns: config.reviewMaxTurns,
-            invocationId,
-            projectRoot: process.cwd(),
-            claudePath: config.claudePath,
-            appendSystemPrompt: config.reviewSystemPrompt || undefined,
-            disallowedTools: buildDisallowedTools(config),
-            repoPath: task.repoPath,
-            model: config.reviewModel,
-            mcpServers: buildOrcaMcpServers(config),
-            hookUrl: getHookUrl(invocationId),
-          });
-
-          bridgeSessionCompletion(
-            invocationId,
-            taskId,
-            "review",
-            handle,
-            wtResult.branchName,
-            wtResult.worktreePath,
-          );
-
-          emitInvocationStarted({ taskId, invocationId });
-          updateAndEmit(db, taskId, "running", "review_dispatched");
-          client
-            .createComment(
-              taskId,
-              `Dispatched for code review (invocation #${invocationId}, cycle ${cycle + 1}/${config.maxReviewCycles})`,
-            )
-            .catch((err: unknown) => {
-              logger.warn("Linear createComment failed (review dispatch)", {
-                taskId,
-                error: String(err),
+              wtResult = createWorktree(task.repoPath, taskId, cycle, {
+                baseRef,
               });
+            } catch (err) {
+              log(
+                `task ${taskId}: review spawn blocked by worktree error: ${err}`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_worktree_error",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              return null;
+            }
+
+            try {
+              assertSessionCapacity(db);
+            } catch (err) {
+              const reason =
+                err instanceof Error ? err.message : "session cap reached";
+              log(
+                `task ${taskId}: review spawn blocked (${reason}), resetting to ready`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_capacity",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              try {
+                removeWorktree(wtResult.worktreePath);
+              } catch {
+                /* ignore */
+              }
+              return null;
+            }
+
+            const now = new Date().toISOString();
+            const invocationId = insertInvocation(db, {
+              linearIssueId: taskId,
+              startedAt: now,
+              status: "running",
+              phase: "review",
+              model: config.reviewModel,
+              worktreePath: wtResult.worktreePath,
+              branchName: wtResult.branchName,
+              logPath: "logs/0.ndjson",
+            });
+            updateInvocation(db, invocationId, {
+              logPath: `logs/${invocationId}.ndjson`,
             });
 
-          log(
-            `task ${taskId}: review session spawned as invocation ${invocationId} (cycle ${cycle + 1})`,
-          );
-          return {
-            invocationId,
-            worktreePath: wtResult.worktreePath,
-            startedAt,
-          };
-        },
+            const startedAt = Date.now();
+            const handle = spawnSession({
+              agentPrompt,
+              worktreePath: wtResult.worktreePath,
+              maxTurns: config.reviewMaxTurns,
+              invocationId,
+              projectRoot: process.cwd(),
+              claudePath: config.claudePath,
+              appendSystemPrompt: config.reviewSystemPrompt || undefined,
+              disallowedTools: buildDisallowedTools(config),
+              repoPath: task.repoPath,
+              model: config.reviewModel,
+              mcpServers: buildOrcaMcpServers(config),
+              hookUrl: getHookUrl(invocationId),
+            });
+
+            bridgeSessionCompletion(
+              invocationId,
+              taskId,
+              "review",
+              handle,
+              wtResult.branchName,
+              wtResult.worktreePath,
+            );
+
+            emitInvocationStarted({ taskId, invocationId });
+            updateAndEmit(db, taskId, "running", "review_dispatched");
+            client
+              .createComment(
+                taskId,
+                `Dispatched for code review (invocation #${invocationId}, cycle ${cycle + 1}/${config.maxReviewCycles})`,
+              )
+              .catch((err: unknown) => {
+                logger.warn("Linear createComment failed (review dispatch)", {
+                  taskId,
+                  error: String(err),
+                });
+              });
+
+            log(
+              `task ${taskId}: review session spawned as invocation ${invocationId} (cycle ${cycle + 1})`,
+            );
+            return {
+              invocationId,
+              worktreePath: wtResult.worktreePath,
+              startedAt,
+            };
+          }),
       );
 
       // If review spawn was blocked by capacity/worktree error, exit gracefully.
@@ -1422,91 +1686,100 @@ export const taskLifecycle = inngest.createFunction(
 
       const reviewResult = await step.run(
         `process-review-${cycle}`,
-        async (): Promise<{ outcome: ReviewOutcome }> => {
-          const { db } = getSchedulerDeps();
-          const { invocationId, worktreePath } = reviewCtx;
+        async (): Promise<{ outcome: ReviewOutcome }> =>
+          runWithLogContext(
+            { taskId, invocationId: String(reviewCtx.invocationId) },
+            async () => {
+              const { db } = getSchedulerDeps();
+              const { invocationId, worktreePath } = reviewCtx;
 
-          if (!reviewEvent) {
-            log(
-              `task ${taskId}: review session timed out (cycle ${cycle + 1})`,
-            );
-            const timedOutHandle = activeHandles.get(invocationId);
-            if (timedOutHandle) {
-              killSession(timedOutHandle).catch((err: unknown) => {
-                logger.warn("killSession failed (review timeout)", {
-                  taskId,
-                  invocationId,
-                  error: String(err),
+              if (!reviewEvent) {
+                log(
+                  `task ${taskId}: review session timed out (cycle ${cycle + 1})`,
+                );
+                const timedOutHandle = activeHandles.get(invocationId);
+                if (timedOutHandle) {
+                  killSession(timedOutHandle).catch((err: unknown) => {
+                    logger.warn("killSession failed (review timeout)", {
+                      taskId,
+                      invocationId,
+                      error: String(err),
+                    });
+                  });
+                  activeHandles.delete(invocationId);
+                }
+                updateInvocation(db, invocationId, {
+                  status: "timed_out",
+                  endedAt: new Date().toISOString(),
+                  outputSummary: "review session timed out after 45 minutes",
                 });
+                updateAndEmit(
+                  db,
+                  taskId,
+                  "in_review",
+                  "review_session_timed_out",
+                );
+                try {
+                  removeWorktree(worktreePath);
+                } catch {
+                  /* ignore */
+                }
+                return { outcome: "timed_out" };
+              }
+
+              const isSuccess =
+                reviewEvent.data.exitCode === 0 && !reviewEvent.data.isMaxTurns;
+              emitInvocationCompleted({
+                taskId,
+                invocationId,
+                status: isSuccess ? "completed" : "failed",
+                costUsd: reviewEvent.data.costUsd ?? 0,
+                inputTokens: reviewEvent.data.inputTokens ?? 0,
+                outputTokens: reviewEvent.data.outputTokens ?? 0,
               });
-              activeHandles.delete(invocationId);
-            }
-            updateInvocation(db, invocationId, {
-              status: "timed_out",
-              endedAt: new Date().toISOString(),
-              outputSummary: "review session timed out after 45 minutes",
-            });
-            updateAndEmit(db, taskId, "in_review", "review_session_timed_out");
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return { outcome: "timed_out" };
-          }
+              updateInvocation(db, invocationId, {
+                status: isSuccess ? "completed" : "failed",
+                endedAt: new Date().toISOString(),
+                costUsd: reviewEvent.data.costUsd ?? null,
+                inputTokens: reviewEvent.data.inputTokens ?? null,
+                outputTokens: reviewEvent.data.outputTokens ?? null,
+              });
+              if (!isSuccess) {
+                updateAndEmit(db, taskId, "in_review", "review_session_failed");
+                try {
+                  removeWorktree(worktreePath);
+                } catch {
+                  /* ignore */
+                }
+                return { outcome: "failed" };
+              }
 
-          const isSuccess =
-            reviewEvent.data.exitCode === 0 && !reviewEvent.data.isMaxTurns;
-          emitInvocationCompleted({
-            taskId,
-            invocationId,
-            status: isSuccess ? "completed" : "failed",
-            costUsd: reviewEvent.data.costUsd ?? 0,
-            inputTokens: reviewEvent.data.inputTokens ?? 0,
-            outputTokens: reviewEvent.data.outputTokens ?? 0,
-          });
-          updateInvocation(db, invocationId, {
-            status: isSuccess ? "completed" : "failed",
-            endedAt: new Date().toISOString(),
-            costUsd: reviewEvent.data.costUsd ?? null,
-            inputTokens: reviewEvent.data.inputTokens ?? null,
-            outputTokens: reviewEvent.data.outputTokens ?? null,
-          });
-          if (!isSuccess) {
-            updateAndEmit(db, taskId, "in_review", "review_session_failed");
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return { outcome: "failed" };
-          }
+              // Parse REVIEW_RESULT marker from invocation output summary + log
+              const invRecord = getInvocation(db, invocationId);
+              const summary = invRecord?.outputSummary ?? "";
+              let approved = summary.includes("REVIEW_RESULT:APPROVED");
+              let changesRequested = summary.includes(
+                "REVIEW_RESULT:CHANGES_REQUESTED",
+              );
 
-          // Parse REVIEW_RESULT marker from invocation output summary + log
-          const invRecord = getInvocation(db, invocationId);
-          const summary = invRecord?.outputSummary ?? "";
-          let approved = summary.includes("REVIEW_RESULT:APPROVED");
-          let changesRequested = summary.includes(
-            "REVIEW_RESULT:CHANGES_REQUESTED",
-          );
+              if (!approved && !changesRequested) {
+                const markerFromLog = await extractMarkerFromLog(invocationId);
+                if (markerFromLog === "APPROVED") approved = true;
+                else if (markerFromLog === "CHANGES_REQUESTED")
+                  changesRequested = true;
+              }
 
-          if (!approved && !changesRequested) {
-            const markerFromLog = await extractMarkerFromLog(invocationId);
-            if (markerFromLog === "APPROVED") approved = true;
-            else if (markerFromLog === "CHANGES_REQUESTED")
-              changesRequested = true;
-          }
+              try {
+                removeWorktree(worktreePath);
+              } catch {
+                /* ignore */
+              }
 
-          try {
-            removeWorktree(worktreePath);
-          } catch {
-            /* ignore */
-          }
-
-          if (approved) return { outcome: "approved" };
-          if (changesRequested) return { outcome: "changes_requested" };
-          return { outcome: "no_marker" };
-        },
+              if (approved) return { outcome: "approved" };
+              if (changesRequested) return { outcome: "changes_requested" };
+              return { outcome: "no_marker" };
+            },
+          ),
       );
 
       // -----------------------------------------------------------------------
@@ -1642,145 +1915,148 @@ export const taskLifecycle = inngest.createFunction(
           invocationId: number;
           worktreePath: string;
           startedAt: number;
-        } | null => {
-          const { db, config, client, stateMap } = getSchedulerDeps();
-          const task = getTask(db, taskId);
-          if (!task) throw new Error(`task ${taskId} not found`);
+        } | null =>
+          runWithLogContext({ taskId }, () => {
+            const { db, config, client, stateMap } = getSchedulerDeps();
+            const task = getTask(db, taskId);
+            if (!task) throw new Error(`task ${taskId} not found`);
 
-          incrementReviewCycleCount(db, taskId);
-          updateAndEmit(
-            db,
-            taskId,
-            "changes_requested",
-            "review_changes_requested",
-          );
-          transitionToFinalState(
-            { client, stateMap },
-            taskId,
-            "changes_requested",
-          ).catch((err: unknown) => {
-            logger.warn(
-              "transitionToFinalState failed (review → changes_requested)",
-              { taskId, error: String(err) },
-            );
-          });
-
-          let resumeSessionId: string | undefined;
-          {
-            const prevInv = getLastCompletedImplementInvocation(db, taskId);
-            if (prevInv?.sessionId) resumeSessionId = prevInv.sessionId;
-          }
-
-          const baseRef = task.prBranchName ?? undefined;
-          let wtResult;
-          try {
-            wtResult = createWorktree(task.repoPath, taskId, cycle + 1000, {
-              baseRef,
-            });
-          } catch (err) {
-            log(`task ${taskId}: fix spawn blocked by worktree error: ${err}`);
-            updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_worktree_error",
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            return null;
-          }
-
-          let agentPrompt = task.agentPrompt ?? "";
-          if (task.fixReason === "merge_conflict") {
-            agentPrompt +=
-              "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
-            updateTaskFixReason(db, taskId, null);
-          }
-
-          try {
-            assertSessionCapacity(db);
-          } catch (err) {
-            const reason =
-              err instanceof Error ? err.message : "session cap reached";
-            log(
-              `task ${taskId}: fix spawn blocked (${reason}), resetting to ready`,
-            );
-            updateTaskStatus(db, taskId, "ready", {
-              reason: "spawn_blocked_capacity",
-            });
-            emitTaskUpdated(getTask(db, taskId)!);
-            try {
-              removeWorktree(wtResult.worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return null;
-          }
-
-          const now = new Date().toISOString();
-          const invocationId = insertInvocation(db, {
-            linearIssueId: taskId,
-            startedAt: now,
-            status: "running",
-            phase: "implement",
-            model: config.model,
-            worktreePath: wtResult.worktreePath,
-            branchName: wtResult.branchName,
-            logPath: "logs/0.ndjson",
-          });
-          updateInvocation(db, invocationId, {
-            logPath: `logs/${invocationId}.ndjson`,
-          });
-
-          const startedAt = Date.now();
-          const handle = spawnSession({
-            agentPrompt,
-            worktreePath: wtResult.worktreePath,
-            maxTurns: config.defaultMaxTurns,
-            invocationId,
-            projectRoot: process.cwd(),
-            claudePath: config.claudePath,
-            appendSystemPrompt: config.fixSystemPrompt || undefined,
-            disallowedTools: buildDisallowedTools(config),
-            resumeSessionId,
-            repoPath: task.repoPath,
-            model: config.model,
-            mcpServers: buildOrcaMcpServers(config),
-            hookUrl: getHookUrl(invocationId),
-          });
-
-          bridgeSessionCompletion(
-            invocationId,
-            taskId,
-            "implement",
-            handle,
-            wtResult.branchName,
-            wtResult.worktreePath,
-          );
-
-          emitInvocationStarted({ taskId, invocationId });
-          updateAndEmit(db, taskId, "running", "fix_dispatched");
-
-          const reviewCycle = task.reviewCycleCount + 1;
-          client
-            .createComment(
+            incrementReviewCycleCount(db, taskId);
+            updateAndEmit(
+              db,
               taskId,
-              resumeSessionId
-                ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`
-                : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`,
-            )
-            .catch((err: unknown) => {
-              logger.warn("Linear createComment failed (fix dispatch)", {
-                taskId,
-                error: String(err),
-              });
+              "changes_requested",
+              "review_changes_requested",
+            );
+            transitionToFinalState(
+              { client, stateMap },
+              taskId,
+              "changes_requested",
+            ).catch((err: unknown) => {
+              logger.warn(
+                "transitionToFinalState failed (review → changes_requested)",
+                { taskId, error: String(err) },
+              );
             });
 
-          log(
-            `task ${taskId}: fix session spawned as invocation ${invocationId} (review cycle ${reviewCycle})`,
-          );
-          return {
-            invocationId,
-            worktreePath: wtResult.worktreePath,
-            startedAt,
-          };
-        },
+            let resumeSessionId: string | undefined;
+            {
+              const prevInv = getLastCompletedImplementInvocation(db, taskId);
+              if (prevInv?.sessionId) resumeSessionId = prevInv.sessionId;
+            }
+
+            const baseRef = task.prBranchName ?? undefined;
+            let wtResult;
+            try {
+              wtResult = createWorktree(task.repoPath, taskId, cycle + 1000, {
+                baseRef,
+              });
+            } catch (err) {
+              log(
+                `task ${taskId}: fix spawn blocked by worktree error: ${err}`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_worktree_error",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              return null;
+            }
+
+            let agentPrompt = task.agentPrompt ?? "";
+            if (task.fixReason === "merge_conflict") {
+              agentPrompt +=
+                "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
+              updateTaskFixReason(db, taskId, null);
+            }
+
+            try {
+              assertSessionCapacity(db);
+            } catch (err) {
+              const reason =
+                err instanceof Error ? err.message : "session cap reached";
+              log(
+                `task ${taskId}: fix spawn blocked (${reason}), resetting to ready`,
+              );
+              updateTaskStatus(db, taskId, "ready", {
+                reason: "spawn_blocked_capacity",
+              });
+              emitTaskUpdated(getTask(db, taskId)!);
+              try {
+                removeWorktree(wtResult.worktreePath);
+              } catch {
+                /* ignore */
+              }
+              return null;
+            }
+
+            const now = new Date().toISOString();
+            const invocationId = insertInvocation(db, {
+              linearIssueId: taskId,
+              startedAt: now,
+              status: "running",
+              phase: "implement",
+              model: config.model,
+              worktreePath: wtResult.worktreePath,
+              branchName: wtResult.branchName,
+              logPath: "logs/0.ndjson",
+            });
+            updateInvocation(db, invocationId, {
+              logPath: `logs/${invocationId}.ndjson`,
+            });
+
+            const startedAt = Date.now();
+            const handle = spawnSession({
+              agentPrompt,
+              worktreePath: wtResult.worktreePath,
+              maxTurns: config.defaultMaxTurns,
+              invocationId,
+              projectRoot: process.cwd(),
+              claudePath: config.claudePath,
+              appendSystemPrompt: config.fixSystemPrompt || undefined,
+              disallowedTools: buildDisallowedTools(config),
+              resumeSessionId,
+              repoPath: task.repoPath,
+              model: config.model,
+              mcpServers: buildOrcaMcpServers(config),
+              hookUrl: getHookUrl(invocationId),
+            });
+
+            bridgeSessionCompletion(
+              invocationId,
+              taskId,
+              "implement",
+              handle,
+              wtResult.branchName,
+              wtResult.worktreePath,
+            );
+
+            emitInvocationStarted({ taskId, invocationId });
+            updateAndEmit(db, taskId, "running", "fix_dispatched");
+
+            const reviewCycle = task.reviewCycleCount + 1;
+            client
+              .createComment(
+                taskId,
+                resumeSessionId
+                  ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`
+                  : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`,
+              )
+              .catch((err: unknown) => {
+                logger.warn("Linear createComment failed (fix dispatch)", {
+                  taskId,
+                  error: String(err),
+                });
+              });
+
+            log(
+              `task ${taskId}: fix session spawned as invocation ${invocationId} (review cycle ${reviewCycle})`,
+            );
+            return {
+              invocationId,
+              worktreePath: wtResult.worktreePath,
+              startedAt,
+            };
+          }),
       );
 
       // If fix spawn was blocked by capacity/worktree error, exit gracefully.
@@ -1803,102 +2079,115 @@ export const taskLifecycle = inngest.createFunction(
 
       const fixResult = await step.run(
         `process-fix-${cycle}`,
-        (): { ok: boolean; timedOut: boolean; resumeNotFound: boolean } => {
-          const { db, client, stateMap } = getSchedulerDeps();
-          const { invocationId, worktreePath } = fixCtx;
+        (): { ok: boolean; timedOut: boolean; resumeNotFound: boolean } =>
+          runWithLogContext(
+            { taskId, invocationId: String(fixCtx.invocationId) },
+            () => {
+              const { db, client, stateMap } = getSchedulerDeps();
+              const { invocationId, worktreePath } = fixCtx;
 
-          if (!fixEvent) {
-            log(`task ${taskId}: fix session timed out (cycle ${cycle + 1})`);
-            const timedOutHandle = activeHandles.get(invocationId);
-            if (timedOutHandle) {
-              killSession(timedOutHandle).catch((err: unknown) => {
-                logger.warn("killSession failed (fix timeout)", {
+              if (!fixEvent) {
+                log(
+                  `task ${taskId}: fix session timed out (cycle ${cycle + 1})`,
+                );
+                const timedOutHandle = activeHandles.get(invocationId);
+                if (timedOutHandle) {
+                  killSession(timedOutHandle).catch((err: unknown) => {
+                    logger.warn("killSession failed (fix timeout)", {
+                      taskId,
+                      invocationId,
+                      error: String(err),
+                    });
+                  });
+                  activeHandles.delete(invocationId);
+                }
+                updateInvocation(db, invocationId, {
+                  status: "timed_out",
+                  endedAt: new Date().toISOString(),
+                  outputSummary: "fix session timed out after 45 minutes",
+                });
+                updateAndEmit(db, taskId, "in_review", "fix_session_timed_out");
+                try {
+                  removeWorktree(worktreePath);
+                } catch {
+                  /* ignore */
+                }
+                return { ok: false, timedOut: true, resumeNotFound: false };
+              }
+
+              const isSuccess =
+                fixEvent.data.exitCode === 0 && !fixEvent.data.isMaxTurns;
+              emitInvocationCompleted({
+                taskId,
+                invocationId,
+                status: isSuccess ? "completed" : "failed",
+                costUsd: fixEvent.data.costUsd ?? 0,
+                inputTokens: fixEvent.data.inputTokens ?? 0,
+                outputTokens: fixEvent.data.outputTokens ?? 0,
+              });
+              updateInvocation(db, invocationId, {
+                status: isSuccess ? "completed" : "failed",
+                endedAt: new Date().toISOString(),
+                costUsd: fixEvent.data.costUsd ?? null,
+                inputTokens: fixEvent.data.inputTokens ?? null,
+                outputTokens: fixEvent.data.outputTokens ?? null,
+              });
+              try {
+                removeWorktree(worktreePath);
+              } catch {
+                /* ignore */
+              }
+
+              if (!isSuccess) {
+                // If the resume session ID was not found, clear the stale session ID
+                // so the next iteration starts fresh without burning a retry slot.
+                if (fixEvent.data.isResumeNotFound) {
+                  log(
+                    `task ${taskId}: fix resume session not found — clearing stale session ID, will retry fresh (invocation ${invocationId})`,
+                  );
+                  clearSessionIds(db, taskId);
+                  client
+                    .createComment(
+                      taskId,
+                      `Fix resume session not found (stale session ID) — restarting as fresh session`,
+                    )
+                    .catch((err: unknown) => {
+                      logger.warn(
+                        "Linear createComment failed (fix resume not found)",
+                        { taskId, error: String(err) },
+                      );
+                    });
+                  updateAndEmit(
+                    db,
+                    taskId,
+                    "in_review",
+                    "fix_resume_not_found",
+                  );
+                  return { ok: false, timedOut: false, resumeNotFound: true };
+                }
+                updateAndEmit(db, taskId, "in_review", "fix_session_failed");
+                return { ok: false, timedOut: false, resumeNotFound: false };
+              }
+
+              // Fix succeeded — transition back to in_review for next review cycle
+              resetStaleSessionRetryCount(db, taskId);
+              updateAndEmit(db, taskId, "in_review", "fix_succeeded");
+              transitionToFinalState(
+                { client, stateMap },
+                taskId,
+                "in_review",
+              ).catch((err: unknown) => {
+                logger.warn("transitionToFinalState failed (fix → in_review)", {
                   taskId,
-                  invocationId,
                   error: String(err),
                 });
               });
-              activeHandles.delete(invocationId);
-            }
-            updateInvocation(db, invocationId, {
-              status: "timed_out",
-              endedAt: new Date().toISOString(),
-              outputSummary: "fix session timed out after 45 minutes",
-            });
-            updateAndEmit(db, taskId, "in_review", "fix_session_timed_out");
-            try {
-              removeWorktree(worktreePath);
-            } catch {
-              /* ignore */
-            }
-            return { ok: false, timedOut: true, resumeNotFound: false };
-          }
-
-          const isSuccess =
-            fixEvent.data.exitCode === 0 && !fixEvent.data.isMaxTurns;
-          emitInvocationCompleted({
-            taskId,
-            invocationId,
-            status: isSuccess ? "completed" : "failed",
-            costUsd: fixEvent.data.costUsd ?? 0,
-            inputTokens: fixEvent.data.inputTokens ?? 0,
-            outputTokens: fixEvent.data.outputTokens ?? 0,
-          });
-          updateInvocation(db, invocationId, {
-            status: isSuccess ? "completed" : "failed",
-            endedAt: new Date().toISOString(),
-            costUsd: fixEvent.data.costUsd ?? null,
-            inputTokens: fixEvent.data.inputTokens ?? null,
-            outputTokens: fixEvent.data.outputTokens ?? null,
-          });
-          try {
-            removeWorktree(worktreePath);
-          } catch {
-            /* ignore */
-          }
-
-          if (!isSuccess) {
-            // If the resume session ID was not found, clear the stale session ID
-            // so the next iteration starts fresh without burning a retry slot.
-            if (fixEvent.data.isResumeNotFound) {
               log(
-                `task ${taskId}: fix resume session not found — clearing stale session ID, will retry fresh (invocation ${invocationId})`,
+                `task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`,
               );
-              clearSessionIds(db, taskId);
-              client
-                .createComment(
-                  taskId,
-                  `Fix resume session not found (stale session ID) — restarting as fresh session`,
-                )
-                .catch((err: unknown) => {
-                  logger.warn(
-                    "Linear createComment failed (fix resume not found)",
-                    { taskId, error: String(err) },
-                  );
-                });
-              updateAndEmit(db, taskId, "in_review", "fix_resume_not_found");
-              return { ok: false, timedOut: false, resumeNotFound: true };
-            }
-            updateAndEmit(db, taskId, "in_review", "fix_session_failed");
-            return { ok: false, timedOut: false, resumeNotFound: false };
-          }
-
-          // Fix succeeded — transition back to in_review for next review cycle
-          resetStaleSessionRetryCount(db, taskId);
-          updateAndEmit(db, taskId, "in_review", "fix_succeeded");
-          transitionToFinalState(
-            { client, stateMap },
-            taskId,
-            "in_review",
-          ).catch((err: unknown) => {
-            logger.warn("transitionToFinalState failed (fix → in_review)", {
-              taskId,
-              error: String(err),
-            });
-          });
-          log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
-          return { ok: true, timedOut: false, resumeNotFound: false };
-        },
+              return { ok: true, timedOut: false, resumeNotFound: false };
+            },
+          ),
       );
 
       if (!fixResult.ok) {
