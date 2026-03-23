@@ -206,7 +206,11 @@ export const cronTaskLifecycle = inngest.createFunction(
         const handle = activeHandles.get(invocationId);
         if (handle) {
           killSession(handle).catch((err: unknown) => {
-            logger.warn("killSession failed (cron timeout)", { taskId, invocationId, error: String(err) });
+            logger.warn("killSession failed (cron timeout)", {
+              taskId,
+              invocationId,
+              error: String(err),
+            });
           });
           activeHandles.delete(invocationId);
         }

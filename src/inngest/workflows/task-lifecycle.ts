@@ -802,7 +802,11 @@ export const taskLifecycle = inngest.createFunction(
           const timedOutHandle = activeHandles.get(invocationId);
           if (timedOutHandle) {
             killSession(timedOutHandle).catch((err: unknown) => {
-              logger.warn("killSession failed (implement timeout)", { taskId, invocationId, error: String(err) });
+              logger.warn("killSession failed (implement timeout)", {
+                taskId,
+                invocationId,
+                error: String(err),
+              });
             });
             activeHandles.delete(invocationId);
           }
@@ -1429,7 +1433,11 @@ export const taskLifecycle = inngest.createFunction(
             const timedOutHandle = activeHandles.get(invocationId);
             if (timedOutHandle) {
               killSession(timedOutHandle).catch((err: unknown) => {
-                logger.warn("killSession failed (review timeout)", { taskId, invocationId, error: String(err) });
+                logger.warn("killSession failed (review timeout)", {
+                  taskId,
+                  invocationId,
+                  error: String(err),
+                });
               });
               activeHandles.delete(invocationId);
             }
@@ -1804,7 +1812,11 @@ export const taskLifecycle = inngest.createFunction(
             const timedOutHandle = activeHandles.get(invocationId);
             if (timedOutHandle) {
               killSession(timedOutHandle).catch((err: unknown) => {
-                logger.warn("killSession failed (fix timeout)", { taskId, invocationId, error: String(err) });
+                logger.warn("killSession failed (fix timeout)", {
+                  taskId,
+                  invocationId,
+                  error: String(err),
+                });
               });
               activeHandles.delete(invocationId);
             }
