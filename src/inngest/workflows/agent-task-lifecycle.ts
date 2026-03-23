@@ -297,7 +297,9 @@ export const agentTaskLifecycle = inngest.createFunction(
         );
         const handle = activeHandles.get(invocationId);
         if (handle) {
-          killSession(handle).catch(() => {});
+          killSession(handle).catch((err: unknown) => {
+            logger.warn("killSession failed (agent timeout)", { taskId, invocationId, error: String(err) });
+          });
           activeHandles.delete(invocationId);
         }
         updateInvocation(db, invocationId, {
