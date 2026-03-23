@@ -33,13 +33,14 @@ export function defaultState() {
  * @param {{ lastKnownPort: number, consecutiveDownCount: number, downtimeStartedAt: string|null, lastStatus: string }} prevState
  * @param {{ up: boolean, port: number|null, error: string|null }} checkResult
  * @param {string} nowIso - ISO timestamp for this snapshot
+ * @param {{ id: string, reason: string }[]} [failedTasks] - recently failed tasks with truncated reason
  * @returns {{
  *   snapshot: object,
  *   newState: object,
  *   alert: object|null,
  * }}
  */
-export function processCheckResult(prevState, checkResult, nowIso) {
+export function processCheckResult(prevState, checkResult, nowIso, failedTasks) {
   const { up, port, error } = checkResult;
   const wasDown = prevState.lastStatus === "DOWN";
 
@@ -82,6 +83,10 @@ export function processCheckResult(prevState, checkResult, nowIso) {
         status: "UP",
         port,
       };
+    }
+
+    if (failedTasks && failedTasks.length > 0) {
+      snapshot.failedTasks = failedTasks;
     }
 
     return { snapshot, newState, alert };

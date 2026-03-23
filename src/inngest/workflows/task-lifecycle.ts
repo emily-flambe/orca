@@ -37,6 +37,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  setTaskFailureMetadata,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -750,6 +751,12 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "session timed out after 45 minutes",
           });
           updateAndEmit(db, taskId, "failed", "session_timed_out");
+          setTaskFailureMetadata(
+            db,
+            taskId,
+            "Session timed out after 45 minutes",
+            "implement",
+          );
           try {
             removeWorktree(worktreePath);
           } catch {
@@ -873,6 +880,12 @@ export const taskLifecycle = inngest.createFunction(
           }
 
           updateAndEmit(db, taskId, "failed", "implement_failed");
+          setTaskFailureMetadata(
+            db,
+            taskId,
+            `Session exited with code ${implementEvent.data.exitCode}${isMaxTurns ? " (max turns reached)" : ""}`,
+            "implement",
+          );
 
           const task = getTask(db, taskId);
           if (!task) return { outcome: "permanent_fail" };
@@ -953,6 +966,7 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: "Post-implementation gate failed: no branch name",
           });
           updateAndEmit(db, taskId, "failed", "gate2_no_branch");
+          setTaskFailureMetadata(db, taskId, "Gate 2 failed: no branch name", "implement");
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",
@@ -1004,6 +1018,12 @@ export const taskLifecycle = inngest.createFunction(
             outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
           });
           updateAndEmit(db, taskId, "failed", "gate2_no_pr");
+          setTaskFailureMetadata(
+            db,
+            taskId,
+            `Gate 2 failed: no PR found for branch ${branchName}`,
+            "implement",
+          );
           if (task.retryCount >= config.maxRetries) {
             insertSystemEvent(db, {
               type: "task_failed",

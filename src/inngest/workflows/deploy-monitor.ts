@@ -1,7 +1,7 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
 import { createLogger } from "../../logger.js";
-import { getTask } from "../../db/queries.js";
+import { getTask, setTaskFailureMetadata } from "../../db/queries.js";
 import {
   updateAndEmit,
   hasPollingTimedOut,
@@ -59,6 +59,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
         await step.run("deploy-timeout", async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           updateAndEmit(db, linearIssueId, "failed", "deploy_timeout");
+          setTaskFailureMetadata(db, linearIssueId, `Deploy timed out after ${config.deployTimeoutMin}min`, "deploy");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -124,6 +125,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
         await step.run("deploy-failure", async () => {
           const { db, client, stateMap } = getSchedulerDeps();
           updateAndEmit(db, linearIssueId, "failed", "deploy_ci_failed");
+          setTaskFailureMetadata(db, linearIssueId, `Deploy CI failed for commit ${mergeCommitSha}`, "deploy");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -149,6 +151,7 @@ export const deployMonitorWorkflow = inngest.createFunction(
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
         updateAndEmit(db, linearIssueId, "failed", "deploy_poll_exhausted");
+        setTaskFailureMetadata(db, linearIssueId, `Deploy status never resolved after ${maxPollAttempts} poll attempts`, "deploy");
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,

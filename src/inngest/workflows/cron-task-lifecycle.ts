@@ -12,6 +12,7 @@ import {
   updateTaskStatus,
   insertInvocation,
   updateInvocation,
+  setTaskFailureMetadata,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
@@ -214,6 +215,7 @@ export const cronTaskLifecycle = inngest.createFunction(
         updateTaskStatus(db, taskId, "failed", {
           reason: "cron_session_timeout",
         });
+        setTaskFailureMetadata(db, taskId, `Cron session timed out after ${SESSION_TIMEOUT}`, "cron_implement");
         emitTaskUpdated(getTask(db, taskId)!);
         return { outcome: "permanent_fail" as const };
       }
@@ -228,6 +230,7 @@ export const cronTaskLifecycle = inngest.createFunction(
       }
 
       updateTaskStatus(db, taskId, "failed", { reason: "cron_session_failed" });
+      setTaskFailureMetadata(db, taskId, `Cron session failed with exit code ${sessionEvent?.data.exitCode ?? "unknown"}`, "cron_implement");
       emitTaskUpdated(getTask(db, taskId)!);
       log(
         `cron task ${taskId} failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,

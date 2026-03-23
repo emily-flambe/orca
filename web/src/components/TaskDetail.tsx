@@ -204,6 +204,24 @@ export default function TaskDetail({
         />
       )}
 
+      {/* Failure reason — shown when task is failed and metadata is available */}
+      {detail.orcaStatus === "failed" && detail.lastFailureReason && (
+        <div className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 space-y-0.5">
+          <p className="text-xs font-semibold text-red-400">
+            Failure reason
+            {detail.lastFailedPhase ? ` (${detail.lastFailedPhase} phase)` : ""}
+          </p>
+          <p className="text-xs text-red-300/80 break-words">
+            {detail.lastFailureReason}
+          </p>
+          {detail.lastFailedAt && (
+            <p className="text-[10px] text-red-500/60">
+              Failed at {new Date(detail.lastFailedAt).toLocaleString()}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Agent prompt (read-only, synced from Linear) */}
       <div className="space-y-2">
         <label className="text-sm text-gray-400">Agent Prompt</label>

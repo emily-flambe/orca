@@ -174,6 +174,24 @@ export function updateTaskPrBranch(
     .run();
 }
 
+/** Record why a task transitioned to failed status. */
+export function setTaskFailureMetadata(
+  db: OrcaDb,
+  taskId: string,
+  reason: string,
+  phase: string,
+): void {
+  db.update(tasks)
+    .set({
+      lastFailureReason: reason,
+      lastFailedPhase: phase,
+      lastFailedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Set the fix_reason on a task (used to customize fix-phase agent prompt). */
 export function updateTaskFixReason(
   db: OrcaDb,

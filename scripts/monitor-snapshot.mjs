@@ -108,6 +108,34 @@ async function checkHealth(port) {
   }
 }
 
+/**
+ * Fetch failed tasks from the API and return them with truncated reason.
+ * @param {number} port
+ * @returns {Promise<{ id: string, reason: string }[]>}
+ */
+async function fetchFailedTasks(port) {
+  const url = `http://localhost:${port}/api/tasks`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return [];
+    const tasks = await res.json();
+    return tasks
+      .filter((t) => t.orcaStatus === "failed" && t.lastFailureReason)
+      .map((t) => ({
+        id: t.linearIssueId,
+        reason: t.lastFailureReason.length > 80
+          ? t.lastFailureReason.slice(0, 80) + "…"
+          : t.lastFailureReason,
+      }));
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
 async function main() {
   ensureTmpDir();
 
@@ -123,10 +151,16 @@ async function main() {
 
   const checkResult = await checkHealth(port);
 
+  let failedTasks = [];
+  if (checkResult.up) {
+    failedTasks = await fetchFailedTasks(port);
+  }
+
   const { snapshot, newState, alert } = processCheckResult(
     stateWithPort,
     checkResult,
     nowIso,
+    failedTasks,
   );
 
   // Write snapshot

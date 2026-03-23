@@ -8,6 +8,7 @@ import {
   incrementMergeAttemptCount,
   resetMergeAttemptCount,
   incrementReviewCycleCount,
+  setTaskFailureMetadata,
 } from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
 import {
@@ -77,6 +78,7 @@ export const ciMergeWorkflow = inngest.createFunction(
         await step.run(`ci-timeout`, async () => {
           const { db, config, client, stateMap } = getSchedulerDeps();
           updateAndEmit(db, linearIssueId, "failed", "ci_timeout");
+          setTaskFailureMetadata(db, linearIssueId, `CI timed out after ${config.deployTimeoutMin}min`, "ci_gate");
           await transitionToFinalState(
             { client, stateMap },
             linearIssueId,
@@ -268,6 +270,7 @@ export const ciMergeWorkflow = inngest.createFunction(
                   "failed",
                   "ci_failed_cycles_exhausted",
                 );
+                setTaskFailureMetadata(db, linearIssueId, `CI failed and review cycles exhausted (${config.maxReviewCycles})`, "ci_gate");
                 await transitionToFinalState(
                   { client, stateMap },
                   linearIssueId,
@@ -319,6 +322,7 @@ export const ciMergeWorkflow = inngest.createFunction(
         const deps = getSchedulerDeps();
         const { db, client, stateMap } = deps;
         updateAndEmit(db, linearIssueId, "failed", "ci_poll_exhausted");
+        setTaskFailureMetadata(db, linearIssueId, `CI checks never resolved after ${maxPollAttempts} poll attempts`, "ci_gate");
         await transitionToFinalState(
           { client, stateMap },
           linearIssueId,
@@ -407,6 +411,7 @@ async function mergeAndFinalizeStep(
       } else {
         // Review cycles exhausted — fail the task
         updateAndEmit(db, taskId, "failed", "merge_conflict_cycles_exhausted");
+        setTaskFailureMetadata(db, taskId, `PR #${task.prNumber} has merge conflicts and review cycle limit reached`, "awaiting_ci");
         await transitionToFinalState(
           { client, stateMap },
           taskId,
@@ -499,6 +504,7 @@ async function mergeAndFinalizeStep(
                 "failed",
                 "merge_conflict_cycles_exhausted",
               );
+              setTaskFailureMetadata(db, taskId, `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached`, "awaiting_ci");
               await transitionToFinalState(
                 { client, stateMap },
                 taskId,
@@ -538,6 +544,7 @@ async function mergeAndFinalizeStep(
 
         // Exhausted retries — escalate to failed but preserve the PR
         updateAndEmit(db, taskId, "failed", "merge_attempts_exhausted");
+        setTaskFailureMetadata(db, taskId, `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}`, "awaiting_ci");
         await transitionToFinalState(
           { client, stateMap },
           taskId,
