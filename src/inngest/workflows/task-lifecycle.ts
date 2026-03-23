@@ -28,6 +28,7 @@ import {
   incrementRetryCount,
   incrementReviewCycleCount,
   updateTaskPrBranch,
+  updateTaskPrState,
   updateTaskCiInfo,
   updateTaskDeployInfo,
   updateTaskFixReason,
@@ -1090,6 +1091,14 @@ export const taskLifecycle = inngest.createFunction(
         updateTaskPrBranch(db, taskId, storedBranch);
         if (prInfo.number != null) {
           updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
+        }
+        if (prInfo.url != null || prInfo.state != null) {
+          updateTaskPrState(
+            db,
+            taskId,
+            prInfo.url ?? null,
+            prInfo.state ?? null,
+          );
         }
 
         if (prInfo.number != null) {

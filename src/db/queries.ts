@@ -287,6 +287,19 @@ export function updateTaskDeployInfo(
     .run();
 }
 
+/** Update PR URL and state on a task. */
+export function updateTaskPrState(
+  db: OrcaDb,
+  taskId: string,
+  prUrl: string | null,
+  prState: string | null,
+): void {
+  db.update(tasks)
+    .set({ prUrl, prState, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Get a single task by its linear_issue_id. */
 export function getTask(db: OrcaDb, taskId: string): Task | undefined {
   return db.select().from(tasks).where(eq(tasks.linearIssueId, taskId)).get();

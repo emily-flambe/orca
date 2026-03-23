@@ -65,6 +65,8 @@ export interface Task {
   lastFailureReason: string | null;
   lastFailedPhase: string | null;
   lastFailedAt: string | null;
+  prUrl: string | null;
+  prState: "draft" | "open" | "merged" | "closed" | null;
 }
 
 export interface CronSchedule {

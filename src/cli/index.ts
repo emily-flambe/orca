@@ -35,6 +35,7 @@ import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
+import { backfillPrState } from "../db/backfill.js";
 
 const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
@@ -103,6 +104,10 @@ program
     });
     const db = createDb(config.dbPath);
     initAlertSystem(db);
+
+    // Backfill pr_url/pr_state for existing tasks that predate this feature.
+    // Fire-and-forget — failures are silently skipped.
+    backfillPrState(db).catch(() => {});
 
     // Initialize deploy state (SHA dedup + cooldown)
     initDeployState();

@@ -531,6 +531,17 @@ function migrateSchema(sqlite: DatabaseType): void {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_phase TEXT");
     sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_at TEXT");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 23 (PR link and state):
+  //   - Add pr_url TEXT column to tasks (nullable, GitHub PR URL)
+  //   - Add pr_state TEXT column to tasks (nullable: draft|open|merged|closed)
+  //   Sentinel: pr_url column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "pr_url")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
