@@ -101,6 +101,38 @@ CREATE TABLE IF NOT EXISTS cron_runs (
   duration_ms INTEGER
 )`;
 
+const CREATE_AGENTS = `
+CREATE TABLE IF NOT EXISTS agents (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  system_prompt TEXT NOT NULL,
+  model TEXT,
+  max_turns INTEGER,
+  timeout_min INTEGER NOT NULL DEFAULT 45,
+  repo_path TEXT,
+  schedule TEXT,
+  max_memories INTEGER NOT NULL DEFAULT 200,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  run_count INTEGER NOT NULL DEFAULT 0,
+  last_run_at TEXT,
+  next_run_at TEXT,
+  last_run_status TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`;
+
+const CREATE_AGENT_MEMORIES = `
+CREATE TABLE IF NOT EXISTS agent_memories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('episodic','semantic','procedural')),
+  content TEXT NOT NULL,
+  source_run_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`;
+
 const CREATE_TASK_STATE_TRANSITIONS = `
 CREATE TABLE IF NOT EXISTS task_state_transitions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -439,6 +471,24 @@ function migrateSchema(sqlite: DatabaseType): void {
       "CREATE INDEX IF NOT EXISTS idx_task_state_transitions_linear_issue_id ON task_state_transitions(linear_issue_id)",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 19 (agent_id on tasks):
+  //   - Add agent_id column to tasks (references which agent spawned this task)
+  //   Sentinel: agent_id column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "agent_id")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN agent_id TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 20 (agent_memories index):
+  //   - Add index on agent_memories(agent_id) for efficient memory lookup.
+  //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
+  // ---------------------------------------------------------------------------
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_agent_memories_agent_id ON agent_memories(agent_id)",
+  );
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
@@ -461,6 +511,8 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_CRON_RUNS);
   sqlite.exec(CREATE_SYSTEM_EVENTS);
   sqlite.exec(CREATE_TASK_STATE_TRANSITIONS);
+  sqlite.exec(CREATE_AGENTS);
+  sqlite.exec(CREATE_AGENT_MEMORIES);
 
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.

@@ -23,6 +23,8 @@ import {
   cronRuns,
   systemEvents,
   taskStateTransitions,
+  agents,
+  agentMemories,
   type TaskStatus,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
@@ -1151,5 +1153,213 @@ export function getTaskStateTransitions(
     .from(taskStateTransitions)
     .where(eq(taskStateTransitions.linearIssueId, taskId))
     .orderBy(asc(taskStateTransitions.id))
+    .all();
+}
+
+// ---------------------------------------------------------------------------
+// Agent types
+// ---------------------------------------------------------------------------
+type NewAgent = InferInsertModel<typeof agents>;
+export type AgentRow = typeof agents.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Agent queries
+// ---------------------------------------------------------------------------
+
+/** Insert a new agent. */
+export function insertAgent(db: OrcaDb, agent: NewAgent): void {
+  db.insert(agents).values(agent).run();
+}
+
+/** Update fields on an agent. */
+export function updateAgent(
+  db: OrcaDb,
+  id: string,
+  updates: Partial<Omit<NewAgent, "id" | "createdAt">>,
+): void {
+  db.update(agents)
+    .set({ ...updates, updatedAt: new Date().toISOString() })
+    .where(eq(agents.id, id))
+    .run();
+}
+
+/** Delete an agent and all its memories. */
+export function deleteAgent(db: OrcaDb, id: string): void {
+  db.delete(agentMemories).where(eq(agentMemories.agentId, id)).run();
+  db.delete(agents).where(eq(agents.id, id)).run();
+}
+
+/** Get a single agent by id. */
+export function getAgent(db: OrcaDb, id: string): AgentRow | undefined {
+  return db.select().from(agents).where(eq(agents.id, id)).get();
+}
+
+/** Get all agents. */
+export function getAllAgents(db: OrcaDb): AgentRow[] {
+  return db.select().from(agents).all();
+}
+
+/**
+ * Get agents that are due to run.
+ * Filters: enabled=1, schedule IS NOT NULL, next_run_at IS NOT NULL, next_run_at <= now
+ */
+export function getDueAgents(db: OrcaDb, now: string): AgentRow[] {
+  return db
+    .select()
+    .from(agents)
+    .where(
+      and(
+        eq(agents.enabled, 1),
+        isNotNull(agents.schedule),
+        isNotNull(agents.nextRunAt),
+        lte(agents.nextRunAt, now),
+      ),
+    )
+    .all();
+}
+
+/** Update the lastRunStatus field on an agent. */
+export function updateAgentLastRunStatus(
+  db: OrcaDb,
+  id: string,
+  status: "success" | "failed",
+): void {
+  db.update(agents)
+    .set({ lastRunStatus: status, updatedAt: new Date().toISOString() })
+    .where(eq(agents.id, id))
+    .run();
+}
+
+/** Increment run_count by 1 and update last_run_at and next_run_at. */
+export function incrementAgentRunCount(
+  db: OrcaDb,
+  id: string,
+  nextRunAt: string | null,
+): void {
+  db.update(agents)
+    .set({
+      runCount: sql`${agents.runCount} + 1`,
+      lastRunAt: new Date().toISOString(),
+      nextRunAt,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(agents.id, id))
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Agent memory types
+// ---------------------------------------------------------------------------
+export type AgentMemoryRow = typeof agentMemories.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Agent memory queries
+// ---------------------------------------------------------------------------
+
+/** Insert a new agent memory and return its auto-generated id. */
+export function insertAgentMemory(
+  db: OrcaDb,
+  memory: {
+    agentId: string;
+    type: "episodic" | "semantic" | "procedural";
+    content: string;
+    sourceRunId?: string | null;
+  },
+): number {
+  const result = db
+    .insert(agentMemories)
+    .values({
+      agentId: memory.agentId,
+      type: memory.type,
+      content: memory.content,
+      sourceRunId: memory.sourceRunId ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .returning({ id: agentMemories.id })
+    .get();
+  return result.id;
+}
+
+/** Update the content of an agent memory. */
+export function updateAgentMemory(
+  db: OrcaDb,
+  id: number,
+  content: string,
+): void {
+  db.update(agentMemories)
+    .set({ content, updatedAt: new Date().toISOString() })
+    .where(eq(agentMemories.id, id))
+    .run();
+}
+
+/** Delete a single agent memory by id. */
+export function deleteAgentMemory(db: OrcaDb, id: number): void {
+  db.delete(agentMemories).where(eq(agentMemories.id, id)).run();
+}
+
+/** Get memories for an agent, ordered by created_at DESC. */
+export function getAgentMemories(
+  db: OrcaDb,
+  agentId: string,
+  limit?: number,
+): AgentMemoryRow[] {
+  const query = db
+    .select()
+    .from(agentMemories)
+    .where(eq(agentMemories.agentId, agentId))
+    .orderBy(desc(agentMemories.createdAt));
+  if (limit) return query.limit(limit).all();
+  return query.all();
+}
+
+/** Count memories for an agent. */
+export function getAgentMemoryCount(db: OrcaDb, agentId: string): number {
+  const result = db
+    .select({ value: count() })
+    .from(agentMemories)
+    .where(eq(agentMemories.agentId, agentId))
+    .get();
+  return result?.value ?? 0;
+}
+
+/** Delete all memories for an agent. */
+export function deleteAllAgentMemories(db: OrcaDb, agentId: string): void {
+  db.delete(agentMemories).where(eq(agentMemories.agentId, agentId)).run();
+}
+
+/**
+ * Prune agent memories beyond maxMemories, deleting the oldest first.
+ * Returns the number of memories deleted.
+ */
+export function pruneAgentMemories(
+  db: OrcaDb,
+  agentId: string,
+  maxMemories: number,
+): number {
+  const currentCount = getAgentMemoryCount(db, agentId);
+  if (currentCount <= maxMemories) return 0;
+
+  const toDelete = currentCount - maxMemories;
+  const oldest = db
+    .select({ id: agentMemories.id })
+    .from(agentMemories)
+    .where(eq(agentMemories.agentId, agentId))
+    .orderBy(asc(agentMemories.createdAt))
+    .limit(toDelete)
+    .all();
+
+  for (const row of oldest) {
+    db.delete(agentMemories).where(eq(agentMemories.id, row.id)).run();
+  }
+  return oldest.length;
+}
+
+/** Get all tasks spawned by a specific agent. */
+export function getTasksByAgent(db: OrcaDb, agentId: string): Task[] {
+  return db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.agentId, agentId))
     .all();
 }
