@@ -162,6 +162,14 @@ Unit tests with mocked Inngest steps cannot catch workflow-level failures (e.g.,
 - Integration verification (post-deploy) verifies the workflow chain actually executes
 - Both are required. Shipping with only unit tests has caused repeated outages.
 
+## MCP Extension Mechanism
+
+Orca adopts MCP for **agent-facing integrations only**. Scheduler-side integrations (`src/linear/client.ts`, `src/github/index.ts`) remain hardcoded TypeScript.
+
+See `docs/mcp-architecture.md` for the decision summary and `docs/adr/EMI-349-mcp-extension-mechanism.md` for the full ADR.
+
+Active sub-issues: EMI-350 (runner `--mcp-config`), EMI-351 (Orca-state MCP server), EMI-352 (GitHub MCP in agent sessions).
+
 ## Creating Linear Issues
 
 Reference `docs/linear_issue_templates.md` and apply the appropriate template (Feature, Bug Fix, Refactor, Planning, Discovery). Fill all sections with real content.
