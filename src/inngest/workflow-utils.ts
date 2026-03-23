@@ -112,8 +112,17 @@ export function updateAndEmit(
   taskId: string,
   status: TaskStatus,
   reason?: string,
+  options?: { failureReason?: string; failedPhase?: string },
 ): void {
-  updateTaskStatus(db, taskId, status, reason ? { reason } : undefined);
+  updateTaskStatus(db, taskId, status, {
+    ...(reason ? { reason } : {}),
+    ...(options?.failureReason
+      ? {
+          failureReason: options.failureReason,
+          failedPhase: options.failedPhase,
+        }
+      : {}),
+  });
   const task = getTask(db, taskId);
   if (task) emitTaskUpdated(task);
 }

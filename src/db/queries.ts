@@ -50,7 +50,12 @@ export function updateTaskStatus(
   db: OrcaDb,
   taskId: string,
   status: TaskStatus,
-  options?: { reason?: string; invocationId?: number },
+  options?: {
+    reason?: string;
+    invocationId?: number;
+    failureReason?: string;
+    failedPhase?: string;
+  },
 ): void {
   const current = db
     .select({ orcaStatus: tasks.orcaStatus })
@@ -62,6 +67,13 @@ export function updateTaskStatus(
     .set({
       orcaStatus: status,
       doneAt: status === "done" ? new Date().toISOString() : null,
+      ...(status === "failed" && options?.failureReason
+        ? {
+            lastFailureReason: options.failureReason.slice(0, 500),
+            lastFailedPhase: options.failedPhase ?? null,
+            lastFailedAt: new Date().toISOString(),
+          }
+        : {}),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))

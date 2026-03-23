@@ -211,6 +211,8 @@ function upsertTask(
     if (existing) {
       updateTaskStatus(db, issue.identifier, "failed", {
         reason: "linear_canceled",
+        failureReason: "Task canceled in Linear",
+        failedPhase: existing.orcaStatus ?? "implement",
       });
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
@@ -630,7 +632,11 @@ export function resolveConflict(
     if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed", { reason: "linear_canceled" });
+    updateTaskStatus(db, taskId, "failed", {
+      reason: "linear_canceled",
+      failureReason: "Task canceled in Linear",
+      failedPhase: task.orcaStatus ?? "implement",
+    });
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     closePrsForCanceledTask(taskId, task.repoPath);
     return;

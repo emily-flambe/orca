@@ -245,7 +245,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "deploy_timeout" },
+      expect.objectContaining({ reason: "deploy_timeout" }),
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -324,7 +324,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "deploy_ci_failed" },
+      expect.objectContaining({ reason: "deploy_ci_failed" }),
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -394,7 +394,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "deploy_poll_exhausted" },
+      expect.objectContaining({ reason: "deploy_poll_exhausted" }),
     );
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -445,7 +445,7 @@ describe("deploy-monitor workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      { reason: "deploy_poll_exhausted" },
+      expect.objectContaining({ reason: "deploy_poll_exhausted" }),
     );
   });
 
