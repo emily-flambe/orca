@@ -443,10 +443,11 @@ export default function App() {
   );
 
   const handleNewTicket = useCallback(
-    async (_identifier: string) => {
+    async (identifier: string) => {
+      toast.success(`Ticket ${identifier} created`);
       await handleSync();
     },
-    [handleSync],
+    [handleSync, toast],
   );
 
   useSSE({
