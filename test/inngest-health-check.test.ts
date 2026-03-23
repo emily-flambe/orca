@@ -91,7 +91,7 @@ afterEach(() => {
 
 describe("Inngest health check — retry behavior", () => {
   it("returns true immediately on first successful fetch", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200 });
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
@@ -108,7 +108,7 @@ describe("Inngest health check — retry behavior", () => {
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new Error("ECONNREFUSED"))
-      .mockResolvedValueOnce({ status: 200 });
+      .mockResolvedValueOnce({ status: 200, ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
@@ -124,8 +124,8 @@ describe("Inngest health check — retry behavior", () => {
   it("retries on 500 response and returns true if next attempt returns 200", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ status: 500 })
-      .mockResolvedValueOnce({ status: 200 });
+      .mockResolvedValueOnce({ status: 500, ok: false })
+      .mockResolvedValueOnce({ status: 200, ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
@@ -152,9 +152,9 @@ describe("Inngest health check — retry behavior", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("does not retry on successful fetch even if it's a non-200 non-5xx status", async () => {
-    // Status codes < 500 (e.g. 302, 404) still count as reachable
-    const fetchMock = vi.fn().mockResolvedValue({ status: 404 });
+  it("retries on 404 and marks inngest unreachable after all attempts fail", async () => {
+    // 4xx responses are not ok — health check should retry and report unreachable
+    const fetchMock = vi.fn().mockResolvedValue({ status: 404, ok: false });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
@@ -163,14 +163,14 @@ describe("Inngest health check — retry behavior", () => {
     const res = await resPromise;
     const body = await res.json();
 
-    expect(body.inngestReachable).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(body.inngestReachable).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 
 describe("Inngest health check — caching behavior", () => {
   it("caches a successful result and does not re-fetch within 10 seconds", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200 });
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
@@ -216,8 +216,8 @@ describe("Inngest health check — caching behavior", () => {
   it("re-fetches after cache expires (> 10 seconds)", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce({ status: 200 })
-      .mockResolvedValueOnce({ status: 200 });
+      .mockResolvedValueOnce({ status: 200, ok: true })
+      .mockResolvedValueOnce({ status: 200, ok: true });
     vi.stubGlobal("fetch", fetchMock);
 
     const app = makeApp();
