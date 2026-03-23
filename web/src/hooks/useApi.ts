@@ -4,6 +4,8 @@ import type {
   OrcaStatus,
   CronSchedule,
   CronRun,
+  Agent,
+  AgentMemory,
 } from "../types";
 
 const BASE = "/api";
@@ -322,6 +324,73 @@ export async function fetchInngestWorkflows(): Promise<
     error?: string;
   }>("/inngest/workflows");
   return res.functions;
+}
+
+// ---------------------------------------------------------------------------
+// Agents
+// ---------------------------------------------------------------------------
+
+export function fetchAgents(): Promise<Agent[]> {
+  return fetchJson<Agent[]>("/agents");
+}
+
+export function fetchAgentDetail(
+  id: string,
+): Promise<Agent & { memories: AgentMemory[]; tasks: Task[] }> {
+  return fetchJson<Agent & { memories: AgentMemory[]; tasks: Task[] }>(
+    `/agents/${encodeURIComponent(id)}`,
+  );
+}
+
+export function createAgent(
+  data: Partial<Agent> & { id: string; name: string; systemPrompt: string },
+): Promise<Agent> {
+  return fetchJson<Agent>("/agents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateAgent(
+  id: string,
+  data: Partial<Agent>,
+): Promise<Agent> {
+  return fetchJson<Agent>(`/agents/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteAgent(id: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function toggleAgent(id: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(
+    `/agents/${encodeURIComponent(id)}/toggle`,
+    { method: "POST" },
+  );
+}
+
+export function triggerAgent(id: string): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(
+    `/agents/${encodeURIComponent(id)}/trigger`,
+    { method: "POST" },
+  );
+}
+
+export function deleteAgentMemory(
+  agentId: string,
+  memoryId: number,
+): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(
+    `/agents/${encodeURIComponent(agentId)}/memories/${memoryId}`,
+    { method: "DELETE" },
+  );
 }
 
 export type { CronSchedule };

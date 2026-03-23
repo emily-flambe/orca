@@ -4,7 +4,12 @@
 export const CRON_TYPES = ["claude", "shell"] as const;
 export type CronType = (typeof CRON_TYPES)[number];
 
-export const TASK_TYPES = ["linear", "cron_claude", "cron_shell"] as const;
+export const TASK_TYPES = [
+  "linear",
+  "cron_claude",
+  "cron_shell",
+  "agent",
+] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
 export const TASK_STATUSES = [
@@ -29,6 +34,13 @@ export const INVOCATION_STATUSES = [
 ] as const;
 export type InvocationStatus = (typeof INVOCATION_STATUSES)[number];
 
+export const AGENT_MEMORY_TYPES = [
+  "episodic",
+  "semantic",
+  "procedural",
+] as const;
+export type AgentMemoryType = (typeof AGENT_MEMORY_TYPES)[number];
+
 export interface Task {
   linearIssueId: string;
   agentPrompt: string;
@@ -49,6 +61,7 @@ export interface Task {
   updatedAt: string;
   taskType: TaskType;
   cronScheduleId: number | null;
+  agentId: string | null;
 }
 
 export interface CronSchedule {
@@ -103,6 +116,36 @@ export interface Invocation {
 
 export interface TaskWithInvocations extends Task {
   invocations: Invocation[];
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  description: string | null;
+  systemPrompt: string;
+  model: string | null;
+  maxTurns: number | null;
+  timeoutMin: number;
+  repoPath: string | null;
+  schedule: string | null;
+  maxMemories: number;
+  enabled: number; // 1 or 0 (SQLite boolean)
+  runCount: number;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  lastRunStatus: "success" | "failed" | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMemory {
+  id: number;
+  agentId: string;
+  type: AgentMemoryType;
+  content: string;
+  sourceRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OrcaStatus {

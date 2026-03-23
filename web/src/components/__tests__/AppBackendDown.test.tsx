@@ -22,6 +22,7 @@ vi.mock("../../hooks/useApi", () => ({
   fetchTasks: vi.fn(),
   fetchStatus: vi.fn(),
   fetchVersion: vi.fn(),
+  fetchRunningInvocations: vi.fn().mockResolvedValue([]),
   triggerSync: vi.fn(),
   updateConfig: vi.fn(),
 }));
@@ -58,9 +59,8 @@ const baseStatus = {
   inputTokensInWindow: 0,
   outputTokensInWindow: 0,
   concurrencyCap: 1,
-  implementModel: "sonnet",
+  model: "sonnet",
   reviewModel: "haiku",
-  fixModel: "sonnet",
   draining: false,
   drainSessionCount: 0,
   tokensPerMinute: null,

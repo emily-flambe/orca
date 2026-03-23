@@ -1,11 +1,22 @@
-import type { OrcaStatus } from "../types";
+import type { OrcaStatus, Task } from "../types";
 
-export type Page = "tasks" | "metrics" | "cron" | "settings";
+export type Page =
+  | "dashboard"
+  | "tasks"
+  | "metrics"
+  | "cron"
+  | "agents"
+  | "inngest"
+  | "settings"
+  | "logs";
 
 interface SidebarProps {
   activePage: Page;
   onNavigate: (page: Page) => void;
   status: OrcaStatus | null;
+  tasks?: Task[];
+  onSync?: () => Promise<void>;
+  onNewTicket?: (identifier: string) => Promise<void>;
   isOpen: boolean; // mobile open state
 }
 
@@ -73,6 +84,15 @@ export default function Sidebar({
           onClick={() => onNavigate("cron")}
         >
           <span>Cron</span>
+        </button>
+
+        {/* Agents */}
+        <button
+          aria-label="Agents"
+          className={navItemClass("agents")}
+          onClick={() => onNavigate("agents")}
+        >
+          <span>Agents</span>
         </button>
 
         {/* Settings */}

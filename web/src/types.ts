@@ -9,6 +9,8 @@ export {
   type Invocation,
   type TaskWithInvocations,
   type OrcaStatus,
+  type Agent,
+  type AgentMemory,
 } from "../../src/shared/types.ts";
 
 export interface InngestWorkflow {

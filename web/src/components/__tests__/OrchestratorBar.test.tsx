@@ -12,9 +12,8 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
     tokensInWindow: 0,
     tokenBudgetLimit: 100000,
     concurrencyCap: 2,
-    implementModel: "sonnet",
+    model: "sonnet",
     reviewModel: "haiku",
-    fixModel: "sonnet",
     draining: false,
     drainSessionCount: 0,
     tokensPerMinute: null,
@@ -147,7 +146,7 @@ describe("OrchestratorBar - toast feedback", () => {
   it("fires success toast when model is changed successfully", async () => {
     render(
       <OrchestratorBar
-        status={makeStatus({ implementModel: "sonnet" })}
+        status={makeStatus({ model: "sonnet" })}
         onSync={vi.fn()}
         onConfigUpdate={onConfigUpdate}
         onNewTicket={vi.fn()}
@@ -155,18 +154,18 @@ describe("OrchestratorBar - toast feedback", () => {
       />,
     );
 
-    // Find the implement model selector
+    // Find the model selector
     const selects = screen.getAllByRole("combobox");
-    const implementSelect = selects[0]; // first is implement
+    const modelSelect = selects[0]; // first is model
 
-    fireEvent.change(implementSelect, { target: { value: "haiku" } });
+    fireEvent.change(modelSelect, { target: { value: "haiku" } });
 
     await waitFor(() => {
-      expect(onConfigUpdate).toHaveBeenCalledWith({ implementModel: "haiku" });
+      expect(onConfigUpdate).toHaveBeenCalledWith({ model: "haiku" });
     });
 
     expect(onToast.success).toHaveBeenCalledWith(
-      "implement model updated to haiku",
+      "model model updated to haiku",
     );
     expect(onToast.error).not.toHaveBeenCalled();
   });

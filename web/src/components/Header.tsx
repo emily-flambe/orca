@@ -2,10 +2,14 @@ import type { Page } from "./Sidebar";
 import type { OrcaStatus } from "../types";
 
 const PAGE_TITLES: Record<Page, string> = {
+  dashboard: "Dashboard",
   tasks: "Tasks",
   metrics: "Metrics",
   cron: "Cron",
+  agents: "Agents",
+  inngest: "Inngest",
   settings: "Settings",
+  logs: "Logs",
 };
 
 function HealthDot({ online }: { online: boolean | null }) {
