@@ -284,6 +284,83 @@ describe("WorktreePoolService", () => {
     });
   });
 
+  describe("refreshStale", () => {
+    test("rebases reserves older than 1 hour and updates createdAt", async () => {
+      const pool = new WorktreePoolService(1);
+      pool.startFilling([REPO_PATH]);
+      await flushAsync(20);
+
+      expect(pool.getReservePaths().size).toBe(1);
+
+      // Backdating createdAt via the reserve's reference is not directly accessible,
+      // so we use a subclass to expose internals for testing.
+      // Instead, use vi.setSystemTime to make "now" be > 1 hour ahead.
+      const originalNow = Date.now;
+      const futureNow = Date.now() + 61 * 60 * 1000; // 61 minutes later
+      vi.spyOn(Date, "now").mockReturnValue(futureNow);
+
+      mockGitAsync.mockClear();
+      await pool.refreshStale();
+
+      // fetch + reset --hard should have been called for the stale reserve
+      const calls = mockGitAsync.mock.calls.map((c) => c[0] as string[]);
+      expect(calls.some((args) => args[0] === "fetch")).toBe(true);
+      expect(calls.some((args) => args[0] === "reset" && args.includes("--hard"))).toBe(true);
+
+      // Reserve should still be present (refresh succeeded)
+      expect(pool.getReservePaths().size).toBe(1);
+
+      vi.spyOn(Date, "now").mockRestore();
+      await pool.destroy();
+    });
+
+    test("does not rebase reserves that are still fresh", async () => {
+      const pool = new WorktreePoolService(1);
+      pool.startFilling([REPO_PATH]);
+      await flushAsync(20);
+
+      mockGitAsync.mockClear();
+      await pool.refreshStale(); // reserves are fresh (< 1 hour old)
+
+      const calls = mockGitAsync.mock.calls.map((c) => c[0] as string[]);
+      expect(calls.some((args) => args[0] === "fetch")).toBe(false);
+      expect(pool.getReservePaths().size).toBe(1);
+
+      await pool.destroy();
+    });
+
+    test("discards reserve and removes worktree when refresh fails", async () => {
+      const pool = new WorktreePoolService(1);
+      pool.startFilling([REPO_PATH]);
+      await flushAsync(20);
+
+      expect(pool.getReservePaths().size).toBe(1);
+
+      // Advance time past stale threshold
+      vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61 * 60 * 1000);
+
+      // Make git fetch fail during refresh
+      mockGitAsync.mockRejectedValueOnce(new Error("network error"));
+
+      await pool.refreshStale();
+
+      // Reserve should be removed from pool
+      expect(pool.getReservePaths().size).toBe(0);
+      // removeWorktreeAsync should have been called for the discarded reserve
+      expect(mockRemoveWorktreeAsync).toHaveBeenCalledTimes(1);
+
+      vi.spyOn(Date, "now").mockRestore();
+      await pool.destroy();
+    });
+
+    test("is a no-op when pool is empty", async () => {
+      const pool = new WorktreePoolService(1);
+      // No startFilling — pool is empty
+      await expect(pool.refreshStale()).resolves.not.toThrow();
+      await pool.destroy();
+    });
+  });
+
   describe("singleton helpers", () => {
     test("initWorktreePool creates and stores singleton", () => {
       const pool = initWorktreePool(2);
