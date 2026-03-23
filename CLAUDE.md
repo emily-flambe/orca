@@ -43,8 +43,6 @@ cd web && npm run build  # Build frontend (vite)
 | `src/tunnel/` | Cloudflared tunnel management |
 | `web/` | React dashboard (Vite + Tailwind) |
 
-**MCP integration strategy:** `docs/mcp-architecture.md` — agent-facing only (scheduler integrations stay hardcoded). Sub-issues: EMI-380 (`--mcp-config` runner), EMI-381 (Orca-state MCP server), EMI-382 (GitHub MCP in sessions).
-
 ## Task Lifecycle
 
 Full state machine with diagrams: `docs/ticket-lifecycle.md`
@@ -170,7 +168,7 @@ Orca adopts MCP for **agent-facing integrations only**. Scheduler-side integrati
 
 See `docs/mcp-architecture.md` for the decision summary and `docs/adr/EMI-349-mcp-extension-mechanism.md` for the full ADR.
 
-Active sub-issues: EMI-350 (runner `--mcp-config`), EMI-351 (Orca-state MCP server), EMI-352 (GitHub MCP in agent sessions).
+Active sub-issues: EMI-380 (runner `--mcp-config`), EMI-381 (Orca-state MCP server), EMI-382 (GitHub MCP in agent sessions).
 
 ## Creating Linear Issues
 

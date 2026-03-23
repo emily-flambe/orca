@@ -51,11 +51,11 @@ MCP is additive for agent sessions. Within a Claude Code session, agents can use
 
 Three concrete capabilities become possible:
 
-1. **Runner `--mcp-config` injection** (EMI-350): infrastructure change to pass per-session MCP config when spawning Claude. Enables everything below.
+1. **Runner `--mcp-config` injection** (EMI-380): infrastructure change to pass per-session MCP config when spawning Claude. Enables everything below.
 
-2. **Orca-state MCP server** (EMI-351): expose Orca's own DB state (task metadata, invocation history, cost data) to agents. Agents can query what task they're implementing, review history, check budget. This is a novel capability that doesn't exist in any external MCP ecosystem.
+2. **Orca-state MCP server** (EMI-381): expose Orca's own DB state (task metadata, invocation history, cost data) to agents. Agents can query what task they're implementing, review history, check budget. This is a novel capability that doesn't exist in any external MCP ecosystem.
 
-3. **GitHub MCP in agent sessions** (EMI-352): structured GitHub API tools for agents (create PRs, read CI status, review diffs) without raw `gh` CLI dependency. Scoped to agent sessions only — scheduler-side `gh` CLI stays.
+3. **GitHub MCP in agent sessions** (EMI-382): structured GitHub API tools for agents (create PRs, read CI status, review diffs) without raw `gh` CLI dependency. Scoped to agent sessions only — scheduler-side `gh` CLI stays.
 
 ---
 
@@ -71,10 +71,10 @@ Three concrete capabilities become possible:
 
 - `src/linear/client.ts` — scheduler sync, webhook, write-back remain native TypeScript
 - `src/github/index.ts` — scheduler-side PR/CI/deploy operations remain native TypeScript
-- `src/runner/index.ts` session spawning — unchanged except for `--mcp-config` flag addition (EMI-350)
+- `src/runner/index.ts` session spawning — unchanged except for `--mcp-config` flag addition (EMI-380)
 
 ### Follow-up issues
 
-- **EMI-350**: Migrate runner to pass `--mcp-config` per-session
-- **EMI-351**: Build Orca-state MCP server (expose DB to agents)
-- **EMI-352**: Add GitHub MCP server to agent sessions (replace `gh` CLI in-session)
+- **EMI-380**: Migrate runner to pass `--mcp-config` per-session
+- **EMI-381**: Build Orca-state MCP server (expose DB to agents)
+- **EMI-382**: Add GitHub MCP server to agent sessions (replace `gh` CLI in-session)
