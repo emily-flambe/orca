@@ -255,6 +255,57 @@ function killProcessTree(pid: number, proc: ChildProcess): void {
   }
 }
 
+/**
+ * Expand `$VAR` and `${VAR}` references in a string using `process.env`.
+ * Unset variables are replaced with an empty string.
+ */
+function expandEnvVars(value: string): string {
+  return value
+    .replace(/\$\{([^}]+)\}/g, (_, name: string) => process.env[name] ?? "")
+    .replace(
+      /\$([A-Za-z_][A-Za-z0-9_]*)/g,
+      (_, name: string) => process.env[name] ?? "",
+    );
+}
+
+/**
+ * Return a copy of the mcpServers map with env var references expanded in
+ * HTTP url/header values and stdio env values.
+ */
+function expandMcpEnvVars(
+  servers: Record<string, McpServerConfig>,
+): Record<string, McpServerConfig> {
+  const result: Record<string, McpServerConfig> = {};
+  for (const [name, cfg] of Object.entries(servers)) {
+    if ("type" in cfg && cfg.type === "http") {
+      result[name] = {
+        ...cfg,
+        url: expandEnvVars(cfg.url),
+        headers: cfg.headers
+          ? Object.fromEntries(
+              Object.entries(cfg.headers).map(([k, v]) => [
+                k,
+                expandEnvVars(v),
+              ]),
+            )
+          : undefined,
+      };
+    } else if ("command" in cfg) {
+      result[name] = {
+        ...cfg,
+        env: cfg.env
+          ? Object.fromEntries(
+              Object.entries(cfg.env).map(([k, v]) => [k, expandEnvVars(v)]),
+            )
+          : undefined,
+      };
+    } else {
+      result[name] = cfg;
+    }
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -374,12 +425,14 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   const logPath = join(logsDir, `${options.invocationId}.ndjson`);
 
   // Write MCP config temp file if mcpServers are provided.
+  // Expand $VAR and ${VAR} references in url/header/env values before writing.
   let mcpConfigPath: string | null = null;
   if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
     mcpConfigPath = join(logsDir, `${options.invocationId}-mcp.json`);
+    const expandedServers = expandMcpEnvVars(options.mcpServers);
     writeFileSync(
       mcpConfigPath,
-      JSON.stringify({ mcpServers: options.mcpServers }, null, 2),
+      JSON.stringify({ mcpServers: expandedServers }, null, 2),
     );
   }
 

@@ -1127,6 +1127,133 @@ describe("MCP config per-session", () => {
 
     await handle.done;
   });
+
+  test("env var references in http url are expanded before writing config", async () => {
+    const script = join(tmpDir, "argv-mcp-envvar-url.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    process.env["ORCA_TEST_MCP_PORT"] = "9876";
+    try {
+      const id = nextInvocationId();
+      const handle = spawnSession({
+        agentPrompt: "test",
+        worktreePath: tmpDir,
+        maxTurns: 5,
+        invocationId: id,
+        projectRoot: tmpDir,
+        claudePath: process.execPath,
+        claudeArgs: [script],
+        mcpServers: {
+          myServer: {
+            type: "http",
+            url: "http://localhost:${ORCA_TEST_MCP_PORT}/mcp",
+            headers: { Authorization: "Bearer $ORCA_TEST_MCP_PORT" },
+          },
+        },
+      });
+
+      const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+      const { readFileSync } = await import("node:fs");
+      const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+
+      expect(fileContent.mcpServers.myServer.url).toBe(
+        "http://localhost:9876/mcp",
+      );
+      expect(fileContent.mcpServers.myServer.headers.Authorization).toBe(
+        "Bearer 9876",
+      );
+
+      await handle.done;
+    } finally {
+      delete process.env["ORCA_TEST_MCP_PORT"];
+    }
+  });
+
+  test("env var references in stdio env values are expanded before writing config", async () => {
+    const script = join(tmpDir, "argv-mcp-envvar-stdio.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    process.env["ORCA_TEST_MCP_SECRET"] = "supersecret";
+    try {
+      const id = nextInvocationId();
+      const handle = spawnSession({
+        agentPrompt: "test",
+        worktreePath: tmpDir,
+        maxTurns: 5,
+        invocationId: id,
+        projectRoot: tmpDir,
+        claudePath: process.execPath,
+        claudeArgs: [script],
+        mcpServers: {
+          myStdioServer: {
+            command: "npx",
+            args: ["some-server"],
+            env: { API_KEY: "$ORCA_TEST_MCP_SECRET" },
+          },
+        },
+      });
+
+      const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+      const { readFileSync } = await import("node:fs");
+      const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+
+      expect(fileContent.mcpServers.myStdioServer.env.API_KEY).toBe(
+        "supersecret",
+      );
+
+      await handle.done;
+    } finally {
+      delete process.env["ORCA_TEST_MCP_SECRET"];
+    }
+  });
+
+  test("unset env var references expand to empty string", async () => {
+    const script = join(tmpDir, "argv-mcp-envvar-unset.js");
+    writeFileSync(
+      script,
+      makeScript([
+        'process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:JSON.stringify(process.argv)}) + "\\n");',
+      ]),
+    );
+
+    // Ensure the var is not set
+    delete process.env["ORCA_TEST_MCP_UNSET_VAR"];
+
+    const id = nextInvocationId();
+    const handle = spawnSession({
+      agentPrompt: "test",
+      worktreePath: tmpDir,
+      maxTurns: 5,
+      invocationId: id,
+      projectRoot: tmpDir,
+      claudePath: process.execPath,
+      claudeArgs: [script],
+      mcpServers: {
+        myServer: {
+          type: "http",
+          url: "http://localhost:${ORCA_TEST_MCP_UNSET_VAR}/mcp",
+        },
+      },
+    });
+
+    const expectedMcpPath = join(tmpDir, "logs", `${id}-mcp.json`);
+    const { readFileSync } = await import("node:fs");
+    const fileContent = JSON.parse(readFileSync(expectedMcpPath, "utf8"));
+
+    expect(fileContent.mcpServers.myServer.url).toBe("http://localhost:/mcp");
+
+    await handle.done;
+  });
 });
 
 // ---------------------------------------------------------------------------
