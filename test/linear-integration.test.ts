@@ -497,6 +497,16 @@ vi.mock("../src/runner/index.js", () => ({
   spawnSession: vi.fn(),
 }));
 
+vi.mock("../src/linear/sync.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/linear/sync.js")>();
+  return {
+    ...actual,
+    fullSync: vi.fn().mockResolvedValue(undefined),
+    processWebhookEvent: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 describe("10.3 - Conflict resolution", () => {
   let db: OrcaDb;
   let config: OrcaConfig;
@@ -730,16 +740,6 @@ describe("10.4 - Write-back loop prevention", () => {
 // ===========================================================================
 
 describe("10.5 - Webhook HMAC verification", () => {
-  // Mock processWebhookEvent to avoid needing real DB/scheduler deps in webhook route
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual =
-      await importOriginal<typeof import("../src/linear/sync.js")>();
-    return {
-      ...actual,
-      processWebhookEvent: vi.fn().mockResolvedValue(undefined),
-    };
-  });
-
   let createWebhookRoute: typeof import("../src/linear/webhook.js").createWebhookRoute;
   let app: ReturnType<typeof createWebhookRoute>;
   const secret = "test-webhook-secret-hmac";
@@ -832,17 +832,6 @@ describe("10.5 - Webhook HMAC verification", () => {
 // ===========================================================================
 
 describe("10.6 - Polling fallback", () => {
-  // We need to mock fullSync to track calls without actually running it
-  vi.mock("../src/linear/sync.js", async (importOriginal) => {
-    const actual =
-      await importOriginal<typeof import("../src/linear/sync.js")>();
-    return {
-      ...actual,
-      fullSync: vi.fn().mockResolvedValue(undefined),
-      processWebhookEvent: vi.fn().mockResolvedValue(undefined),
-    };
-  });
-
   let createPoller: typeof import("../src/linear/poller.js").createPoller;
   let fullSyncMock: Mock;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
