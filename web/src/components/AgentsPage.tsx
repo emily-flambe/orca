@@ -460,6 +460,9 @@ function AgentDetail({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingMemoryId, setDeletingMemoryId] = useState<number | null>(null);
+  const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<number>>(
+    new Set(),
+  );
 
   useEffect(() => {
     fetchAgentDetail(agentId)
@@ -473,6 +476,18 @@ function AgentDetail({
       })
       .finally(() => setLoading(false));
   }, [agentId]);
+
+  function toggleMemoryExpanded(memoryId: number) {
+    setExpandedMemoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(memoryId)) {
+        next.delete(memoryId);
+      } else {
+        next.add(memoryId);
+      }
+      return next;
+    });
+  }
 
   async function handleDeleteMemory(memoryId: number) {
     try {
@@ -518,7 +533,15 @@ function AgentDetail({
                 >
                   {m.type}
                 </span>
-                <p className="text-xs text-gray-400 flex-1 line-clamp-2">
+                <p
+                  className={`text-xs text-gray-400 flex-1 cursor-pointer hover:text-gray-300 transition-colors whitespace-pre-wrap ${expandedMemoryIds.has(m.id) ? "" : "line-clamp-2"}`}
+                  onClick={() => toggleMemoryExpanded(m.id)}
+                  title={
+                    expandedMemoryIds.has(m.id)
+                      ? "Click to collapse"
+                      : "Click to expand"
+                  }
+                >
                   {m.content}
                 </p>
                 <span className="text-xs text-gray-600 shrink-0">
