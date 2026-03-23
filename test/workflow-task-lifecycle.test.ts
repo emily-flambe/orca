@@ -45,8 +45,6 @@ vi.mock("../src/db/queries.js", () => ({
   updateTaskStatus: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
-  insertBudgetEvent: vi.fn(),
-  sumCostInWindow: vi.fn().mockReturnValue(0),
   sumTokensInWindow: vi.fn().mockReturnValue(0),
   budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
@@ -65,7 +63,6 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
-  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -135,7 +132,6 @@ import {
   updateTaskStatus,
   insertInvocation,
   updateInvocation,
-  sumCostInWindow,
   incrementRetryCount,
   insertSystemEvent,
   resetStaleSessionRetryCount,
@@ -157,7 +153,6 @@ const mockGetTask = vi.mocked(getTask);
 const mockClaimTaskForDispatch = vi.mocked(claimTaskForDispatch);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
 const mockInsertInvocation = vi.mocked(insertInvocation);
-const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
 const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSpawnSession = vi.mocked(spawnSession);
@@ -176,7 +171,6 @@ const mockCreateWorktree = vi.mocked(createWorktree);
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
-  budgetMaxCostUsd: 100,
   budgetWindowHours: 4,
   maxRetries: 3,
   maxReviewCycles: 3,
@@ -310,7 +304,6 @@ beforeEach(() => {
   activeHandles.clear();
 
   // Re-apply defaults after reset
-  mockSumCostInWindow.mockReturnValue(0);
   mockLinearClient.createComment.mockResolvedValue({});
   mockLinearClient.createAttachment.mockResolvedValue({});
   mockExistsSync.mockReturnValue(false);
@@ -341,20 +334,6 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("task-lifecycle workflow", () => {
-  test("budget exceeded → returns budget_exceeded outcome", async () => {
-    mockSumCostInWindow.mockReturnValue(150); // exceeds 100 limit
-
-    const step = createStep();
-    const result = await capturedHandler({
-      event: makeTaskReadyEvent(),
-      step,
-    });
-
-    expect(result).toMatchObject({ outcome: "budget_exceeded" });
-    // Should NOT have claimed the task
-    expect(mockClaimTaskForDispatch).not.toHaveBeenCalled();
-  });
-
   test("claim fails (task not in DB) → returns not_claimed outcome", async () => {
     mockGetTask.mockReturnValue(null);
     mockClaimTaskForDispatch.mockReturnValue(false);

@@ -83,32 +83,6 @@ async function emitAlert(alert) {
 
 /**
  * @param {number} port
- * @returns {Promise<{ costInWindow: number, budgetLimit: number }|null>}
- */
-async function fetchStatus(port) {
-  const url = `http://localhost:${port}/api/status`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (
-      typeof data.costInWindow === "number" &&
-      typeof data.budgetLimit === "number"
-    ) {
-      return { costInWindow: data.costInWindow, budgetLimit: data.budgetLimit };
-    }
-    return null;
-  } catch {
-    clearTimeout(timer);
-    return null;
-  }
-}
-
-/**
- * @param {number} port
  * @returns {Promise<{ up: boolean, port: number|null, error: string|null }>}
  */
 async function checkHealth(port) {
@@ -149,28 +123,10 @@ async function main() {
 
   const checkResult = await checkHealth(port);
 
-  let budgetData = null;
-  if (checkResult.up) {
-    const statusData = await fetchStatus(port);
-    if (statusData != null) {
-      budgetData = {
-        used: statusData.costInWindow,
-        limit: statusData.budgetLimit,
-      };
-    }
-  }
-
-  const burnRateAlertThreshold = Number(
-    process.env.MONITOR_BURN_RATE_ALERT_USD_PER_HOUR ?? 20,
-  );
-  const config = { burnRateAlertThreshold };
-
-  const { snapshot, newState, alert, budgetAlerts } = processCheckResult(
+  const { snapshot, newState, alert } = processCheckResult(
     stateWithPort,
     checkResult,
     nowIso,
-    budgetData,
-    config,
   );
 
   // Write snapshot
@@ -183,12 +139,6 @@ async function main() {
   // Emit alert if any
   if (alert) {
     await emitAlert(alert);
-  }
-
-  // Emit budget alerts if any
-  for (const ba of budgetAlerts ?? []) {
-    await emitAlert(ba);
-    console.log("[monitor-snapshot] BUDGET ALERT:", JSON.stringify(ba));
   }
 
   // Log to stdout

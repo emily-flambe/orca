@@ -50,8 +50,6 @@ vi.mock("../src/db/queries.js", () => ({
   updateTaskStatus: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
-  insertBudgetEvent: vi.fn(),
-  sumCostInWindow: vi.fn().mockReturnValue(0),
   sumTokensInWindow: vi.fn().mockReturnValue(0),
   budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
@@ -70,7 +68,6 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
-  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -139,7 +136,6 @@ import {
   updateTaskStatus,
   insertInvocation,
   updateInvocation,
-  sumCostInWindow,
   sumTokensInWindow,
   budgetWindowStart,
   countActiveSessions,
@@ -167,7 +163,6 @@ const mockClaimTaskForDispatch = vi.mocked(claimTaskForDispatch);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
 const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockUpdateInvocation = vi.mocked(updateInvocation);
-const mockSumCostInWindow = vi.mocked(sumCostInWindow);
 const mockSumTokensInWindow = vi.mocked(sumTokensInWindow);
 const mockBudgetWindowStart = vi.mocked(budgetWindowStart);
 const mockCountActiveSessions = vi.mocked(countActiveSessions);
@@ -191,7 +186,6 @@ const mockGetLastCompletedImplementInvocation = vi.mocked(
 
 const mockConfig = {
   concurrencyCap: 1,
-  budgetMaxCostUsd: 100,
   budgetMaxTokens: 10_000_000,
   budgetWindowHours: 4,
   maxRetries: 3,
@@ -270,7 +264,6 @@ beforeEach(() => {
   activeHandles.clear();
 
   mockInngestSend.mockResolvedValue(undefined);
-  mockSumCostInWindow.mockReturnValue(0);
   mockSumTokensInWindow.mockReturnValue(0);
   mockBudgetWindowStart.mockReturnValue(new Date().toISOString());
   mockCountActiveSessions.mockReturnValue(0);

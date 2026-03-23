@@ -229,11 +229,6 @@ describe("default values", () => {
     expect(cfg.budgetWindowHours).toBe(4);
   });
 
-  test("budgetMaxCostUsd defaults to 100", async () => {
-    const cfg = await loadConfig();
-    expect(cfg.budgetMaxCostUsd).toBe(100);
-  });
-
   test("budgetMaxTokens defaults to 1_000_000_000", async () => {
     const cfg = await loadConfig();
     expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
@@ -395,12 +390,6 @@ describe("malformed values → exit(1)", () => {
 
   test("ORCA_CONCURRENCY_CAP=1.5 → exit(1) (not integer)", async () => {
     process.env.ORCA_CONCURRENCY_CAP = "1.5";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("ORCA_BUDGET_MAX_COST_USD=abc → exit(1)", async () => {
-    process.env.ORCA_BUDGET_MAX_COST_USD = "abc";
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
     expect(process.exit).toHaveBeenCalledWith(1);
   });

@@ -19,7 +19,6 @@ import type { InferInsertModel } from "drizzle-orm";
 import {
   tasks,
   invocations,
-  budgetEvents,
   cronSchedules,
   cronRuns,
   systemEvents,
@@ -297,20 +296,8 @@ export function getParentTasks(db: OrcaDb): Task[] {
   return db.select().from(tasks).where(eq(tasks.isParent, 1)).all();
 }
 
-/** Delete a task and its invocations/budget events by linear_issue_id. */
+/** Delete a task and its invocations by linear_issue_id. */
 export function deleteTask(db: OrcaDb, taskId: string): void {
-  // Delete budget events for this task's invocations first (FK chain)
-  const taskInvocations = db
-    .select({ id: invocations.id })
-    .from(invocations)
-    .where(eq(invocations.linearIssueId, taskId))
-    .all();
-  if (taskInvocations.length > 0) {
-    const invIds = taskInvocations.map((i) => i.id);
-    db.delete(budgetEvents)
-      .where(inArray(budgetEvents.invocationId, invIds))
-      .run();
-  }
   db.delete(invocations).where(eq(invocations.linearIssueId, taskId)).run();
   db.delete(tasks).where(eq(tasks.linearIssueId, taskId)).run();
 }
@@ -511,18 +498,8 @@ export function clearSessionIds(db: OrcaDb, taskId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Budget event types
-// ---------------------------------------------------------------------------
-type NewBudgetEvent = InferInsertModel<typeof budgetEvents>;
-
-// ---------------------------------------------------------------------------
 // Budget queries
 // ---------------------------------------------------------------------------
-
-/** Insert a budget event. */
-export function insertBudgetEvent(db: OrcaDb, event: NewBudgetEvent): void {
-  db.insert(budgetEvents).values(event).run();
-}
 
 /** Returns an ISO timestamp for the start of a budget window `hours` hours ago. */
 export function budgetWindowStart(hours: number): string {
@@ -530,36 +507,23 @@ export function budgetWindowStart(hours: number): string {
 }
 
 /**
- * Sum cost_usd from budget_events where recorded_at >= windowStart.
- * Returns 0 if no events match.
- */
-export function sumCostInWindow(db: OrcaDb, windowStart: string): number {
-  const result = db
-    .select({ total: sum(budgetEvents.costUsd) })
-    .from(budgetEvents)
-    .where(gte(budgetEvents.recordedAt, windowStart))
-    .get();
-  return result?.total ? Number(result.total) : 0;
-}
-
-/**
- * Sum (input_tokens + output_tokens) from budget_events where recorded_at >= windowStart.
- * Returns 0 if no events match.
+ * Sum (input_tokens + output_tokens) from invocations where started_at >= windowStart.
+ * Returns 0 if no invocations match.
  */
 export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
   const result = db
     .select({
-      total: sql<number>`coalesce(sum(${budgetEvents.inputTokens} + ${budgetEvents.outputTokens}), 0)`,
+      total: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
-    .from(budgetEvents)
-    .where(gte(budgetEvents.recordedAt, windowStart))
+    .from(invocations)
+    .where(gte(invocations.startedAt, windowStart))
     .get();
   return result?.total ? Number(result.total) : 0;
 }
 
 /**
- * Sum input_tokens and output_tokens separately from budget_events where recorded_at >= windowStart.
- * Returns { input: 0, output: 0 } if no events match.
+ * Sum input_tokens and output_tokens separately from invocations where started_at >= windowStart.
+ * Returns { input: 0, output: 0 } if no invocations match.
  */
 export function sumTokensSplitInWindow(
   db: OrcaDb,
@@ -567,11 +531,11 @@ export function sumTokensSplitInWindow(
 ): { input: number; output: number } {
   const result = db
     .select({
-      input: sql<number>`coalesce(sum(${budgetEvents.inputTokens}), 0)`,
-      output: sql<number>`coalesce(sum(${budgetEvents.outputTokens}), 0)`,
+      input: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0)), 0)`,
+      output: sql<number>`coalesce(sum(coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
-    .from(budgetEvents)
-    .where(gte(budgetEvents.recordedAt, windowStart))
+    .from(invocations)
+    .where(gte(invocations.startedAt, windowStart))
     .get();
   return {
     input: result?.input ? Number(result.input) : 0,
@@ -580,19 +544,19 @@ export function sumTokensSplitInWindow(
 }
 
 /**
- * Get the earliest recorded_at timestamp from budget_events where recorded_at >= windowStart.
- * Returns null if no events match.
+ * Get the earliest started_at timestamp from invocations where started_at >= windowStart.
+ * Returns null if no invocations match.
  */
-export function getEarliestEventInWindow(
+export function getEarliestInvocationInWindow(
   db: OrcaDb,
   windowStart: string,
 ): string | null {
   const result = db
     .select({
-      earliest: sql<string>`min(${budgetEvents.recordedAt})`,
+      earliest: sql<string>`min(${invocations.startedAt})`,
     })
-    .from(budgetEvents)
-    .where(gte(budgetEvents.recordedAt, windowStart))
+    .from(invocations)
+    .where(gte(invocations.startedAt, windowStart))
     .get();
   return result?.earliest ?? null;
 }
@@ -812,30 +776,8 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
 }
 
 /**
- * Sum cost_usd from budget_events where recorded_at is within [windowStart, windowEnd).
- * Returns 0 if no events match.
- */
-export function sumCostInWindowRange(
-  db: OrcaDb,
-  windowStart: string,
-  windowEnd: string,
-): number {
-  const result = db
-    .select({ total: sum(budgetEvents.costUsd) })
-    .from(budgetEvents)
-    .where(
-      and(
-        gte(budgetEvents.recordedAt, windowStart),
-        lt(budgetEvents.recordedAt, windowEnd),
-      ),
-    )
-    .get();
-  return result?.total ? Number(result.total) : 0;
-}
-
-/**
- * Sum (input_tokens + output_tokens) from budget_events where recorded_at is within [windowStart, windowEnd).
- * Returns 0 if no events match.
+ * Sum (input_tokens + output_tokens) from invocations where started_at is within [windowStart, windowEnd).
+ * Returns 0 if no invocations match.
  */
 export function sumTokensInWindowRange(
   db: OrcaDb,
@@ -844,13 +786,13 @@ export function sumTokensInWindowRange(
 ): number {
   const result = db
     .select({
-      total: sql<number>`coalesce(sum(${budgetEvents.inputTokens} + ${budgetEvents.outputTokens}), 0)`,
+      total: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
-    .from(budgetEvents)
+    .from(invocations)
     .where(
       and(
-        gte(budgetEvents.recordedAt, windowStart),
-        lt(budgetEvents.recordedAt, windowEnd),
+        gte(invocations.startedAt, windowStart),
+        lt(invocations.startedAt, windowEnd),
       ),
     )
     .get();
@@ -1165,24 +1107,6 @@ export function getLastStartup(db: OrcaDb): SystemEvent | undefined {
     .orderBy(desc(systemEvents.createdAt))
     .limit(1)
     .get();
-}
-
-/** Count budget events with zero cost in the given window (circuit breaker). */
-export function countZeroCostFailuresInWindow(
-  db: OrcaDb,
-  windowStart: string,
-): number {
-  const result = db
-    .select({ count: count() })
-    .from(budgetEvents)
-    .where(
-      and(
-        eq(budgetEvents.costUsd, 0),
-        gte(budgetEvents.recordedAt, windowStart),
-      ),
-    )
-    .get();
-  return result?.count ?? 0;
 }
 
 // ---------------------------------------------------------------------------

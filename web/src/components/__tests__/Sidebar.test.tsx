@@ -35,8 +35,6 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
     activeSessions: 0,
     activeTaskIds: [],
     queuedTasks: 0,
-    costInWindow: 0,
-    budgetLimit: 100,
     budgetWindowHours: 24,
     concurrencyCap: 4,
     implementModel: "claude-3-5-sonnet",
