@@ -26,6 +26,16 @@ import {
   insertAgentMemory,
   updateAgentMemory,
   deleteAgentMemory,
+  getAllTasks,
+  getRunningInvocations,
+  getTaskStateTransitions,
+  getInvocationStats,
+  getDailyStats,
+  getSuccessRate12h,
+  sumTokensInWindow,
+  budgetWindowStart,
+  countActiveSessions,
+  countActiveAgentSessions,
 } from "../db/queries.js";
 import { eq } from "drizzle-orm";
 
@@ -322,6 +332,231 @@ server.registerTool(
           type: "text",
           text: JSON.stringify(
             { count: result.length, siblings: result },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: list_tasks
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "list_tasks",
+  {
+    description:
+      "List all tasks in the Orca DB, optionally filtered by status. Returns task ID, prompt, status, PR info, retry count, and timestamps.",
+    inputSchema: {
+      status: z
+        .enum([
+          "backlog",
+          "ready",
+          "running",
+          "done",
+          "failed",
+          "canceled",
+          "in_review",
+          "changes_requested",
+          "deploying",
+          "awaiting_ci",
+        ])
+        .optional()
+        .describe("Filter by orca status (optional)"),
+    },
+  },
+  ({ status }) => {
+    const allTasks = getAllTasks(db);
+    const filtered = status
+      ? allTasks.filter((t) => t.orcaStatus === status)
+      : allTasks;
+
+    const result = filtered.map((t) => ({
+      taskId: t.linearIssueId,
+      agentPrompt:
+        t.agentPrompt && t.agentPrompt.length > 120
+          ? t.agentPrompt.slice(0, 120)
+          : t.agentPrompt,
+      orcaStatus: t.orcaStatus,
+      priority: t.priority,
+      retryCount: t.retryCount,
+      prBranchName: t.prBranchName,
+      prNumber: t.prNumber,
+      projectName: t.projectName,
+      repoPath: t.repoPath,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      doneAt: t.doneAt,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { count: result.length, tasks: result },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_orca_status
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_orca_status",
+  {
+    description:
+      "Get the current Orca scheduler status: active session counts, token usage in the rolling budget window, and concurrency caps from environment variables.",
+    inputSchema: {},
+  },
+  () => {
+    const activeSessions = countActiveSessions(db);
+    const activeAgentSessions = countActiveAgentSessions(db);
+    const budgetWindowHours =
+      parseInt(process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4", 10) || 4;
+    const windowStart = budgetWindowStart(budgetWindowHours);
+    const tokensInWindow = sumTokensInWindow(db, windowStart);
+    const budgetMaxTokens = parseInt(
+      process.env.ORCA_BUDGET_MAX_TOKENS ?? "0",
+      10,
+    );
+    const concurrencyCap = parseInt(
+      process.env.ORCA_CONCURRENCY_CAP ?? "1",
+      10,
+    );
+    const agentConcurrencyCap = parseInt(
+      process.env.ORCA_AGENT_CONCURRENCY_CAP ?? "12",
+      10,
+    );
+
+    const result = {
+      activeSessions,
+      activeAgentSessions,
+      budgetWindowHours,
+      tokensInWindow,
+      budgetMaxTokens,
+      concurrencyCap,
+      agentConcurrencyCap,
+      model: process.env.ORCA_MODEL ?? "sonnet",
+      reviewModel: process.env.ORCA_REVIEW_MODEL ?? "haiku",
+    };
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_metrics
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_metrics",
+  {
+    description:
+      "Get Orca performance metrics: invocation stats (total cost, tokens, counts by phase/status), daily stats for the past 14 days, and 12h success rate.",
+    inputSchema: {},
+  },
+  () => {
+    const stats = getInvocationStats(db);
+    const dailyStats = getDailyStats(db, 14);
+    const successRate12h = getSuccessRate12h(db);
+
+    const result = {
+      invocationStats: stats,
+      dailyStats,
+      successRate12h,
+    };
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: list_running_invocations
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "list_running_invocations",
+  {
+    description:
+      "List all currently running invocations (active Claude sessions). Returns task ID, phase, model, start time, and current cost/token estimates.",
+    inputSchema: {},
+  },
+  () => {
+    const running = getRunningInvocations(db);
+
+    const result = running.map((inv) => ({
+      id: inv.id,
+      linearIssueId: inv.linearIssueId,
+      phase: inv.phase,
+      model: inv.model,
+      costUsd: inv.costUsd,
+      inputTokens: inv.inputTokens,
+      outputTokens: inv.outputTokens,
+      numTurns: inv.numTurns,
+      startedAt: inv.startedAt,
+      branchName: inv.branchName,
+      worktreePath: inv.worktreePath,
+    }));
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { count: result.length, invocations: result },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Tool: get_task_transitions
+// ---------------------------------------------------------------------------
+
+server.registerTool(
+  "get_task_transitions",
+  {
+    description:
+      "Get the state transition history for a task: every status change with timestamps, reasons, and associated invocation IDs.",
+    inputSchema: {
+      task_id: z.string().describe("The Linear issue ID of the task"),
+    },
+  },
+  ({ task_id }) => {
+    const task = getTask(db, task_id);
+    if (!task) {
+      return {
+        content: [{ type: "text", text: `Task ${task_id} not found.` }],
+        isError: true,
+      };
+    }
+
+    const transitions = getTaskStateTransitions(db, task_id);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { taskId: task_id, count: transitions.length, transitions },
             null,
             2,
           ),
