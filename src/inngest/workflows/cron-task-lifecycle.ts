@@ -158,6 +158,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           disallowedTools: buildDisallowedTools(config),
           repoPath: task.repoPath,
           model,
+          mcpServers: buildOrcaMcpServers(config),
           hookUrl: getHookUrl(invocationId),
           mcpServers: buildOrcaMcpServers(config),
         });
