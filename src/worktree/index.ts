@@ -2,11 +2,11 @@ import { execFileSync, execSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
   existsSync,
+  mkdirSync,
   readdirSync,
   copyFileSync,
   rmSync,
   renameSync,
-  mkdirSync,
   writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -789,26 +789,64 @@ export function resetWorktree(worktreePath: string): void {
 }
 
 /**
- * Write Claude Code hook configuration to the worktree's .claude/settings.local.json.
+ * Write Claude Code hook configuration into the worktree's
+ * `.claude/settings.local.json` so that Claude Code sends structured
+ * hook events (Notification, Stop) back to Orca via HTTP webhook.
  *
- * Hooks send structured event payloads (via stdin) to the Orca hook endpoint
- * using curl. This enables richer bidirectional communication beyond NDJSON parsing.
+ * Must be called after the worktree is created and before the Claude
+ * session is spawned. The invocationId is required because the hook
+ * URL embeds it for per-invocation routing.
+ *
+ * The `.claude/settings.local.json` file will be removed automatically
+ * when the worktree directory is deleted during cleanup — no explicit
+ * teardown is needed.
  *
  * @param worktreePath - Absolute path to the worktree directory
- * @param hookUrl - Full URL for the hook endpoint (e.g. http://localhost:4000/api/hooks/123)
+ * @param hookUrl - Full URL that Claude Code hooks should POST to
  */
-export function writeHookConfig(worktreePath: string, hookUrl: string): void {
-  const claudeDir = join(worktreePath, ".claude");
-  if (!existsSync(claudeDir)) {
+export function writeHookConfig(
+  worktreePath: string,
+  hookUrl: string,
+): void {
+  try {
+    const claudeDir = join(worktreePath, ".claude");
     mkdirSync(claudeDir, { recursive: true });
+
+    const curlCommand = `curl -s -X POST -H 'Content-Type: application/json' -d @- '${hookUrl}' || true`;
+
+    const config = {
+      hooks: {
+        Notification: [
+          {
+            matcher: "",
+            hooks: [
+              {
+                type: "command",
+                command: curlCommand,
+              },
+            ],
+          },
+        ],
+        Stop: [
+          {
+            matcher: "",
+            hooks: [
+              {
+                type: "command",
+                command: curlCommand,
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    writeFileSync(
+      join(claudeDir, "settings.local.json"),
+      JSON.stringify(config, null, 2),
+    );
+  } catch (err) {
+    // Best-effort: hook config is supplemental. Log and continue.
+    logger.warn(`writeHookConfig failed (non-fatal): ${err}`);
   }
-  const settingsPath = join(claudeDir, "settings.local.json");
-  const command = `curl -s -X POST '${hookUrl}' -H 'Content-Type: application/json' --data-binary @-`;
-  const config = {
-    hooks: {
-      Notification: [{ hooks: [{ type: "command", command }] }],
-      Stop: [{ hooks: [{ type: "command", command }] }],
-    },
-  };
-  writeFileSync(settingsPath, JSON.stringify(config, null, 2));
 }

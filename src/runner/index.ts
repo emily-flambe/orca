@@ -105,8 +105,8 @@ export interface SpawnSessionOptions {
   model?: string;
   /** Optional MCP server configurations to inject per-session via --mcp-config. */
   mcpServers?: Record<string, McpServerConfig>;
-  /** Optional base URL for Orca's hook receiver (e.g. http://localhost:4000). If provided, writes .claude/settings.local.json to the worktree. */
-  hookBaseUrl?: string;
+  /** Optional URL that Claude Code hooks should POST to for this session. */
+  hookUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -463,18 +463,10 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // stale project dirs forces Claude to create a fresh one for this worktree.
   cleanStaleClaudeProjectDirs(options.worktreePath);
 
-  // Write Claude Code hook config if a hook base URL is provided.
-  if (options.hookBaseUrl) {
-    try {
-      writeHookConfig(
-        options.worktreePath,
-        `${options.hookBaseUrl}/api/hooks/${options.invocationId}`,
-      );
-    } catch (err) {
-      process.stderr.write(
-        `[orca/runner] warning: failed to write hook config: ${err}\n`,
-      );
-    }
+  // Write Claude Code hook config so the agent sends structured events back
+  // to Orca via HTTP. Best-effort: failure does not block the session.
+  if (options.hookUrl) {
+    writeHookConfig(options.worktreePath, options.hookUrl);
   }
 
   // Strip Claude nesting-detection env vars so child sessions don't refuse to

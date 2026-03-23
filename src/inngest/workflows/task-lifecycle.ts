@@ -13,6 +13,7 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { getHookUrl } from "../../hooks.js";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
 import {
@@ -664,7 +665,7 @@ export const taskLifecycle = inngest.createFunction(
           repoPath: task.repoPath,
           model,
           mcpServers: buildOrcaMcpServers(config),
-          hookBaseUrl: `http://localhost:${config.port}`,
+          hookUrl: getHookUrl(invocationId),
         });
 
         bridgeSessionCompletion(
@@ -1268,7 +1269,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.reviewModel,
             mcpServers: buildOrcaMcpServers(config),
-            hookBaseUrl: `http://localhost:${config.port}`,
+            hookUrl: getHookUrl(invocationId),
           });
 
           bridgeSessionCompletion(
@@ -1626,7 +1627,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.model,
             mcpServers: buildOrcaMcpServers(config),
-            hookBaseUrl: `http://localhost:${config.port}`,
+            hookUrl: getHookUrl(invocationId),
           });
 
           bridgeSessionCompletion(

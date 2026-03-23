@@ -16,6 +16,7 @@ import {
 import { spawnSession, killSession } from "../../runner/index.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
+import { getHookUrl } from "../../hooks.js";
 import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
@@ -156,7 +157,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           disallowedTools: buildDisallowedTools(config),
           repoPath: task.repoPath,
           model,
-          hookBaseUrl: `http://localhost:${config.port}`,
+          hookUrl: getHookUrl(invocationId),
         });
 
         bridgeSessionCompletion(

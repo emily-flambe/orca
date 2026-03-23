@@ -25,6 +25,7 @@ import {
   taskStateTransitions,
   agents,
   agentMemories,
+  hookEvents,
   type TaskStatus,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
@@ -1377,4 +1378,40 @@ export function pruneAgentMemories(
 /** Get all tasks spawned by a specific agent. */
 export function getTasksByAgent(db: OrcaDb, agentId: string): Task[] {
   return db.select().from(tasks).where(eq(tasks.agentId, agentId)).all();
+}
+
+// ---------------------------------------------------------------------------
+// Hook events
+// ---------------------------------------------------------------------------
+
+export type HookEvent = typeof hookEvents.$inferSelect;
+
+/** Insert a Claude Code hook event received at the webhook endpoint. */
+export function insertHookEvent(
+  db: OrcaDb,
+  invocationId: number,
+  eventType: string,
+  payload: string,
+): void {
+  db.insert(hookEvents)
+    .values({
+      invocationId,
+      eventType,
+      payload,
+      receivedAt: new Date().toISOString(),
+    })
+    .run();
+}
+
+/** Get all hook events for a given invocation, ordered by id ascending. */
+export function getHookEventsByInvocation(
+  db: OrcaDb,
+  invocationId: number,
+): HookEvent[] {
+  return db
+    .select()
+    .from(hookEvents)
+    .where(eq(hookEvents.invocationId, invocationId))
+    .orderBy(asc(hookEvents.id))
+    .all();
 }
