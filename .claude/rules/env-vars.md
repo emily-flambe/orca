@@ -16,6 +16,7 @@ All config is in `.env` (see `.env.example`). Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCA_CONCURRENCY_CAP` | 1 | Max concurrent Claude sessions |
+| `ORCA_AGENT_CONCURRENCY_CAP` | 12 | Max concurrent agent task sessions |
 | `ORCA_SESSION_TIMEOUT_MIN` | 45 | Hard timeout per session |
 | `ORCA_MAX_RETRIES` | 3 | Retry attempts before permanent failure |
 | `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling budget window |
@@ -25,9 +26,8 @@ All config is in `.env` (see `.env.example`). Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ORCA_IMPLEMENT_MODEL` | sonnet | Model for implement phase |
+| `ORCA_MODEL` | sonnet | Model for implement and fix phases |
 | `ORCA_REVIEW_MODEL` | haiku | Model for review phase |
-| `ORCA_FIX_MODEL` | sonnet | Model for fix phase |
 
 ## Inngest
 
