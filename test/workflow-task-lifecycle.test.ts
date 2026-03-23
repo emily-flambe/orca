@@ -185,6 +185,7 @@ const mockConfig = {
   disallowedTools: "",
   maxDeployPollAttempts: 60,
   deployStrategy: "none" as const,
+  dbPath: "/tmp/test.db",
 };
 
 const mockLinearClient = {

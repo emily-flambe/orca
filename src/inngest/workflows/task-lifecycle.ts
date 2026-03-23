@@ -296,12 +296,14 @@ export function buildDisallowedTools(config: OrcaConfig): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns an mcpServers map that injects the Orca state MCP server into every
- * agent session. The server exposes read-only tools for querying Orca's DB
- * (task metadata, invocation history, sibling tasks, parent issue).
+ * Returns an mcpServers map that injects MCP servers into every agent session:
  *
- * Uses the built `dist/mcp-server.js` artifact. Skips injection if that file
- * does not exist (e.g. during development before a build).
+ * - **orca**: Read-only tools for querying Orca's DB (task metadata, invocation
+ *   history, sibling tasks, parent issue). Uses the built `dist/mcp-server.js`
+ *   artifact — skipped if that file does not exist.
+ * - **github**: GitHub's hosted MCP server for structured GitHub API access
+ *   (PRs, issues, repos, actions). Requires `GITHUB_TOKEN` env var — skipped
+ *   if not set.
  */
 export function buildOrcaMcpServers(
   config: OrcaConfig,
@@ -317,11 +319,12 @@ export function buildOrcaMcpServers(
     };
   }
 
-  if (config.githubMcpPat) {
+  const githubToken = config.githubMcpPat ?? process.env.GITHUB_TOKEN;
+  if (githubToken) {
     servers.github = {
       type: "http",
       url: "https://api.githubcopilot.com/mcp/",
-      headers: { Authorization: `Bearer ${config.githubMcpPat}` },
+      headers: { Authorization: `Bearer ${githubToken}` },
     };
   }
 
