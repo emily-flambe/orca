@@ -6,16 +6,16 @@ const logger = createLogger("github/pr-description");
 
 /**
  * Returns true if the PR body already looks well-structured:
- * - has at least 2 top-level ## markdown headers (multiple sections)
- * - references the Linear issue ID as a whole word (not as a substring of another ID)
  * - is longer than 100 chars
+ * - contains all three required sections: ## Summary, ## Changes, ## Test Plan
+ * - references the Linear issue ID as a whole word (not as a substring of another ID)
  * If all three are true, we skip AI regeneration.
  */
 export function isWellStructuredPrBody(body: string, taskId: string): boolean {
   if (body.length <= 100) return false;
-  // Count top-level ## headers (at start of line)
-  const headerMatches = body.match(/^## /gm);
-  if (!headerMatches || headerMatches.length < 2) return false;
+  // Must have all three required sections as actual top-level headers
+  const requiredSections = ["## Summary", "## Changes", "## Test Plan"];
+  if (!requiredSections.every((s) => body.includes(s))) return false;
   // Word-boundary match for taskId so "EMI-1" doesn't match inside "EMI-10"
   const escapedId = taskId.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
   if (!new RegExp(`(?<![A-Za-z0-9-])${escapedId}(?![A-Za-z0-9-])`).test(body))

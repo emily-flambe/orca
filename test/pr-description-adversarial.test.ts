@@ -24,51 +24,39 @@ import {
 const execSyncMock = execFileSync as unknown as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
-// BUG 1: Skip heuristic false positives — garbage body passes the check
-// A body with only `## X` + taskId + sufficient length is NOT well-structured,
-// but the heuristic returns true. This causes real PRs to be skipped.
+// Skip heuristic — requires all three specific sections plus taskId match
 // ---------------------------------------------------------------------------
 describe("isWellStructuredPrBody — heuristic false positives", () => {
-  it("BUG: returns true for garbage body that happens to contain ## and taskId", () => {
-    // This body has ## headers and taskId but is clearly NOT a well-structured PR description.
-    // It's a single-line with random text. The requirement says "well-structured" means
-    // summary, changes list, Linear ticket reference, test plan — this has none of that.
+  it("returns false for garbage body that happens to contain ## and taskId", () => {
+    // Body has ## and taskId but lacks required sections (Summary, Changes, Test Plan)
     const garbageBody = "## EMI-123 is garbage: " + "X".repeat(90);
-    // This SHOULD return false but the heuristic returns true
-    // (has "## ", has "EMI-123", length > 100)
     const result = isWellStructuredPrBody(garbageBody, "EMI-123");
-    // The heuristic incorrectly approves this garbage body:
-    expect(result).toBe(false); // FAILS: returns true
+    expect(result).toBe(false);
   });
 
-  it("BUG: returns true for body that has ## in a code block, not a real header", () => {
-    // A PR body that has ## only inside a code block (not a real markdown header)
-    // should arguably not be considered "well-structured"
+  it("returns false for body that has ## only in a code block, not real headers", () => {
+    // ## inside a code block — lacks required sections
     const codeBlockBody =
       "This PR does stuff. EMI-456\n\n```bash\n## this is a comment\n```\n" +
       "A".repeat(80);
     const result = isWellStructuredPrBody(codeBlockBody, "EMI-456");
-    // Heuristic: body > 100 chars ✓, includes "## " ✓, includes "EMI-456" ✓
-    // Returns true even though there's no real markdown header
-    expect(result).toBe(false); // FAILS: returns true
+    expect(result).toBe(false);
   });
 
-  it("BUG: taskId appearing only as part of a longer string satisfies the heuristic", () => {
-    // "EMI-1" is a substring of "EMI-10", "EMI-100", etc.
-    // If taskId is "EMI-1", a body mentioning "EMI-10" passes the heuristic.
+  it("returns false when taskId appears only as substring of a longer ID", () => {
+    // Body mentions EMI-10 but taskId is EMI-1 — word-boundary regex prevents substring match
     const body = "## Summary\nSome work was done on EMI-10\n" + "A".repeat(80);
-    // isWellStructuredPrBody(body, "EMI-1") -> true because "EMI-10".includes("EMI-1")
     const result = isWellStructuredPrBody(body, "EMI-1");
-    expect(result).toBe(false); // FAILS: returns true (substring match)
+    expect(result).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// BUG 2: Greedy JSON regex — multiple JSON objects produce broken parse
-// The regex /\{[\s\S]*\}/ is greedy and will span from the FIRST { to the
-// LAST }, potentially combining two separate JSON objects into one invalid string.
+// JSON parsing — iterative {-position search handles multiple JSON objects
+// The implementation walks through all `{` positions to find the first valid
+// object with both title and body keys.
 // ---------------------------------------------------------------------------
-describe("enrichPrDescription — greedy JSON regex bug", () => {
+describe("enrichPrDescription — JSON parsing with multiple objects", () => {
   beforeEach(() => {
     execSyncMock.mockReset();
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -79,18 +67,15 @@ describe("enrichPrDescription — greedy JSON regex bug", () => {
     vi.restoreAllMocks();
   });
 
-  it("BUG: greedy regex matches across two JSON objects, producing invalid JSON or wrong result", async () => {
-    // Claude outputs TWO JSON objects (preamble json + actual json).
-    // The greedy regex captures from first { to last }, creating:
-    // {"first": "object"} ... {"title": "...", "body": "..."}
-    // which is invalid JSON. This should NOT apply the description.
+  it("finds the correct JSON object when Claude emits preamble then the real answer", async () => {
+    // Claude outputs a preamble object followed by the actual answer.
+    // The iterative search skips the first object (lacks title+body) and finds the second.
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({ title: "PR", body: "short" }),
     );
     execSyncMock.mockReturnValueOnce(""); // git diff
-    // Two JSON objects in output — greedy regex incorrectly merges them
     execSyncMock.mockReturnValueOnce(
-      '{"thinking": "let me format this"} and here is the real answer: {"title": "[EMI-123] feat", "body": "## Summary\\n- done\\n\\nCloses EMI-123"}',
+      '{"thinking": "let me format this"} and here is the real answer: {"title": "[EMI-123] feat", "body": "## Summary\\n- done\\n\\n## Changes\\n- x\\n\\n## Test Plan\\n- y\\n\\nCloses EMI-123"}',
     );
     execSyncMock.mockReturnValueOnce(""); // gh pr edit
 
@@ -103,30 +88,22 @@ describe("enrichPrDescription — greedy JSON regex bug", () => {
       model: "haiku",
     });
 
-    // With greedy regex, it tries to parse:
-    // '{"thinking": "let me format this"} and here is the real answer: {"title": ...}'
-    // which is NOT valid JSON. So gh pr edit should NOT be called.
-    // But the greedy regex extracts the wrong span.
-    // Check: did gh pr edit get called with the RIGHT title?
-    const editCallCount = execSyncMock.mock.calls.filter(
+    // The iterative search finds the second JSON object with correct title+body
+    const editCalls = execSyncMock.mock.calls.filter(
       (call: unknown[]) =>
         call[0] === "gh" && (call[1] as string[]).includes("edit"),
-    ).length;
-    // The function should either apply the correct second JSON or skip — not silently apply wrong data
-    // Currently the greedy regex fails on this case (JSON.parse throws), so it's non-fatal (0 edits).
-    // But if Claude outputs VALID nested JSON or objects without intervening text, it could apply wrong data.
-    expect(editCallCount).toBeLessThanOrEqual(1); // documents behavior, not necessarily correct
+    );
+    expect(editCalls).toHaveLength(1);
   });
 
-  it("BUG: greedy regex picks wrong JSON when output has json metadata wrapper around the actual object", async () => {
-    // If Claude wraps output in {"result": {"title": "...", "body": "..."}}
-    // the regex matches the outer object, not the inner one.
-    // JSON.parse succeeds but generated.title and generated.body are undefined.
+  it("skips gh pr edit when Claude wraps output in a metadata object without title/body at top level", async () => {
+    // Claude wraps output in {"result": {...}} — outer object has no title/body keys.
+    // The iterative search finds the outer object first (no title/body), then the inner
+    // object has title+body but is nested, so it won't be found as a top-level match.
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({ title: "PR", body: "short" }),
     );
     execSyncMock.mockReturnValueOnce("");
-    // Nested JSON — outer object parsed but missing title/body keys at top level
     execSyncMock.mockReturnValueOnce(
       '{"result": {"title": "[EMI-123] feat", "body": "## Summary\\n- done"}}',
     );
@@ -151,9 +128,7 @@ describe("enrichPrDescription — greedy JSON regex bug", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG 3: Empty-string body is not guarded before isWellStructuredPrBody
-// If gh returns body: null (GitHub API quirk), the ?? "" guard handles it.
-// But the test suite doesn't cover null body from the API response.
+// Null/undefined body from GitHub API — ?? "" guard handles it correctly
 // ---------------------------------------------------------------------------
 describe("enrichPrDescription — null/undefined body from GitHub API", () => {
   beforeEach(() => {
@@ -226,10 +201,7 @@ describe("enrichPrDescription — null/undefined body from GitHub API", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG 4: Empty agentPrompt — no test coverage
-// When agentPrompt is an empty string, ticketContext is "" and the prompt
-// has no Linear ticket context. The function still proceeds but may produce
-// useless output.
+// Empty agentPrompt — function proceeds without ticket context
 // ---------------------------------------------------------------------------
 describe("enrichPrDescription — empty agentPrompt", () => {
   beforeEach(() => {
@@ -269,10 +241,9 @@ describe("enrichPrDescription — empty agentPrompt", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG 5: isWellStructuredPrBody with empty string
-// Not tested in the existing suite — documents behavior.
+// isWellStructuredPrBody — edge cases
 // ---------------------------------------------------------------------------
-describe("isWellStructuredPrBody — edge cases not tested", () => {
+describe("isWellStructuredPrBody — edge cases", () => {
   it("returns false for empty string", () => {
     expect(isWellStructuredPrBody("", "EMI-123")).toBe(false);
   });
@@ -293,26 +264,20 @@ describe("isWellStructuredPrBody — edge cases not tested", () => {
     expect(isWellStructuredPrBody(body, "EMI-999")).toBe(false);
   });
 
-  it("BUG: taskId substring match — 'EMI-1' matches body containing 'EMI-10'", () => {
-    // body mentions EMI-10 but not EMI-1 specifically.
-    // Must be > 100 chars to trigger the substring match bug.
+  it("returns false when taskId appears only as substring of a longer ID in a well-structured body", () => {
+    // Body has all required sections but only mentions EMI-10 (not EMI-1).
+    // Word-boundary regex prevents EMI-1 from matching inside EMI-10.
     const body =
       "## Summary\n\nWork done on EMI-10 ticket.\n\n## Changes\n\n- stuff\n\n## Test Plan\n\n- tested\n" +
       "Additional context goes here to push past the 100 char threshold.";
     expect(body.length).toBeGreaterThan(100);
-    // This body does NOT reference EMI-1 as an exact task
-    // but body.includes("EMI-1") is true because "EMI-10".includes("EMI-1")
     const result = isWellStructuredPrBody(body, "EMI-1");
-    // Currently returns true (false positive) — should return false
-    expect(result).toBe(false); // FAILS: returns true (substring match)
+    expect(result).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// BUG 6: model parameter not validated — wrong model can be passed silently
-// The function accepts any string as model. If config.reviewModel is
-// misconfigured (e.g. "claude-3-sonnet" instead of "haiku"), no error is raised.
-// This is a design issue, not a runtime crash, but worth documenting.
+// Model parameter passthrough — passed directly to claude without validation
 // ---------------------------------------------------------------------------
 describe("enrichPrDescription — model parameter passthrough", () => {
   beforeEach(() => {
@@ -359,10 +324,7 @@ describe("enrichPrDescription — model parameter passthrough", () => {
 });
 
 // ---------------------------------------------------------------------------
-// BUG 7: gh pr view JSON parse — malformed JSON from gh is non-fatal
-// but the implementation assumes the JSON is always valid. If gh returns
-// non-JSON (e.g., a warning message prepended to output), JSON.parse throws
-// inside the try/catch, which is correctly non-fatal. Test this path.
+// Malformed JSON from gh pr view — non-fatal error handling
 // ---------------------------------------------------------------------------
 describe("enrichPrDescription — malformed JSON from gh pr view", () => {
   beforeEach(() => {

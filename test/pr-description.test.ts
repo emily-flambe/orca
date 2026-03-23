@@ -49,9 +49,9 @@ describe("isWellStructuredPrBody", () => {
     expect(isWellStructuredPrBody(body, "EMI-123")).toBe(false);
   });
 
-  it("returns true when body has headers, taskId, and sufficient length", () => {
+  it("returns true when body has all required sections, taskId, and sufficient length", () => {
     const body =
-      "## Summary\n\n- Did the thing\n\n## Changes\n\n- File changed\n\nCloses EMI-123\n" +
+      "## Summary\n\n- Did the thing\n\n## Changes\n\n- File changed\n\n## Test Plan\n\n- Tested\n\nCloses EMI-123\n" +
       "A".repeat(50);
     expect(isWellStructuredPrBody(body, "EMI-123")).toBe(true);
   });
@@ -90,7 +90,7 @@ describe("enrichPrDescription", () => {
 
   it("skips enrichment when PR body is already well-structured", async () => {
     const wellStructuredBody =
-      "## Summary\n\n- Did the thing\n\n## Changes\n\n- Changed files\n\nCloses EMI-123\n" +
+      "## Summary\n\n- Did the thing\n\n## Changes\n\n- Changed files\n\n## Test Plan\n\n- Tested\n\nCloses EMI-123\n" +
       "A".repeat(50);
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({ title: "Existing title", body: wellStructuredBody }),
