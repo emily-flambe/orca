@@ -1,34 +1,7 @@
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import Sidebar from "../Sidebar";
-import type { OrcaStatus, Task } from "../../types";
-
-vi.mock("../CreateTicketModal", () => ({
-  default: () => null,
-}));
-
-function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    linearIssueId: "ENG-1",
-    agentPrompt: "Test task",
-    repoPath: "/repo",
-    orcaStatus: "ready",
-    priority: 3,
-    retryCount: 0,
-    prBranchName: null,
-    reviewCycleCount: 0,
-    mergeCommitSha: null,
-    prNumber: null,
-    deployStartedAt: null,
-    ciStartedAt: null,
-    doneAt: null,
-    projectName: null,
-    invocationCount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
+import type { OrcaStatus } from "../../types";
 
 function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
   return {
@@ -36,18 +9,22 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
     activeTaskIds: [],
     queuedTasks: 0,
     budgetWindowHours: 24,
+    tokensInWindow: 0,
+    tokenBudgetLimit: 1000000,
+    inputTokensInWindow: 0,
+    outputTokensInWindow: 0,
     concurrencyCap: 4,
-    implementModel: "claude-3-5-sonnet",
+    model: "claude-3-5-sonnet",
     reviewModel: "claude-3-5-sonnet",
-    fixModel: "claude-3-5-sonnet",
     draining: false,
     drainSessionCount: 0,
+    tokensPerMinute: null,
     ...overrides,
   };
 }
 
 const defaultProps = {
-  activePage: "dashboard" as const,
+  activePage: "tasks" as const,
   onNavigate: vi.fn(),
   status: null,
   tasks: [],
@@ -65,7 +42,6 @@ describe("Sidebar", () => {
     const status = makeStatus({ activeSessions: 3 });
     render(<Sidebar {...defaultProps} status={status} />);
 
-    // The count is displayed in a blue span
     const badge = screen.getByText("3");
     expect(badge).toBeInTheDocument();
     expect(badge.className).toContain("blue");
@@ -74,29 +50,16 @@ describe("Sidebar", () => {
   it("does not show badge when status is null", () => {
     render(<Sidebar {...defaultProps} status={null} />);
 
-    const dashboardButton = screen.getByText("Dashboard").closest("button");
-    expect(dashboardButton?.querySelector(".text-blue-400")).toBeNull();
+    const tasksButton = screen.getByLabelText("Tasks");
+    expect(tasksButton.querySelector(".bg-blue-600")).toBeNull();
   });
 
   it("does not show badge when activeSessions is 0", () => {
     const status = makeStatus({ activeSessions: 0 });
     render(<Sidebar {...defaultProps} status={status} />);
 
-    const dashboardButton = screen.getByText("Dashboard").closest("button");
-    // The badge span with the count should not be in the dashboard button
-    expect(dashboardButton?.querySelector(".text-blue-400")).toBeNull();
-  });
-
-  it("shows task count in Tasks nav item", () => {
-    const tasks = [
-      makeTask({ linearIssueId: "ENG-1" }),
-      makeTask({ linearIssueId: "ENG-2" }),
-      makeTask({ linearIssueId: "ENG-3" }),
-    ];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
-
-    const tasksButton = screen.getByText("Tasks").closest("button");
-    expect(within(tasksButton!).getByText("3")).toBeInTheDocument();
+    const tasksButton = screen.getByLabelText("Tasks");
+    expect(tasksButton.querySelector(".bg-blue-600")).toBeNull();
   });
 
   it("calls onNavigate('tasks') when Tasks button clicked", () => {
@@ -107,21 +70,45 @@ describe("Sidebar", () => {
     expect(onNavigate).toHaveBeenCalledWith("tasks");
   });
 
-  it("shows project list when tasks have projectName", () => {
-    const tasks = [
-      makeTask({ linearIssueId: "ENG-1", projectName: "ProjectAlpha" }),
-      makeTask({ linearIssueId: "ENG-2", projectName: "ProjectBeta" }),
-    ];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
+  it("calls onNavigate('metrics') when Metrics button clicked", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
 
-    expect(screen.getByText("ProjectAlpha")).toBeInTheDocument();
-    expect(screen.getByText("ProjectBeta")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Metrics"));
+    expect(onNavigate).toHaveBeenCalledWith("metrics");
   });
 
-  it("shows 'No projects' when no tasks have a projectName", () => {
-    const tasks = [makeTask({ linearIssueId: "ENG-1", projectName: null })];
-    render(<Sidebar {...defaultProps} tasks={tasks} />);
+  it("calls onNavigate('cron') when Cron button clicked", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
 
-    expect(screen.getByText("No projects")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Cron"));
+    expect(onNavigate).toHaveBeenCalledWith("cron");
+  });
+
+  it("calls onNavigate('settings') when Settings button clicked", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar {...defaultProps} onNavigate={onNavigate} />);
+
+    fireEvent.click(screen.getByText("Settings"));
+    expect(onNavigate).toHaveBeenCalledWith("settings");
+  });
+
+  it("renders all navigation buttons", () => {
+    render(<Sidebar {...defaultProps} />);
+
+    expect(screen.getByLabelText("Tasks")).toBeInTheDocument();
+    expect(screen.getByLabelText("Metrics")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cron")).toBeInTheDocument();
+    expect(screen.getByLabelText("Agents")).toBeInTheDocument();
+    expect(screen.getByLabelText("Settings")).toBeInTheDocument();
+  });
+
+  it("highlights active page button", () => {
+    render(<Sidebar {...defaultProps} activePage="metrics" />);
+
+    const metricsButton = screen.getByLabelText("Metrics");
+    expect(metricsButton.className).toContain("bg-gray-800");
+    expect(metricsButton.className).toContain("text-white");
   });
 });

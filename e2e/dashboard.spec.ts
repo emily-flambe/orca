@@ -130,9 +130,11 @@ test.describe("Dashboard smoke test", () => {
 
   test("sidebar renders with title and nav items", async ({ page }) => {
     await expect(page.getByText("Orca").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: "Dashboard" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Tasks" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Logs" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Metrics" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cron" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Agents" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
   });
 
   test("dashboard token budget gauge is visible", async ({ page }) => {
