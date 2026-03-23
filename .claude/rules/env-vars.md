@@ -35,7 +35,6 @@ All config is in `.env` (see `.env.example`). Key variables:
 |----------|---------|-------------|
 | `ORCA_BUDGET_WINDOW_HOURS` | `4` | Rolling budget window (hours) |
 | `ORCA_BUDGET_MAX_TOKENS` | `1000000000` | Max cumulative tokens per budget window; dispatching halts when exceeded |
-| `ORCA_BUDGET_MAX_COST_USD` | `100.00` | Max cumulative cost (USD) per budget window (used by UI/monitoring; not enforced by config) |
 
 ## Claude Code Agent
 
@@ -45,10 +44,8 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_DEFAULT_MAX_TURNS` | `50` | Default max turns for implement and fix sessions |
 | `ORCA_REVIEW_MAX_TURNS` | `30` | Max turns for review sessions |
 | `ORCA_DISALLOWED_TOOLS` | *(none)* | Comma-separated list of tools to block in all agent sessions |
-| `ORCA_RESUME_ON_MAX_TURNS` | `true` | When `true`, preserve the worktree and resume the session if the agent hits max turns |
-| `ORCA_RESUME_ON_FIX` | `true` | When `true`, resume the prior session for fix phases |
-| `ORCA_MAX_WORKTREE_RETRIES` | `3` | Max retries when creating a git worktree fails |
 | `ORCA_EXTRA_INSTALL_DIRS` | *(none)* | Comma-separated subdirectories to run `npm install` in after worktree creation |
+| `ORCA_AGENT_ID` | *(set by Orca)* | Internal: injected into agent subprocess env; read by MCP server to scope memory tools to the active task |
 
 ## System Prompts
 
@@ -72,17 +69,6 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_DEPLOY_STRATEGY` | `none` | `none` (mark done immediately after merge) or `github_actions` (poll CI) |
 | `ORCA_DEPLOY_MAX_POLL_ATTEMPTS` | `60` | Max polling attempts before marking deploy as timed out |
 | `ORCA_CI_MAX_POLL_ATTEMPTS` | `240` | Max polling attempts for CI gate before failing |
-| `ORCA_DEPLOY_TIMEOUT_MIN` | `30` | Timeout for deploy monitoring in minutes |
-| `ORCA_DEPLOY_POLL_INTERVAL_SEC` | `30` | How often to poll GitHub Actions for deploy status (seconds) |
-
-## Cleanup
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ORCA_CLEANUP_INTERVAL_MIN` | `10` | How often the cleanup cron runs (minutes) |
-| `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | `60` | Minimum age before a stale `orca/*` branch is deleted (minutes) |
-| `ORCA_INVOCATION_LOG_RETENTION_HOURS` | `168` | Invocation log retention (hours); logs older than this for completed/failed invocations are deleted |
-| `ORCA_CRON_RETENTION_DAYS` | `7` | Cron job execution record retention (days) |
 
 ## Tunnel / Cloudflare
 
@@ -94,14 +80,6 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `CLOUDFLARE_TUNNEL_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_ACCOUNT_ID` | — | Required for blue/green deploy script |
 | `CLOUDFLARE_API_TOKEN` | — | Required for blue/green deploy script |
-
-## Linear Integration (optional)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ORCA_LINEAR_READY_STATE_TYPE` | `unstarted` | Linear `state.type` that signals readiness for dispatch |
-| `ORCA_TASK_FILTER_LABEL` | *(none)* | Only sync/dispatch issues carrying this Linear label. Useful for multi-instance setups (e.g. `orca-prod`). Fails open if the label doesn't exist. |
-| `ORCA_STATE_MAP` | *(none)* | JSON object mapping Linear state names to Orca internal statuses. Valid values: `backlog`, `ready`, `running`, `in_review`, `done`, `skip`. Example: `{"QA Review":"in_review","Won't Fix":"skip"}` |
 
 ## Inngest
 
@@ -116,13 +94,10 @@ All config is in `.env` (see `.env.example`). Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCA_ALERT_WEBHOOK_URL` | *(none)* | Webhook URL for permanent failure alerts (Slack/Discord compatible) |
-| `ORCA_GITHUB_WEBHOOK_SECRET` | *(none)* | GitHub webhook secret for auto-deploy on push to main |
-| `MONITOR_BURN_RATE_ALERT_USD_PER_HOUR` | `20` | Burn rate threshold for alerts (USD/hour); fires when budget is spent faster than this rate |
 
 ## Logging
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCA_LOG_PATH` | `./orca.log` | Path to the Orca log file |
-| `ORCA_LOG_MAX_SIZE_MB` | `10` | Max log file size before rotation (MB) |
 | `LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
