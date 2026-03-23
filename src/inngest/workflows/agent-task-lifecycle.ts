@@ -181,7 +181,7 @@ export const agentTaskLifecycle = inngest.createFunction(
         // Load agent definition and memories
         const agentId = task.agentId;
         const agent = agentId ? getAgent(db, agentId) : null;
-        const model = agent?.model ?? config.model;
+        const model = agent?.model ?? "opus";
         const maxTurns = agent?.maxTurns ?? config.defaultMaxTurns;
 
         // Build system prompt with memories

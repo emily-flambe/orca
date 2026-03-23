@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Agent, AgentMemory, Task } from "../types";
+import type { Agent, AgentMemory, Task, Invocation } from "../types";
 import {
   fetchAgents,
   fetchAgentDetail,
+  fetchTaskDetail,
   createAgent,
   updateAgent,
   deleteAgent,
@@ -10,7 +11,8 @@ import {
   triggerAgent,
   deleteAgentMemory,
 } from "../hooks/useApi";
-import { formatTimestamp } from "../utils/time.js";
+import { formatTimestamp, formatDurationMs } from "../utils/time.js";
+import LogViewer from "./LogViewer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -237,7 +239,7 @@ function AgentForm({
             className={inputClass}
             value={form.model}
             onChange={(e) => set("model", e.target.value)}
-            placeholder="sonnet"
+            placeholder="opus"
           />
         </div>
         <div>
@@ -313,14 +315,146 @@ function AgentForm({
 // Agent detail (memories + recent tasks) — inline expansion
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Inline task row with expandable log viewer
+// ---------------------------------------------------------------------------
+
+function TaskLogRow({ task }: { task: Task }) {
+  const [expanded, setExpanded] = useState(false);
+  const [invocations, setInvocations] = useState<Invocation[] | null>(null);
+  const [loadingInvocations, setLoadingInvocations] = useState(false);
+
+  const statusColors: Record<string, string> = {
+    done: "bg-green-900/40 text-green-400 border-green-700/40",
+    failed: "bg-red-900/40 text-red-400 border-red-700/40",
+    running: "bg-blue-900/40 text-blue-400 border-blue-700/40",
+    ready: "bg-yellow-900/40 text-yellow-400 border-yellow-700/40",
+    canceled: "bg-gray-800 text-gray-500 border-gray-700",
+  };
+  const statusCls =
+    statusColors[task.orcaStatus] ??
+    "bg-gray-800 text-gray-400 border-gray-700";
+
+  function handleToggle() {
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (invocations === null) {
+      setLoadingInvocations(true);
+      fetchTaskDetail(task.linearIssueId)
+        .then((detail) => setInvocations(detail.invocations))
+        .catch(() => setInvocations([]))
+        .finally(() => setLoadingInvocations(false));
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div
+        className="bg-gray-800/50 rounded px-2 py-1.5 flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-700/50 transition-colors"
+        onClick={handleToggle}
+        title="Click to view logs"
+      >
+        <span className={`px-1.5 py-0.5 rounded-full border ${statusCls}`}>
+          {task.orcaStatus}
+        </span>
+        <span
+          className="text-gray-500 font-mono truncate max-w-[200px]"
+          title={task.linearIssueId}
+        >
+          {task.linearIssueId}
+        </span>
+        <span className="text-gray-400 ml-auto shrink-0">
+          {formatTimestamp(task.createdAt)}
+        </span>
+        <span className="text-gray-500 shrink-0">
+          {expanded ? "▴" : "▾"}
+        </span>
+      </div>
+      {expanded && (
+        <div className="ml-2">
+          {loadingInvocations && (
+            <div className="text-xs text-gray-500 py-1">
+              Loading invocations...
+            </div>
+          )}
+          {invocations !== null && invocations.length === 0 && (
+            <div className="text-xs text-gray-500 italic py-1">
+              No invocations for this task.
+            </div>
+          )}
+          {invocations !== null && invocations.length > 0 && (
+            <div className="space-y-1">
+              {invocations.map((inv) => (
+                <InvocationLogRow key={inv.id} inv={inv} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InvocationLogRow({ inv }: { inv: Invocation }) {
+  const [showLog, setShowLog] = useState(false);
+
+  const durationMs =
+    inv.startedAt && inv.endedAt
+      ? new Date(inv.endedAt).getTime() - new Date(inv.startedAt).getTime()
+      : null;
+
+  return (
+    <div className="bg-gray-900 rounded px-2 py-1.5 space-y-1 border border-gray-800">
+      <div className="flex items-center gap-2 text-xs">
+        <span
+          className={`px-1.5 py-0.5 rounded-full border ${
+            inv.status === "completed"
+              ? "bg-green-900/40 text-green-400 border-green-700/40"
+              : inv.status === "failed"
+                ? "bg-red-900/40 text-red-400 border-red-700/40"
+                : inv.status === "running"
+                  ? "bg-blue-900/40 text-blue-400 border-blue-700/40"
+                  : "bg-gray-800 text-gray-400 border-gray-700"
+          }`}
+        >
+          {inv.status}
+        </span>
+        <span className="text-gray-500 font-mono">{inv.phase ?? "---"}</span>
+        <span className="text-gray-400">{formatTimestamp(inv.startedAt)}</span>
+        <span className="text-gray-500">{formatDurationMs(durationMs)}</span>
+        {inv.costUsd != null && (
+          <span className="text-gray-500">${inv.costUsd.toFixed(4)}</span>
+        )}
+        <button
+          onClick={() => setShowLog((v) => !v)}
+          className="text-gray-500 hover:text-gray-300 transition-colors ml-auto"
+        >
+          {showLog ? "hide logs" : "view logs"}
+        </button>
+      </div>
+      {showLog && (
+        <div className="mt-1">
+          <LogViewer
+            invocationId={inv.id}
+            isRunning={inv.status === "running"}
+            outputSummary={inv.outputSummary}
+            compact
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentDetail({
   agentId,
   onToast,
-  onNavigateToTask,
 }: {
   agentId: string;
   onToast?: ToastCallbacks;
-  onNavigateToTask?: (taskId: string) => void;
 }) {
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -428,43 +562,10 @@ function AgentDetail({
         {tasks.length === 0 ? (
           <div className="text-xs text-gray-500 italic">No tasks yet.</div>
         ) : (
-          <div className="space-y-1 max-h-60 overflow-y-auto">
-            {tasks.map((t) => {
-              const statusColors: Record<string, string> = {
-                done: "bg-green-900/40 text-green-400 border-green-700/40",
-                failed: "bg-red-900/40 text-red-400 border-red-700/40",
-                running: "bg-blue-900/40 text-blue-400 border-blue-700/40",
-                ready: "bg-yellow-900/40 text-yellow-400 border-yellow-700/40",
-                canceled: "bg-gray-800 text-gray-500 border-gray-700",
-              };
-              const statusCls =
-                statusColors[t.orcaStatus] ??
-                "bg-gray-800 text-gray-400 border-gray-700";
-
-              return (
-                <div
-                  key={t.linearIssueId}
-                  className={`bg-gray-800/50 rounded px-2 py-1.5 flex items-center gap-2 text-xs ${onNavigateToTask ? "cursor-pointer hover:bg-gray-700/50 transition-colors" : ""}`}
-                  onClick={() => onNavigateToTask?.(t.linearIssueId)}
-                  title={onNavigateToTask ? "View task logs" : undefined}
-                >
-                  <span
-                    className={`px-1.5 py-0.5 rounded-full border ${statusCls}`}
-                  >
-                    {t.orcaStatus}
-                  </span>
-                  <span
-                    className="text-gray-500 font-mono truncate max-w-[200px]"
-                    title={t.linearIssueId}
-                  >
-                    {t.linearIssueId}
-                  </span>
-                  <span className="text-gray-400 ml-auto shrink-0">
-                    {formatTimestamp(t.createdAt)}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="space-y-1">
+            {tasks.map((t) => (
+              <TaskLogRow key={t.linearIssueId} task={t} />
+            ))}
           </div>
         )}
       </div>
@@ -483,10 +584,8 @@ interface ToastCallbacks {
 
 export default function AgentsPage({
   onToast,
-  onNavigateToTask,
 }: {
   onToast?: ToastCallbacks;
-  onNavigateToTask?: (taskId: string) => void;
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -756,7 +855,7 @@ export default function AgentsPage({
                     Last: {formatLastRun(a.lastRunAt)}
                   </span>
                 )}
-                {a.model && <span>Model: {a.model}</span>}
+                <span>Model: {a.model ?? "opus"}{!a.model && <span className="text-gray-600 ml-1">(default)</span>}</span>
                 {a.repoPath && (
                   <span className="truncate max-w-[200px]" title={a.repoPath}>
                     {a.repoPath}
@@ -783,7 +882,6 @@ export default function AgentsPage({
                 <AgentDetail
                   agentId={a.id}
                   onToast={onToast}
-                  onNavigateToTask={onNavigateToTask}
                 />
               )}
             </div>

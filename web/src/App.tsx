@@ -349,11 +349,13 @@ function TasksPage({
   onToast: { success: (msg: string) => void; error: (msg: string) => void };
 }) {
   return (
-    <div className="flex flex-1 overflow-hidden flex-col">
+    <div className="flex flex-1 overflow-hidden flex-col min-h-0">
       {/* Active sessions grid */}
-      <ActiveSessionsGrid invocationStartedTrigger={invocationStartedTrigger} />
+      <div className="shrink-0 max-h-[50%] overflow-y-auto">
+        <ActiveSessionsGrid invocationStartedTrigger={invocationStartedTrigger} />
+      </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Task list */}
         <div
           className={`flex-col border-r border-gray-800 overflow-y-auto ${
@@ -666,12 +668,7 @@ export default function App() {
         {activePage === "cron" && <CronPage onToast={toast} />}
 
         {activePage === "agents" && (
-          <AgentsPage
-            onToast={toast}
-            onNavigateToTask={(taskId) =>
-              navigate(`/tasks/${encodeURIComponent(taskId)}`)
-            }
-          />
+          <AgentsPage onToast={toast} />
         )}
 
         {/* Version footer */}
