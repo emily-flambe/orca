@@ -1,6 +1,20 @@
 import { test, expect } from "@playwright/test";
 
 // ---------------------------------------------------------------------------
+// E2E MOCK LIMITATION — tracking issue: EMI-336
+// ---------------------------------------------------------------------------
+// These tests start Vite dev server but NOT the backend. All API responses
+// are intercepted by Playwright route mocks (see beforeEach). This means:
+//   - Frontend/backend contract mismatches will NOT be caught here.
+//   - Adding or removing API fields in the backend won't fail these tests.
+//
+// Follow-up plan for contract testing:
+//   1. Start the real backend (with a test SQLite DB) in a fixture.
+//   2. Remove route mocks from beforeEach and let requests hit the real API.
+//   3. Seed the DB via a test helper before each test.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Mock data
 // ---------------------------------------------------------------------------
 

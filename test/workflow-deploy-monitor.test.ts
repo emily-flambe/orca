@@ -225,8 +225,8 @@ describe("deploy-monitor workflow", () => {
     const step = createDeployMonitorStep();
     const result = await capturedDeployMonitorHandler({
       event: makeDeployingEvent({
-        // deployStartedAt far in the past — exceeds deployTimeoutMin=30
-        deployStartedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        // deployStartedAt 2x timeout in the past — clearly exceeds maxDeployPollAttempts (60min)
+        deployStartedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       }),
       step,
     });

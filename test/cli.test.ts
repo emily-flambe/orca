@@ -387,12 +387,12 @@ describe("orca status", () => {
 });
 
 describe("orca start", () => {
-  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let _consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    _consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "exit").mockImplementation((code?: number | string) => {
       throw new Error(`process.exit(${code})`);

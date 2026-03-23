@@ -2,7 +2,7 @@
 // Preflight checker tests
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, vi, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { platform } from "node:os";
 

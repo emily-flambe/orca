@@ -183,7 +183,7 @@ describe("getLastDeployInterruptedInvocation — stale worktree not cleared afte
     });
 
     // Simulate new successful invocation AFTER the resume (task completed implement)
-    const successId = insertInvocation(db, {
+    const _successId = insertInvocation(db, {
       linearIssueId: taskId,
       startedAt: now(),
       endedAt: now(),
@@ -538,7 +538,7 @@ describe("migration 11 — worktree_preserved column added correctly", () => {
       updatedAt: ts,
     });
 
-    const invId = insertInvocation(db, {
+    const _invId = insertInvocation(db, {
       linearIssueId: taskId,
       startedAt: ts,
       endedAt: null,

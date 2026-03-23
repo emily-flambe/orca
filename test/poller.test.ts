@@ -192,9 +192,7 @@ describe("createPoller", () => {
 
     const { lastSuccessAt } = poller.health();
     expect(lastSuccessAt).not.toBeNull();
-    expect(new Date(lastSuccessAt!).toISOString()).toBeGreaterThanOrEqual
-      ? true
-      : expect(lastSuccessAt! >= before).toBe(true);
+    expect(lastSuccessAt! >= before).toBe(true);
 
     poller.stop();
   });

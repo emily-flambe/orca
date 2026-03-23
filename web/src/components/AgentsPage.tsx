@@ -888,8 +888,14 @@ export default function AgentsPage({
 
               <p
                 className={`text-xs text-gray-400 cursor-pointer hover:text-gray-300 transition-colors whitespace-pre-wrap ${promptExpandedId === a.id ? "" : "line-clamp-2"}`}
-                onClick={() => setPromptExpandedId(promptExpandedId === a.id ? null : a.id)}
-                title={promptExpandedId === a.id ? "Click to collapse" : "Click to expand"}
+                onClick={() =>
+                  setPromptExpandedId(promptExpandedId === a.id ? null : a.id)
+                }
+                title={
+                  promptExpandedId === a.id
+                    ? "Click to collapse"
+                    : "Click to expand"
+                }
               >
                 {a.systemPrompt}
               </p>

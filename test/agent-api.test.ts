@@ -8,7 +8,6 @@ import { createApiRoutes } from "../src/api/routes.js";
 import {
   insertAgent,
   getAgent,
-  getAgentMemories,
   insertAgentMemory,
   getAgentMemoryCount,
   getTasksByAgent,
@@ -666,7 +665,7 @@ describe("POST /api/agents/:id/trigger", () => {
   it("uses systemPrompt as agentPrompt on task", async () => {
     insertAgent(db, makeAgentData({ systemPrompt: "special prompt" }));
     const res = await trigger("test-agent");
-    const body = await res.json();
+    const _body = await res.json();
     const tasks = getTasksByAgent(db, "test-agent");
     expect(tasks[0].agentPrompt).toBe("special prompt");
   });

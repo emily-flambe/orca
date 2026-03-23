@@ -3,7 +3,7 @@ import prettierConfig from "eslint-config-prettier";
 
 export default tseslint.config(
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "test/**/*.ts"],
     extends: [tseslint.configs.recommended, prettierConfig],
     rules: {
       "@typescript-eslint/no-explicit-any": "warn",

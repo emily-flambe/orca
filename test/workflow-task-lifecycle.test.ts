@@ -397,7 +397,7 @@ describe("task-lifecycle workflow", () => {
     const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
     const step = createStep(new Map([["await-implement", implementEvent]]));
 
-    const result = await capturedHandler({
+    const _result = await capturedHandler({
       event: makeTaskReadyEvent(),
       step,
     });

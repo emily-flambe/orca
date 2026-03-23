@@ -13,7 +13,7 @@ import {
 } from "vitest";
 import { createHmac } from "node:crypto";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import { insertTask, getTask, updateTaskStatus } from "../src/db/queries.js";
+import { insertTask, getTask } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
@@ -520,12 +520,12 @@ vi.mock("../src/linear/sync.js", async (importOriginal) => {
 
 describe("10.3 - Conflict resolution", () => {
   let db: OrcaDb;
-  let config: OrcaConfig;
+  let _config: OrcaConfig;
   let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
 
   beforeEach(async () => {
     db = freshDb();
-    config = testConfig();
+    _config = testConfig();
     // Dynamically import so mocks are in place
     const syncMod = await import("../src/linear/sync.js");
     resolveConflict = syncMod.resolveConflict;

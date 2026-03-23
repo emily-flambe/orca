@@ -8,7 +8,6 @@ import {
   insertTask,
   getTask,
   updateTaskDeployInfo,
-  updateTaskStatus,
   updateTaskFields,
 } from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
@@ -363,12 +362,12 @@ vi.mock("../src/runner/index.js", () => ({
 
 describe("Conflict resolution - deploying status", () => {
   let db: OrcaDb;
-  let config: OrcaConfig;
+  let _config: OrcaConfig;
   let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
 
   beforeEach(async () => {
     db = freshDb();
-    config = testConfig();
+    _config = testConfig();
     const syncMod = await import("../src/linear/sync.js");
     resolveConflict = syncMod.resolveConflict;
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -480,7 +479,7 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
   let db: OrcaDb;
   let config: OrcaConfig;
   let processWebhookEvent: typeof import("../src/linear/sync.js").processWebhookEvent;
-  let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
+  let _resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
   let expectedChanges: typeof import("../src/linear/sync.js").expectedChanges;
 
   beforeEach(async () => {
@@ -488,7 +487,7 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     config = testConfig();
     const syncMod = await import("../src/linear/sync.js");
     processWebhookEvent = syncMod.processWebhookEvent;
-    resolveConflict = syncMod.resolveConflict;
+    _resolveConflict = syncMod.resolveConflict;
     expectedChanges = syncMod.expectedChanges;
     expectedChanges.clear();
     syncMod.clearStartupGrace();

@@ -2,7 +2,7 @@
 // Cron scheduling integration tests — adversarial test suite
 // ---------------------------------------------------------------------------
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
@@ -12,11 +12,8 @@ import {
   insertCronSchedule,
   getDueCronSchedules,
   deleteOldCronTasks,
-  incrementCronRunCount,
-  updateCronSchedule,
 } from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
-import type { OrcaConfig } from "../src/config/index.js";
 import { computeNextRunAt } from "../src/cron/index.js";
 
 // ---------------------------------------------------------------------------
