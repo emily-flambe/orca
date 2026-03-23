@@ -616,9 +616,13 @@ export const taskLifecycle = inngest.createFunction(
             : undefined;
           let wtResult;
           try {
-            wtResult = createWorktree(task.repoPath, taskId, 0, {
-              baseRef,
-            });
+            const { worktreePool } = getSchedulerDeps();
+            if (worktreePool && !baseRef) {
+              // Implement phase with no baseRef — try pool first
+              wtResult = worktreePool.claim(task.repoPath, taskId, 0);
+            } else {
+              wtResult = createWorktree(task.repoPath, taskId, 0, { baseRef });
+            }
           } catch (err) {
             log(
               `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
