@@ -52,6 +52,7 @@ export interface OrcaConfig {
   cronRetentionDays: number;
   strandedTaskThresholdMin: number;
   stateMapOverrides: Record<string, string> | undefined;
+  worktreePoolSize: number;
 
   logLevel: string;
 }
@@ -387,6 +388,8 @@ Steps:
       }
       return parsed as Record<string, string>;
     })(),
+
+    worktreePoolSize: readIntOrDefault("ORCA_WORKTREE_POOL_SIZE", 0),
 
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();

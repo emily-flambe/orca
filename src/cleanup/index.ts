@@ -29,6 +29,7 @@ const MAX_REMOVAL_ATTEMPTS = 5;
 export interface CleanupDeps {
   db: OrcaDb;
   config: OrcaConfig;
+  poolWorktreePaths?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,11 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
     if (inv?.worktreePath) {
       preservedWorktreePaths.add(inv.worktreePath);
     }
+  }
+
+  // Protect pool worktrees from cleanup
+  if (deps.poolWorktreePaths) {
+    for (const p of deps.poolWorktreePaths) preservedWorktreePaths.add(p);
   }
 
   const now = Date.now();
@@ -463,6 +469,11 @@ export async function cleanupStaleResourcesAsync(
     if (inv?.worktreePath) {
       preservedWorktreePaths.add(inv.worktreePath);
     }
+  }
+
+  // Protect pool worktrees from cleanup
+  if (deps.poolWorktreePaths) {
+    for (const p of deps.poolWorktreePaths) preservedWorktreePaths.add(p);
   }
 
   const now = Date.now();

@@ -574,9 +574,16 @@ export const taskLifecycle = inngest.createFunction(
             : undefined;
           let wtResult;
           try {
-            wtResult = createWorktree(task.repoPath, taskId, 0, {
-              baseRef,
-            });
+            const pool = getSchedulerDeps().worktreePool;
+            if (!isFixPhase && pool) {
+              // Pool is only used for fresh implement phase (not fix phase with
+              // baseRef, not resume scenarios). Falls back to createWorktree internally.
+              wtResult = pool.claim(task.repoPath, taskId);
+            } else {
+              wtResult = createWorktree(task.repoPath, taskId, 0, {
+                baseRef,
+              });
+            }
           } catch (err) {
             log(
               `task ${taskId}: implement spawn blocked by worktree error: ${err}`,

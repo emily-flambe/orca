@@ -31,6 +31,7 @@ import { functions as inngestFunctions } from "../inngest/functions.js";
 import { setSchedulerDeps, markReady } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
+import { WorktreePoolService } from "../worktree/pool.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
@@ -397,6 +398,22 @@ program
       setSchedulerDeps({ db, config, graph, client, stateMap });
       logger.info("task lifecycle deps initialized");
 
+      // Initialize worktree pool (pre-creates worktrees for fast dispatch)
+      const poolSize =
+        config.worktreePoolSize > 0
+          ? config.worktreePoolSize
+          : config.concurrencyCap + 1;
+      worktreePool = new WorktreePoolService(poolSize);
+      const poolRepoPaths = [
+        ...new Set([
+          ...config.projectRepoMap.values(),
+          ...(config.defaultCwd ? [config.defaultCwd] : []),
+        ]),
+      ];
+      worktreePool.start(poolRepoPaths);
+      // Re-set deps including pool
+      setSchedulerDeps({ db, config, graph, client, stateMap, worktreePool });
+
       // Verify Inngest server is reachable before self-registration.
       const inngestBaseUrl =
         process.env.INNGEST_BASE_URL || "http://localhost:8288";
@@ -494,6 +511,9 @@ program
       }
     }, 60_000);
 
+    // Worktree pool — initialized inside the startup grace period
+    let worktreePool: WorktreePoolService | null = null;
+
     // Graceful shutdown
     let shuttingDown = false;
     const shutdown = async () => {
@@ -521,6 +541,9 @@ program
 
       // Stop cloudflared tunnel
       if (tunnel) tunnel.stop();
+
+      // Stop worktree pool
+      if (worktreePool) worktreePool.stop();
 
       // 1. Gracefully kill all active Claude sessions
       const killPromises: Promise<void>[] = [];
