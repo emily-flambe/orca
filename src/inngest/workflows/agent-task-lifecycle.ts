@@ -307,6 +307,8 @@ export const agentTaskLifecycle = inngest.createFunction(
         });
         updateTaskStatus(db, taskId, "failed", {
           reason: "agent_session_timeout",
+          failureReason: `Agent session timed out after ${SESSION_TIMEOUT}`,
+          failedPhase: "implement",
         });
         if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
         emitTaskUpdated(getTask(db, taskId)!);
@@ -325,6 +327,8 @@ export const agentTaskLifecycle = inngest.createFunction(
 
       updateTaskStatus(db, taskId, "failed", {
         reason: "agent_session_failed",
+        failureReason: `Agent session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
+        failedPhase: "implement",
       });
       if (agentId) updateAgentLastRunStatus(db, agentId, "failed");
       emitTaskUpdated(getTask(db, taskId)!);

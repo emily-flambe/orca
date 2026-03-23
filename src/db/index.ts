@@ -518,6 +518,19 @@ function migrateSchema(sqlite: DatabaseType): void {
       "CREATE INDEX IF NOT EXISTS idx_hook_events_invocation_id ON hook_events(invocation_id)",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 22 (failure observability):
+  //   - Add last_failure_reason TEXT column to tasks
+  //   - Add last_failed_phase TEXT column to tasks
+  //   - Add last_failed_at TEXT column to tasks
+  //   Sentinel: last_failure_reason column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "last_failure_reason")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failure_reason TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_phase TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN last_failed_at TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
