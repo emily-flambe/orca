@@ -1,7 +1,10 @@
 import Database, { type Database as DatabaseType } from "better-sqlite3";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
+
+const execFileAsync = promisify(execFile);
 
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -503,17 +506,16 @@ function migrateSchema(sqlite: DatabaseType): void {
   if (!hasColumn(sqlite, "tasks", "pr_url")) {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
-    // Backfill existing tasks that have a prNumber but no prState
-    backfillPrState(sqlite);
   }
 }
 
 /**
  * Backfill pr_url and pr_state for existing tasks that have pr_number set
  * but pr_state is NULL. Runs gh pr view for each such task using the task's
- * repo_path as cwd. Failures are silently skipped.
+ * repo_path as cwd. Failures are silently skipped. Non-blocking — safe to
+ * call fire-and-forget.
  */
-function backfillPrState(sqlite: DatabaseType): void {
+export async function backfillPrState(sqlite: DatabaseType): Promise<void> {
   const rows = sqlite
     .prepare(
       "SELECT linear_issue_id, pr_number, repo_path FROM tasks WHERE pr_number IS NOT NULL AND pr_state IS NULL",
@@ -529,16 +531,16 @@ function backfillPrState(sqlite: DatabaseType): void {
   for (const row of rows) {
     if (!row.repo_path) continue;
     try {
-      const output = execFileSync(
+      const { stdout } = await execFileAsync(
         "gh",
         ["pr", "view", String(row.pr_number), "--json", "state,url,isDraft"],
         {
           encoding: "utf-8",
           cwd: row.repo_path,
-          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 5000,
         },
-      ).trim();
-      const data = JSON.parse(output) as {
+      );
+      const data = JSON.parse(stdout.trim()) as {
         state?: string;
         url?: string;
         isDraft?: boolean;
@@ -584,6 +586,12 @@ export function createDb(dbPath: string) {
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.
   migrateSchema(sqlite);
+
+  // Fire-and-forget: backfill pr_url/pr_state for tasks that predate Migration 21.
+  // Runs async to avoid blocking server startup.
+  backfillPrState(sqlite).catch(() => {
+    // Silently ignore — best-effort backfill
+  });
 
   return db;
 }

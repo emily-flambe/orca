@@ -152,7 +152,7 @@ describe("closeOrphanedPrs", () => {
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
 
-    expect(closed).toBe(1);
+    expect(closed.count).toBe(1);
     // Only PR #10 should have been closed
     const closeCalls = execMock.mock.calls.filter(
       (c: [string, string[]]) => c[1][0] === "pr" && c[1][1] === "close",
@@ -177,7 +177,7 @@ describe("closeOrphanedPrs", () => {
       }),
     );
 
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("skips PRs in activeBranches", () => {
@@ -196,7 +196,7 @@ describe("closeOrphanedPrs", () => {
       }),
     );
 
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("skips PRs updated within maxAgeMs", () => {
@@ -205,7 +205,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("closes qualifying PRs and returns count", () => {
@@ -216,7 +216,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(2);
+    expect(closed.count).toBe(2);
   });
 
   test("handles gh pr list failure gracefully (returns 0)", () => {
@@ -225,7 +225,7 @@ describe("closeOrphanedPrs", () => {
     });
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("per-PR close failure does not abort remaining PRs", () => {
@@ -241,7 +241,7 @@ describe("closeOrphanedPrs", () => {
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
 
     // 2 succeed, 1 fails
-    expect(closed).toBe(2);
+    expect(closed.count).toBe(2);
     // All 3 should have been attempted
     const closeCalls = execMock.mock.calls.filter(
       (c: [string, string[]]) => c[1][0] === "pr" && c[1][1] === "close",
@@ -256,7 +256,7 @@ describe("closeOrphanedPrs", () => {
   test("empty PR list returns 0", () => {
     mockGhCalls([]);
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("PR with invalid updatedAt (NaN date) is skipped", () => {
@@ -268,7 +268,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("PR with empty updatedAt is skipped", () => {
@@ -277,7 +277,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("PR at exact maxAge boundary is NOT closed (age === maxAge, condition is <)", () => {
@@ -295,7 +295,7 @@ describe("closeOrphanedPrs", () => {
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
     // At exact boundary, age equals maxAge, condition < is false, so PR is closed
-    expect(closed).toBe(1);
+    expect(closed.count).toBe(1);
   });
 
   test("PR 1ms younger than maxAge is skipped", () => {
@@ -306,7 +306,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("branch in both runningBranches AND activeBranches is still skipped", () => {
@@ -321,7 +321,7 @@ describe("closeOrphanedPrs", () => {
         activeBranches: new Set(["orca/TASK-BOTH"]),
       }),
     );
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 
   test("maxAgeMs of 0 closes all old orca PRs", () => {
@@ -330,7 +330,7 @@ describe("closeOrphanedPrs", () => {
     ]);
 
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts({ maxAgeMs: 0 }));
-    expect(closed).toBe(1);
+    expect(closed.count).toBe(1);
   });
 
   test("gh pr list returns non-JSON causes graceful failure", () => {
@@ -345,6 +345,6 @@ describe("closeOrphanedPrs", () => {
     // Actually, gh() returns the raw string, and then JSON.parse happens in closeOrphanedPrs.
     // If the string isn't valid JSON, JSON.parse throws, which is caught by the try/catch.
     const closed = closeOrphanedPrs("/tmp/repo", defaultOpts());
-    expect(closed).toBe(0);
+    expect(closed.count).toBe(0);
   });
 });

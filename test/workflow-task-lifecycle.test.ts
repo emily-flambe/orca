@@ -53,6 +53,7 @@ vi.mock("../src/db/queries.js", () => ({
   updateTaskCiInfo: vi.fn(),
   updateTaskDeployInfo: vi.fn(),
   updateTaskFixReason: vi.fn(),
+  updateTaskPrState: vi.fn(),
   getLastMaxTurnsInvocation: vi.fn().mockReturnValue(null),
   getLastDeployInterruptedInvocation: vi.fn().mockReturnValue(null),
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
@@ -185,6 +186,7 @@ const mockConfig = {
   disallowedTools: "",
   maxDeployPollAttempts: 60,
   deployStrategy: "none" as const,
+  dbPath: "/tmp/test.db",
 };
 
 const mockLinearClient = {
