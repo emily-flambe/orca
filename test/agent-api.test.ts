@@ -671,12 +671,13 @@ describe("POST /api/agents/:id/trigger", () => {
     expect(tasks[0].agentPrompt).toBe("special prompt");
   });
 
-  it("uses empty string when repoPath is null", async () => {
+  it("falls back to defaultCwd when repoPath is null", async () => {
     insertAgent(db, makeAgentData({ repoPath: null }));
     const res = await trigger("test-agent");
     expect(res.status).toBe(200);
     const tasks = getTasksByAgent(db, "test-agent");
-    expect(tasks[0].repoPath).toBe("");
+    // Falls back to config.defaultCwd when agent has no repoPath configured
+    expect(tasks[0].repoPath).toBe("/tmp");
   });
 
   it("increments runCount after trigger", async () => {

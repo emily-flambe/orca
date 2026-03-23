@@ -309,6 +309,9 @@ export function buildOrcaMcpServers(
   if (!existsSync(mcpServerPath)) {
     return undefined;
   }
+  if (!config.dbPath) {
+    return undefined;
+  }
   return {
     orca: {
       command: process.execPath,

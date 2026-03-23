@@ -221,12 +221,17 @@ describe("deploy-monitor workflow", () => {
 
   test("deploy timeout → fails permanently with deploy_timeout reason", async () => {
     mockGetTask.mockReturnValue(makeTask());
+    // Use maxDeployPollAttempts=1 so the loop runs once and the timeout check fires
+    (mockSchedulerDeps as Record<string, unknown>).config = {
+      ...mockConfig,
+      maxDeployPollAttempts: 1,
+    };
 
     const step = createDeployMonitorStep();
     const result = await capturedDeployMonitorHandler({
       event: makeDeployingEvent({
-        // deployStartedAt far in the past — exceeds deployTimeoutMin=30
-        deployStartedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        // deployStartedAt far in the past — exceeds 1 minute timeout
+        deployStartedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
       }),
       step,
     });
