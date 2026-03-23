@@ -12,6 +12,7 @@ import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
 import { git, gitAsync, cleanStaleLockFiles } from "../git.js";
 import { createLogger } from "../logger.js";
+import { writeHookConfig, cleanupHookConfig } from "../hooks.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -225,7 +226,7 @@ export function createWorktree(
   repoPath: string,
   taskId: string,
   invocationId: number | string,
-  options?: { baseRef?: string },
+  options?: { baseRef?: string; hookInvocationId?: number },
 ): { worktreePath: string; branchName: string } {
   // Validate repo path exists
   if (!existsSync(repoPath)) {
@@ -275,6 +276,10 @@ export function createWorktree(
       }
     } else {
       resetWorktree(worktreePath);
+    }
+    // Write Claude Code hook config for bidirectional event communication
+    if (options?.hookInvocationId !== undefined) {
+      writeHookConfig(worktreePath, options.hookInvocationId);
     }
     return { worktreePath, branchName };
   }
@@ -426,6 +431,11 @@ export function createWorktree(
     git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
   }
 
+  // Write Claude Code hook config for bidirectional event communication
+  if (options?.hookInvocationId !== undefined) {
+    writeHookConfig(worktreePath, options.hookInvocationId);
+  }
+
   return { worktreePath, branchName };
 }
 
@@ -502,6 +512,9 @@ export function deriveRepoRoot(worktreePath: string): string | undefined {
  * @param worktreePath - Absolute path to the worktree directory to remove
  */
 export function removeWorktree(worktreePath: string): void {
+  // Best-effort: clean up hook config before removing worktree
+  cleanupHookConfig(worktreePath);
+
   // Pre-deletion: kill processes that may hold file handles in the worktree.
   // On Windows, grandchild processes (wrangler, miniflare, etc.) can survive
   // after the parent session is killed and hold open handles, causing EPERM.
@@ -656,6 +669,9 @@ async function killProcessesInDirectoryAsync(dirPath: string): Promise<void> {
  * 3. Fall back to rm + git worktree prune
  */
 export async function removeWorktreeAsync(worktreePath: string): Promise<void> {
+  // Best-effort: clean up hook config before removing worktree
+  cleanupHookConfig(worktreePath);
+
   // Pre-deletion: kill processes that may hold file handles in the worktree.
   await killProcessesInDirectoryAsync(worktreePath);
 

@@ -57,6 +57,8 @@ import {
   getAgentMemory,
   deleteAgentMemory,
   incrementAgentRunCount,
+  insertHookEvent,
+  getHookEventsByInvocation,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
@@ -1949,6 +1951,75 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     deleteAgentMemory(db, memoryId);
     return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/hooks/:invocationId — receive Claude Code hook events
+  // -----------------------------------------------------------------------
+  app.post("/api/hooks/:invocationId", async (c) => {
+    const invocationIdParam = c.req.param("invocationId");
+    const invocationId = parseInt(invocationIdParam, 10);
+    if (isNaN(invocationId) || invocationId <= 0 || String(invocationId) !== invocationIdParam) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid json body" }, 400);
+    }
+
+    const payload = JSON.stringify(body);
+
+    // Extract event type from payload (Claude Code sends hook_event_name or similar)
+    const eventType =
+      typeof body === "object" && body !== null && "hook_event_name" in body
+        ? String((body as Record<string, unknown>).hook_event_name)
+        : "unknown";
+
+    try {
+      insertHookEvent(db, {
+        invocationId,
+        eventType,
+        payload,
+        receivedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.warn(
+        `failed to store hook event for invocation ${invocationId}: ${err}`,
+      );
+      // Don't fail the request — Claude Code hooks timeout if we don't respond quickly
+    }
+
+    // Also inject into the in-memory log buffer so the log viewer sees it
+    const logState = invocationLogs.get(invocationId);
+    if (logState && !logState.done) {
+      const logLine = JSON.stringify({
+        type: "hook_event",
+        eventType,
+        payload: body,
+        timestamp: new Date().toISOString(),
+      });
+      logState.buffer.push(logLine);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", logLine);
+    }
+
+    return c.json({ ok: true }, 200);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/hooks/:invocationId — retrieve hook events for an invocation
+  // -----------------------------------------------------------------------
+  app.get("/api/hooks/:invocationId", (c) => {
+    const invocationIdParam = c.req.param("invocationId");
+    const invocationId = parseInt(invocationIdParam, 10);
+    if (isNaN(invocationId) || invocationId <= 0 || String(invocationId) !== invocationIdParam) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+    const events = getHookEventsByInvocation(db, invocationId);
+    return c.json(events);
   });
 
   // -----------------------------------------------------------------------

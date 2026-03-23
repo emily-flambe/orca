@@ -170,3 +170,13 @@ export const cronRuns = sqliteTable("cron_runs", {
   output: text("output"),
   durationMs: integer("duration_ms"),
 });
+
+export const hookEvents = sqliteTable("hook_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  invocationId: integer("invocation_id")
+    .notNull()
+    .references(() => invocations.id),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(), // raw JSON string
+  receivedAt: text("received_at").notNull(),
+});
