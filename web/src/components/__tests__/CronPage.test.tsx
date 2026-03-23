@@ -7,6 +7,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  triggerCron,
 } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
@@ -14,12 +15,14 @@ vi.mock("../../hooks/useApi", () => ({
   createCronSchedule: vi.fn(),
   updateCronSchedule: vi.fn(),
   deleteCronSchedule: vi.fn(),
+  triggerCron: vi.fn(),
 }));
 
 const mockFetchCronSchedules = vi.mocked(fetchCronSchedules);
 const mockCreateCronSchedule = vi.mocked(createCronSchedule);
 const mockUpdateCronSchedule = vi.mocked(updateCronSchedule);
 const mockDeleteCronSchedule = vi.mocked(deleteCronSchedule);
+const mockTriggerCron = vi.mocked(triggerCron);
 
 function makeSchedule(overrides: Partial<CronSchedule> = {}): CronSchedule {
   return {
@@ -570,6 +573,100 @@ describe("CronPage", () => {
     });
 
     expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Run Now button
+  // ---------------------------------------------------------------------------
+
+  it("renders Run Now button for an enabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ enabled: 1 })]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+  });
+
+  it("renders Run Now button for a disabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ enabled: 0 })]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+  });
+
+  it("calls triggerCron with the schedule id when Run Now is clicked", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 42 })]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(mockTriggerCron).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it("calls triggerCron on a disabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 7, enabled: 0 }),
+    ]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(mockTriggerCron).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it("shows toast success after Run Now succeeds", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 1, name: "My job" }),
+    ]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Triggered: My job");
+    });
+    expect(onToast.error).not.toHaveBeenCalled();
+  });
+
+  it("shows toast error when Run Now fails", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 1 })]);
+    mockTriggerCron.mockRejectedValue(new Error("Trigger failed"));
+    const onToast = { success: vi.fn(), error: vi.fn() };
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Trigger failed");
+    });
+    expect(onToast.success).not.toHaveBeenCalled();
   });
 
   it("opens CronForm pre-filled with schedule data when Edit is clicked", async () => {
