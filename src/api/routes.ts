@@ -974,7 +974,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
           signal: controller.signal,
         });
         clearTimeout(timerId);
-        return { healthy: res.status < 500, url: inngestBaseUrl };
+        return { healthy: res.ok, url: inngestBaseUrl };
       } catch (err) {
         return {
           healthy: false,
