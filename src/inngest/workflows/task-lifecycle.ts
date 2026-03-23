@@ -305,17 +305,26 @@ export function buildDisallowedTools(config: OrcaConfig): string[] {
 export function buildOrcaMcpServers(
   config: OrcaConfig,
 ): Record<string, McpServerConfig> | undefined {
+  const servers: Record<string, McpServerConfig> = {};
+
   const mcpServerPath = join(process.cwd(), "dist", "mcp-server.js");
-  if (!existsSync(mcpServerPath)) {
-    return undefined;
-  }
-  return {
-    orca: {
+  if (existsSync(mcpServerPath)) {
+    servers.orca = {
       command: process.execPath,
       args: [mcpServerPath],
       env: { ORCA_DB_PATH: config.dbPath },
-    },
-  };
+    };
+  }
+
+  if (config.githubMcpPat) {
+    servers.github = {
+      type: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { Authorization: `Bearer ${config.githubMcpPat}` },
+    };
+  }
+
+  return Object.keys(servers).length > 0 ? servers : undefined;
 }
 
 // ---------------------------------------------------------------------------

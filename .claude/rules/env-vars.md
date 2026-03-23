@@ -37,6 +37,12 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `INNGEST_SIGNING_KEY` | — | Signing key for request verification |
 | `INNGEST_BASE_URL` | `http://localhost:8288` | URL of the self-hosted Inngest server |
 
+## MCP
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GITHUB_MCP_PAT` | — | GitHub PAT for the official GitHub MCP server. When set, agents get structured PR/issue/Actions tools via `https://api.githubcopilot.com/mcp/`. Fine-grained PAT with repo + pr scopes. |
+
 ## Deploy
 
 | Variable | Default | Description |
