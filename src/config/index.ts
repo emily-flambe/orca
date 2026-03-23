@@ -35,6 +35,8 @@ export interface OrcaConfig {
   // Alert webhook (optional — Slack/Discord compatible, fires on permanent failure)
   alertWebhookUrl: string | undefined;
   tunnelToken: string;
+  // GitHub MCP server PAT (optional — adds GitHub MCP to agent sessions when set)
+  githubMcpPat: string | undefined;
   cloudflaredPath: string;
   externalTunnel: boolean;
 
@@ -311,6 +313,7 @@ Steps:
     tunnelHostname,
     alertWebhookUrl: readEnv("ORCA_ALERT_WEBHOOK_URL"),
     tunnelToken,
+    githubMcpPat: readEnv("GITHUB_MCP_PAT"),
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
 
