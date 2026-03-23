@@ -104,7 +104,19 @@ export function createLogger(
       module: `orca/${module}`,
       message,
     };
-    return JSON.stringify(entry);
+    try {
+      return JSON.stringify(entry);
+    } catch {
+      // Fallback for circular references or other unserializable values
+      const safe: Record<string, unknown> = {
+        timestamp: entry["timestamp"],
+        level: entry["level"],
+        module: entry["module"],
+        message: entry["message"],
+        _serializeError: "log entry contained unserializable fields",
+      };
+      return JSON.stringify(safe);
+    }
   }
 
   return {
