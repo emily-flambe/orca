@@ -97,6 +97,19 @@ The Orca dashboard is a React SPA served at the root. It has multiple pages acce
 
 When investigating dashboard features, **use Playwright to screenshot `http://localhost:<active-port>/` pages** rather than grepping source code. The active port is in `deploy-state.json`. External URL requires Cloudflare Access auth that Playwright can't pass — always use localhost.
 
+## Git Discipline (MANDATORY)
+
+**Commit and push after every logical unit of work. Do not accumulate uncommitted changes.**
+
+- After finishing a feature, fix, refactor, or test update: `git add`, `git commit`, `git push`.
+- After fixing lint/format/type errors: commit and push immediately.
+- Before ending a session or switching tasks: verify everything is committed and pushed.
+- Never leave work uncommitted. If `git status` shows modified files, commit them.
+- Push to the working branch (or main if instructed). Do not leave commits unpushed.
+- Run verification (`tsc`, `lint`, `format:check`, `test`) before committing — but still commit even if there's a pre-existing flaky test. Do not let perfect be the enemy of committed.
+
+**The rule: code that isn't pushed doesn't exist.** If you wrote it, stage it, commit it, push it.
+
 ## Deploying
 
 After pushing to main, **always deploy via the single script**. Never start orca manually.
