@@ -352,7 +352,9 @@ function TasksPage({
     <div className="flex flex-1 overflow-hidden flex-col min-h-0">
       {/* Active sessions grid */}
       <div className="shrink-0 max-h-[50%] overflow-y-auto">
-        <ActiveSessionsGrid invocationStartedTrigger={invocationStartedTrigger} />
+        <ActiveSessionsGrid
+          invocationStartedTrigger={invocationStartedTrigger}
+        />
       </div>
 
       <div className="flex flex-1 overflow-hidden min-h-0">
@@ -667,9 +669,7 @@ export default function App() {
 
         {activePage === "cron" && <CronPage onToast={toast} />}
 
-        {activePage === "agents" && (
-          <AgentsPage onToast={toast} />
-        )}
+        {activePage === "agents" && <AgentsPage onToast={toast} />}
 
         {/* Version footer */}
         {version && (
