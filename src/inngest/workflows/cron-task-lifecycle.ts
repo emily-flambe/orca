@@ -127,7 +127,22 @@ export const cronTaskLifecycle = inngest.createFunction(
         }
 
         const model = config.implementModel;
-        const wtResult = createWorktree(task.repoPath, taskId, 0);
+        let wtResult;
+        try {
+          const pool = getSchedulerDeps().worktreePool;
+          if (pool) {
+            wtResult = pool.claim(task.repoPath, taskId);
+          } else {
+            wtResult = createWorktree(task.repoPath, taskId, 0);
+          }
+        } catch (err) {
+          log(
+            `cron task ${taskId}: implement spawn blocked by worktree error: ${err}`,
+          );
+          updateTaskStatus(db, taskId, "ready");
+          emitTaskUpdated(getTask(db, taskId)!);
+          return null;
+        }
         const { worktreePath, branchName } = wtResult;
 
         const now = new Date().toISOString();
