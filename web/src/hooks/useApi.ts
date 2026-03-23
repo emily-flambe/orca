@@ -165,8 +165,6 @@ export interface MetricsData {
     inReview: number;
   };
   budget: {
-    costInWindow: number;
-    limit: number;
     windowHours: number;
   };
   recentEvents: SystemEvent[];
@@ -181,9 +179,6 @@ export interface MetricsData {
     totalTokens: number | null;
   };
   recentErrors: RecentError[];
-  costLast24h: number;
-  costLast7d: number;
-  costPrev24h: number;
   tokensLast24h: number;
   tokensLast7d: number;
   tokensPrev24h: number;

@@ -95,7 +95,6 @@ function makeConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     strandedTaskThresholdMin: 60,
     maxRetries: 3,
     budgetWindowHours: 4,
-    budgetMaxCostUsd: 10.0,
     budgetMaxTokens: 1_000_000_000,
     claudePath: "claude",
     defaultMaxTurns: 20,

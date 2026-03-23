@@ -11,8 +11,6 @@ import {
   getAllTasks,
   getTask,
   getRunningInvocations,
-  sumCostInWindow,
-  budgetWindowStart,
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
@@ -655,21 +653,12 @@ program
       (t) => t.orcaStatus === "failed",
     ).length;
 
-    // Budget
-    const costInWindow = sumCostInWindow(
-      db,
-      budgetWindowStart(config.budgetWindowHours),
-    );
-
     logger.info("=== Orca Status ===");
     logger.info("");
     logger.info(
       `Active sessions: ${activeCount}${activeTaskIds.length > 0 ? ` [${activeTaskIds.join(", ")}]` : ""}`,
     );
     logger.info(`Queued tasks:    ${readyCount}`);
-    logger.info(
-      `Budget:          $${costInWindow.toFixed(2)} / $${config.budgetMaxCostUsd.toFixed(2)} (${config.budgetWindowHours}h window)`,
-    );
     logger.info(`Failed tasks:    ${failedCount}`);
   });
 

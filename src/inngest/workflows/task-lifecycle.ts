@@ -6,7 +6,7 @@
 // so the workflow is resilient to server restarts and crashes.
 //
 // Trigger: task/ready
-// Steps:  budget check → spawn implement → wait → Gate 2
+// Steps:  token budget check → spawn implement → wait → Gate 2
 //         → review loop (spawn review → wait → parse → spawn fix → wait → repeat)
 //         → transition to awaiting_ci
 // ---------------------------------------------------------------------------
@@ -22,8 +22,6 @@ import {
   updateTaskStatus,
   insertInvocation,
   updateInvocation,
-  insertBudgetEvent,
-  sumCostInWindow,
   sumTokensInWindow,
   budgetWindowStart,
   incrementRetryCount,
@@ -39,7 +37,6 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
-  countZeroCostFailuresInWindow,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -252,31 +249,6 @@ export function bridgeSessionCompletion(
 }
 
 // ---------------------------------------------------------------------------
-// Shared: record budget event after a session completes
-// ---------------------------------------------------------------------------
-
-interface SessionEventData {
-  costUsd: number | null;
-  inputTokens: number | null;
-  outputTokens: number | null;
-}
-
-function recordBudgetEventFromEvent(
-  db: OrcaDb,
-  invocationId: number,
-  eventData: SessionEventData,
-): void {
-  // Always record — zero-cost events are tracked for circuit breaker visibility
-  insertBudgetEvent(db, {
-    invocationId,
-    costUsd: eventData.costUsd ?? 0,
-    inputTokens: eventData.inputTokens ?? 0,
-    outputTokens: eventData.outputTokens ?? 0,
-    recordedAt: new Date().toISOString(),
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Shared: build disallowed tools list
 // ---------------------------------------------------------------------------
 
@@ -368,7 +340,7 @@ export const taskLifecycle = inngest.createFunction(
     log(`workflow started for task ${taskId}`);
 
     // -------------------------------------------------------------------------
-    // Step 1: Budget check — fail fast if rolling budget is exhausted
+    // Step 1: Token budget check — fail fast if token budget is exhausted
     // -------------------------------------------------------------------------
 
     const budgetCheck = await step.run(
@@ -376,32 +348,11 @@ export const taskLifecycle = inngest.createFunction(
       (): { ok: boolean; reason?: string } => {
         const { db, config } = getSchedulerDeps();
         const windowStart = budgetWindowStart(config.budgetWindowHours);
-        const spentUsd = sumCostInWindow(db, windowStart);
-        if (spentUsd >= config.budgetMaxCostUsd) {
-          return {
-            ok: false,
-            reason: `budget exhausted: $${spentUsd.toFixed(2)} >= $${config.budgetMaxCostUsd} in ${config.budgetWindowHours}h window`,
-          };
-        }
         const usedTokens = sumTokensInWindow(db, windowStart);
         if (usedTokens >= config.budgetMaxTokens) {
           return {
             ok: false,
             reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
-          };
-        }
-        const zeroCostWindowStart = new Date(
-          Date.now() - 10 * 60 * 1000,
-        ).toISOString();
-        const zeroCostFailures = countZeroCostFailuresInWindow(
-          db,
-          zeroCostWindowStart,
-        );
-        const zeroCostThreshold = 5;
-        if (zeroCostFailures >= zeroCostThreshold) {
-          return {
-            ok: false,
-            reason: `circuit breaker: ${zeroCostFailures} zero-cost failures in 10 min window`,
           };
         }
         return { ok: true };
@@ -410,27 +361,19 @@ export const taskLifecycle = inngest.createFunction(
 
     if (!budgetCheck.ok) {
       log(
-        `task ${taskId}: ${budgetCheck.reason ?? "budget exceeded"} — alerting and requeueing`,
+        `task ${taskId}: ${budgetCheck.reason ?? "token budget exceeded"} — alerting and requeueing`,
       );
-
-      // Determine alert severity/title based on reason
-      const isCircuitBreaker =
-        budgetCheck.reason?.includes("circuit breaker") ?? false;
-      const alertTitle = isCircuitBreaker
-        ? "Circuit Breaker Triggered"
-        : "Budget Exhausted";
-      const alertSeverity = isCircuitBreaker ? "critical" : "warning";
 
       // Send alert inside step.run so it's memoized on replay
       await step.run("send-budget-alert", () => {
         const alertDeps = getSchedulerDeps();
         sendAlertThrottled(
           alertDeps,
-          isCircuitBreaker ? "circuit_breaker" : "budget_exhausted",
+          "budget_exhausted",
           {
-            severity: alertSeverity,
-            title: alertTitle,
-            message: budgetCheck.reason ?? "Budget limit reached",
+            severity: "warning",
+            title: "Token Budget Exhausted",
+            message: budgetCheck.reason ?? "Token budget limit reached",
             taskId,
             fields: [
               { title: "Task ID", value: taskId, short: true },
@@ -445,18 +388,7 @@ export const taskLifecycle = inngest.createFunction(
         );
       });
 
-      // Exponential backoff before requeue — use zero-cost failure count as
-      // proxy for how many budget-exceeded cycles have occurred. This avoids
-      // consuming the task's maxRetries budget for budget-hold situations.
-      const backoffResult = await step.run("compute-budget-backoff", () => {
-        const { db, config } = getSchedulerDeps();
-        const windowStart = budgetWindowStart(config.budgetWindowHours);
-        const zeroCostCount = countZeroCostFailuresInWindow(db, windowStart);
-        return {
-          delayMs: Math.min(Math.pow(2, zeroCostCount) * 60_000, 3_600_000),
-        };
-      });
-      await step.sleep("budget-backoff", backoffResult.delayMs);
+      await step.sleep("budget-backoff", 60_000);
 
       await step.run("requeue-budget-exceeded", () => {
         const { db } = getSchedulerDeps();
@@ -854,8 +786,6 @@ export const taskLifecycle = inngest.createFunction(
           implementEvent.data.exitCode === 0 && !implementEvent.data.isMaxTurns;
         const invRecord = getInvocation(db, invocationId);
         const isMaxTurns = implementEvent.data.isMaxTurns;
-
-        recordBudgetEventFromEvent(db, invocationId, implementEvent.data);
 
         emitInvocationCompleted({
           taskId,
@@ -1409,8 +1339,6 @@ export const taskLifecycle = inngest.createFunction(
             inputTokens: reviewEvent.data.inputTokens ?? null,
             outputTokens: reviewEvent.data.outputTokens ?? null,
           });
-          recordBudgetEventFromEvent(db, invocationId, reviewEvent.data);
-
           if (!isSuccess) {
             updateAndEmit(db, taskId, "in_review", "review_session_failed");
             try {
@@ -1763,8 +1691,6 @@ export const taskLifecycle = inngest.createFunction(
             inputTokens: fixEvent.data.inputTokens ?? null,
             outputTokens: fixEvent.data.outputTokens ?? null,
           });
-          recordBudgetEventFromEvent(db, invocationId, fixEvent.data);
-
           try {
             removeWorktree(worktreePath);
           } catch {

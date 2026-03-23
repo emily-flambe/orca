@@ -77,8 +77,6 @@ vi.mock("../src/db/queries.js", () => ({
   claimTaskForDispatch: vi.fn(),
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
-  insertBudgetEvent: vi.fn(),
-  sumCostInWindow: vi.fn().mockReturnValue(0),
   budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),

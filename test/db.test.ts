@@ -33,11 +33,7 @@ import {
   getLastCompletedImplementInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
-  // Budget queries
-  insertBudgetEvent,
   budgetWindowStart,
-  sumCostInWindow,
-  sumCostInWindowRange,
   // Metrics queries
   getInvocationStats,
   getRecentErrors,
@@ -550,21 +546,14 @@ describe("deleteTask", () => {
     db = freshDb();
   });
 
-  test("deletes task, invocations, and budget events (FK chain)", () => {
+  test("deletes task and invocations", () => {
     const id = seedTask(db);
-    const invId = seedInvocation(db, id, { status: "completed" });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 1.0,
-      recordedAt: now(),
-    });
+    seedInvocation(db, id, { status: "completed" });
 
     deleteTask(db, id);
 
     expect(getTask(db, id)).toBeUndefined();
     expect(getInvocationsByTask(db, id)).toHaveLength(0);
-    // Budget events are also deleted — verify by checking sumCost returns 0
-    expect(sumCostInWindow(db, new Date(0).toISOString())).toBe(0);
   });
 
   test("deleting non-existent task is a no-op", () => {
@@ -858,58 +847,6 @@ describe("getLastMaxTurnsInvocation", () => {
 // Budget queries
 // ---------------------------------------------------------------------------
 
-describe("insertBudgetEvent / sumCostInWindow", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("sums costs within window", () => {
-    const taskId = seedTask(db);
-    const invId = seedInvocation(db, taskId);
-    const recent = new Date(Date.now() - 1000).toISOString(); // 1 second ago
-    const old = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(); // 10 hours ago
-
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 3.0,
-      recordedAt: recent,
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 1.5,
-      recordedAt: old,
-    });
-
-    const windowStart = budgetWindowStart(4); // 4-hour window
-    const total = sumCostInWindow(db, windowStart);
-    expect(total).toBeCloseTo(3.0);
-  });
-
-  test("returns 0 when no events in window", () => {
-    const windowStart = new Date(Date.now() + 1000).toISOString(); // future
-    expect(sumCostInWindow(db, windowStart)).toBe(0);
-  });
-
-  test("includes all events when window covers everything", () => {
-    const taskId = seedTask(db);
-    const invId = seedInvocation(db, taskId);
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 2.0,
-      recordedAt: now(),
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 3.0,
-      recordedAt: now(),
-    });
-
-    const windowStart = new Date(0).toISOString();
-    expect(sumCostInWindow(db, windowStart)).toBeCloseTo(5.0);
-  });
-});
-
 describe("budgetWindowStart", () => {
   test("returns ISO timestamp approximately N hours ago", () => {
     const before = Date.now();
@@ -920,57 +857,6 @@ describe("budgetWindowStart", () => {
     const oneHour = 60 * 60 * 1000;
     expect(windowMs).toBeGreaterThanOrEqual(before - oneHour - 10);
     expect(windowMs).toBeLessThanOrEqual(after - oneHour + 10);
-  });
-});
-
-describe("sumCostInWindowRange", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("sums costs within [start, end) range", () => {
-    const taskId = seedTask(db);
-    const invId = seedInvocation(db, taskId);
-
-    const t1 = "2024-01-01T00:00:00.000Z";
-    const t2 = "2024-01-01T01:00:00.000Z";
-    const t3 = "2024-01-01T02:00:00.000Z";
-    const t4 = "2024-01-01T03:00:00.000Z";
-
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 1.0,
-      recordedAt: t1,
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 2.0,
-      recordedAt: t2,
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 4.0,
-      recordedAt: t3,
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 8.0,
-      recordedAt: t4,
-    });
-
-    // Range [t2, t4) — should include t2 and t3, exclude t1 and t4
-    const total = sumCostInWindowRange(db, t2, t4);
-    expect(total).toBeCloseTo(6.0);
-  });
-
-  test("returns 0 when no events in range", () => {
-    const total = sumCostInWindowRange(
-      db,
-      "2030-01-01T00:00:00.000Z",
-      "2030-12-31T00:00:00.000Z",
-    );
-    expect(total).toBe(0);
   });
 });
 
