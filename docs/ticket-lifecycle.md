@@ -344,16 +344,23 @@ Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
 
 | Env Var | Default | Description |
 |---|---|---|
+| `ORCA_CONCURRENCY_CAP` | 1 | Max concurrent Claude sessions (enforced by Inngest) |
+| `ORCA_MAX_RETRIES` | 3 | Retry attempts before permanent failure |
+| `ORCA_BUDGET_WINDOW_HOURS` | 4 | Rolling token budget window (hours) |
+| `ORCA_BUDGET_MAX_TOKENS` | 1000000000 | Max tokens per budget window before tasks are re-queued |
 | `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents |
 | `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
 | `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
-| `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix cycles before human intervention |
+| `ORCA_MODEL` | sonnet | Model for implement and fix phases |
+| `ORCA_REVIEW_MODEL` | haiku | Model for review phase |
+| `ORCA_DEFAULT_MAX_TURNS` | 50 | Default max turns per agent session |
 | `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
+| `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix cycles before human intervention |
 | `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
-| `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed |
-| `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | 60 | Min age before stale `orca/*` branches are deleted (minutes) |
-| `ORCA_RESUME_ON_MAX_TURNS` | true | Resume sessions that hit max turns (preserves worktree) |
-| `ORCA_CLOUDFLARED_PATH` | cloudflared | Path to cloudflared binary |
+| `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed (minutes) |
+| `ORCA_CI_MAX_POLL_ATTEMPTS` | 240 | Max CI poll attempts during the awaiting_ci gate |
+| `ORCA_DEPLOY_MAX_POLL_ATTEMPTS` | 60 | Max GitHub Actions poll attempts during deploy monitoring |
+| `ORCA_ALERT_WEBHOOK_URL` | — | Webhook URL for permanent failure alerts (Slack/Discord) |
 
 ## Known gaps
 
