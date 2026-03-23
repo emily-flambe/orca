@@ -316,9 +316,11 @@ function AgentForm({
 function AgentDetail({
   agentId,
   onToast,
+  onNavigateToTask,
 }: {
   agentId: string;
   onToast?: ToastCallbacks;
+  onNavigateToTask?: (taskId: string) => void;
 }) {
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -442,7 +444,9 @@ function AgentDetail({
               return (
                 <div
                   key={t.linearIssueId}
-                  className="bg-gray-800/50 rounded px-2 py-1.5 flex items-center gap-2 text-xs"
+                  className={`bg-gray-800/50 rounded px-2 py-1.5 flex items-center gap-2 text-xs ${onNavigateToTask ? "cursor-pointer hover:bg-gray-700/50 transition-colors" : ""}`}
+                  onClick={() => onNavigateToTask?.(t.linearIssueId)}
+                  title={onNavigateToTask ? "View task logs" : undefined}
                 >
                   <span
                     className={`px-1.5 py-0.5 rounded-full border ${statusCls}`}
@@ -479,8 +483,10 @@ interface ToastCallbacks {
 
 export default function AgentsPage({
   onToast,
+  onNavigateToTask,
 }: {
   onToast?: ToastCallbacks;
+  onNavigateToTask?: (taskId: string) => void;
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -782,7 +788,7 @@ export default function AgentsPage({
               </button>
 
               {expandedId === a.id && (
-                <AgentDetail agentId={a.id} onToast={onToast} />
+                <AgentDetail agentId={a.id} onToast={onToast} onNavigateToTask={onNavigateToTask} />
               )}
             </div>
           )}
