@@ -43,6 +43,8 @@ cd web && npm run build  # Build frontend (vite)
 | `src/tunnel/` | Cloudflared tunnel management |
 | `web/` | React dashboard (Vite + Tailwind) |
 
+**MCP integration strategy:** `docs/mcp-architecture.md` — agent-facing only (scheduler integrations stay hardcoded). Sub-issues: EMI-380 (`--mcp-config` runner), EMI-381 (Orca-state MCP server), EMI-382 (GitHub MCP in sessions).
+
 ## Task Lifecycle
 
 Full state machine with diagrams: `docs/ticket-lifecycle.md`

@@ -17,9 +17,9 @@ Adopt MCP for **agent-facing integrations only**. Scheduler-side integrations re
 
 | Issue | Description |
 |---|---|
-| [EMI-350](https://linear.app/emily-cogsdill/issue/EMI-350) | Runner: pass `--mcp-config` per-session — enabling infrastructure for all MCP integrations |
-| [EMI-351](https://linear.app/emily-cogsdill/issue/EMI-351) | Orca-state MCP server — expose DB state (task metadata, invocation history) to agents |
-| [EMI-352](https://linear.app/emily-cogsdill/issue/EMI-352) | GitHub MCP in agent sessions — structured GitHub API tools for agents |
+| [EMI-380](https://linear.app/emily-cogsdill/issue/EMI-380) | Runner: pass `--mcp-config` per-session — enabling infrastructure for all MCP integrations |
+| [EMI-381](https://linear.app/emily-cogsdill/issue/EMI-381) | Orca-state MCP server — expose DB state (task metadata, invocation history) to agents |
+| [EMI-382](https://linear.app/emily-cogsdill/issue/EMI-382) | GitHub MCP in agent sessions — structured GitHub API tools for agents |
 
 ## MCP Ecosystem Summary
 
