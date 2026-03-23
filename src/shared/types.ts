@@ -52,6 +52,8 @@ export interface Task {
   reviewCycleCount: number;
   mergeCommitSha: string | null;
   prNumber: number | null;
+  prUrl: string | null;
+  prState: "draft" | "open" | "merged" | "closed" | null;
   deployStartedAt: string | null;
   ciStartedAt: string | null;
   doneAt: string | null;

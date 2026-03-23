@@ -192,6 +192,83 @@ export default function TaskDetail({
         )}
       </div>
 
+      {/* PR Info */}
+      {detail.prNumber != null && (
+        <div className="flex items-center gap-3 px-1">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="currentColor"
+            style={{
+              color:
+                detail.prState === "draft"
+                  ? "#6e7781"
+                  : detail.prState === "merged"
+                    ? "#8250df"
+                    : detail.prState === "closed"
+                      ? "#cf222e"
+                      : "#1a7f37",
+            }}
+          >
+            <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+          </svg>
+          {detail.prUrl ? (
+            <a
+              href={detail.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-mono text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              #{detail.prNumber}
+            </a>
+          ) : (
+            <span className="text-sm font-mono text-gray-400">
+              #{detail.prNumber}
+            </span>
+          )}
+          {detail.prBranchName && (
+            <code className="text-xs text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">
+              {detail.prBranchName}
+            </code>
+          )}
+          {detail.prState && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded-full"
+              style={{
+                color:
+                  detail.prState === "draft"
+                    ? "#6e7781"
+                    : detail.prState === "merged"
+                      ? "#8250df"
+                      : detail.prState === "closed"
+                        ? "#cf222e"
+                        : "#1a7f37",
+                backgroundColor:
+                  detail.prState === "draft"
+                    ? "rgba(110, 119, 129, 0.1)"
+                    : detail.prState === "merged"
+                      ? "rgba(130, 80, 223, 0.1)"
+                      : detail.prState === "closed"
+                        ? "rgba(207, 34, 46, 0.1)"
+                        : "rgba(26, 127, 55, 0.1)",
+                border: "1px solid currentColor",
+                borderColor:
+                  detail.prState === "draft"
+                    ? "rgba(110, 119, 129, 0.3)"
+                    : detail.prState === "merged"
+                      ? "rgba(130, 80, 223, 0.3)"
+                      : detail.prState === "closed"
+                        ? "rgba(207, 34, 46, 0.3)"
+                        : "rgba(26, 127, 55, 0.3)",
+              }}
+            >
+              {detail.prState}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Live run widget — shown when task has an active invocation */}
       {runningInvocation && (
         <LiveRunWidget

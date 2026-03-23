@@ -176,6 +176,18 @@ export function updateTaskPrBranch(
     .run();
 }
 
+/** Update PR URL and state on a task. */
+export function updateTaskPrInfo(
+  db: OrcaDb,
+  taskId: string,
+  info: { prUrl?: string | null; prState?: string | null },
+): void {
+  db.update(tasks)
+    .set({ ...info, updatedAt: new Date().toISOString() })
+    .where(eq(tasks.linearIssueId, taskId))
+    .run();
+}
+
 /** Set the fix_reason on a task (used to customize fix-phase agent prompt). */
 export function updateTaskFixReason(
   db: OrcaDb,
@@ -1365,9 +1377,5 @@ export function pruneAgentMemories(
 
 /** Get all tasks spawned by a specific agent. */
 export function getTasksByAgent(db: OrcaDb, agentId: string): Task[] {
-  return db
-    .select()
-    .from(tasks)
-    .where(eq(tasks.agentId, agentId))
-    .all();
+  return db.select().from(tasks).where(eq(tasks.agentId, agentId)).all();
 }

@@ -29,6 +29,8 @@ export const tasks = sqliteTable("tasks", {
   reviewCycleCount: integer("review_cycle_count").notNull().default(0),
   mergeCommitSha: text("merge_commit_sha"),
   prNumber: integer("pr_number"),
+  prUrl: text("pr_url"),
+  prState: text("pr_state"),
   deployStartedAt: text("deploy_started_at"),
   ciStartedAt: text("ci_started_at"),
   fixReason: text("fix_reason"),

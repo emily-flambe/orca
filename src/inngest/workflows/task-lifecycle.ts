@@ -27,6 +27,7 @@ import {
   incrementRetryCount,
   incrementReviewCycleCount,
   updateTaskPrBranch,
+  updateTaskPrInfo,
   updateTaskCiInfo,
   updateTaskDeployInfo,
   updateTaskFixReason,
@@ -833,6 +834,10 @@ export const taskLifecycle = inngest.createFunction(
                   updateTaskCiInfo(db, taskId, {
                     ciStartedAt: new Date().toISOString(),
                   });
+                  updateTaskPrInfo(db, taskId, {
+                    prUrl: prInfo.url ?? null,
+                    prState: prInfo.state ?? null,
+                  });
                   sendAlert(getSchedulerDeps(), {
                     severity: "info",
                     title: "Rescued orphaned green PR",
@@ -1037,6 +1042,10 @@ export const taskLifecycle = inngest.createFunction(
         if (prInfo.number != null) {
           updateTaskDeployInfo(db, taskId, { prNumber: prInfo.number });
         }
+        updateTaskPrInfo(db, taskId, {
+          prUrl: prInfo.url ?? null,
+          prState: prInfo.state ?? null,
+        });
 
         if (prInfo.number != null) {
           try {

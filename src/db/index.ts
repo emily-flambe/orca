@@ -489,6 +489,18 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_agent_memories_agent_id ON agent_memories(agent_id)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 21 (PR URL and state tracking):
+  //   - Add pr_url column to tasks (full GitHub PR URL)
+  //   - Add pr_state column to tasks (draft, open, merged, closed)
+  //   Sentinel: pr_url column doesn't exist on tasks table.
+  //   Note: backfill of existing tasks should be done as a startup routine.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "pr_url")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
