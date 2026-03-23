@@ -77,6 +77,19 @@ function readIntOrDefault(name: string, defaultValue: number): number {
   return parsePositiveInt(name, raw);
 }
 
+function readNonNegativeIntOrDefault(
+  name: string,
+  defaultValue: number,
+): number {
+  const raw = readEnv(name);
+  if (raw === undefined) return defaultValue;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    exitWithError(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
 function readPositiveNumberOrDefault(
   name: string,
   defaultValue: number,
@@ -257,7 +270,7 @@ Steps:
     projectRepoMap: new Map(),
     concurrencyCap,
     agentConcurrencyCap: readIntOrDefault("ORCA_AGENT_CONCURRENCY_CAP", 12),
-    worktreePoolSize: readIntOrDefault(
+    worktreePoolSize: readNonNegativeIntOrDefault(
       "ORCA_WORKTREE_POOL_SIZE",
       concurrencyCap + 1,
     ),

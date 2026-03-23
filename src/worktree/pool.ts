@@ -144,11 +144,13 @@ export class WorktreePoolService {
       return null;
     }
 
+    let moved = false;
     try {
       // Move the worktree directory (git handles metadata update)
       await gitAsync(["worktree", "move", reserve.worktreePath, taskPath], {
         cwd: repoPath,
       });
+      moved = true;
 
       // Create new branch from current HEAD (origin/main)
       await gitAsync(["checkout", "-b", newBranch], { cwd: taskPath });
@@ -169,11 +171,13 @@ export class WorktreePoolService {
 
       return { worktreePath: taskPath, branchName: newBranch };
     } catch (err) {
-      // Claim failed — discard the reserve async, trigger fill, return null
+      // Claim failed — discard whichever path now holds the worktree, trigger fill, return null
       logger.warn(
-        `[orca/worktree-pool] claim failed for ${reserve.worktreePath}: ${err} — discarding reserve`,
+        `[orca/worktree-pool] claim failed for ${reserve.worktreePath}: ${err} — discarding`,
       );
-      void removeWorktreeAsync(reserve.worktreePath).catch(() => {});
+      // After a successful move the worktree is at taskPath, not reserve.worktreePath
+      const pathToClean = moved ? taskPath : reserve.worktreePath;
+      void removeWorktreeAsync(pathToClean).catch(() => {});
       void this.fillRepo(repoPath).catch(() => {});
       return null;
     }
@@ -305,42 +309,54 @@ export class WorktreePoolService {
       { cwd: repoPath },
     );
 
-    // Copy .env files from base repo
-    copyEnvFiles(repoPath, worktreePath);
+    // Copy .env files and run npm install. If any post-add step fails, clean up
+    // the registered worktree so it doesn't become an orphan.
+    try {
+      // Copy .env files from base repo
+      copyEnvFiles(repoPath, worktreePath);
 
-    // Run npm install for root package.json
-    if (existsSync(join(worktreePath, "package.json"))) {
-      await npmInstallAsync(worktreePath);
-    }
+      // Run npm install for root package.json
+      if (existsSync(join(worktreePath, "package.json"))) {
+        await npmInstallAsync(worktreePath);
+      }
 
-    // Install nested package.json files (same logic as createWorktree)
-    const extraInstallDirs = process.env.ORCA_EXTRA_INSTALL_DIRS
-      ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",")
-          .map((d) => d.trim())
-          .filter(Boolean)
-      : null;
+      // Install nested package.json files (same logic as createWorktree)
+      const extraInstallDirs = process.env.ORCA_EXTRA_INSTALL_DIRS
+        ? process.env.ORCA_EXTRA_INSTALL_DIRS.split(",")
+            .map((d) => d.trim())
+            .filter(Boolean)
+        : null;
 
-    if (extraInstallDirs) {
-      for (const subdir of extraInstallDirs) {
-        const subPath = join(worktreePath, subdir);
-        if (existsSync(join(subPath, "package.json"))) {
-          await npmInstallAsync(subPath);
+      if (extraInstallDirs) {
+        for (const subdir of extraInstallDirs) {
+          const subPath = join(worktreePath, subdir);
+          if (existsSync(join(subPath, "package.json"))) {
+            await npmInstallAsync(subPath);
+          }
+        }
+      } else {
+        let entries: { isDirectory(): boolean; name: string }[] = [];
+        try {
+          entries = readdirSync(worktreePath, { withFileTypes: true });
+        } catch {
+          // Ignore if worktree dir is unreadable
+        }
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name === "node_modules") continue;
+          const subPath = join(worktreePath, entry.name);
+          if (existsSync(join(subPath, "package.json"))) {
+            await npmInstallAsync(subPath);
+          }
         }
       }
-    } else {
-      let entries: { isDirectory(): boolean; name: string }[] = [];
-      try {
-        entries = readdirSync(worktreePath, { withFileTypes: true });
-      } catch {
-        // Ignore if worktree dir is unreadable
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory() || entry.name === "node_modules") continue;
-        const subPath = join(worktreePath, entry.name);
-        if (existsSync(join(subPath, "package.json"))) {
-          await npmInstallAsync(subPath);
-        }
-      }
+    } catch (postAddErr) {
+      // Worktree was registered with git but setup failed — remove it so it
+      // doesn't sit as an untracked orphan until the cleanup cron finds it.
+      logger.warn(
+        `[orca/worktree-pool] post-add setup failed for ${worktreePath}, removing: ${postAddErr}`,
+      );
+      await removeWorktreeAsync(worktreePath).catch(() => {});
+      throw postAddErr;
     }
 
     return {
@@ -363,6 +379,13 @@ let _pool: WorktreePoolService | null = null;
  * Returns the created service instance.
  */
 export function initWorktreePool(poolSize: number): WorktreePoolService {
+  // Destroy the old pool before replacing it so its reserves are cleaned up
+  // rather than left as orphans that confuse the cleanup cron.
+  if (_pool) {
+    void _pool.destroy().catch((err) => {
+      logger.warn(`[orca/worktree-pool] old pool destroy failed: ${err}`);
+    });
+  }
   _pool = new WorktreePoolService(poolSize);
   return _pool;
 }
