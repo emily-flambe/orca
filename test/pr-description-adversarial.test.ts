@@ -250,7 +250,6 @@ describe("isWellStructuredPrBody — edge cases", () => {
 
   it("returns false for body that is exactly 100 characters (boundary off-by-one)", () => {
     // Requirement: > 100 chars. Exactly 100 should return false.
-    const body = "## Summary\nEMI-123 " + "A".repeat(80); // need total = 100
     // Construct a body of exactly 100 chars with headers and taskId
     const base = "## Summary\nEMI-123\n";
     const padded = base + "A".repeat(100 - base.length);

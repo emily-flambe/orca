@@ -15,7 +15,7 @@
 //   9. null/undefined in args don't throw
 //  10. child() merges baseFields into every entry, not just the first call
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { createLogger } from "../src/logger.js";
 
 // ---------------------------------------------------------------------------
