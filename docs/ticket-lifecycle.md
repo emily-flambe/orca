@@ -61,7 +61,7 @@ Additionally:
 When the **task-lifecycle** workflow starts:
 
 1. **Concurrency check** — Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`.
-2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($100), skip.
+2. **Budget check** — if rolling token usage in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_TOKENS` (1B), skip.
 3. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), and tasks with running invocations.
 4. **Dispatch** with the appropriate phase.
 
