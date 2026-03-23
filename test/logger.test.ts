@@ -842,3 +842,257 @@ describe(".env.example documents LOG_FORMAT", () => {
     expect(source).toContain("LOG_FORMAT");
   });
 });
+
+// ---------------------------------------------------------------------------
+// ADVERSARIAL TESTS — bugs found in implementation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// BUG-1: Error objects serialize as "{}" — error info silently lost
+// Both formatHuman and formatJson use JSON.stringify(a) for non-string args,
+// but JSON.stringify(new Error('msg')) === '{}'. The error message and stack
+// are completely lost from log output.
+// ---------------------------------------------------------------------------
+
+describe("BUG-1: Error objects silently serialize as empty object", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+    delete process.env.LOG_LEVEL;
+  });
+
+  test("Error object in JSON mode: message field should contain error info, not empty braces", () => {
+    process.env.LOG_FORMAT = "json";
+    const log = createLogger("bugtest");
+    const err = new Error("something went wrong");
+    log.error("caught error", err);
+
+    const raw = consoleErrorSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: message is "caught error {}" — error content is lost
+    expect(entry.message).not.toContain("{}");
+    expect(entry.message).toMatch(/something went wrong|Error/);
+  });
+
+  test("Error object in human mode: output should contain error info, not empty braces", () => {
+    delete process.env.LOG_FORMAT;
+    const log = createLogger("bugtest");
+    const err = new Error("something went wrong");
+    log.info("caught", err);
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+
+    // FAILS: output is "[INFO] [orca/bugtest] caught {}"
+    expect(raw).not.toContain("{}");
+    expect(raw).toMatch(/something went wrong|Error/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-2: Structured fields silently overwrite core JSON fields
+// Object.assign(entry, fields) is called AFTER setting timestamp/level/module/message.
+// A caller passing { message: 'x', level: 'y' } can silently corrupt the entry.
+// ---------------------------------------------------------------------------
+
+describe("BUG-2: Caller-supplied fields overwrite core JSON fields via Object.assign", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.LOG_FORMAT = "json";
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+  });
+
+  test("fields with key 'message' should NOT overwrite the log message", () => {
+    const log = createLogger("bugtest");
+    log.info("real message", { message: "OVERRIDDEN" });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.message === "OVERRIDDEN" instead of "real message"
+    expect(entry.message).toBe("real message");
+  });
+
+  test("fields with key 'level' should NOT overwrite the log level", () => {
+    const log = createLogger("bugtest");
+    log.info("msg", { level: "CUSTOM" });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.level === "CUSTOM" instead of "info"
+    expect(entry.level).toBe("info");
+  });
+
+  test("fields with key 'module' should NOT overwrite the module name", () => {
+    const log = createLogger("bugtest");
+    log.info("msg", { module: "HACKED" });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.module === "HACKED" instead of "orca/bugtest"
+    expect(entry.module).toBe("orca/bugtest");
+  });
+
+  test("fields with key 'timestamp' should NOT overwrite the timestamp", () => {
+    const log = createLogger("bugtest");
+    log.info("msg", { timestamp: "1970-01-01T00:00:00.000Z" });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.timestamp === "1970-01-01" instead of a real timestamp
+    expect(entry.timestamp).not.toBe("1970-01-01T00:00:00.000Z");
+    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-3: Inline fields overwrite context correlation IDs
+// createLogger('m', { taskId: 'real' }) + log.info('msg', { taskId: 'fake' })
+// results in taskId: 'fake' because Object.assign runs after context injection.
+// The context correlation IDs should take precedence over caller-supplied fields,
+// or at minimum this should be documented. Currently context is set first and
+// then Object.assign overwrites it.
+// ---------------------------------------------------------------------------
+
+describe("BUG-3: Inline fields overwrite context correlation IDs", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.LOG_FORMAT = "json";
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+  });
+
+  test("inline { taskId } field should NOT overwrite context taskId", () => {
+    const log = createLogger("bugtest", { taskId: "real-task-id" });
+    log.info("msg", { taskId: "FAKE-ID" });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.taskId === "FAKE-ID" — correlation ID is corrupted
+    expect(entry.taskId).toBe("real-task-id");
+  });
+
+  test("inline { invocationId } field should NOT overwrite context invocationId", () => {
+    const log = createLogger("bugtest", { invocationId: 42 });
+    log.info("msg", { invocationId: 9999 });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.invocationId === 9999 — correlation ID is corrupted
+    expect(entry.invocationId).toBe(42);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-4: Date objects pass isPlainObject() check — silently swallowed
+// isPlainObject() returns true for Date (not null, is object, not Array, not Error).
+// A Date passed as last arg is "extracted" as structured fields but contributes
+// nothing to output because Object.keys(new Date()) === []. The Date is silently
+// dropped from output — neither message nor fields contain it.
+// ---------------------------------------------------------------------------
+
+describe("BUG-4: Date objects pass isPlainObject and are silently dropped", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+  });
+
+  test("Date as last arg in JSON mode: date should appear in output, not be silently dropped", () => {
+    process.env.LOG_FORMAT = "json";
+    const log = createLogger("bugtest");
+    const d = new Date("2024-01-01T00:00:00.000Z");
+    log.info("event at", d);
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    // FAILS: entry.message === "event at" — the Date is completely lost
+    // Expected: message should contain the date string, OR there should be a date field
+    expect(entry.message).toContain("2024-01-01");
+  });
+
+  test("Date as last arg in human mode: date should appear in output, not be silently dropped", () => {
+    delete process.env.LOG_FORMAT;
+    const log = createLogger("bugtest");
+    const d = new Date("2024-01-01T00:00:00.000Z");
+    log.info("event at", d);
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+
+    // FAILS: output is "[INFO] [orca/bugtest] event at" — the Date is gone
+    expect(raw).toContain("2024-01-01");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-5: Circular references in structured fields throw TypeError
+// JSON.stringify(entry) in formatJson throws "Converting circular structure to JSON"
+// when fields contain circular references. Logger should handle this gracefully,
+// not crash the caller.
+// ---------------------------------------------------------------------------
+
+describe("BUG-5: Circular references in structured fields crash the logger", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.LOG_FORMAT = "json";
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+  });
+
+  test("circular reference in fields object should not throw", () => {
+    const log = createLogger("bugtest");
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+
+    // FAILS: throws "TypeError: Converting circular structure to JSON"
+    expect(() => {
+      log.info("with circular", circular);
+    }).not.toThrow();
+  });
+
+  test("circular reference in non-field message arg should not throw", () => {
+    const log = createLogger("bugtest");
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+
+    // FAILS: throws when formatting message arg via JSON.stringify
+    expect(() => {
+      log.info(circular, "extra text");
+    }).not.toThrow();
+  });
+});

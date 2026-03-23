@@ -814,7 +814,7 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
             return { outcome: "permanent_fail" };
           }
           return { outcome: "timed_out" };
@@ -957,7 +957,7 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               "failed_permanent",
               `Task permanently failed after ${config.maxRetries} retries`,
-            ).catch(() => {});
+            ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
             return { outcome: "permanent_fail" };
           }
 
@@ -1016,7 +1016,7 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -1067,7 +1067,7 @@ export const taskLifecycle = inngest.createFunction(
               { client, stateMap },
               taskId,
               "failed_permanent",
-            ).catch(() => {});
+            ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
             return { outcome: "permanent_fail" };
           }
           incrementRetryCount(db, taskId);
@@ -1113,7 +1113,7 @@ export const taskLifecycle = inngest.createFunction(
           taskId,
           "in_review",
           `Implementation complete — PR #${prInfo.number ?? "?"} opened on branch \`${storedBranch}\``,
-        ).catch(() => {});
+        ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
 
         try {
           removeWorktree(worktreePath);
@@ -1452,7 +1452,7 @@ export const taskLifecycle = inngest.createFunction(
             taskId,
             "awaiting_ci",
             `Review approved — awaiting CI checks on PR #${task?.prNumber ?? "?"} before merging`,
-          ).catch(() => {});
+          ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
           log(
             `task ${taskId}: review approved → awaiting_ci (cycle ${cycle + 1})`,
           );
@@ -1579,7 +1579,7 @@ export const taskLifecycle = inngest.createFunction(
             { client, stateMap },
             taskId,
             "changes_requested",
-          ).catch(() => {});
+          ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
 
           let resumeSessionId: string | undefined;
           {
@@ -1805,7 +1805,7 @@ export const taskLifecycle = inngest.createFunction(
             { client, stateMap },
             taskId,
             "in_review",
-          ).catch(() => {});
+          ).catch((err: unknown) => logger.warn("Linear write-back failed", { error: String(err), taskId }));
           log(`task ${taskId}: fix complete → in_review (cycle ${cycle + 1})`);
           return { ok: true, timedOut: false, resumeNotFound: false };
         },

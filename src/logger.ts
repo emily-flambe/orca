@@ -29,12 +29,22 @@ function isJsonMode(): boolean {
   return process.env.LOG_FORMAT === "json";
 }
 
-/** Returns true if value is a plain object (not null, Array, or Error). */
+/** Returns true if value is a plain object (not null, Array, Error, Date, RegExp, etc.). */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return false;
-  if (value instanceof Error) return false;
-  return true;
+  const proto = Object.getPrototypeOf(value) as unknown;
+  return proto === Object.prototype || proto === null;
+}
+
+/** Serialize a single log argument to a string, handling Errors properly. */
+function serializeArg(a: unknown): string {
+  if (typeof a === "string") return a;
+  if (a instanceof Error) return a.stack ?? `${a.name}: ${a.message}`;
+  try {
+    return JSON.stringify(a);
+  } catch {
+    return String(a);
+  }
 }
 
 export interface LoggerContext {
@@ -68,22 +78,25 @@ export function createLogger(module: string, context?: LoggerContext) {
 
   function formatHuman(level: LogLevel, args: unknown[]): string {
     const { msgParts, fields } = splitArgs(args);
-    const msg = msgParts
-      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
-      .join(" ");
+    const msg = msgParts.map(serializeArg).join(" ");
     const base = `[${level.toUpperCase()}] ${tag} ${msg}`;
     if (fields && Object.keys(fields).length > 0) {
-      return `${base} ${JSON.stringify(fields)}`;
+      try {
+        return `${base} ${JSON.stringify(fields)}`;
+      } catch {
+        return `${base} [unserializable fields]`;
+      }
     }
     return base;
   }
 
   function formatJson(level: LogLevel, args: unknown[]): string {
     const { msgParts, fields } = splitArgs(args);
-    const msg = msgParts
-      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
-      .join(" ");
+    const msg = msgParts.map(serializeArg).join(" ");
+    // Build entry: caller fields first so core fields always win (can't be overwritten).
+    // Context correlation IDs go last so they also can't be overwritten by caller fields.
     const entry: Record<string, unknown> = {
+      ...(fields ?? {}),
       timestamp: new Date().toISOString(),
       level,
       module: `orca/${module}`,
@@ -92,10 +105,17 @@ export function createLogger(module: string, context?: LoggerContext) {
     if (context?.taskId !== undefined) entry.taskId = context.taskId;
     if (context?.invocationId !== undefined)
       entry.invocationId = context.invocationId;
-    if (fields) {
-      Object.assign(entry, fields);
+    try {
+      return JSON.stringify(entry);
+    } catch {
+      return JSON.stringify({
+        timestamp: entry.timestamp,
+        level,
+        module: `orca/${module}`,
+        message: msg,
+        serializationError: "structured fields contained unserializable values",
+      });
     }
-    return JSON.stringify(entry);
   }
 
   function emit(level: LogLevel, args: unknown[]): void {
