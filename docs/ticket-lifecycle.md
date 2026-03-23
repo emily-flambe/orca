@@ -55,13 +55,13 @@ Tasks are dispatched via Inngest durable workflows, not polling. Each status tra
 | `deploying` | `task/deploying` | **deploy-monitor** — poll GitHub Actions |
 
 Additionally:
-- **Cleanup cron** runs every 5 minutes via Inngest cron. Removes stale `orca/*` branches, orphaned worktrees, and abandoned PRs. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN`.
+- **Cleanup cron** runs every 5 minutes via Inngest cron. Removes stale `orca/*` branches, orphaned worktrees, and abandoned PRs. Branches are protected if they have running invocations, active tasks, open PRs, or are younger than 60 minutes (hardcoded).
 - **Stuck task reconciler** runs every 5 minutes. Re-emits events for tasks stuck in `ready`, `awaiting_ci`, or `deploying` with no active workflow.
 
 When the **task-lifecycle** workflow starts:
 
 1. **Concurrency check** — Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`.
-2. **Budget check** — if rolling cost in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_COST_USD` ($100), skip.
+2. **Budget check** — if cumulative tokens in the last `ORCA_BUDGET_WINDOW_HOURS` (4h) >= `ORCA_BUDGET_MAX_TOKENS` (1B), skip.
 3. **Filter** — exclude tasks with empty `agent_prompt`, parent issues (`is_parent = 1`), and tasks with running invocations.
 4. **Dispatch** with the appropriate phase.
 
@@ -161,7 +161,7 @@ If the review agent doesn't output a `REVIEW_RESULT:*` marker:
 
 When a task is in `deploying` status, the **deploy-monitor** Inngest workflow polls GitHub Actions:
 
-1. **Timeout** — if `deployStartedAt` + `ORCA_DEPLOY_TIMEOUT_MIN` (default 30min) exceeded → mark `failed`, write-back **"Canceled"** to Linear.
+1. **Timeout** — if poll count exceeds `ORCA_DEPLOY_MAX_POLL_ATTEMPTS` (default 60) → mark `failed`, write-back **"Canceled"** to Linear.
 3. **No SHA** — if no `mergeCommitSha` (defensive) → mark `done` with warning.
 4. **Poll** `gh run list --commit <sha>`:
    - All runs succeeded → set task to `done`, write-back **"Done"** to Linear.
@@ -286,7 +286,7 @@ Todo → In Progress (implement started)
 
 ## 9. Resume on max turns
 
-When `ORCA_RESUME_ON_MAX_TURNS` is `true` (default) and a fresh implementation session hits `error_max_turns`:
+When a fresh implementation session hits `error_max_turns`:
 
 1. The worktree is **preserved** (not removed).
 2. The task enters `failed` → retry logic sets it back to `ready`.
@@ -300,7 +300,7 @@ Resume only applies to fresh implement phases — fix sessions are not resumed.
 
 A periodic cleanup runs every 5 minutes via Inngest cron workflow:
 
-- **Stale branches**: Local `orca/*` branches older than `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` (default 60min) with no running invocations, no active tasks, and no open PRs are deleted.
+- **Stale branches**: Local `orca/*` branches older than 60 minutes (hardcoded) with no running invocations, no active tasks, and no open PRs are deleted.
 - **Orphaned worktrees**: Registered and unregistered worktree directories matching the `<repo>-<taskId>` pattern are removed if not actively in use or preserved for resume.
 - **Safety**: Worktrees and branches used by running invocations, active tasks, or open PRs are never touched.
 
@@ -350,9 +350,7 @@ Orca posts comments to Linear issues at key lifecycle events (fire-and-forget):
 | `ORCA_MAX_REVIEW_CYCLES` | 10 | Max review-fix cycles before human intervention |
 | `ORCA_REVIEW_MAX_TURNS` | 30 | Max turns for review agent sessions |
 | `ORCA_DEPLOY_STRATEGY` | `none` | `"none"` (skip deploy monitoring) or `"github_actions"` (poll CI) |
-| `ORCA_DEPLOY_TIMEOUT_MIN` | 30 | Timeout before marking deploy as failed |
-| `ORCA_CLEANUP_BRANCH_MAX_AGE_MIN` | 60 | Min age before stale `orca/*` branches are deleted (minutes) |
-| `ORCA_RESUME_ON_MAX_TURNS` | true | Resume sessions that hit max turns (preserves worktree) |
+| `ORCA_DEPLOY_MAX_POLL_ATTEMPTS` | 60 | Max poll attempts before marking deploy as failed |
 | `ORCA_CLOUDFLARED_PATH` | cloudflared | Path to cloudflared binary |
 
 ## Known gaps
