@@ -5,6 +5,7 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
+import { getLogContext } from "./logger-context.js";
 
 // ---------------------------------------------------------------------------
 // Structured logger
@@ -25,32 +26,134 @@ function getMinLevel(): LogLevel {
   return "info";
 }
 
-export function createLogger(module: string) {
+function isJsonMode(): boolean {
+  return process.env.LOG_FORMAT === "json";
+}
+
+/**
+ * Extracts a fields object from the last argument if it is a plain object
+ * (not an Error, not an Array, not null). Returns [remaining args, fields].
+ */
+function extractFields(
+  args: unknown[],
+): [unknown[], Record<string, unknown> | undefined] {
+  if (args.length === 0) return [args, undefined];
+  const last = args[args.length - 1];
+  if (
+    last !== null &&
+    typeof last === "object" &&
+    !Array.isArray(last) &&
+    !(last instanceof Error)
+  ) {
+    return [args.slice(0, -1), last as Record<string, unknown>];
+  }
+  return [args, undefined];
+}
+
+export interface Logger {
+  debug(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  error(...args: unknown[]): void;
+  child(fields: Record<string, unknown>): Logger;
+}
+
+export function createLogger(
+  module: string,
+  baseFields?: Record<string, unknown>,
+): Logger {
   const tag = `[orca/${module}]`;
 
   function shouldLog(level: LogLevel): boolean {
     return LEVEL_ORDER[level] >= LEVEL_ORDER[getMinLevel()];
   }
 
-  function format(level: LogLevel, args: unknown[]): string {
+  function formatHuman(level: LogLevel, args: unknown[]): string {
     const msg = args
-      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+      .map((a) => {
+        if (typeof a === "string") return a;
+        if (a instanceof Error) return String(a);
+        return JSON.stringify(a);
+      })
       .join(" ");
     return `[${level.toUpperCase()}] ${tag} ${msg}`;
   }
 
+  function emitJson(
+    level: LogLevel,
+    args: unknown[],
+    extraFields?: Record<string, unknown>,
+  ): string {
+    const [msgArgs, inlineFields] = extractFields(args);
+    const message = msgArgs
+      .map((a) => {
+        if (typeof a === "string") return a;
+        if (a instanceof Error) return String(a);
+        return JSON.stringify(a);
+      })
+      .join(" ");
+    const ctx = getLogContext();
+    // Reserved keys are placed last so caller fields cannot clobber metadata.
+    const entry: Record<string, unknown> = {
+      ...baseFields,
+      ...inlineFields,
+      ...extraFields,
+      ...ctx,
+      timestamp: new Date().toISOString(),
+      level,
+      module: `orca/${module}`,
+      message,
+    };
+    try {
+      return JSON.stringify(entry);
+    } catch {
+      // Fallback for circular references or other unserializable values
+      const safe: Record<string, unknown> = {
+        timestamp: entry["timestamp"],
+        level: entry["level"],
+        module: entry["module"],
+        message: entry["message"],
+        _serializeError: "log entry contained unserializable fields",
+      };
+      return JSON.stringify(safe);
+    }
+  }
+
   return {
-    debug: (...args: unknown[]) => {
-      if (shouldLog("debug")) console.log(format("debug", args));
+    debug(...args: unknown[]) {
+      if (!shouldLog("debug")) return;
+      if (isJsonMode()) {
+        console.log(emitJson("debug", args));
+      } else {
+        console.log(formatHuman("debug", args));
+      }
     },
-    info: (...args: unknown[]) => {
-      if (shouldLog("info")) console.log(format("info", args));
+    info(...args: unknown[]) {
+      if (!shouldLog("info")) return;
+      if (isJsonMode()) {
+        console.log(emitJson("info", args));
+      } else {
+        console.log(formatHuman("info", args));
+      }
     },
-    warn: (...args: unknown[]) => {
-      if (shouldLog("warn")) console.warn(format("warn", args));
+    warn(...args: unknown[]) {
+      if (!shouldLog("warn")) return;
+      if (isJsonMode()) {
+        console.warn(emitJson("warn", args));
+      } else {
+        console.warn(formatHuman("warn", args));
+      }
     },
-    error: (...args: unknown[]) => {
-      if (shouldLog("error")) console.error(format("error", args));
+    error(...args: unknown[]) {
+      if (!shouldLog("error")) return;
+      if (isJsonMode()) {
+        console.error(emitJson("error", args));
+      } else {
+        console.error(formatHuman("error", args));
+      }
+    },
+    child(fields: Record<string, unknown>): Logger {
+      return createLogger(module, { ...baseFields, ...fields });
     },
   };
 }
@@ -84,7 +187,7 @@ function maybeRotate(logPath: string, maxSizeBytes: number): void {
   }
 }
 
-/** Prefix each non-empty line with an ISO timestamp. */
+/** Prefix each non-empty line with an ISO timestamp. Skips JSON lines (already have timestamp). */
 function addTimestamps(text: string): string {
   const ts = new Date().toISOString();
   const lines = text.split("\n");
@@ -97,6 +200,9 @@ function addTimestamps(text: string): string {
     } else if (line === "") {
       // Blank lines within the text: preserve as-is.
       result.push("");
+    } else if (line.trimStart().startsWith("{")) {
+      // JSON log lines already contain a timestamp field — don't double-prefix.
+      result.push(line);
     } else {
       result.push(`${ts} ${line}`);
     }

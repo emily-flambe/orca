@@ -66,6 +66,13 @@ All config is in `.env` (see `.env.example`). Key variables:
 |----------|---------|-------------|
 | `GITHUB_MCP_PAT` | — | GitHub PAT for the official GitHub MCP server. When set, agents get structured PR/issue/Actions tools via `https://api.githubcopilot.com/mcp/`. Fine-grained PAT with repo + pr scopes. |
 
+## Logging
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_LEVEL` | `info` | Minimum log level: `debug`, `info`, `warn`, `error` |
+| `LOG_FORMAT` | `text` | Output format: `text` (human-readable) or `json` (structured JSON for log aggregation) |
+
 ## Tunnel
 
 | Variable | Default | Description |
