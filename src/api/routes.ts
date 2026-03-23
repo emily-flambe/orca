@@ -1985,6 +1985,39 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return c.json({ ok: true, wasDraining, draining: false });
   });
 
+  // ---------------------------------------------------------------------------
+  // POST /api/hooks/:invocationId — Claude Code hook receiver
+  // ---------------------------------------------------------------------------
+  app.post("/api/hooks/:invocationId", async (c) => {
+    const invocationId = parseInt(c.req.param("invocationId"), 10);
+    if (isNaN(invocationId)) {
+      return c.json({ error: "invalid invocationId" }, 400);
+    }
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    // Write the hook event to the invocation's in-memory log state so it appears
+    // in the log viewer alongside the NDJSON stream.
+    const logState = invocationLogs.get(invocationId);
+    if (logState && !logState.done) {
+      const hookEntry = JSON.stringify({
+        type: "hook_event",
+        timestamp: new Date().toISOString(),
+        data: body,
+      });
+      logState.buffer.push(hookEntry);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", hookEntry);
+    }
+
+    return c.json({ ok: true });
+  });
+
   // -----------------------------------------------------------------------
   // POST /api/deploy/event  — log deploy success/failure to system_events
   // -----------------------------------------------------------------------

@@ -664,6 +664,7 @@ export const taskLifecycle = inngest.createFunction(
           repoPath: task.repoPath,
           model,
           mcpServers: buildOrcaMcpServers(config),
+          hookBaseUrl: `http://localhost:${config.port}`,
         });
 
         bridgeSessionCompletion(
@@ -1267,6 +1268,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.reviewModel,
             mcpServers: buildOrcaMcpServers(config),
+            hookBaseUrl: `http://localhost:${config.port}`,
           });
 
           bridgeSessionCompletion(
@@ -1624,6 +1626,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: task.repoPath,
             model: config.model,
             mcpServers: buildOrcaMcpServers(config),
+            hookBaseUrl: `http://localhost:${config.port}`,
           });
 
           bridgeSessionCompletion(

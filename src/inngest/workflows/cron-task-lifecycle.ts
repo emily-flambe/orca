@@ -156,6 +156,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           disallowedTools: buildDisallowedTools(config),
           repoPath: task.repoPath,
           model,
+          hookBaseUrl: `http://localhost:${config.port}`,
         });
 
         bridgeSessionCompletion(

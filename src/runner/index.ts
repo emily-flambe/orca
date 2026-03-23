@@ -16,6 +16,7 @@ import {
 import { join, dirname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { EventEmitter } from "node:events";
+import { writeHookConfig } from "../worktree/index.js";
 
 // ---------------------------------------------------------------------------
 // In-memory per-invocation log state for SSE streaming
@@ -104,6 +105,8 @@ export interface SpawnSessionOptions {
   model?: string;
   /** Optional MCP server configurations to inject per-session via --mcp-config. */
   mcpServers?: Record<string, McpServerConfig>;
+  /** Optional base URL for Orca's hook receiver (e.g. http://localhost:4000). If provided, writes .claude/settings.local.json to the worktree. */
+  hookBaseUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +462,20 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
   // first-seen path — causing sessions to run in the wrong directory. Removing
   // stale project dirs forces Claude to create a fresh one for this worktree.
   cleanStaleClaudeProjectDirs(options.worktreePath);
+
+  // Write Claude Code hook config if a hook base URL is provided.
+  if (options.hookBaseUrl) {
+    try {
+      writeHookConfig(
+        options.worktreePath,
+        `${options.hookBaseUrl}/api/hooks/${options.invocationId}`,
+      );
+    } catch (err) {
+      process.stderr.write(
+        `[orca/runner] warning: failed to write hook config: ${err}\n`,
+      );
+    }
+  }
 
   // Strip Claude nesting-detection env vars so child sessions don't refuse to
   // start.  Use filter (not delete) because delete on a spread of process.env

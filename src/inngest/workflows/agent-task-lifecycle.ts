@@ -249,6 +249,7 @@ export const agentTaskLifecycle = inngest.createFunction(
           model,
           mcpServers:
             Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
+          hookBaseUrl: `http://localhost:${config.port}`,
         });
 
         bridgeSessionCompletion(

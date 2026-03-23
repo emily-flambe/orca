@@ -6,6 +6,8 @@ import {
   copyFileSync,
   rmSync,
   renameSync,
+  mkdirSync,
+  writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
@@ -784,4 +786,29 @@ export async function removeWorktreeAsync(worktreePath: string): Promise<void> {
 export function resetWorktree(worktreePath: string): void {
   git(["fetch", "origin"], { cwd: worktreePath });
   git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+}
+
+/**
+ * Write Claude Code hook configuration to the worktree's .claude/settings.local.json.
+ *
+ * Hooks send structured event payloads (via stdin) to the Orca hook endpoint
+ * using curl. This enables richer bidirectional communication beyond NDJSON parsing.
+ *
+ * @param worktreePath - Absolute path to the worktree directory
+ * @param hookUrl - Full URL for the hook endpoint (e.g. http://localhost:4000/api/hooks/123)
+ */
+export function writeHookConfig(worktreePath: string, hookUrl: string): void {
+  const claudeDir = join(worktreePath, ".claude");
+  if (!existsSync(claudeDir)) {
+    mkdirSync(claudeDir, { recursive: true });
+  }
+  const settingsPath = join(claudeDir, "settings.local.json");
+  const command = `curl -s -X POST '${hookUrl}' -H 'Content-Type: application/json' --data-binary @-`;
+  const config = {
+    hooks: {
+      Notification: [{ hooks: [{ type: "command", command }] }],
+      Stop: [{ hooks: [{ type: "command", command }] }],
+    },
+  };
+  writeFileSync(settingsPath, JSON.stringify(config, null, 2));
 }
