@@ -5,6 +5,7 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
+import { getLogContext } from "./logger-context.js";
 
 // ---------------------------------------------------------------------------
 // Structured logger
@@ -91,11 +92,13 @@ export function createLogger(
         return JSON.stringify(a);
       })
       .join(" ");
+    const ctx = getLogContext();
     // Reserved keys are placed last so caller fields cannot clobber metadata.
     const entry: Record<string, unknown> = {
       ...baseFields,
       ...inlineFields,
       ...extraFields,
+      ...ctx,
       timestamp: new Date().toISOString(),
       level,
       module: `orca/${module}`,
@@ -172,7 +175,7 @@ function maybeRotate(logPath: string, maxSizeBytes: number): void {
   }
 }
 
-/** Prefix each non-empty line with an ISO timestamp. */
+/** Prefix each non-empty line with an ISO timestamp. Skips JSON lines (already have timestamp). */
 function addTimestamps(text: string): string {
   const ts = new Date().toISOString();
   const lines = text.split("\n");
@@ -185,6 +188,9 @@ function addTimestamps(text: string): string {
     } else if (line === "") {
       // Blank lines within the text: preserve as-is.
       result.push("");
+    } else if (line.trimStart().startsWith("{")) {
+      // JSON log lines already contain a timestamp field — don't double-prefix.
+      result.push(line);
     } else {
       result.push(`${ts} ${line}`);
     }
