@@ -52,8 +52,6 @@ const baseStatus = {
   activeSessions: 0,
   activeTaskIds: [],
   queuedTasks: 0,
-  costInWindow: 0,
-  budgetLimit: 100,
   budgetWindowHours: 24,
   tokensInWindow: 0,
   tokenBudgetLimit: 1000000,
@@ -65,7 +63,6 @@ const baseStatus = {
   fixModel: "sonnet",
   draining: false,
   drainSessionCount: 0,
-  burnRatePerHour: null,
   tokensPerMinute: null,
 };
 

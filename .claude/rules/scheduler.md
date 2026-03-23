@@ -17,7 +17,7 @@ Events are defined in `src/inngest/events.ts`. All four workflows are registered
 
 ```
 task/ready → task-lifecycle
-  ├── step: budget check
+  ├── step: token budget check
   ├── step: spawn session (implement)
   ├── waitForEvent: session/completed (exitCode indicates success/failure)
   ├── step: Gate 2 (verify PR)
@@ -55,7 +55,7 @@ Claude sessions run 10-45 minutes. Inngest steps must not block that long.
 ## Concurrency & Budget
 
 - **Concurrency**: Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`
-- **Budget**: First step in task-lifecycle checks rolling cost against `ORCA_BUDGET_MAX_COST_USD`
+- **Token budget**: First step in task-lifecycle checks rolling token usage against `ORCA_BUDGET_MAX_TOKENS`
 
 ## Gate 2 (Post-Implementation Verification)
 

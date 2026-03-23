@@ -142,11 +142,10 @@ function KeyNumbers({ metrics }: { metrics: MetricsData }) {
           ? "text-yellow-400"
           : "text-red-400";
 
-  const costTrend = trendPct(metrics.costLast24h, metrics.costPrev24h);
   const tokenTrend = trendPct(metrics.tokensLast24h, metrics.tokensPrev24h);
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
       {/* Success Rate */}
       <Card>
         <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
@@ -156,29 +155,6 @@ function KeyNumbers({ metrics }: { metrics: MetricsData }) {
           {successRate != null ? `${Math.round(successRate)}%` : "--"}
         </span>
         <div className="text-xs text-gray-600 mt-1">12h window</div>
-      </Card>
-
-      {/* Cost (24h) */}
-      <Card>
-        <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
-          Cost (24h)
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-semibold tabular-nums text-gray-100">
-            {formatDollars(metrics.costLast24h)}
-          </span>
-          {costTrend !== null && (
-            <span
-              className={`text-xs tabular-nums ${costTrend > 0 ? "text-red-400" : costTrend < 0 ? "text-green-400" : "text-gray-500"}`}
-            >
-              {costTrend > 0 ? "\u2191" : "\u2193"}
-              {Math.abs(costTrend)}%
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-gray-600 mt-1">
-          vs prev: {formatDollars(metrics.costPrev24h)}
-        </div>
       </Card>
 
       {/* Tokens (24h) */}
@@ -325,17 +301,6 @@ function SystemConfiguration({
     );
   }
 
-  const budgetPct =
-    status.budgetLimit > 0
-      ? (status.costInWindow / status.budgetLimit) * 100
-      : 0;
-  const budgetBarColor =
-    budgetPct < 50
-      ? "bg-green-500"
-      : budgetPct < 80
-        ? "bg-yellow-500"
-        : "bg-red-500";
-
   return (
     <Card>
       <div className="text-xs text-gray-500 mb-3 uppercase tracking-wide">
@@ -366,28 +331,11 @@ function SystemConfiguration({
           </div>
         </div>
 
-        {/* Budget */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-gray-400">
-              Budget ({metrics.budget.windowHours}h)
-            </span>
-            <span className="text-sm tabular-nums text-gray-200">
-              {formatDollars(status.costInWindow)} /{" "}
-              {formatDollars(status.budgetLimit)}
-            </span>
-          </div>
-          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${budgetBarColor}`}
-              style={{ width: `${Math.min(budgetPct, 100)}%` }}
-            />
-          </div>
-        </div>
-
         {/* Token budget */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Tokens in window</span>
+          <span className="text-xs text-gray-400">
+            Tokens in window ({metrics.budget.windowHours}h)
+          </span>
           <span className="text-sm tabular-nums text-gray-200">
             {formatCompactNumber(status.tokensInWindow)}
             {status.tokenBudgetLimit > 0 && (

@@ -19,10 +19,9 @@ import {
   getInvocationCountsByTask,
   getRunningInvocations,
   countActiveSessions,
-  sumCostInWindow,
   sumTokensInWindow,
   sumTokensSplitInWindow,
-  getEarliestEventInWindow,
+  getEarliestInvocationInWindow,
   sumTokensInWindowRange,
   budgetWindowStart,
   updateInvocation,
@@ -32,7 +31,6 @@ import {
   getRecentErrors,
   getDailyStats,
   getRecentActivity,
-  sumCostInWindowRange,
   getSuccessRate12h,
   getRecentSystemEvents,
   countSystemEventsSince,
@@ -728,21 +726,17 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       (t) => t.orcaStatus === "ready",
     ).length;
     const windowStart = budgetWindowStart(config.budgetWindowHours);
-    const costInWindow = sumCostInWindow(db, windowStart);
     const tokensInWindow = sumTokensInWindow(db, windowStart);
     const tokensSplit = sumTokensSplitInWindow(db, windowStart);
-    const earliestEvent = getEarliestEventInWindow(db, windowStart);
+    const earliestInvocation = getEarliestInvocationInWindow(db, windowStart);
 
-    // Compute burn rate ($/hr) and tokens per minute
-    let burnRatePerHour: number | null = null;
+    // Compute tokens per minute
     let tokensPerMinute: number | null = null;
-    if (earliestEvent && costInWindow > 0) {
-      const earliestMs = new Date(earliestEvent).getTime();
+    if (earliestInvocation && tokensInWindow > 0) {
+      const earliestMs = new Date(earliestInvocation).getTime();
       const nowMs = Date.now();
-      const elapsedHours = (nowMs - earliestMs) / (1000 * 60 * 60);
-      if (elapsedHours > 0) {
-        burnRatePerHour = costInWindow / elapsedHours;
-        const elapsedMinutes = elapsedHours * 60;
+      const elapsedMinutes = (nowMs - earliestMs) / (1000 * 60);
+      if (elapsedMinutes > 0) {
         tokensPerMinute = tokensInWindow / elapsedMinutes;
       }
     }
@@ -755,12 +749,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       activeSessions,
       activeTaskIds,
       queuedTasks,
-      costInWindow,
-      budgetLimit: config.budgetMaxCostUsd,
-      budgetPctUsed:
-        config.budgetMaxCostUsd > 0
-          ? (costInWindow / config.budgetMaxCostUsd) * 100
-          : 0,
       budgetWindowHours: config.budgetWindowHours,
       tokensInWindow,
       tokenBudgetLimit: config.budgetMaxTokens,
@@ -770,7 +758,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       fixModel: config.fixModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
-      burnRatePerHour,
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
@@ -785,13 +772,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // DB check: lightweight SELECT 1, then read dependent fields
     let dbOk = true;
     let lastStartup: ReturnType<typeof getLastStartup> = undefined;
-    let costInWindow = 0;
     let activeSessions = 0;
     try {
       db.$client.prepare("SELECT 1").get();
       lastStartup = getLastStartup(db);
-      const windowStart = budgetWindowStart(config.budgetWindowHours);
-      costInWindow = sumCostInWindow(db, windowStart);
       activeSessions = countActiveSessions(db);
     } catch {
       dbOk = false;
@@ -803,9 +787,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       ? Math.floor((now - new Date(lastStartup.createdAt).getTime()) / 1000)
       : null;
 
-    // Budget check
-    const budgetExhausted = costInWindow >= config.budgetMaxCostUsd;
-
     // Draining
     const draining = isDraining();
 
@@ -815,8 +796,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Determine overall status
     let status: "healthy" | "degraded" | "draining";
     if (!dbOk) {
-      status = "degraded";
-    } else if (budgetExhausted) {
       status = "degraded";
     } else if (draining) {
       status = "draining";
@@ -830,15 +809,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       uptime: uptimeSeconds,
       draining,
       activeSessions,
-      budgetExhausted,
       checks: {
         db: dbOk ? "ok" : "error",
         inngest: inngestOk ? "ok" : "unreachable",
       },
     };
 
-    // 503 only when DB is unreachable — budget exhaustion is a normal
-    // operational state and must not break deploy health checks
+    // 503 only when DB is unreachable
     const httpStatus = !dbOk ? 503 : 200;
     return c.json(body, httpStatus);
   });
@@ -898,10 +875,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       (t) => t.orcaStatus === "in_review",
     ).length;
 
-    // Budget
-    const metricsWindowStart = budgetWindowStart(config.budgetWindowHours);
-    const costInWindowMetrics = sumCostInWindow(db, metricsWindowStart);
-
     // Recent events for timeline
     const recentEvents = getRecentSystemEvents(db, 50);
 
@@ -913,15 +886,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
     const invocationStats = getInvocationStats(db);
     const recentErrors = getRecentErrors(db, 20);
-    const costLast24h = sumCostInWindow(db, budgetWindowStart(24));
-    const costLast7d = sumCostInWindow(db, budgetWindowStart(7 * 24));
     const prev24hStart = new Date(
       now.getTime() - 48 * 60 * 60 * 1000,
     ).toISOString();
     const prev24hEnd = new Date(
       now.getTime() - 24 * 60 * 60 * 1000,
     ).toISOString();
-    const costPrev24h = sumCostInWindowRange(db, prev24hStart, prev24hEnd);
     const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
     const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
     const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
@@ -949,8 +919,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         inReview: inReviewCount,
       },
       budget: {
-        costInWindow: costInWindowMetrics,
-        limit: config.budgetMaxCostUsd,
         windowHours: config.budgetWindowHours,
       },
       recentEvents: recentEvents.map((e) => ({
@@ -964,9 +932,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tasksByStatus,
       invocationStats,
       recentErrors,
-      costLast24h,
-      costLast7d,
-      costPrev24h,
       tokensLast24h,
       tokensLast7d,
       tokensPrev24h,
