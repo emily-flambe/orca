@@ -2,13 +2,10 @@ import type { Page } from "./Sidebar";
 import type { OrcaStatus } from "../types";
 
 const PAGE_TITLES: Record<Page, string> = {
-  dashboard: "Dashboard",
-  metrics: "Metrics",
   tasks: "Tasks",
-  logs: "Logs",
-  settings: "Settings",
+  metrics: "Metrics",
   cron: "Cron",
-  inngest: "Inngest",
+  settings: "Settings",
 };
 
 function HealthDot({ online }: { online: boolean | null }) {
@@ -35,13 +32,9 @@ export default function Header({
   onOpenSidebar,
   status,
 }: HeaderProps) {
-  // Derive online state from status prop:
-  // null/undefined = still loading, non-null = online
-  // If status has been set at least once, we consider the backend online.
   const online = status === undefined ? null : status !== null;
   return (
     <div className="sticky top-0 z-20 h-14 flex items-center px-4 border-b border-gray-800 bg-gray-950 shrink-0">
-      {/* Left side */}
       <button
         onClick={onOpenSidebar}
         className="md:hidden flex items-center justify-center w-11 h-11 -ml-2 mr-1 rounded text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors"
