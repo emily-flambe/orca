@@ -163,17 +163,18 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
   const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
-  // Build a map of prBranchName → { taskId, prUrl } for tasks with a known PR
+  // Build a map of prBranchName → { taskId, prUrl, prState } for tasks with a known PR
   // so cleanupRepo can update prState='closed' after closing orphaned PRs.
   const branchToTask = new Map<
     string,
-    { taskId: string; prUrl: string | null }
+    { taskId: string; prUrl: string | null; prState: string | null }
   >();
   for (const task of allTasks) {
     if (task.prBranchName && task.prNumber != null) {
       branchToTask.set(task.prBranchName, {
         taskId: task.linearIssueId,
         prUrl: task.prUrl ?? null,
+        prState: task.prState ?? null,
       });
     }
   }
@@ -206,7 +207,10 @@ function cleanupRepo(
     now: number;
     maxAgeMs: number;
     db?: import("../db/index.js").OrcaDb;
-    branchToTask?: Map<string, { taskId: string; prUrl: string | null }>;
+    branchToTask?: Map<
+      string,
+      { taskId: string; prUrl: string | null; prState: string | null }
+    >;
   },
 ): void {
   // --- Worktree cleanup ---
@@ -358,10 +362,15 @@ function cleanupRepo(
   // Fetch open PR branches once per repo (after closing orphans)
   const openPrBranches = listOpenPrBranches(repoPath);
 
-  // Update prState='closed' for tasks whose PR branch was just closed
+  // Update prState='closed' for tasks whose PR branch was closed (not merged).
+  // Skip tasks already marked 'merged' — their state should not be overwritten.
   if (ctx.db && ctx.branchToTask) {
     for (const [branch, taskRef] of ctx.branchToTask) {
-      if (!openPrBranches.has(branch) && !ctx.activeBranches.has(branch)) {
+      if (
+        !openPrBranches.has(branch) &&
+        !ctx.activeBranches.has(branch) &&
+        taskRef.prState !== "merged"
+      ) {
         try {
           updateTaskPrState(ctx.db, taskRef.taskId, taskRef.prUrl, "closed");
         } catch {
@@ -504,17 +513,18 @@ export async function cleanupStaleResourcesAsync(
   const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
   const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
-  // Build a map of prBranchName → { taskId, prUrl } for tasks with a known PR
+  // Build a map of prBranchName → { taskId, prUrl, prState } for tasks with a known PR
   // so cleanupRepoAsync can update prState='closed' after closing orphaned PRs.
   const branchToTask = new Map<
     string,
-    { taskId: string; prUrl: string | null }
+    { taskId: string; prUrl: string | null; prState: string | null }
   >();
   for (const task of allTasks) {
     if (task.prBranchName && task.prNumber != null) {
       branchToTask.set(task.prBranchName, {
         taskId: task.linearIssueId,
         prUrl: task.prUrl ?? null,
+        prState: task.prState ?? null,
       });
     }
   }
@@ -549,7 +559,10 @@ async function cleanupRepoAsync(
     now: number;
     maxAgeMs: number;
     db?: import("../db/index.js").OrcaDb;
-    branchToTask?: Map<string, { taskId: string; prUrl: string | null }>;
+    branchToTask?: Map<
+      string,
+      { taskId: string; prUrl: string | null; prState: string | null }
+    >;
   },
 ): Promise<void> {
   // --- Worktree cleanup ---
@@ -679,10 +692,15 @@ async function cleanupRepoAsync(
 
   const openPrBranches = listOpenPrBranches(repoPath);
 
-  // Update prState='closed' for tasks whose PR branch was just closed
+  // Update prState='closed' for tasks whose PR branch was closed (not merged).
+  // Skip tasks already marked 'merged' — their state should not be overwritten.
   if (ctx.db && ctx.branchToTask) {
     for (const [branch, taskRef] of ctx.branchToTask) {
-      if (!openPrBranches.has(branch) && !ctx.activeBranches.has(branch)) {
+      if (
+        !openPrBranches.has(branch) &&
+        !ctx.activeBranches.has(branch) &&
+        taskRef.prState !== "merged"
+      ) {
         try {
           updateTaskPrState(ctx.db, taskRef.taskId, taskRef.prUrl, "closed");
         } catch {
