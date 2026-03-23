@@ -1244,3 +1244,46 @@ describe("Guard B — orphaned green PR recovery", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Unit tests for buildOrcaMcpServers
+// ---------------------------------------------------------------------------
+
+import { buildOrcaMcpServers } from "../src/inngest/workflows/task-lifecycle.js";
+
+describe("buildOrcaMcpServers", () => {
+  const baseConfig = { ...mockConfig };
+
+  beforeEach(() => {
+    delete process.env.GITHUB_TOKEN;
+  });
+
+  test("returns undefined when no servers are available", () => {
+    // dist/mcp-server.js won't exist in test environment
+    const result = buildOrcaMcpServers(baseConfig);
+    // Without GITHUB_TOKEN and without dist/mcp-server.js, returns undefined
+    expect(result).toBeUndefined();
+  });
+
+  test("includes github server when GITHUB_TOKEN is set", () => {
+    process.env.GITHUB_TOKEN = "test-token-abc";
+    const result = buildOrcaMcpServers(baseConfig);
+    expect(result).toBeDefined();
+    expect(result!.github).toMatchObject({
+      type: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { Authorization: "Bearer test-token-abc" },
+    });
+  });
+
+  test("omits github server when GITHUB_TOKEN is not set", () => {
+    const result = buildOrcaMcpServers(baseConfig);
+    expect(result?.github).toBeUndefined();
+  });
+
+  test("orca server is not included when dist/mcp-server.js does not exist", () => {
+    process.env.GITHUB_TOKEN = "test-token";
+    const result = buildOrcaMcpServers(baseConfig);
+    expect(result?.orca).toBeUndefined();
+  });
+});

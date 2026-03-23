@@ -25,6 +25,7 @@ import {
   assertSessionCapacity,
   bridgeSessionCompletion,
   buildDisallowedTools,
+  buildOrcaMcpServers,
 } from "./task-lifecycle.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
@@ -158,6 +159,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           repoPath: task.repoPath,
           model,
           hookUrl: getHookUrl(invocationId),
+          mcpServers: buildOrcaMcpServers(config),
         });
 
         bridgeSessionCompletion(
