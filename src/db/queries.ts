@@ -1293,6 +1293,14 @@ export function updateAgentMemory(
     .run();
 }
 
+/** Get a single agent memory by id. */
+export function getAgentMemory(
+  db: OrcaDb,
+  id: number,
+): AgentMemoryRow | undefined {
+  return db.select().from(agentMemories).where(eq(agentMemories.id, id)).get();
+}
+
 /** Delete a single agent memory by id. */
 export function deleteAgentMemory(db: OrcaDb, id: number): void {
   db.delete(agentMemories).where(eq(agentMemories.id, id)).run();

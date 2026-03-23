@@ -852,34 +852,26 @@ describe("DELETE /api/agents/:id/memories/:memoryId", () => {
     expect(getAgentMemoryCount(db, "agent-a")).toBe(0);
   });
 
-  // BUG: deleteAgentMemory does not verify the memory belongs to the agent
-  // You can delete any memory through any agent's endpoint as long as the
-  // agent exists and the memory ID is valid.
-  it("BUG: can delete another agent's memory through wrong agent endpoint", async () => {
+  it("rejects deleting another agent's memory (ownership check)", async () => {
     const memId = insertAgentMemory(db, {
       agentId: "agent-b",
       type: "episodic",
       content: "agent-b's secret",
     });
 
-    // Deleting agent-b's memory through agent-a's endpoint
+    // Deleting agent-b's memory through agent-a's endpoint should fail
     const res = await app.request(`/api/agents/agent-a/memories/${memId}`, {
       method: "DELETE",
     });
-    // Current behavior: succeeds (200) and deletes the wrong agent's memory
-    expect(res.status).toBe(200);
-    // The memory belonging to agent-b is now gone!
-    expect(getAgentMemoryCount(db, "agent-b")).toBe(0);
-
-    // EXPECTED: Should either return 404 (memory not found for this agent)
-    // or verify ownership before deleting.
+    expect(res.status).toBe(404);
+    // agent-b's memory should still exist
+    expect(getAgentMemoryCount(db, "agent-b")).toBe(1);
   });
 
-  it("succeeds silently for non-existent memory id", async () => {
+  it("returns 404 for non-existent memory id", async () => {
     const res = await app.request("/api/agents/agent-a/memories/99999", {
       method: "DELETE",
     });
-    // deleteAgentMemory is a no-op for non-existent IDs
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
   });
 });

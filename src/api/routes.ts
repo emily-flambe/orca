@@ -54,6 +54,7 @@ import {
   deleteAgent,
   getTasksByAgent,
   getAgentMemories,
+  getAgentMemory,
   deleteAgentMemory,
   incrementAgentRunCount,
 } from "../db/queries.js";
@@ -1947,6 +1948,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const agent = getAgent(db, id);
     if (!agent) {
       return c.json({ error: "agent not found" }, 404);
+    }
+    const memory = getAgentMemory(db, memoryId);
+    if (!memory || memory.agentId !== id) {
+      return c.json({ error: "memory not found" }, 404);
     }
     deleteAgentMemory(db, memoryId);
     return c.json({ ok: true });
