@@ -2063,13 +2063,31 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // POST /api/deploy/event  — log deploy success/failure to system_events
   // -----------------------------------------------------------------------
   app.post("/api/deploy/event", async (c) => {
-    const body = await c.req.json<{ status: string; message?: string }>();
-    const status = body.status === "failure" ? "failure" : "success";
+    const body = await c.req.json<{
+      status: string;
+      message?: string;
+      deployId?: string;
+      oldPort?: number;
+      newPort?: number;
+      commitSha?: string;
+      orphanedSessions?: number;
+    }>();
+    const validStatuses = ["start", "success", "failure"] as const;
+    type DeployStatus = (typeof validStatuses)[number];
+    const status: DeployStatus = validStatuses.includes(body.status as DeployStatus)
+      ? (body.status as DeployStatus)
+      : "success";
     const message = body.message ?? `Deploy ${status}`;
+    const metadata: Record<string, unknown> = { status };
+    if (body.deployId !== undefined) metadata.deployId = body.deployId;
+    if (body.oldPort !== undefined) metadata.oldPort = body.oldPort;
+    if (body.newPort !== undefined) metadata.newPort = body.newPort;
+    if (body.commitSha !== undefined) metadata.commitSha = body.commitSha;
+    if (body.orphanedSessions !== undefined) metadata.orphanedSessions = body.orphanedSessions;
     insertSystemEvent(db, {
       type: "deploy",
       message,
-      metadata: { status },
+      metadata,
     });
     logger.info(`audit: deploy event status=${status}`);
     return c.json({ ok: true });

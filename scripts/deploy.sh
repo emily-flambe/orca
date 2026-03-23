@@ -70,6 +70,12 @@ fi
 
 log "active=$ACTIVE_PORT  standby=$STANDBY_PORT"
 
+# Capture git commit hash for this deploy
+COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+# Generate a deploy ID to correlate start/success/failure events
+DEPLOY_ID="deploy-$(date +%s)"
+
 # ---------------------------------------------------------------------------
 # Pull, install, build  (must succeed before we touch the running instance)
 # ---------------------------------------------------------------------------
@@ -89,6 +95,37 @@ log "building frontend..."
 
 # Build succeeded — safe to clean up before starting new instance
 PM2="$PROJECT_DIR/node_modules/.bin/pm2"
+
+# ---------------------------------------------------------------------------
+# Helper: log a deploy event to the running instance's system_events table
+# ---------------------------------------------------------------------------
+log_deploy_event() {
+  local port="$1"
+  local status="$2"
+  local message="$3"
+  local orphaned="${4:-}"
+  local payload
+  payload=$(node -e "
+    var obj={
+      status:'$status',
+      message:$(node -e "process.stdout.write(JSON.stringify('$message'))"),
+      deployId:'$DEPLOY_ID',
+      oldPort:$ACTIVE_PORT,
+      newPort:$STANDBY_PORT,
+      commitSha:'$COMMIT_SHA'
+    };
+    if('$orphaned'!=='')obj.orphanedSessions=parseInt('$orphaned',10);
+    console.log(JSON.stringify(obj));
+  " 2>/dev/null || echo "{\"status\":\"$status\",\"message\":\"$message\"}")
+  curl -sf --max-time 5 -X POST "http://localhost:$port/api/deploy/event" \
+    -H "Content-Type: application/json" \
+    -d "$payload" > /dev/null 2>&1 || true
+}
+
+# Log deploy start event to current active instance (best-effort)
+if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
+  log_deploy_event "$ACTIVE_PORT" "start" "Deploy started: ${ACTIVE_PORT} -> ${STANDBY_PORT} (commit ${COMMIT_SHA})"
+fi
 
 # ---------------------------------------------------------------------------
 # Ensure Inngest dev server is running (shared service, not restarted on deploy)
@@ -178,17 +215,13 @@ if [[ "$HEALTH_OK" != "true" ]]; then
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Helper: log a deploy event to the running instance's system_events table
-# ---------------------------------------------------------------------------
-log_deploy_event() {
-  local port="$1"
-  local status="$2"
-  local message="$3"
-  curl -sf --max-time 5 -X POST "http://localhost:$port/api/deploy/event" \
-    -H "Content-Type: application/json" \
-    -d "{\"status\":\"$status\",\"message\":\"$message\"}" > /dev/null 2>&1 || true
-}
+# Count active sessions on old instance (these will be orphaned if they don't finish before kill)
+ORPHANED_SESSIONS=0
+if $PM2 describe "orca-${ACTIVE_PORT}" &>/dev/null; then
+  ORPHANED_SESSIONS=$(curl -sf --max-time 5 "http://localhost:$ACTIVE_PORT/api/status" 2>/dev/null \
+    | node -e "var d='';process.stdin.on('data',function(c){d+=c});process.stdin.on('end',function(){try{console.log(JSON.parse(d).activeSessions||0)}catch(e){console.log(0)}})" 2>/dev/null \
+    || echo "0")
+fi
 
 # ---------------------------------------------------------------------------
 # Drain old instance BEFORE switching tunnel — prevents new sessions starting
@@ -252,7 +285,7 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
 
   if [[ -z "$RAW_TUNNEL_CONFIG" ]]; then
     log "ERROR: failed to fetch tunnel config — aborting deploy, keeping old instance"
-    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: could not fetch tunnel config"
+    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: could not fetch tunnel config" "$ORPHANED_SESSIONS"
     $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
     exit 1
   fi
@@ -284,7 +317,7 @@ if [[ -n "$CF_TUNNEL_ID" && -n "$CF_ACCOUNT_ID" && -n "$CF_API_TOKEN" ]]; then
     log "tunnel origin switched to port $STANDBY_PORT"
   else
     log "ERROR: tunnel switch PUT failed — aborting deploy, keeping old instance"
-    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: tunnel switch PUT failed"
+    log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: tunnel switch PUT failed" "$ORPHANED_SESSIONS"
     $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
     exit 1
   fi
@@ -328,7 +361,7 @@ if [[ "$POST_SWITCH_OK" != "true" ]]; then
       || log "WARNING: tunnel rollback PUT failed — manual intervention may be needed"
   fi
 
-  log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: post-switch health check failed"
+  log_deploy_event "$ACTIVE_PORT" "failure" "Deploy aborted: post-switch health check failed" "$ORPHANED_SESSIONS"
   $PM2 delete "orca-${STANDBY_PORT}" 2>/dev/null || true
   exit 1
 fi
@@ -367,6 +400,6 @@ node -e "
   },null,2)+'\n');
 "
 
-log_deploy_event "$STANDBY_PORT" "success" "Deploy completed successfully on port $STANDBY_PORT"
+log_deploy_event "$STANDBY_PORT" "success" "Deploy completed successfully on port $STANDBY_PORT" "$ORPHANED_SESSIONS"
 
 log "done! active=$STANDBY_PORT  (next deploy will use port $ACTIVE_PORT)"
