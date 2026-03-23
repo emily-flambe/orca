@@ -43,7 +43,7 @@ export const agentDispatchWorkflow = inngest.createFunction(
 
     for (const agent of dueAgents) {
       await step.run(`dispatch-agent-${agent.id}`, async () => {
-        const { db } = getSchedulerDeps();
+        const { db, config } = getSchedulerDeps();
         const now = new Date().toISOString();
         const taskId = `agent-${agent.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -51,7 +51,7 @@ export const agentDispatchWorkflow = inngest.createFunction(
           insertTask(db, {
             linearIssueId: taskId,
             agentPrompt: agent.systemPrompt,
-            repoPath: agent.repoPath ?? "",
+            repoPath: agent.repoPath || config.defaultCwd || "",
             orcaStatus: "ready",
             taskType: "agent",
             agentId: agent.id,

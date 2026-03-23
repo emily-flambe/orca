@@ -1901,7 +1901,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     insertTask(db, {
       linearIssueId: taskId,
       agentPrompt: agent.systemPrompt,
-      repoPath: agent.repoPath ?? "",
+      repoPath: agent.repoPath || config.defaultCwd || "",
       orcaStatus: "ready",
       taskType: "agent",
       agentId: agent.id,

@@ -196,7 +196,13 @@ export const agentTaskLifecycle = inngest.createFunction(
           }
         }
 
-        const wtResult = createWorktree(task.repoPath, taskId, 0);
+        const repoPath = task.repoPath || agent?.repoPath || config.defaultCwd;
+        if (!repoPath) {
+          throw new Error(
+            `agent task ${taskId}: no repoPath — set repoPath on the agent or ORCA_DEFAULT_CWD`,
+          );
+        }
+        const wtResult = createWorktree(repoPath, taskId, 0);
         const { worktreePath, branchName } = wtResult;
 
         const now = new Date().toISOString();
