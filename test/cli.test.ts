@@ -11,7 +11,6 @@ import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 const mockInsertTask = vi.fn();
 const mockGetAllTasks = vi.fn(() => []);
 const mockGetRunningInvocations = vi.fn(() => []);
-const mockSumCostInWindow = vi.fn(() => 0);
 const mockBudgetWindowStart = vi.fn(() => new Date().toISOString());
 
 // start command mocks
@@ -23,7 +22,6 @@ vi.mock("../src/db/queries.js", () => ({
   insertTask: mockInsertTask,
   getAllTasks: mockGetAllTasks,
   getRunningInvocations: mockGetRunningInvocations,
-  sumCostInWindow: mockSumCostInWindow,
   budgetWindowStart: mockBudgetWindowStart,
   updateInvocation: vi.fn(),
   updateTaskStatus: vi.fn(),
@@ -40,7 +38,6 @@ vi.mock("../src/config/index.js", () => ({
   loadConfig: vi.fn(() => ({
     dbPath: ":memory:",
     budgetWindowHours: 4,
-    budgetMaxCostUsd: 100,
     linearApiKey: "test-key",
     linearProjectIds: [],
     projectRepoMap: new Map(),
@@ -361,37 +358,6 @@ describe("orca status", () => {
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Queued tasks:    2");
-  });
-
-  test("prints budget usage", async () => {
-    mockGetRunningInvocations.mockReturnValue([]);
-    mockGetAllTasks.mockReturnValue([]);
-    mockSumCostInWindow.mockReturnValue(42.5);
-
-    const { loadConfig } = await import("../src/config/index.js");
-    vi.mocked(loadConfig).mockReturnValue({
-      dbPath: ":memory:",
-      budgetWindowHours: 4,
-      budgetMaxCostUsd: 100,
-      linearApiKey: "test-key",
-      linearProjectIds: [],
-      projectRepoMap: new Map(),
-      logPath: "/tmp/orca-test.log",
-      logMaxSizeMb: 10,
-      port: 4000,
-      concurrencyCap: 1,
-
-      externalTunnel: true,
-      githubWebhookSecret: undefined,
-      cloudflaredPath: "cloudflared",
-      tunnelToken: undefined,
-    } as ReturnType<typeof loadConfig>);
-
-    await runCli(["status"]);
-
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("$42.50");
-    expect(output).toContain("$100.00");
   });
 
   test("prints failed task count", async () => {

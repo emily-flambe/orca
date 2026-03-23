@@ -8,7 +8,6 @@ import { createApiRoutes } from "../src/api/routes.js";
 import {
   insertTask,
   insertInvocation,
-  insertBudgetEvent,
   getTask,
   updateInvocation,
   getInvocationsByTask,
@@ -42,7 +41,6 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     sessionTimeoutMin: 45,
     maxRetries: 3,
     budgetWindowHours: 4,
-    budgetMaxCostUsd: 10.0,
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
@@ -236,7 +234,7 @@ describe("GET /api/status", () => {
     db = createDb(":memory:");
     app = createApiRoutes({
       db,
-      config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      config: makeConfig(),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
       stateMap: new Map(),
@@ -276,18 +274,6 @@ describe("GET /api/status", () => {
       }),
     );
 
-    // Insert a budget event in the current window
-    const invId = insertInvocation(db, {
-      linearIssueId: "DONE-1",
-      startedAt: now(),
-      status: "completed",
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 2.5,
-      recordedAt: now(),
-    });
-
     const res = await app.request("/api/status");
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -295,8 +281,6 @@ describe("GET /api/status", () => {
     expect(body.activeSessions).toBe(1);
     expect(body.activeTaskIds).toEqual(["RUNNING-1"]);
     expect(body.queuedTasks).toBe(1);
-    expect(body.costInWindow).toBeCloseTo(2.5);
-    expect(body.budgetLimit).toBe(10.0);
     expect(body.budgetWindowHours).toBe(4);
   });
 });
@@ -309,7 +293,7 @@ describe("GET /api/health", () => {
     db = createDb(":memory:");
     app = createApiRoutes({
       db,
-      config: makeConfig({ budgetMaxCostUsd: 10.0, budgetWindowHours: 4 }),
+      config: makeConfig(),
       syncTasks: vi.fn().mockResolvedValue(0),
       client: {} as any,
       stateMap: new Map(),
@@ -324,34 +308,9 @@ describe("GET /api/health", () => {
     const body = await res.json();
     expect(body.status).toBe("healthy");
     expect(body.draining).toBe(false);
-    expect(body.budgetExhausted).toBe(false);
     expect(typeof body.activeSessions).toBe("number");
     expect(body.checks.db).toBe("ok");
     expect(typeof body.version).toBe("string");
-  });
-
-  it("returns 200 with degraded status when budget is exhausted", async () => {
-    // Insert task first (FK constraint requires task before invocation)
-    insertTask(db, makeTask({ linearIssueId: "BUDGET-1" }));
-    const invId = insertInvocation(db, {
-      linearIssueId: "BUDGET-1",
-      startedAt: now(),
-      status: "completed",
-    });
-    insertBudgetEvent(db, {
-      invocationId: invId,
-      costUsd: 15.0, // exceeds budgetMaxCostUsd: 10.0
-      recordedAt: now(),
-    });
-
-    const res = await app.request("/api/health");
-    // Budget exhaustion is a normal operational state — must not fail health check
-    // (deploy script uses curl -sf which fails on non-2xx)
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.status).toBe("degraded");
-    expect(body.budgetExhausted).toBe(true);
-    expect(body.checks.db).toBe("ok");
   });
 
   it("includes uptime field", async () => {
@@ -369,7 +328,6 @@ describe("GET /api/health", () => {
     expect(body).toHaveProperty("uptime");
     expect(body).toHaveProperty("draining");
     expect(body).toHaveProperty("activeSessions");
-    expect(body).toHaveProperty("budgetExhausted");
     expect(body).toHaveProperty("checks");
     expect(body.checks).toHaveProperty("db");
     expect(body.checks).toHaveProperty("inngest");

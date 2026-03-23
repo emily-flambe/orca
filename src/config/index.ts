@@ -8,7 +8,6 @@ export interface OrcaConfig {
   sessionTimeoutMin: number;
   maxRetries: number;
   budgetWindowHours: number;
-  budgetMaxCostUsd: number;
   budgetMaxTokens: number;
 
   claudePath: string;
@@ -274,10 +273,6 @@ Steps:
     budgetWindowHours: readPositiveNumberOrDefault(
       "ORCA_BUDGET_WINDOW_HOURS",
       4,
-    ),
-    budgetMaxCostUsd: readPositiveNumberOrDefault(
-      "ORCA_BUDGET_MAX_COST_USD",
-      100.0,
     ),
     budgetMaxTokens: readPositiveNumberOrDefault(
       "ORCA_BUDGET_MAX_TOKENS",

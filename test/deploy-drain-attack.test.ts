@@ -47,7 +47,6 @@ vi.mock("../src/db/queries.js", () => ({
   getRunningInvocations: vi.fn().mockReturnValue([]),
   incrementStaleSessionRetryCount: vi.fn(),
   insertSystemEvent: vi.fn(),
-  sumCostInWindow: vi.fn().mockReturnValue(0),
   sumTokensInWindow: vi.fn().mockReturnValue(0),
   budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
@@ -61,7 +60,6 @@ vi.mock("../src/db/queries.js", () => ({
   getLastCompletedImplementInvocation: vi.fn().mockReturnValue(null),
   resetStaleSessionRetryCount: vi.fn(),
   clearSessionIds: vi.fn(),
-  countZeroCostFailuresInWindow: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock("../src/inngest/resource-check.js", () => ({
