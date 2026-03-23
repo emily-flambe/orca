@@ -306,7 +306,7 @@ export function buildOrcaMcpServers(
   config: OrcaConfig,
 ): Record<string, McpServerConfig> | undefined {
   const mcpServerPath = join(process.cwd(), "dist", "mcp-server.js");
-  if (!existsSync(mcpServerPath)) {
+  if (!existsSync(mcpServerPath) || !config.dbPath) {
     return undefined;
   }
   return {
