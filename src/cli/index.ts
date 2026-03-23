@@ -568,8 +568,14 @@ program
           };
         });
         await Promise.allSettled(
-          cancelEvents.map((evt) => inngest.send(evt).catch(() => {})),
-        ).catch(() => {});
+          cancelEvents.map((evt) =>
+            inngest.send(evt).catch((err: unknown) => {
+              logger.warn("failed to send task/cancelled event to Inngest", { error: err instanceof Error ? err.message : String(err) });
+            }),
+          ),
+        ).catch((err: unknown) => {
+          logger.warn("Promise.allSettled for cancel events failed", { error: err instanceof Error ? err.message : String(err) });
+        });
         logger.info(
           `sent ${cancelEvents.length} task/cancelled event(s) to Inngest`,
         );

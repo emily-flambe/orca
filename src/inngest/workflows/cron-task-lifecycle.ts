@@ -203,7 +203,9 @@ export const cronTaskLifecycle = inngest.createFunction(
         );
         const handle = activeHandles.get(invocationId);
         if (handle) {
-          killSession(handle).catch(() => {});
+          killSession(handle).catch((err: unknown) => {
+            logger.warn("failed to kill timed-out cron session", { taskId, invocationId, error: err instanceof Error ? err.message : String(err) });
+          });
           activeHandles.delete(invocationId);
         }
         updateInvocation(db, invocationId, {

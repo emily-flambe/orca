@@ -326,7 +326,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       if (!logState) {
         // No in-memory state: invocation finished before we connected (or never ran via runner)
         // Signal client to fall back to polling endpoint
-        stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+        stream.writeSSE({ event: "done", data: "" }).catch((err: unknown) => {
+          logger.warn("failed to write SSE done event (no log state)", { invocationId: id, error: err instanceof Error ? err.message : String(err) });
+        });
         return;
       }
 
@@ -340,7 +342,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         const sendDone = () => {
           if (doneSent || streamClosed) return;
           doneSent = true;
-          stream.writeSSE({ event: "done", data: "" }).catch(() => {});
+          stream.writeSSE({ event: "done", data: "" }).catch((err: unknown) => {
+            logger.warn("failed to write SSE done event", { invocationId: id, error: err instanceof Error ? err.message : String(err) });
+          });
         };
 
         const onLine = (line: string) => {
