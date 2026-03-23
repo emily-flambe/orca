@@ -15,8 +15,14 @@ vi.mock("../../hooks/useApi", () => ({
 }));
 
 vi.mock("../LiveRunWidget", () => ({
-  default: ({ invocation }: { invocation: { id: number; linearIssueId: string } }) => (
-    <div data-testid={`live-run-${invocation.id}`}>{invocation.linearIssueId}</div>
+  default: ({
+    invocation,
+  }: {
+    invocation: { id: number; linearIssueId: string };
+  }) => (
+    <div data-testid={`live-run-${invocation.id}`}>
+      {invocation.linearIssueId}
+    </div>
   ),
 }));
 
@@ -69,9 +75,13 @@ describe("ActiveSessionsGrid", () => {
   });
 
   it("re-fetches running invocations when invocationStartedTrigger increments", async () => {
-    mockFetchRunning.mockResolvedValueOnce([]).mockResolvedValueOnce([makeInvocation(2)]);
+    mockFetchRunning
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeInvocation(2)]);
 
-    const { rerender } = render(<ActiveSessionsGrid invocationStartedTrigger={0} />);
+    const { rerender } = render(
+      <ActiveSessionsGrid invocationStartedTrigger={0} />,
+    );
     await waitFor(() => expect(mockFetchRunning).toHaveBeenCalledTimes(1));
 
     rerender(<ActiveSessionsGrid invocationStartedTrigger={1} />);
