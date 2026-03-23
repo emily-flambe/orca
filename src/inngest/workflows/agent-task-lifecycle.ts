@@ -28,6 +28,7 @@ import {
   assertSessionCapacity,
   bridgeSessionCompletion,
   buildDisallowedTools,
+  buildOrcaMcpServers,
 } from "./task-lifecycle.js";
 import type { AgentMemoryRow } from "../../db/queries.js";
 
@@ -208,6 +209,22 @@ export const agentTaskLifecycle = inngest.createFunction(
           logPath: `logs/${invocationId}.ndjson`,
         });
 
+        // Build MCP config with ORCA_AGENT_ID for memory write tools
+        const baseMcpServers = buildOrcaMcpServers(config) ?? {};
+        const mcpServers = agentId
+          ? Object.fromEntries(
+              Object.entries(baseMcpServers).map(([name, cfg]) => [
+                name,
+                "command" in cfg
+                  ? {
+                      ...cfg,
+                      env: { ...cfg.env, ORCA_AGENT_ID: agentId },
+                    }
+                  : cfg,
+              ]),
+            )
+          : baseMcpServers;
+
         const handle = spawnSession({
           agentPrompt: task.agentPrompt ?? "",
           worktreePath,
@@ -219,6 +236,8 @@ export const agentTaskLifecycle = inngest.createFunction(
           disallowedTools: buildDisallowedTools(config),
           repoPath: task.repoPath,
           model,
+          mcpServers:
+            Object.keys(mcpServers).length > 0 ? mcpServers : undefined,
         });
 
         bridgeSessionCompletion(
