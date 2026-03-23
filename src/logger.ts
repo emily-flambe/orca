@@ -25,33 +25,98 @@ function getMinLevel(): LogLevel {
   return "info";
 }
 
-export function createLogger(module: string) {
+function isJsonMode(): boolean {
+  return process.env.LOG_FORMAT === "json";
+}
+
+/** Returns true if value is a plain object (not null, Array, or Error). */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (value instanceof Error) return false;
+  return true;
+}
+
+export interface LoggerContext {
+  taskId?: string;
+  invocationId?: string | number;
+}
+
+export function createLogger(module: string, context?: LoggerContext) {
   const tag = `[orca/${module}]`;
 
   function shouldLog(level: LogLevel): boolean {
     return LEVEL_ORDER[level] >= LEVEL_ORDER[getMinLevel()];
   }
 
-  function format(level: LogLevel, args: unknown[]): string {
-    const msg = args
+  /**
+   * Splits args into message parts and optional trailing structured fields.
+   * The last arg that is a plain object (not Error/Array) becomes structured fields.
+   */
+  function splitArgs(args: unknown[]): {
+    msgParts: unknown[];
+    fields: Record<string, unknown> | undefined;
+  } {
+    if (args.length > 0 && isPlainObject(args[args.length - 1])) {
+      return {
+        msgParts: args.slice(0, -1),
+        fields: args[args.length - 1] as Record<string, unknown>,
+      };
+    }
+    return { msgParts: args, fields: undefined };
+  }
+
+  function formatHuman(level: LogLevel, args: unknown[]): string {
+    const { msgParts, fields } = splitArgs(args);
+    const msg = msgParts
       .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
       .join(" ");
-    return `[${level.toUpperCase()}] ${tag} ${msg}`;
+    const base = `[${level.toUpperCase()}] ${tag} ${msg}`;
+    if (fields && Object.keys(fields).length > 0) {
+      return `${base} ${JSON.stringify(fields)}`;
+    }
+    return base;
+  }
+
+  function formatJson(level: LogLevel, args: unknown[]): string {
+    const { msgParts, fields } = splitArgs(args);
+    const msg = msgParts
+      .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+      .join(" ");
+    const entry: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      level,
+      module: `orca/${module}`,
+      message: msg,
+    };
+    if (context?.taskId !== undefined) entry.taskId = context.taskId;
+    if (context?.invocationId !== undefined)
+      entry.invocationId = context.invocationId;
+    if (fields) {
+      Object.assign(entry, fields);
+    }
+    return JSON.stringify(entry);
+  }
+
+  function emit(level: LogLevel, args: unknown[]): void {
+    if (!shouldLog(level)) return;
+    const line = isJsonMode()
+      ? formatJson(level, args)
+      : formatHuman(level, args);
+    if (level === "error") {
+      console.error(line);
+    } else if (level === "warn") {
+      console.warn(line);
+    } else {
+      console.log(line);
+    }
   }
 
   return {
-    debug: (...args: unknown[]) => {
-      if (shouldLog("debug")) console.log(format("debug", args));
-    },
-    info: (...args: unknown[]) => {
-      if (shouldLog("info")) console.log(format("info", args));
-    },
-    warn: (...args: unknown[]) => {
-      if (shouldLog("warn")) console.warn(format("warn", args));
-    },
-    error: (...args: unknown[]) => {
-      if (shouldLog("error")) console.error(format("error", args));
-    },
+    debug: (...args: unknown[]) => emit("debug", args),
+    info: (...args: unknown[]) => emit("info", args),
+    warn: (...args: unknown[]) => emit("warn", args),
+    error: (...args: unknown[]) => emit("error", args),
   };
 }
 

@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { initFileLogger } from "../src/logger.js";
+import { initFileLogger, createLogger } from "../src/logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -560,5 +560,285 @@ describe("OrcaConfig completeness - testConfig helper", () => {
 
     const hasLogPath = source.includes("logPath:");
     expect(hasLogPath).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. createLogger — human-readable format (default)
+// ---------------------------------------------------------------------------
+
+describe("createLogger human-readable format", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    delete process.env.LOG_FORMAT;
+    process.env.LOG_LEVEL = "debug";
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+    delete process.env.LOG_LEVEL;
+  });
+
+  test("info emits [INFO] [orca/module] message format to console.log", () => {
+    const log = createLogger("mymod");
+    log.info("hello world");
+
+    expect(consoleLogSpy).toHaveBeenCalledOnce();
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(output).toMatch(/^\[INFO\] \[orca\/mymod\] hello world$/);
+  });
+
+  test("warn emits to console.warn", () => {
+    const log = createLogger("mymod");
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    log.warn("something failed");
+
+    expect(consoleWarnSpy).toHaveBeenCalledOnce();
+    const output = consoleWarnSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("[WARN]");
+    expect(output).toContain("something failed");
+  });
+
+  test("error emits to console.error", () => {
+    const log = createLogger("mymod");
+    log.error("boom");
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const output = consoleErrorSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("[ERROR]");
+  });
+
+  test("structured fields appended as JSON after message", () => {
+    const log = createLogger("mymod");
+    log.info("operation done", { taskId: "abc", error: "timeout" });
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("[INFO] [orca/mymod] operation done");
+    expect(output).toContain('"taskId":"abc"');
+    expect(output).toContain('"error":"timeout"');
+  });
+
+  test("non-plain-object last arg is treated as message part, not fields", () => {
+    const log = createLogger("mymod");
+    const err = new Error("oops");
+    log.info("caught", err);
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    // Error is serialized as part of message, not merged into fields
+    expect(output).toContain("[INFO] [orca/mymod] caught");
+    // No trailing JSON fields object
+    expect(output).not.toMatch(/\{.*"stack"/);
+  });
+
+  test("array last arg is treated as message part, not fields", () => {
+    const log = createLogger("mymod");
+    log.info("items", [1, 2, 3]);
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(output).toContain("[1,2,3]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. createLogger — JSON format (LOG_FORMAT=json)
+// ---------------------------------------------------------------------------
+
+describe("createLogger JSON format", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.LOG_FORMAT = "json";
+    process.env.LOG_LEVEL = "debug";
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+    delete process.env.LOG_LEVEL;
+  });
+
+  test("info emits valid JSON with required fields", () => {
+    const log = createLogger("mymod");
+    log.info("hello world");
+
+    expect(consoleLogSpy).toHaveBeenCalledOnce();
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+
+    expect(entry.level).toBe("info");
+    expect(entry.module).toBe("orca/mymod");
+    expect(entry.message).toBe("hello world");
+    expect(typeof entry.timestamp).toBe("string");
+    // ISO 8601
+    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  test("warn emits to console.warn", () => {
+    const log = createLogger("mymod");
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    log.warn("uh oh");
+
+    expect(consoleWarnSpy).toHaveBeenCalledOnce();
+    const raw = consoleWarnSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.level).toBe("warn");
+  });
+
+  test("error emits to console.error", () => {
+    const log = createLogger("mymod");
+    log.error("boom");
+
+    expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    const raw = consoleErrorSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.level).toBe("error");
+  });
+
+  test("structured fields merged into JSON entry", () => {
+    const log = createLogger("mymod");
+    log.info("op done", { taskId: "task-123", count: 42 });
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.message).toBe("op done");
+    expect(entry.taskId).toBe("task-123");
+    expect(entry.count).toBe(42);
+  });
+
+  test("context fields included in every log entry", () => {
+    const log = createLogger("mymod", { taskId: "t-1", invocationId: 99 });
+    log.info("step done");
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.taskId).toBe("t-1");
+    expect(entry.invocationId).toBe(99);
+    expect(entry.message).toBe("step done");
+  });
+
+  test("context fields appear in all log levels", () => {
+    const log = createLogger("mymod", { taskId: "t-2" });
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
+    log.warn("whoops", { error: "timeout" });
+
+    const raw = consoleWarnSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.taskId).toBe("t-2");
+    expect(entry.error).toBe("timeout");
+    expect(entry.level).toBe("warn");
+  });
+
+  test("no context fields when context is omitted", () => {
+    const log = createLogger("mymod");
+    log.info("plain");
+
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect("taskId" in entry).toBe(false);
+    expect("invocationId" in entry).toBe(false);
+  });
+
+  test("debug level respects LOG_LEVEL=debug", () => {
+    const log = createLogger("mymod");
+    log.debug("trace info");
+
+    expect(consoleLogSpy).toHaveBeenCalledOnce();
+    const raw = consoleLogSpy.mock.calls[0]![0] as string;
+    const entry = JSON.parse(raw) as Record<string, unknown>;
+    expect(entry.level).toBe("debug");
+  });
+
+  test("output is newline-delimited JSON (single line per call)", () => {
+    const log = createLogger("mymod");
+    log.info("line one");
+    log.info("line two");
+
+    // Each call should produce exactly one JSON object
+    expect(consoleLogSpy).toHaveBeenCalledTimes(2);
+    for (const call of consoleLogSpy.mock.calls) {
+      const raw = call[0] as string;
+      expect(raw.split("\n")).toHaveLength(1);
+      expect(() => JSON.parse(raw)).not.toThrow();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. LOG_FORMAT env var controls mode
+// ---------------------------------------------------------------------------
+
+describe("LOG_FORMAT env var controls output mode", () => {
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LOG_FORMAT;
+    delete process.env.LOG_LEVEL;
+  });
+
+  test("LOG_FORMAT unset → human-readable output (not JSON)", () => {
+    delete process.env.LOG_FORMAT;
+    const log = createLogger("mod");
+    log.info("test");
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(output).toMatch(/^\[INFO\]/);
+    // Should NOT be valid JSON
+    expect(() => JSON.parse(output)).toThrow();
+  });
+
+  test("LOG_FORMAT=other → human-readable output (not JSON)", () => {
+    process.env.LOG_FORMAT = "text";
+    const log = createLogger("mod");
+    log.info("test");
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(output).toMatch(/^\[INFO\]/);
+    expect(() => JSON.parse(output)).toThrow();
+  });
+
+  test("LOG_FORMAT=json → JSON output", () => {
+    process.env.LOG_FORMAT = "json";
+    const log = createLogger("mod");
+    log.info("test");
+
+    const output = consoleLogSpy.mock.calls[0]![0] as string;
+    expect(() => JSON.parse(output)).not.toThrow();
+    const entry = JSON.parse(output) as Record<string, unknown>;
+    expect(entry.level).toBe("info");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. .env.example documents LOG_FORMAT
+// ---------------------------------------------------------------------------
+
+describe(".env.example documents LOG_FORMAT", () => {
+  test("LOG_FORMAT is present in .env.example", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(
+      new URL("../.env.example", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("LOG_FORMAT");
   });
 });

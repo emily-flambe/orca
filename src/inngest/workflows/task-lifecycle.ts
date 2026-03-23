@@ -682,7 +682,12 @@ export const taskLifecycle = inngest.createFunction(
             : isFixPhase
               ? `Dispatched to fix review feedback (invocation #${invocationId})`
               : `Dispatched for implementation (invocation #${invocationId})`;
-        client.createComment(taskId, dispatchMsg).catch(() => {});
+        client.createComment(taskId, dispatchMsg).catch((err) =>
+          logger.warn("Linear dispatch comment failed", {
+            taskId,
+            error: String(err),
+          }),
+        );
 
         log(
           `task ${taskId}: implement session spawned as invocation ${invocationId}`,
@@ -768,7 +773,13 @@ export const taskLifecycle = inngest.createFunction(
           );
           const timedOutHandle = activeHandles.get(invocationId);
           if (timedOutHandle) {
-            killSession(timedOutHandle).catch(() => {});
+            killSession(timedOutHandle).catch((err) =>
+              logger.warn("killSession failed on implement timeout", {
+                taskId,
+                invocationId,
+                error: String(err),
+              }),
+            );
             activeHandles.delete(invocationId);
           }
           updateInvocation(db, invocationId, {
@@ -916,7 +927,12 @@ export const taskLifecycle = inngest.createFunction(
                 taskId,
                 `Resume session not found (stale session ID) — restarting as fresh session`,
               )
-              .catch(() => {});
+              .catch((err) =>
+                logger.warn("Linear comment failed (resume not found)", {
+                  taskId,
+                  error: String(err),
+                }),
+              );
             // Don't increment retry count — this is a setup failure, not a task failure
             return { outcome: "retry" };
           }
@@ -1082,7 +1098,12 @@ export const taskLifecycle = inngest.createFunction(
         if (prInfo.url) {
           client
             .createAttachment(task.linearIssueId, prInfo.url, "Pull Request")
-            .catch(() => {});
+            .catch((err) =>
+              logger.warn("Linear attachment creation failed", {
+                taskId,
+                error: String(err),
+              }),
+            );
         }
 
         resetStaleSessionRetryCount(db, taskId);
@@ -1282,7 +1303,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Dispatched for code review (invocation #${invocationId}, cycle ${cycle + 1}/${config.maxReviewCycles})`,
             )
-            .catch(() => {});
+            .catch((err) =>
+              logger.warn("Linear review dispatch comment failed", {
+                taskId,
+                error: String(err),
+              }),
+            );
 
           log(
             `task ${taskId}: review session spawned as invocation ${invocationId} (cycle ${cycle + 1})`,
@@ -1332,7 +1358,13 @@ export const taskLifecycle = inngest.createFunction(
             );
             const timedOutHandle = activeHandles.get(invocationId);
             if (timedOutHandle) {
-              killSession(timedOutHandle).catch(() => {});
+              killSession(timedOutHandle).catch((err) =>
+                logger.warn("killSession failed on review timeout", {
+                  taskId,
+                  invocationId,
+                  error: String(err),
+                }),
+              );
               activeHandles.delete(invocationId);
             }
             updateInvocation(db, invocationId, {
@@ -1475,7 +1507,12 @@ export const taskLifecycle = inngest.createFunction(
               taskId,
               `Review loop ended: ${reason} — manual intervention required`,
             )
-            .catch(() => {});
+            .catch((err) =>
+              logger.warn("Linear cycles-exhausted comment failed", {
+                taskId,
+                error: String(err),
+              }),
+            );
           log(`task ${taskId}: ${reason} — leaving at in_review`);
         });
         return { outcome: "in_review_needs_human" };
@@ -1643,7 +1680,12 @@ export const taskLifecycle = inngest.createFunction(
                 ? `Dispatched to fix review feedback with session resume (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`
                 : `Dispatched to fix review feedback (invocation #${invocationId}, cycle ${reviewCycle}/${config.maxReviewCycles})`,
             )
-            .catch(() => {});
+            .catch((err) =>
+              logger.warn("Linear fix dispatch comment failed", {
+                taskId,
+                error: String(err),
+              }),
+            );
 
           log(
             `task ${taskId}: fix session spawned as invocation ${invocationId} (review cycle ${reviewCycle})`,
@@ -1684,7 +1726,13 @@ export const taskLifecycle = inngest.createFunction(
             log(`task ${taskId}: fix session timed out (cycle ${cycle + 1})`);
             const timedOutHandle = activeHandles.get(invocationId);
             if (timedOutHandle) {
-              killSession(timedOutHandle).catch(() => {});
+              killSession(timedOutHandle).catch((err) =>
+                logger.warn("killSession failed on fix timeout", {
+                  taskId,
+                  invocationId,
+                  error: String(err),
+                }),
+              );
               activeHandles.delete(invocationId);
             }
             updateInvocation(db, invocationId, {
@@ -1737,7 +1785,12 @@ export const taskLifecycle = inngest.createFunction(
                   taskId,
                   `Fix resume session not found (stale session ID) — restarting as fresh session`,
                 )
-                .catch(() => {});
+                .catch((err) =>
+                  logger.warn("Linear comment failed (fix resume not found)", {
+                    taskId,
+                    error: String(err),
+                  }),
+                );
               updateAndEmit(db, taskId, "in_review", "fix_resume_not_found");
               return { ok: false, timedOut: false, resumeNotFound: true };
             }
