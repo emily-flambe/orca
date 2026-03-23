@@ -164,7 +164,7 @@ async function checkInngestHealth(): Promise<boolean> {
       const timerId = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(inngestBaseUrl, { signal: controller.signal });
       clearTimeout(timerId);
-      if (res.status < 500) {
+      if (res.ok) {
         _inngestHealthCache = { value: true, expiresAt: now + 10_000 };
         return true;
       }
@@ -952,7 +952,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
                 status: p.pm2_env?.status ?? "unknown",
                 cpu: p.monit?.cpu ?? 0,
                 memory: Math.round((p.monit?.memory ?? 0) / 1024 / 1024),
-                uptime: p.pm2_env?.pm_uptime ?? 0,
+                uptime: Date.now() - (p.pm2_env?.pm_uptime ?? Date.now()),
                 restarts: p.pm2_env?.restart_time ?? 0,
               })),
             });
@@ -994,7 +994,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }>((resolve) => {
       const isWindows = platform() === "win32";
       const cmd = isWindows
-        ? "wmic logicaldisk where caption='C:' get size,freespace /format:csv"
+        ? "wmic logicaldisk where caption=C: get freespace,size /format:csv"
         : "df -k /";
 
       exec(cmd, { timeout: 5000 }, (err: Error | null, stdout: string) => {
