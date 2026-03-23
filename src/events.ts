@@ -47,3 +47,18 @@ export function emitInvocationCompleted(
 export function emitTasksRefreshed(): void {
   orcaEvents.emit("tasks:refreshed");
 }
+
+// ---------------------------------------------------------------------------
+// Hook events
+// ---------------------------------------------------------------------------
+
+export interface HookEventPayload {
+  invocationId: number;
+  eventType: string;
+  payload: Record<string, unknown>;
+  receivedAt: string;
+}
+
+export function emitHookEvent(payload: HookEventPayload): void {
+  orcaEvents.emit("hook:event", payload);
+}

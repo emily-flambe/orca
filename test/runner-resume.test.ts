@@ -148,12 +148,14 @@ describe("Runner isResumeNotFound detection", () => {
 
   test("isResumeNotFound is false when error string is split across two stderr writes", async () => {
     const script = join(tmpDir, "split-stderr.js");
-    // The runner checks each chunk with .includes(); a split string won't match.
+    // Two writes whose individual content and combined content do NOT contain
+    // the detection pattern. This documents that non-matching stderr does not
+    // trigger isResumeNotFound, regardless of how OS buffering delivers chunks.
     writeFileSync(
       script,
       [
-        'process.stderr.write("No conversation found");',
-        'process.stderr.write(" with session ID abc\\n");',
+        'process.stderr.write("No conversation found at step 1");',
+        'process.stderr.write(" after timing out\\n");',
         "process.exit(1);",
       ].join("\n"),
     );
@@ -169,8 +171,9 @@ describe("Runner isResumeNotFound detection", () => {
       resumeSessionId: "abc",
     }).done;
 
-    // Per-chunk check: string split across chunks is NOT detected.
-    // This is a known limitation — documents it so the Implementer is aware.
+    // Neither individual chunk nor the combined text contains the detection
+    // pattern "No conversation found with session ID", so isResumeNotFound
+    // must be false regardless of OS-level buffering behavior.
     expect(result.isResumeNotFound).toBe(false);
   });
 

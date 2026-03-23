@@ -57,14 +57,17 @@ import {
   getAgentMemory,
   deleteAgentMemory,
   incrementAgentRunCount,
+  insertHookEvent,
 } from "../db/queries.js";
 import { validateCronExpression, computeNextRunAt } from "../cron/index.js";
 import {
   orcaEvents,
   emitTaskUpdated,
   emitInvocationCompleted,
+  emitHookEvent,
   type InvocationStartedPayload,
   type InvocationCompletedPayload,
+  type HookEventPayload,
 } from "../events.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
@@ -499,6 +502,64 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     );
 
     logger.info(`audit: abort invocation=${id} task=${taskId}`);
+
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/hooks/:invocationId — Claude Code hook event receiver
+  // -----------------------------------------------------------------------
+  app.post("/api/hooks/:invocationId", async (c) => {
+    const invocationId = Number(c.req.param("invocationId"));
+    if (!Number.isInteger(invocationId) || invocationId < 1) {
+      return c.json({ error: "invalid invocation id" }, 400);
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return c.json({ error: "invalid request body" }, 400);
+    }
+
+    // Detect event type from the hook payload's hook_event_name or hook_event_type field.
+    const eventType = (
+      typeof body["hook_event_name"] === "string"
+        ? body["hook_event_name"]
+        : typeof body["hook_event_type"] === "string"
+          ? body["hook_event_type"]
+          : "unknown"
+    ) as string;
+
+    // Store the event in the DB.
+    try {
+      insertHookEvent(db, invocationId, eventType, JSON.stringify(body));
+    } catch (err) {
+      logger.warn(
+        `failed to insert hook event for invocation ${invocationId}: ${err}`,
+      );
+    }
+
+    // Write to the invocation's in-memory log stream so it appears in the log viewer.
+    const logState = invocationLogs.get(invocationId);
+    if (logState && !logState.done) {
+      const hookEntry = JSON.stringify({
+        type: "hook_event",
+        timestamp: new Date().toISOString(),
+        data: body,
+      });
+      logState.buffer.push(hookEntry);
+      if (logState.buffer.length > 100) logState.buffer.shift();
+      logState.emitter.emit("line", hookEntry);
+    }
+
+    // Emit SSE event for live streaming.
+    const receivedAt = new Date().toISOString();
+    emitHookEvent({ invocationId, eventType, payload: body, receivedAt });
 
     return c.json({ ok: true });
   });
@@ -1207,10 +1268,22 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         }
       };
 
+      const onHookEvent = (data: HookEventPayload) => {
+        try {
+          stream.writeSSE({
+            event: "hook:event",
+            data: JSON.stringify(data),
+          });
+        } catch {
+          // Connection likely closed; ignore
+        }
+      };
+
       orcaEvents.on("task:updated", onTaskUpdated);
       orcaEvents.on("invocation:started", onInvocationStarted);
       orcaEvents.on("invocation:completed", onInvocationCompleted);
       orcaEvents.on("tasks:refreshed", onTasksRefreshed);
+      orcaEvents.on("hook:event", onHookEvent);
 
       // Keep-alive ping every 30s
       const keepAlive = setInterval(() => {
@@ -1228,6 +1301,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         orcaEvents.off("invocation:started", onInvocationStarted);
         orcaEvents.off("invocation:completed", onInvocationCompleted);
         orcaEvents.off("tasks:refreshed", onTasksRefreshed);
+        orcaEvents.off("hook:event", onHookEvent);
       });
 
       // Block until aborted

@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS cron_runs (
   duration_ms INTEGER
 )`;
 
+const CREATE_HOOK_EVENTS = `
+CREATE TABLE IF NOT EXISTS hook_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invocation_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  received_at TEXT NOT NULL
+)`;
+
 const CREATE_AGENTS = `
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -489,6 +498,26 @@ function migrateSchema(sqlite: DatabaseType): void {
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_agent_memories_agent_id ON agent_memories(agent_id)",
   );
+
+  // ---------------------------------------------------------------------------
+  // Migration 21 (hook events):
+  //   - Create hook_events table for Claude Code webhook payloads
+  //   Sentinel: table doesn't exist.
+  // ---------------------------------------------------------------------------
+  const hookEventsTableExists =
+    (sqlite.pragma("table_info(hook_events)") as { name: string }[]).length > 0;
+  if (!hookEventsTableExists) {
+    sqlite.exec(`CREATE TABLE hook_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invocation_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      received_at TEXT NOT NULL
+    )`);
+    sqlite.exec(
+      "CREATE INDEX IF NOT EXISTS idx_hook_events_invocation_id ON hook_events(invocation_id)",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;
@@ -513,6 +542,7 @@ export function createDb(dbPath: string) {
   sqlite.exec(CREATE_TASK_STATE_TRANSITIONS);
   sqlite.exec(CREATE_AGENTS);
   sqlite.exec(CREATE_AGENT_MEMORIES);
+  sqlite.exec(CREATE_HOOK_EVENTS);
 
   // Migrations for existing databases — add new columns if they don't exist.
   // SQLite doesn't support IF NOT EXISTS on ALTER TABLE, so we check pragma first.
