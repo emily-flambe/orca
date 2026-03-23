@@ -16,6 +16,7 @@ import {
 import { spawnSession, killSession } from "../../runner/index.js";
 import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
+import { writeHookConfig, cleanHookConfig } from "../../hooks.js";
 import { activeHandles } from "../../session-handles.js";
 import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
@@ -25,6 +26,15 @@ import {
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
+
+function cleanupWorktree(worktreePath: string): void {
+  try {
+    cleanHookConfig(worktreePath);
+  } catch {
+    // ignore
+  }
+  removeWorktree(worktreePath);
+}
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -145,6 +155,8 @@ export const cronTaskLifecycle = inngest.createFunction(
           logPath: `logs/${invocationId}.ndjson`,
         });
 
+        writeHookConfig(worktreePath, invocationId, config.port);
+
         const handle = spawnSession({
           agentPrompt: task.agentPrompt ?? "",
           worktreePath,
@@ -239,7 +251,7 @@ export const cronTaskLifecycle = inngest.createFunction(
     if (implementCtx.worktreePath) {
       await step.run("cleanup-worktree", () => {
         try {
-          removeWorktree(implementCtx.worktreePath);
+          cleanupWorktree(implementCtx.worktreePath);
         } catch (err) {
           log(
             `failed to remove cron worktree ${implementCtx.worktreePath}: ${err}`,

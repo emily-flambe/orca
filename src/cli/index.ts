@@ -30,6 +30,7 @@ import { functions as inngestFunctions } from "../inngest/functions.js";
 import { setSchedulerDeps, markReady } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
+import { cleanHookConfig } from "../hooks.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
@@ -539,6 +540,11 @@ program
           });
           // Best-effort worktree cleanup for interrupted sessions
           if (inv.worktreePath) {
+            try {
+              cleanHookConfig(inv.worktreePath);
+            } catch {
+              // ignore
+            }
             try {
               removeWorktree(inv.worktreePath);
             } catch {
