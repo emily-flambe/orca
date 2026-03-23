@@ -28,6 +28,9 @@ import {
   deleteAgentMemory,
 } from "../db/queries.js";
 import { eq } from "drizzle-orm";
+import { createLogger } from "../logger.js";
+
+const logger = createLogger("orca/mcp-server");
 
 // ---------------------------------------------------------------------------
 // DB bootstrap
@@ -458,11 +461,19 @@ await server.connect(transport);
 
 // Exit cleanly when stdin closes (parent Claude process exits)
 process.stdin.on("close", () => {
-  server.close().catch(() => {});
+  server.close().catch((err) => {
+    logger.warn("failed to close MCP server", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   process.exit(0);
 });
 
 process.stdin.on("end", () => {
-  server.close().catch(() => {});
+  server.close().catch((err) => {
+    logger.warn("failed to close MCP server", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   process.exit(0);
 });
