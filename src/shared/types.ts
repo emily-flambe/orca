@@ -156,6 +156,7 @@ export interface OrcaStatus {
   tokensInWindow: number;
   tokenBudgetLimit: number;
   concurrencyCap: number;
+  agentConcurrencyCap: number;
   model: string;
   reviewModel: string;
   draining: boolean;

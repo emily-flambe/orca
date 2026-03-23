@@ -221,61 +221,7 @@ describe("mapLinearStateToOrcaStatus — review heuristic", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Override precedence — stateMapOverrides beats type-based default
-// ---------------------------------------------------------------------------
-
-describe("mapLinearStateToOrcaStatus — override precedence", () => {
-  let db: OrcaDb;
-  let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
-
-  beforeEach(async () => {
-    db = freshDb();
-    const syncMod = await import("../src/linear/sync.js");
-    resolveConflict = syncMod.resolveConflict;
-    vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("override maps 'In Progress' → null via 'skip' (no conflict action taken)", () => {
-    // Overrides change the expectedOrcaStatus returned by mapLinearStateToOrcaStatus.
-    // However, resolveConflict uses linearStateType for its branch conditions,
-    // so a 'skip' override causes an early return (null → no-op).
-    seedTask(db, "OV-1", "running");
-    const overrides: Record<string, string> = { "In Progress": "skip" };
-    resolveConflict(db, "OV-1", "In Progress", "started", overrides);
-    // "skip" → mapLinearStateToOrcaStatus returns null → no action
-    expect(getTask(db, "OV-1")!.orcaStatus).toBe("running");
-  });
-
-  it('"skip" override → returns null (no conflict action taken)', () => {
-    seedTask(db, "OV-2", "ready");
-    const overrides: Record<string, string> = { Todo: "skip" };
-    resolveConflict(db, "OV-2", "Todo", "unstarted", overrides);
-    // "skip" → mapLinearStateToOrcaStatus returns null → no action
-    expect(getTask(db, "OV-2")!.orcaStatus).toBe("ready");
-  });
-
-  it("override maps custom state name to 'in_review' (statuses match → no change)", () => {
-    // Override maps "Shipped" → "in_review".
-    // If task is already in_review, no conflict → no change.
-    seedTask(db, "OV-3", "in_review");
-    const overrides: Record<string, string> = { Shipped: "in_review" };
-    resolveConflict(db, "OV-3", "Shipped", "started", overrides);
-    expect(getTask(db, "OV-3")!.orcaStatus).toBe("in_review");
-  });
-
-  it("override takes precedence over type-based mapping for 'Done' name", () => {
-    seedTask(db, "OV-4", "ready");
-    const overrides: Record<string, string> = { Done: "skip" };
-    resolveConflict(db, "OV-4", "Done", "completed", overrides);
-    // Override says "skip" → no action even though type="completed"
-    expect(getTask(db, "OV-4")!.orcaStatus).toBe("ready");
-  });
-});
+// stateMapOverrides was removed — override precedence tests no longer apply.
 
 // ---------------------------------------------------------------------------
 // Standard workflow produces same results as before

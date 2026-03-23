@@ -175,7 +175,6 @@ describe("fullSync — Inngest event emission", () => {
       makeGraph() as any,
       testConfig(),
       undefined,
-      undefined,
       inngest as any,
     );
 
@@ -205,7 +204,6 @@ describe("fullSync — Inngest event emission", () => {
       makeGraph() as any,
       testConfig(),
       undefined,
-      undefined,
       inngest as any,
     );
 
@@ -234,7 +232,6 @@ describe("fullSync — Inngest event emission", () => {
       makeGraph() as any,
       testConfig(),
       undefined,
-      undefined,
       inngest as any,
     );
 
@@ -258,7 +255,6 @@ describe("fullSync — Inngest event emission", () => {
       makeGraph() as any,
       testConfig(),
       undefined,
-      undefined,
       inngest as any,
     );
 
@@ -281,7 +277,6 @@ describe("fullSync — Inngest event emission", () => {
       client as any,
       makeGraph() as any,
       testConfig(),
-      undefined,
       undefined,
       inngest as any,
     );

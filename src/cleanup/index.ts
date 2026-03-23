@@ -107,7 +107,7 @@ function listWorktreePaths(cwd: string): string[] {
  * - Never deletes branches used by running invocations
  * - Never deletes branches referenced by tasks in active states
  * - Never deletes branches with open PRs
- * - Never deletes branches younger than `cleanupBranchMaxAgeMin`
+ * - Never deletes branches younger than 60 minutes
  */
 export function cleanupStaleResources(deps: CleanupDeps): void {
   const { db } = deps;

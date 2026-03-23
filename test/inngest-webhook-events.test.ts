@@ -226,7 +226,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -261,7 +260,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -307,7 +305,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -335,7 +332,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -363,7 +359,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -401,7 +396,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -437,7 +431,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -475,7 +468,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -513,7 +505,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -553,7 +544,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -591,7 +581,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -631,7 +620,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -672,7 +660,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -711,7 +698,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -732,7 +718,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -757,7 +742,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
         testConfig(),
         makeStateMap() as any,
         event,
-        undefined,
         undefined, // no inngest
       ),
     ).resolves.toBeUndefined();
@@ -817,7 +801,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -854,7 +837,6 @@ describe("processWebhookEvent — Inngest event emission", () => {
       testConfig(),
       makeStateMap() as any,
       event,
-      undefined,
       inngest as any,
     );
 
@@ -921,7 +903,7 @@ describe("webhook route — inngest passthrough (isolated)", () => {
 
     expect(syncMock).toHaveBeenCalledOnce();
     const args = syncMock.mock.calls[0];
-    // 8th argument (index 7) should be the inngest instance
-    expect(args[7]).toBe(inngest);
+    // 7th argument (index 6) should be the inngest instance
+    expect(args[6]).toBe(inngest);
   });
 });

@@ -20,7 +20,6 @@ export interface PollerDeps {
   graph: DependencyGraph;
   config: OrcaConfig;
   stateMap: WorkflowStateMap;
-  labelIdCache?: Map<string, string>;
   inngest?: InngestClient;
   isTunnelConnected: () => boolean;
 }
@@ -122,7 +121,6 @@ export function createPoller(deps: PollerDeps): PollerHandle {
         deps.graph,
         deps.config,
         deps.stateMap,
-        deps.labelIdCache,
         deps.inngest,
       );
 

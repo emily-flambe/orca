@@ -74,6 +74,7 @@ function SettingsPage({
   status: OrcaStatus | null;
   onConfigUpdate: (config: {
     concurrencyCap?: number;
+    agentConcurrencyCap?: number;
     tokenBudgetLimit?: number;
     model?: string;
     reviewModel?: string;
@@ -83,6 +84,8 @@ function SettingsPage({
 }) {
   const [editingConcurrency, setEditingConcurrency] = useState(false);
   const [concurrencyInput, setConcurrencyInput] = useState("");
+  const [editingAgentConcurrency, setEditingAgentConcurrency] = useState(false);
+  const [agentConcurrencyInput, setAgentConcurrencyInput] = useState("");
   const [showCreateTicket, setShowCreateTicket] = useState(false);
 
   if (!status) {
@@ -119,6 +122,27 @@ function SettingsPage({
       saveConcurrency();
     } else if (e.key === "Escape") {
       setEditingConcurrency(false);
+    }
+  };
+
+  const startEditAgentConcurrency = () => {
+    setAgentConcurrencyInput(String(status.agentConcurrencyCap));
+    setEditingAgentConcurrency(true);
+  };
+
+  const saveAgentConcurrency = async () => {
+    const val = parseInt(agentConcurrencyInput, 10);
+    if (!Number.isNaN(val) && val >= 1 && val !== status.agentConcurrencyCap) {
+      await onConfigUpdate({ agentConcurrencyCap: val });
+    }
+    setEditingAgentConcurrency(false);
+  };
+
+  const handleAgentConcurrencyKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      saveAgentConcurrency();
+    } else if (e.key === "Escape") {
+      setEditingAgentConcurrency(false);
     }
   };
 
@@ -186,6 +210,30 @@ function SettingsPage({
                 title="Click to change max concurrency"
               >
                 {status.concurrencyCap}
+              </button>
+            )}
+          </span>
+          <span className="text-gray-600">&middot;</span>
+          <span className="text-sm text-gray-400">
+            Agent Max:{" "}
+            {editingAgentConcurrency ? (
+              <input
+                type="number"
+                min="1"
+                value={agentConcurrencyInput}
+                onChange={(e) => setAgentConcurrencyInput(e.target.value)}
+                onBlur={saveAgentConcurrency}
+                onKeyDown={handleAgentConcurrencyKeyDown}
+                autoFocus
+                className="w-12 bg-gray-800 border border-gray-600 rounded px-1 text-center text-gray-200 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            ) : (
+              <button
+                onClick={startEditAgentConcurrency}
+                className="text-gray-300 hover:text-blue-400 cursor-pointer border-b border-dashed border-gray-600 hover:border-blue-400 transition-colors"
+                title="Click to change max agent concurrency"
+              >
+                {status.agentConcurrencyCap}
               </button>
             )}
           </span>
@@ -489,6 +537,7 @@ export default function App() {
   const handleConfigUpdate = useCallback(
     async (config: {
       concurrencyCap?: number;
+      agentConcurrencyCap?: number;
       tokenBudgetLimit?: number;
       model?: string;
       reviewModel?: string;

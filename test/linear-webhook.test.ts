@@ -264,29 +264,7 @@ describe("createWebhookRoute", () => {
       deps.config,
       deps.stateMap,
       expect.objectContaining({ type: "Issue" }),
-      undefined, // labelIdCache not set
       undefined, // inngest not set in test deps
-    );
-  });
-
-  // 12. labelIdCache is passed through when set
-  it("passes labelIdCache to processWebhookEvent when provided", async () => {
-    const labelIdCache = new Map<string, string>([["orca", "label-id-1"]]);
-    const depsWithCache: WebhookDeps = { ...deps, labelIdCache };
-    const appWithCache = createWebhookRoute(depsWithCache);
-
-    const body = makeIssueEvent();
-    await appWithCache.request(makeRequest(body));
-
-    expect(processWebhookEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      labelIdCache,
-      undefined, // inngest not set
     );
   });
 });

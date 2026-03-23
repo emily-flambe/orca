@@ -761,6 +761,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       tokensInWindow,
       tokenBudgetLimit: config.budgetMaxTokens,
       concurrencyCap: config.concurrencyCap,
+      agentConcurrencyCap: config.agentConcurrencyCap,
       model: config.model,
       reviewModel: config.reviewModel,
       draining,
@@ -974,6 +975,19 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       configChanges.push(`concurrencyCap: ${oldVal} -> ${val}`);
     }
 
+    if ("agentConcurrencyCap" in body) {
+      const val = body.agentConcurrencyCap;
+      if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
+        return c.json(
+          { error: "agentConcurrencyCap must be a positive integer" },
+          400,
+        );
+      }
+      const oldVal = config.agentConcurrencyCap;
+      config.agentConcurrencyCap = val;
+      configChanges.push(`agentConcurrencyCap: ${oldVal} -> ${val}`);
+    }
+
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
     for (const field of ["model", "reviewModel"] as const) {
       if (field in body) {
@@ -1015,6 +1029,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     return c.json({
       ok: true,
       concurrencyCap: config.concurrencyCap,
+      agentConcurrencyCap: config.agentConcurrencyCap,
       tokenBudgetLimit: config.budgetMaxTokens,
       model: config.model,
       reviewModel: config.reviewModel,

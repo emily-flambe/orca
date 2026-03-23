@@ -5,7 +5,7 @@
  * intermediate states with no active session or have been idle too long:
  *
  * - running with no active session handle → stranded, reset to ready/failed
- * - awaiting_ci/deploying/in_review older than strandedTaskThresholdMin → timed-out, reset to ready/failed
+ * - awaiting_ci/deploying/in_review older than 30 min → timed-out, reset to ready/failed
  */
 
 import { inngest } from "../client.js";

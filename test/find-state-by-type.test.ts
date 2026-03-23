@@ -122,48 +122,6 @@ describe("findStateByType", () => {
   // New tests for 3-step preference order
   // ---------------------------------------------------------------------------
 
-  it("stateMapOverrides reverse lookup takes priority over type matching", () => {
-    const stateMap = makeStateMap([
-      ["In Progress", { id: "s1", type: "started" }],
-      ["Custom In Progress", { id: "s2", type: "started" }],
-    ]);
-    const overrides: Record<string, string> = {
-      "Custom In Progress": "running",
-    };
-    const result = findStateByType(
-      stateMap,
-      "started",
-      false,
-      overrides,
-      "running",
-    );
-    expect(result).toEqual({
-      id: "s2",
-      type: "started",
-      name: "Custom In Progress",
-    });
-  });
-
-  it("overrides reverse lookup only applies when orcaStatus matches", () => {
-    const stateMap = makeStateMap([
-      ["In Progress", { id: "s1", type: "started" }],
-      ["Custom In Progress", { id: "s2", type: "started" }],
-    ]);
-    const overrides: Record<string, string> = {
-      "Custom In Progress": "running",
-    };
-    // orcaStatus is "in_review", not "running" — override should NOT apply
-    const result = findStateByType(
-      stateMap,
-      "started",
-      true,
-      overrides,
-      "in_review",
-    );
-    // Should fall through to matchReview logic — no review-named state, falls back to first
-    expect(result?.id).toBe("s1");
-  });
-
   it("completed type prefers exact 'Done' match over 'Done Pending Deployment'", () => {
     const stateMap = makeStateMap([
       ["Done Pending Deployment", { id: "s1", type: "completed" }],

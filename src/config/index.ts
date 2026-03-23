@@ -5,6 +5,7 @@ export interface OrcaConfig {
   defaultCwd: string | undefined;
   projectRepoMap: Map<string, string>;
   concurrencyCap: number;
+  agentConcurrencyCap: number;
   sessionTimeoutMin: number;
   maxRetries: number;
   budgetWindowHours: number;
@@ -252,6 +253,7 @@ Steps:
     defaultCwd,
     projectRepoMap: new Map(),
     concurrencyCap: readIntOrDefault("ORCA_CONCURRENCY_CAP", 1),
+    agentConcurrencyCap: readIntOrDefault("ORCA_AGENT_CONCURRENCY_CAP", 12),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
     budgetWindowHours: readPositiveNumberOrDefault(

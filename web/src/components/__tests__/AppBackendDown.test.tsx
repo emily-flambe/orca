@@ -32,12 +32,6 @@ vi.mock("../../hooks/useSSE", () => ({
 }));
 
 // Stub out heavy child components that make additional API calls
-vi.mock("../../components/Dashboard", () => ({
-  default: () => <div data-testid="dashboard" />,
-}));
-vi.mock("../../components/OrchestratorBar", () => ({
-  default: () => <div data-testid="orchestrator-bar" />,
-}));
 vi.mock("../../components/Sidebar", () => ({
   default: () => <div data-testid="sidebar" />,
 }));

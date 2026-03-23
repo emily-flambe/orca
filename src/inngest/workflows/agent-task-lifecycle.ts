@@ -25,7 +25,7 @@ import { inngest } from "../client.js";
 import { createLogger } from "../../logger.js";
 import { getSchedulerDeps } from "../deps.js";
 import {
-  assertSessionCapacity,
+  assertAgentSessionCapacity,
   bridgeSessionCompletion,
   buildDisallowedTools,
   buildOrcaMcpServers,
@@ -85,7 +85,12 @@ function formatMemoriesForPrompt(memories: AgentMemoryRow[]): string {
 export const agentTaskLifecycle = inngest.createFunction(
   {
     id: "agent-task-lifecycle",
-    concurrency: [{ limit: 1, key: "event.data.linearIssueId" }],
+    concurrency: [
+      {
+        limit: parseInt(process.env.ORCA_AGENT_CONCURRENCY_CAP ?? "12", 10),
+      },
+      { limit: 1, key: "event.data.linearIssueId" },
+    ],
     cancelOn: [
       {
         event: "task/cancelled" as const,
@@ -111,7 +116,7 @@ export const agentTaskLifecycle = inngest.createFunction(
         const { db } = getSchedulerDeps();
 
         try {
-          assertSessionCapacity(db);
+          assertAgentSessionCapacity(db);
         } catch (err) {
           const reason =
             err instanceof Error ? err.message : "session cap reached";
@@ -161,7 +166,7 @@ export const agentTaskLifecycle = inngest.createFunction(
         if (!task) throw new Error(`task ${taskId} not found`);
 
         try {
-          assertSessionCapacity(db);
+          assertAgentSessionCapacity(db);
         } catch (err) {
           const reason =
             err instanceof Error ? err.message : "session cap reached";

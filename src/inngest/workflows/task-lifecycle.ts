@@ -37,6 +37,7 @@ import {
   clearSessionIds,
   resetStaleSessionRetryCount,
   countActiveSessions,
+  countActiveAgentSessions,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -95,6 +96,32 @@ export function assertSessionCapacity(
   if (effectiveCount >= cap) {
     throw new Error(
       `session cap reached: ${effectiveCount} active sessions (handles=${handleCount}, db=${dbCount}, cap=${cap})`,
+    );
+  }
+
+  const snapshot = getResourceSnapshot();
+  if (isResourceConstrained(snapshot)) {
+    throw new Error(
+      `resource constrained: ${snapshot.memAvailableMb.toFixed(0)}MB available, ${snapshot.cpuLoadPercent.toFixed(1)}% CPU load`,
+    );
+  }
+}
+
+/**
+ * Guard for agent tasks: same as assertSessionCapacity but uses
+ * agentConcurrencyCap and counts only agent sessions.
+ */
+export function assertAgentSessionCapacity(
+  db: import("../../db/index.js").OrcaDb,
+): void {
+  if (isDraining()) {
+    throw new Error("instance is draining — rejecting new session dispatch");
+  }
+  const cap = getSchedulerDeps().config.agentConcurrencyCap ?? 12;
+  const dbCount = countActiveAgentSessions(db);
+  if (dbCount >= cap) {
+    throw new Error(
+      `agent session cap reached: ${dbCount} active agent sessions (cap=${cap})`,
     );
   }
 

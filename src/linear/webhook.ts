@@ -22,7 +22,6 @@ export interface WebhookDeps {
   graph: DependencyGraph;
   config: OrcaConfig;
   stateMap: WorkflowStateMap;
-  labelIdCache?: Map<string, string>;
   inngest?: InngestClient;
 }
 
@@ -111,7 +110,6 @@ export function createWebhookRoute(deps: WebhookDeps): Hono {
         deps.config,
         deps.stateMap,
         event,
-        deps.labelIdCache,
         deps.inngest,
       );
     } catch (err) {

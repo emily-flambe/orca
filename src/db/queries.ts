@@ -355,6 +355,17 @@ export function countActiveSessions(db: OrcaDb): number {
   return result?.value ?? 0;
 }
 
+/** Count invocations with status="running" for agent tasks only. */
+export function countActiveAgentSessions(db: OrcaDb): number {
+  const result = db
+    .select({ value: count() })
+    .from(invocations)
+    .innerJoin(tasks, eq(invocations.linearIssueId, tasks.linearIssueId))
+    .where(and(eq(invocations.status, "running"), eq(tasks.taskType, "agent")))
+    .get();
+  return result?.value ?? 0;
+}
+
 /** Insert a new invocation and return its auto-generated id. */
 export function insertInvocation(
   db: OrcaDb,

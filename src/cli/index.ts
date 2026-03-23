@@ -203,14 +203,7 @@ program
     // Do NOT pass inngest here — the startup re-emit block below handles all
     // ready tasks after registration. Passing inngest would double-emit task/ready
     // for every newly-inserted ready task.
-    const syncedIssues = await fullSync(
-      db,
-      client,
-      graph,
-      config,
-      undefined,
-      undefined,
-    );
+    const syncedIssues = await fullSync(db, client, graph, config);
 
     // Fetch workflow states for write-back (state name → state UUID)
     const teamIds = [...new Set(projectMeta.flatMap((pm) => pm.teamIds))];
@@ -305,8 +298,7 @@ program
     const apiApp = createApiRoutes({
       db,
       config,
-      syncTasks: () =>
-        fullSync(db, client, graph, config, stateMap, undefined, inngest),
+      syncTasks: () => fullSync(db, client, graph, config, stateMap, inngest),
       client,
       stateMap,
       projectMeta,

@@ -33,22 +33,7 @@ export function findStateByType(
   stateMap: WorkflowStateMap,
   targetType: string,
   matchReview?: boolean,
-  overrides?: Record<string, string>,
-  orcaStatus?: string,
 ): { id: string; type: string; name: string } | undefined {
-  // Step 1: Check stateMapOverrides — reverse-lookup: find a key in overrides
-  // whose value === orcaStatus, and if that key exists in stateMap with matching type, use it.
-  if (overrides && orcaStatus !== undefined) {
-    for (const [stateName, mappedStatus] of Object.entries(overrides)) {
-      if (mappedStatus === orcaStatus) {
-        const entry = stateMap.get(stateName);
-        if (entry && entry.type === targetType) {
-          return { id: entry.id, type: entry.type, name: stateName };
-        }
-      }
-    }
-  }
-
   // Collect all entries matching the target type
   const candidates: Array<{ id: string; type: string; name: string }> = [];
   for (const [name, entry] of stateMap.entries()) {
@@ -186,14 +171,7 @@ function log(message: string): void {
 function mapLinearStateToOrcaStatus(
   stateName: string,
   stateType: string,
-  overrides?: Record<string, string>,
 ): TaskStatus | null {
-  // Check overrides first
-  if (overrides?.[stateName]) {
-    const override = overrides[stateName];
-    if (override === "skip") return null;
-    return override as TaskStatus;
-  }
   switch (stateType) {
     case "backlog":
       return "backlog";
@@ -243,7 +221,6 @@ function upsertTask(
   const orcaStatus = mapLinearStateToOrcaStatus(
     issue.state.name,
     issue.state.type,
-    undefined,
   );
 
   // Skip backlog and unknown states
@@ -407,7 +384,6 @@ export async function fullSync(
   graph: DependencyGraph,
   config: OrcaConfig,
   stateMap?: WorkflowStateMap,
-  labelIdCache?: Map<string, string>,
   inngest?: InngestClient,
 ): Promise<LinearIssue[]> {
   const issues = await client.fetchProjectIssues(config.linearProjectIds);
@@ -464,7 +440,6 @@ export async function processWebhookEvent(
   config: OrcaConfig,
   stateMap: WorkflowStateMap,
   event: WebhookEvent,
-  labelIdCache?: Map<string, string>,
   inngest?: InngestClient,
 ): Promise<void> {
   // Check for write-back echo
@@ -529,7 +504,6 @@ export async function processWebhookEvent(
       event.data.identifier,
       event.data.state.name,
       event.data.state.type,
-      undefined,
     );
 
     upsertTask(db, issueFromEvent, config);
@@ -647,7 +621,6 @@ export function resolveConflict(
   taskId: string,
   linearStateName: string,
   linearStateType: string,
-  overrides?: Record<string, string>,
 ): void {
   const task = getTask(db, taskId);
   if (!task) return;
@@ -666,7 +639,6 @@ export function resolveConflict(
   const expectedOrcaStatus = mapLinearStateToOrcaStatus(
     linearStateName,
     linearStateType,
-    overrides,
   );
   if (expectedOrcaStatus === null) return;
 
@@ -793,7 +765,6 @@ export async function writeBackStatus(
     | "retry"
     | "backlog",
   stateMap: WorkflowStateMap,
-  overrides?: Record<string, string>,
 ): Promise<void> {
   // deploying and awaiting_ci are no-ops — Linear stays at "In Review", don't write back
   if (orcaTransition === "deploying" || orcaTransition === "awaiting_ci")
@@ -825,8 +796,6 @@ export async function writeBackStatus(
     stateMap,
     mapping.targetType,
     mapping.matchReview,
-    overrides,
-    orcaTransition,
   );
 
   if (!stateEntry) {
@@ -857,10 +826,7 @@ export async function writeBackStatus(
 // 4.6 State mapping diagnostics
 // ---------------------------------------------------------------------------
 
-export function logStateMapping(
-  stateMap: WorkflowStateMap,
-  overrides?: Record<string, string>,
-): void {
+export function logStateMapping(stateMap: WorkflowStateMap): void {
   const transitions: Array<{
     name: string;
     targetType: string;
@@ -880,8 +846,6 @@ export function logStateMapping(
       stateMap,
       transition.targetType,
       transition.matchReview,
-      overrides,
-      transition.name,
     );
     if (resolved) {
       log(

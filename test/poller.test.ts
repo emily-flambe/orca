@@ -300,7 +300,6 @@ describe("createPoller", () => {
       deps.graph,
       deps.config,
       deps.stateMap,
-      deps.labelIdCache,
       deps.inngest,
     );
 
