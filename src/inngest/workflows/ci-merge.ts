@@ -570,7 +570,6 @@ async function mergeAndFinalizeStep(
       prNumber: task.prNumber ?? null,
       deployStartedAt: now,
     });
-    updateTaskPrState(db, taskId, task.prUrl ?? null, "merged");
     updateAndEmit(db, taskId, "deploying", "pr_merged");
 
     client
@@ -596,7 +595,6 @@ async function mergeAndFinalizeStep(
     };
   } else {
     // deploy_strategy = "none" — go straight to done
-    updateTaskPrState(db, taskId, task.prUrl ?? null, "merged");
     updateAndEmit(db, taskId, "done", "pr_merged");
     await transitionToFinalState(
       { client, stateMap },
