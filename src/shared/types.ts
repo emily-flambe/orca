@@ -156,9 +156,8 @@ export interface OrcaStatus {
   tokensInWindow: number;
   tokenBudgetLimit: number;
   concurrencyCap: number;
-  implementModel: string;
+  model: string;
   reviewModel: string;
-  fixModel: string;
   draining: boolean;
   drainSessionCount: number;
   // Session metrics

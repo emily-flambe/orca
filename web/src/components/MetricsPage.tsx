@@ -320,13 +320,10 @@ function SystemConfiguration({
           <span className="text-xs text-gray-400">Models</span>
           <div className="flex gap-2">
             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-              impl: {status.implementModel}
+              model: {status.model}
             </span>
             <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-              rev: {status.reviewModel}
-            </span>
-            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-              fix: {status.fixModel}
+              review: {status.reviewModel}
             </span>
           </div>
         </div>

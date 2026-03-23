@@ -75,24 +75,21 @@ export function updateTaskStatus(
 export function updateConfig(config: {
   concurrencyCap?: number;
   tokenBudgetLimit?: number;
-  implementModel?: string;
+  model?: string;
   reviewModel?: string;
-  fixModel?: string;
 }): Promise<{
   ok: boolean;
   concurrencyCap: number;
   tokenBudgetLimit: number;
-  implementModel: string;
+  model: string;
   reviewModel: string;
-  fixModel: string;
 }> {
   return fetchJson<{
     ok: boolean;
     concurrencyCap: number;
     tokenBudgetLimit: number;
-    implementModel: string;
+    model: string;
     reviewModel: string;
-    fixModel: string;
   }>("/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

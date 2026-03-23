@@ -36,9 +36,8 @@ const mockStatus = {
   tokensInWindow: 12500,
   tokenBudgetLimit: 100000,
   concurrencyCap: 3,
-  implementModel: "sonnet",
+  model: "sonnet",
   reviewModel: "sonnet",
-  fixModel: "haiku",
   draining: false,
   drainSessionCount: 0,
 };

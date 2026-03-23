@@ -56,7 +56,7 @@ function StatusStrip({ status }: { status: OrcaStatus | null }) {
         {status.activeSessions} active
       </span>
       <span>{status.queuedTasks} queued</span>
-      <span className="text-gray-500">{status.implementModel}</span>
+      <span className="text-gray-500">{status.model}</span>
     </div>
   );
 }
@@ -75,7 +75,7 @@ function SettingsPage({
   onConfigUpdate: (config: {
     concurrencyCap?: number;
     tokenBudgetLimit?: number;
-    implementModel?: string;
+    model?: string;
     reviewModel?: string;
   }) => Promise<void>;
   onSync: () => Promise<void>;
@@ -198,7 +198,7 @@ function SettingsPage({
           Models
         </div>
         {(["model", "review"] as const).map((phase) => {
-          const field = phase === "model" ? "implementModel" : "reviewModel";
+          const field = phase === "model" ? "model" : "reviewModel";
           return (
             <div key={phase} className="flex items-center gap-3">
               <span className="text-sm text-gray-400 w-20 capitalize">
@@ -490,7 +490,7 @@ export default function App() {
     async (config: {
       concurrencyCap?: number;
       tokenBudgetLimit?: number;
-      implementModel?: string;
+      model?: string;
       reviewModel?: string;
     }) => {
       try {
