@@ -59,6 +59,7 @@ import {
   transitionToFinalState,
 } from "../workflow-utils.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
+import { writeHookConfig } from "../../hooks.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
@@ -619,6 +620,8 @@ export const taskLifecycle = inngest.createFunction(
         updateInvocation(db, invocationId, {
           logPath: `logs/${invocationId}.ndjson`,
         });
+
+        writeHookConfig(worktreePath, invocationId, config.port);
 
         const startedAt = Date.now();
         const handle = spawnSession({
@@ -1224,6 +1227,8 @@ export const taskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
+          writeHookConfig(wtResult.worktreePath, invocationId, config.port);
+
           const startedAt = Date.now();
           const handle = spawnSession({
             agentPrompt,
@@ -1579,6 +1584,8 @@ export const taskLifecycle = inngest.createFunction(
           updateInvocation(db, invocationId, {
             logPath: `logs/${invocationId}.ndjson`,
           });
+
+          writeHookConfig(wtResult.worktreePath, invocationId, config.port);
 
           const startedAt = Date.now();
           const handle = spawnSession({

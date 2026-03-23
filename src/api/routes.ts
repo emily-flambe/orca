@@ -60,6 +60,7 @@ import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
 import { isDraining, setDraining, clearDraining } from "../deploy.js";
+import { recordHookEvent, getHookEvents } from "../hooks-store.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -1729,6 +1730,36 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     });
     logger.info(`audit: deploy event status=${status}`);
     return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // POST /api/hooks/:invocationId — receive Claude Code hook events
+  // -----------------------------------------------------------------------
+  app.post("/api/hooks/:invocationId", async (c) => {
+    const invocationId = parseInt(c.req.param("invocationId"), 10);
+    if (isNaN(invocationId) || invocationId <= 0) {
+      return c.json({ error: "invalid invocationId" }, 400);
+    }
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    recordHookEvent(invocationId, payload);
+    return c.json({ ok: true });
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/hooks/:invocationId — retrieve hook events for an invocation
+  // -----------------------------------------------------------------------
+  app.get("/api/hooks/:invocationId", (c) => {
+    const invocationId = parseInt(c.req.param("invocationId"), 10);
+    if (isNaN(invocationId) || invocationId <= 0) {
+      return c.json({ error: "invalid invocationId" }, 400);
+    }
+    const events = getHookEvents(invocationId);
+    return c.json({ events });
   });
 
   return app;
