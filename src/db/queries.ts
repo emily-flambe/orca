@@ -44,6 +44,37 @@ export function insertTask(db: OrcaDb, task: NewTask): void {
   db.insert(tasks).values(task).run();
 }
 
+/** Infer the lifecycle phase from a failure reason string. */
+export function inferPhaseFromReason(reason: string): string | null {
+  if (
+    reason.startsWith("implement") ||
+    reason.startsWith("session_") ||
+    reason.startsWith("gate2_") ||
+    reason.startsWith("runner_")
+  ) {
+    return "implement";
+  }
+  if (reason.startsWith("review")) {
+    return "review";
+  }
+  if (reason.startsWith("fix")) {
+    return "fix";
+  }
+  if (reason.startsWith("ci_") || reason.startsWith("merge_")) {
+    return "ci";
+  }
+  if (reason.startsWith("deploy_")) {
+    return "deploy";
+  }
+  if (reason.startsWith("agent_")) {
+    return "implement";
+  }
+  if (reason.startsWith("cron_")) {
+    return "implement";
+  }
+  return null;
+}
+
 /** Update a task's orca_status and set updated_at to now. */
 export function updateTaskStatus(
   db: OrcaDb,
@@ -57,12 +88,23 @@ export function updateTaskStatus(
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
+  const now = new Date().toISOString();
+  const setFields: Record<string, unknown> = {
+    orcaStatus: status,
+    doneAt: status === "done" ? now : null,
+    updatedAt: now,
+  };
+
+  if (status === "failed") {
+    setFields.lastFailedAt = now;
+    if (options?.reason) {
+      setFields.lastFailureReason = options.reason;
+      setFields.lastFailedPhase = inferPhaseFromReason(options.reason);
+    }
+  }
+
   db.update(tasks)
-    .set({
-      orcaStatus: status,
-      doneAt: status === "done" ? new Date().toISOString() : null,
-      updatedAt: new Date().toISOString(),
-    })
+    .set(setFields)
     .where(eq(tasks.linearIssueId, taskId))
     .run();
 
