@@ -85,7 +85,7 @@ git checkout main
 git pull origin main
 
 log "installing dependencies..."
-npm install
+npm install --include=dev
 
 log "building backend (MCP server)..."
 npm run build
