@@ -13,38 +13,37 @@
 - [x] Add 16 query functions to `src/db/queries.ts` (agent CRUD, memory CRUD, getDueAgents, pruneAgentMemories, getTasksByAgent)
 - [x] Type check passes (zero errors in modified files)
 
-## Phase 2: API Routes
+## Phase 2: API Routes ✅
 
-- [ ] Add `GET /api/agents` — list all agents
-- [ ] Add `GET /api/agents/:id` — get agent with recent memories + task history
-- [ ] Add `POST /api/agents` — create agent (validate required fields, generate timestamps)
-- [ ] Add `PUT /api/agents/:id` — update agent
-- [ ] Add `DELETE /api/agents/:id` — delete agent + all memories
-- [ ] Add `POST /api/agents/:id/toggle` — enable/disable
-- [ ] Add `POST /api/agents/:id/trigger` — manual trigger (create task, emit task/ready)
-- [ ] Add `GET /api/agents/:id/memories` — list memories (with optional type filter)
-- [ ] Add `DELETE /api/agents/:id/memories/:memoryId` — delete single memory
+- [x] Add `GET /api/agents` — list all agents
+- [x] Add `GET /api/agents/:id` — get agent with recent memories + task history
+- [x] Add `POST /api/agents` — create agent (validate required fields, generate timestamps)
+- [x] Add `PUT /api/agents/:id` — update agent
+- [x] Add `DELETE /api/agents/:id` — delete agent + all memories
+- [x] Add `POST /api/agents/:id/toggle` — enable/disable
+- [x] Add `POST /api/agents/:id/trigger` — manual trigger (create task, emit task/ready)
+- [x] Add `GET /api/agents/:id/memories` — list memories (with optional type filter)
+- [x] Add `DELETE /api/agents/:id/memories/:memoryId` — delete single memory
 - [ ] Add tests for agent API routes
 
-## Phase 3: Inngest Workflows
+## Phase 3: Inngest Workflows ✅
 
-- [ ] Create `src/inngest/workflows/agent-dispatch.ts` — Inngest cron (every minute), calls getDueAgents(), creates tasks, emits task/ready
-- [ ] Handle task ID format: `agent-<agentId>-<timestamp>-<random>`
-- [ ] Handle capacity block: delete task and return (re-dispatch on next schedule)
-- [ ] Modify task-lifecycle to detect agent tasks and inject memories via --append-system-prompt
-- [ ] Build memory injection: load memories, format as markdown (grouped by type), pass to session
-- [ ] Register new workflow in `src/inngest/functions.ts`
-- [ ] Add agent-dispatch events to `src/inngest/events.ts` if needed
+- [x] Create `src/inngest/workflows/agent-dispatch.ts` — Inngest cron (every minute), calls getDueAgents(), creates tasks, emits task/ready
+- [x] Handle task ID format: `agent-<agentId>-<timestamp>-<random>`
+- [x] Handle capacity block: delete task and return (re-dispatch on next schedule)
+- [x] Separate agent-task-lifecycle workflow with memory injection via --append-system-prompt
+- [x] Build memory injection: load memories, format as markdown (grouped by type), pass to session
+- [x] Register new workflows in `src/inngest/functions.ts`
 - [ ] Add tests for agent dispatch and memory injection
 
-## Phase 4: MCP Server Extension
+## Phase 4: MCP Server Extension ✅
 
-- [ ] Add `save_agent_memory` tool to `src/mcp-server/index.ts`
-- [ ] Add `update_agent_memory` tool
-- [ ] Add `forget_agent_memory` tool (delete)
-- [ ] Add `get_agent_memories` tool (read own memories)
-- [ ] Gate write tools behind `ORCA_AGENT_ID` env var (only available to agent sessions)
-- [ ] Pass `ORCA_AGENT_ID` env var when spawning agent sessions
+- [x] Add `save_agent_memory` tool to `src/mcp-server/index.ts`
+- [x] Add `update_agent_memory` tool
+- [x] Add `forget_agent_memory` tool (delete)
+- [x] Add `get_agent_memories` tool (read own memories)
+- [x] Gate write tools behind `ORCA_AGENT_ID` env var (only available to agent sessions)
+- [x] Pass `ORCA_AGENT_ID` env var when spawning agent sessions via MCP config
 - [ ] Add tests for MCP memory tools
 
 ## Phase 5: Dashboard
