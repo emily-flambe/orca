@@ -7,10 +7,8 @@ import { createDb, type OrcaDb } from "../src/db/index.js";
 import {
   insertTask,
   getTask,
-  getAllTasks,
   getChildTasks,
   getParentTasks,
-  updateTaskStatus,
   getDispatchableTasks,
 } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";

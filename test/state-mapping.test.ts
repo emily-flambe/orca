@@ -57,7 +57,7 @@ function seedTask(
   return linearIssueId;
 }
 
-function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
+function _testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
   return {
     defaultCwd: "/tmp/test",
     projectRepoMap: new Map(),

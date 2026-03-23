@@ -8,7 +8,6 @@ import {
   insertTask,
   insertInvocation,
   updateInvocation,
-  getTask,
 } from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";

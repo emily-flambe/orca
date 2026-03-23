@@ -79,7 +79,7 @@ const mockExecFileSync = vi.mocked(childProcess.execFileSync);
 // ---------------------------------------------------------------------------
 // Helper: get the LinearClient instance created during a runInit() call
 // ---------------------------------------------------------------------------
-function getLastClientInstance() {
+function _getLastClientInstance() {
   const instances = MockLinearClient.mock.instances;
   return instances[instances.length - 1] as {
     fetchViewer: ReturnType<typeof vi.fn>;

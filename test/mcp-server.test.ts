@@ -19,7 +19,6 @@ import {
   getRunningInvocations,
   getTaskStateTransitions,
   budgetWindowStart,
-  sumTokensInWindow,
   updateAgentMemory,
   deleteAgentMemory,
   insertAgentMemory,
@@ -725,7 +724,6 @@ describe("get_orca_status: budgetWindowStart with bad env var", () => {
   });
 
   test("sumTokensInWindow with a NaN-derived windowStart crashes", () => {
-    const db = freshDb();
     // NaN propagates: budgetWindowStart(NaN) throws before we even get here,
     // but if it didn't, "Invalid Date" as a string would cause incorrect results.
     // Prove the root cause: parseInt of a non-numeric string is NaN.
@@ -861,7 +859,7 @@ describe("update_agent_memory and forget_agent_memory silent no-op bug", () => {
 
   test("updateAgentMemory on a real ID actually updates", () => {
     // Ensure the happy path works correctly so the above no-op is provably wrong.
-    const taskId = seedTask(db, { linearIssueId: "MEM-1" });
+    seedTask(db, { linearIssueId: "MEM-1" });
     // insertAgentMemory requires agentId; use a synthetic one.
     const memId = insertAgentMemory(db, {
       agentId: "agent-test-1",

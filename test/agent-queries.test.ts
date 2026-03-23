@@ -540,7 +540,7 @@ describe("getAgentMemories", () => {
         if (args.length === 0) {
           super(mockTime);
         } else {
-          // @ts-ignore
+          // @ts-expect-error spread args for Date constructor override
           super(...args);
         }
       }
@@ -817,7 +817,7 @@ describe("pruneAgentMemories", () => {
         if (args.length === 0) {
           super(mockTime);
         } else {
-          // @ts-ignore
+          // @ts-expect-error spread args for Date constructor override
           super(...args);
         }
       }

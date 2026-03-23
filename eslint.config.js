@@ -17,4 +17,20 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["test/**/*.ts"],
+    extends: [tseslint.configs.recommended, prettierConfig],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          varsIgnorePattern: "^_",
+          argsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 );

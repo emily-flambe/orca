@@ -413,7 +413,7 @@ describe("runReconciliation — multiple tasks in one pass", () => {
 
   test("task/ready event includes correct linearIssueId and repoPath", async () => {
     const db = freshDb();
-    const id = seedTask(db, {
+    const _id = seedTask(db, {
       orcaStatus: "running",
       linearIssueId: "PROJ-42",
       updatedAt: ago(5),

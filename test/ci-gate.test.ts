@@ -8,10 +8,7 @@ import {
   insertTask,
   getTask,
   updateTaskCiInfo,
-  updateTaskStatus,
   updateTaskFields,
-  updateTaskDeployInfo,
-  incrementReviewCycleCount,
 } from "../src/db/queries.js";
 import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
@@ -220,12 +217,12 @@ vi.mock("../src/runner/index.js", () => ({
 
 describe("Conflict resolution - awaiting_ci status", () => {
   let db: OrcaDb;
-  let config: OrcaConfig;
+  let _config: OrcaConfig;
   let resolveConflict: typeof import("../src/linear/sync.js").resolveConflict;
 
   beforeEach(async () => {
     db = freshDb();
-    config = testConfig();
+    _config = testConfig();
     const syncMod = await import("../src/linear/sync.js");
     resolveConflict = syncMod.resolveConflict;
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -628,7 +625,7 @@ describe("Config - review prompt does not include merge instructions", () => {
     // We can't easily access the default prompt string directly since it's
     // inside loadConfig. Instead, verify the testConfig pattern: reviewSystemPrompt
     // should not mention merging.
-    const cfg = testConfig();
+    const _cfg = testConfig();
     // testConfig uses empty string, but the real prompt is in config/index.ts.
     // We verify the expectation that APPROVED instruction says "Do NOT merge"
     // by reading the source file.

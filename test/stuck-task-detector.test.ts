@@ -11,9 +11,7 @@ import {
   detectAndAlertStuckTasks,
   STUCK_THRESHOLDS,
   TERMINAL_STATUSES,
-  DEFAULT_TRACKING_FILE,
   type TaskTrackingState,
-  type StuckTaskAlert,
 } from "../src/scheduler/stuck-task-detector.js";
 import {
   _getHealingCounters,
