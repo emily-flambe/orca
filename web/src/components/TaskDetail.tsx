@@ -28,6 +28,33 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
+/** Inline SVG PR state icon, colored by state. */
+function PrStateIcon({
+  state,
+}: {
+  state: "draft" | "open" | "merged" | "closed" | null | undefined;
+}) {
+  const color =
+    state === "merged"
+      ? "#8250df"
+      : state === "closed"
+        ? "#cf222e"
+        : state === "draft"
+          ? "#6e7781"
+          : "#1a7f37";
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill={color}
+      aria-label={state ?? "open"}
+    >
+      <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z" />
+    </svg>
+  );
+}
+
 export default function TaskDetail({
   taskId,
   initialInvocationId,
@@ -191,6 +218,47 @@ export default function TaskDetail({
           </span>
         )}
       </div>
+
+      {/* PR info */}
+      {detail.prNumber != null && (
+        <div className="flex items-center gap-2 text-sm">
+          <PrStateIcon state={detail.prState} />
+          {detail.prUrl ? (
+            <a
+              href={detail.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-mono hover:underline"
+              style={{
+                color:
+                  detail.prState === "merged"
+                    ? "#8250df"
+                    : detail.prState === "closed"
+                      ? "#cf222e"
+                      : detail.prState === "draft"
+                        ? "#6e7781"
+                        : "#1a7f37",
+              }}
+            >
+              PR #{detail.prNumber}
+            </a>
+          ) : (
+            <span className="font-mono text-gray-400">
+              PR #{detail.prNumber}
+            </span>
+          )}
+          {detail.prState && (
+            <span className="text-xs text-gray-500 capitalize">
+              {detail.prState}
+            </span>
+          )}
+          {detail.prBranchName && (
+            <span className="text-xs text-gray-600 font-mono truncate">
+              {detail.prBranchName}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Live run widget — shown when task has an active invocation */}
       {runningInvocation && (

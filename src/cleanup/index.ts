@@ -15,6 +15,7 @@ import {
   getInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
+  updateTaskPrState,
 } from "../db/queries.js";
 import { createLogger } from "../logger.js";
 
@@ -162,6 +163,21 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
   const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
+  // Build a map of prBranchName → { taskId, prUrl } for tasks with a known PR
+  // so cleanupRepo can update prState='closed' after closing orphaned PRs.
+  const branchToTask = new Map<
+    string,
+    { taskId: string; prUrl: string | null }
+  >();
+  for (const task of allTasks) {
+    if (task.prBranchName && task.prNumber != null) {
+      branchToTask.set(task.prBranchName, {
+        taskId: task.linearIssueId,
+        prUrl: task.prUrl ?? null,
+      });
+    }
+  }
+
   for (const repoPath of repoPaths) {
     try {
       cleanupRepo(repoPath, {
@@ -171,6 +187,8 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
         activeBranches,
         now,
         maxAgeMs,
+        db,
+        branchToTask,
       });
     } catch (err) {
       log(`error cleaning up repo ${repoPath}: ${err}`);
@@ -187,6 +205,8 @@ function cleanupRepo(
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
+    db?: import("../db/index.js").OrcaDb;
+    branchToTask?: Map<string, { taskId: string; prUrl: string | null }>;
   },
 ): void {
   // --- Worktree cleanup ---
@@ -334,10 +354,24 @@ function cleanupRepo(
   }
 
   const orcaBranches = listOrcaBranches(repoPath);
-  if (orcaBranches.length === 0) return;
 
   // Fetch open PR branches once per repo (after closing orphans)
   const openPrBranches = listOpenPrBranches(repoPath);
+
+  // Update prState='closed' for tasks whose PR branch was just closed
+  if (ctx.db && ctx.branchToTask) {
+    for (const [branch, taskRef] of ctx.branchToTask) {
+      if (!openPrBranches.has(branch) && !ctx.activeBranches.has(branch)) {
+        try {
+          updateTaskPrState(ctx.db, taskRef.taskId, taskRef.prUrl, "closed");
+        } catch {
+          /* ignore DB update errors */
+        }
+      }
+    }
+  }
+
+  if (orcaBranches.length === 0) return;
 
   for (const branch of orcaBranches) {
     // Safety: never delete branches with running invocations
@@ -470,6 +504,21 @@ export async function cleanupStaleResourcesAsync(
   const CLEANUP_BRANCH_MAX_AGE_MIN = 60;
   const maxAgeMs = CLEANUP_BRANCH_MAX_AGE_MIN * 60 * 1000;
 
+  // Build a map of prBranchName → { taskId, prUrl } for tasks with a known PR
+  // so cleanupRepoAsync can update prState='closed' after closing orphaned PRs.
+  const branchToTask = new Map<
+    string,
+    { taskId: string; prUrl: string | null }
+  >();
+  for (const task of allTasks) {
+    if (task.prBranchName && task.prNumber != null) {
+      branchToTask.set(task.prBranchName, {
+        taskId: task.linearIssueId,
+        prUrl: task.prUrl ?? null,
+      });
+    }
+  }
+
   for (const repoPath of repoPaths) {
     try {
       await cleanupRepoAsync(repoPath, {
@@ -479,6 +528,8 @@ export async function cleanupStaleResourcesAsync(
         activeBranches,
         now,
         maxAgeMs,
+        db,
+        branchToTask,
       });
     } catch (err) {
       log(`error cleaning up repo ${repoPath}: ${err}`);
@@ -497,6 +548,8 @@ async function cleanupRepoAsync(
     activeBranches: Set<string>;
     now: number;
     maxAgeMs: number;
+    db?: import("../db/index.js").OrcaDb;
+    branchToTask?: Map<string, { taskId: string; prUrl: string | null }>;
   },
 ): Promise<void> {
   // --- Worktree cleanup ---
@@ -623,9 +676,23 @@ async function cleanupRepoAsync(
   }
 
   const orcaBranches = await listOrcaBranchesAsync(repoPath);
-  if (orcaBranches.length === 0) return;
 
   const openPrBranches = listOpenPrBranches(repoPath);
+
+  // Update prState='closed' for tasks whose PR branch was just closed
+  if (ctx.db && ctx.branchToTask) {
+    for (const [branch, taskRef] of ctx.branchToTask) {
+      if (!openPrBranches.has(branch) && !ctx.activeBranches.has(branch)) {
+        try {
+          updateTaskPrState(ctx.db, taskRef.taskId, taskRef.prUrl, "closed");
+        } catch {
+          /* ignore DB update errors */
+        }
+      }
+    }
+  }
+
+  if (orcaBranches.length === 0) return;
 
   for (const branch of orcaBranches) {
     if (ctx.runningBranches.has(branch)) continue;
