@@ -804,15 +804,13 @@ export function resetWorktree(worktreePath: string): void {
  * @param worktreePath - Absolute path to the worktree directory
  * @param hookUrl - Full URL that Claude Code hooks should POST to
  */
-export function writeHookConfig(
-  worktreePath: string,
-  hookUrl: string,
-): void {
+export function writeHookConfig(worktreePath: string, hookUrl: string): void {
   try {
     const claudeDir = join(worktreePath, ".claude");
     mkdirSync(claudeDir, { recursive: true });
 
-    const curlCommand = `curl -s -X POST -H 'Content-Type: application/json' -d @- '${hookUrl}' || true`;
+    const safeUrl = hookUrl.replace(/'/g, "%27");
+    const curlCommand = `curl -s -X POST -H 'Content-Type: application/json' -d @- '${safeUrl}' || true`;
 
     const config = {
       hooks: {

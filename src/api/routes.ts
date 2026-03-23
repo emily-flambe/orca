@@ -511,28 +511,37 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   // -----------------------------------------------------------------------
   app.post("/api/hooks/:invocationId", async (c) => {
     const invocationId = Number(c.req.param("invocationId"));
-    if (Number.isNaN(invocationId)) {
+    if (!Number.isInteger(invocationId) || invocationId < 1) {
       return c.json({ error: "invalid invocation id" }, 400);
     }
 
     let body: Record<string, unknown>;
     try {
-      body = await c.req.json<Record<string, unknown>>();
+      body = await c.req.json();
     } catch {
       return c.json({ error: "invalid JSON body" }, 400);
     }
 
-    // Detect event type from the hook payload's hook_event_name field.
-    const eventType =
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return c.json({ error: "invalid request body" }, 400);
+    }
+
+    // Detect event type from the hook payload's hook_event_name or hook_event_type field.
+    const eventType = (
       typeof body["hook_event_name"] === "string"
         ? body["hook_event_name"]
-        : "unknown";
+        : typeof body["hook_event_type"] === "string"
+          ? body["hook_event_type"]
+          : "unknown"
+    ) as string;
 
     // Store the event in the DB.
     try {
       insertHookEvent(db, invocationId, eventType, JSON.stringify(body));
     } catch (err) {
-      logger.warn(`failed to insert hook event for invocation ${invocationId}: ${err}`);
+      logger.warn(
+        `failed to insert hook event for invocation ${invocationId}: ${err}`,
+      );
     }
 
     // Write to the invocation's in-memory log stream so it appears in the log viewer.
