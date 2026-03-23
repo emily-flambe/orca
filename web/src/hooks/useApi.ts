@@ -402,3 +402,53 @@ export function deleteAgentMemory(
 }
 
 export type { CronSchedule };
+
+// ---------------------------------------------------------------------------
+// System Health
+// ---------------------------------------------------------------------------
+
+export interface SystemHealthData {
+  cpu: {
+    loadAvg: number[];
+    cpuCount: number;
+    platform: string;
+  };
+  memory: {
+    totalMb: number;
+    usedMb: number;
+    freeMb: number;
+    usedPercent: number;
+  };
+  pm2: {
+    available: boolean;
+    processes: Array<{
+      name: string;
+      status: string;
+      cpu: number;
+      memory: number;
+      uptime: number;
+      restarts: number;
+    }>;
+  };
+  inngest: {
+    healthy: boolean;
+    url: string;
+    error?: string;
+  };
+  disk: {
+    available: boolean;
+    totalGb: number;
+    usedGb: number;
+    freeGb: number;
+    usedPercent: number;
+  };
+  sessions: {
+    active: number;
+    totalToday: number;
+  };
+  timestamp: string;
+}
+
+export function fetchSystemHealth(): Promise<SystemHealthData> {
+  return fetchJson<SystemHealthData>("/system-health");
+}

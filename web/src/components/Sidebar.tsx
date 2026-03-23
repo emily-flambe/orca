@@ -6,7 +6,8 @@ export type Page =
   | "cron"
   | "agents"
   | "logs"
-  | "settings";
+  | "settings"
+  | "health";
 
 interface SidebarProps {
   activePage: Page;
@@ -97,6 +98,15 @@ export default function Sidebar({
           onClick={() => onNavigate("logs")}
         >
           <span>Logs</span>
+        </button>
+
+        {/* Health */}
+        <button
+          aria-label="Health"
+          className={navItemClass("health")}
+          onClick={() => onNavigate("health")}
+        >
+          <span>Health</span>
         </button>
 
         {/* Settings */}

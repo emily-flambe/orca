@@ -1,5 +1,7 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { cpus, loadavg, platform, totalmem, freemem } from "node:os";
+import { exec } from "node:child_process";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -887,6 +889,211 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // 503 only when DB is unreachable
     const httpStatus = !dbOk ? 503 : 200;
     return c.json(body, httpStatus);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/system-health — system resource dashboard
+  // -----------------------------------------------------------------------
+  app.get("/api/system-health", async (c) => {
+    const now = new Date();
+
+    // CPU
+    const cpuInfo = {
+      loadAvg: loadavg(),
+      cpuCount: cpus().length,
+      platform: platform(),
+    };
+
+    // Memory
+    const totalMb = Math.round(totalmem() / 1024 / 1024);
+    const freeMb = Math.round(freemem() / 1024 / 1024);
+    const usedMb = totalMb - freeMb;
+    const memoryInfo = {
+      totalMb,
+      usedMb,
+      freeMb,
+      usedPercent: Math.round((usedMb / totalMb) * 100),
+    };
+
+    // PM2
+    const pm2Info = await new Promise<{
+      available: boolean;
+      processes: Array<{
+        name: string;
+        status: string;
+        cpu: number;
+        memory: number;
+        uptime: number;
+        restarts: number;
+      }>;
+    }>((resolve) => {
+      exec(
+        "pm2 jlist",
+        { timeout: 5000 },
+        (err: Error | null, stdout: string) => {
+          if (err) {
+            resolve({ available: false, processes: [] });
+            return;
+          }
+          try {
+            const list = JSON.parse(stdout) as Array<{
+              name?: string;
+              pm2_env?: {
+                status?: string;
+                restart_time?: number;
+                pm_uptime?: number;
+              };
+              monit?: { cpu?: number; memory?: number };
+            }>;
+            resolve({
+              available: true,
+              processes: list.map((p) => ({
+                name: p.name ?? "unknown",
+                status: p.pm2_env?.status ?? "unknown",
+                cpu: p.monit?.cpu ?? 0,
+                memory: Math.round((p.monit?.memory ?? 0) / 1024 / 1024),
+                uptime: p.pm2_env?.pm_uptime ?? 0,
+                restarts: p.pm2_env?.restart_time ?? 0,
+              })),
+            });
+          } catch {
+            resolve({ available: false, processes: [] });
+          }
+        },
+      );
+    });
+
+    // Inngest
+    const inngestBaseUrl =
+      process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
+    const inngestInfo = await (async () => {
+      try {
+        const controller = new AbortController();
+        const timerId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${inngestBaseUrl}/health`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timerId);
+        return { healthy: res.status < 500, url: inngestBaseUrl };
+      } catch (err) {
+        return {
+          healthy: false,
+          url: inngestBaseUrl,
+          error: err instanceof Error ? err.message : "unreachable",
+        };
+      }
+    })();
+
+    // Disk
+    const diskInfo = await new Promise<{
+      available: boolean;
+      totalGb: number;
+      usedGb: number;
+      freeGb: number;
+      usedPercent: number;
+    }>((resolve) => {
+      const isWindows = platform() === "win32";
+      const cmd = isWindows
+        ? "wmic logicaldisk where caption='C:' get size,freespace /format:csv"
+        : "df -k /";
+
+      exec(cmd, { timeout: 5000 }, (err: Error | null, stdout: string) => {
+        if (err) {
+          resolve({
+            available: false,
+            totalGb: 0,
+            usedGb: 0,
+            freeGb: 0,
+            usedPercent: 0,
+          });
+          return;
+        }
+        try {
+          if (isWindows) {
+            // CSV output: Node,FreeSpace,Size
+            const lines = stdout
+              .trim()
+              .split("\n")
+              .filter((l: string) => l.trim() && !l.startsWith("Node"));
+            const line = lines[0];
+            if (!line) throw new Error("no data");
+            const parts = line.trim().split(",");
+            // parts: [Node, FreeSpace, Size]
+            const freeBytes = parseInt(parts[1] ?? "0", 10);
+            const totalBytes = parseInt(parts[2] ?? "0", 10);
+            const usedBytes = totalBytes - freeBytes;
+            const toGb = (b: number) =>
+              Math.round((b / 1024 / 1024 / 1024) * 10) / 10;
+            resolve({
+              available: true,
+              totalGb: toGb(totalBytes),
+              usedGb: toGb(usedBytes),
+              freeGb: toGb(freeBytes),
+              usedPercent: Math.round((usedBytes / totalBytes) * 100),
+            });
+          } else {
+            // df -k output: Filesystem 1K-blocks Used Available Use% Mounted
+            const lines = stdout.trim().split("\n");
+            const dataLine = lines[1];
+            if (!dataLine) throw new Error("no data");
+            const parts = dataLine.trim().split(/\s+/);
+            const totalKb = parseInt(parts[1] ?? "0", 10);
+            const usedKb = parseInt(parts[2] ?? "0", 10);
+            const freeKb = parseInt(parts[3] ?? "0", 10);
+            const toGb = (kb: number) =>
+              Math.round((kb / 1024 / 1024) * 10) / 10;
+            resolve({
+              available: true,
+              totalGb: toGb(totalKb),
+              usedGb: toGb(usedKb),
+              freeGb: toGb(freeKb),
+              usedPercent: Math.round((usedKb / totalKb) * 100),
+            });
+          }
+        } catch {
+          resolve({
+            available: false,
+            totalGb: 0,
+            usedGb: 0,
+            freeGb: 0,
+            usedPercent: 0,
+          });
+        }
+      });
+    });
+
+    // Sessions
+    let activeSessions = 0;
+    let totalToday = 0;
+    try {
+      activeSessions = countActiveSessions(db);
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayStartStr = todayStart.toISOString();
+      const result = db.$client
+        .prepare(
+          "SELECT COUNT(*) as cnt FROM invocations WHERE started_at >= ?",
+        )
+        .get(todayStartStr) as { cnt: number };
+      totalToday = result?.cnt ?? 0;
+    } catch {
+      // ignore
+    }
+
+    logger.debug("[orca/health] system-health polled");
+
+    return c.json({
+      cpu: cpuInfo,
+      memory: memoryInfo,
+      pm2: pm2Info,
+      inngest: inngestInfo,
+      disk: diskInfo,
+      sessions: {
+        active: activeSessions,
+        totalToday,
+      },
+      timestamp: now.toISOString(),
+    });
   });
 
   // -----------------------------------------------------------------------
