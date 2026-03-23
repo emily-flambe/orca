@@ -1,10 +1,6 @@
 import Database, { type Database as DatabaseType } from "better-sqlite3";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
-
-const execFileAsync = promisify(execFile);
 
 const CREATE_TASKS = `
 CREATE TABLE IF NOT EXISTS tasks (
