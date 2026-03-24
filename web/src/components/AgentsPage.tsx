@@ -457,23 +457,33 @@ function AgentDetail({
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [deletingMemoryId, setDeletingMemoryId] = useState<number | null>(null);
   const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<number>>(
     new Set(),
   );
 
-  useEffect(() => {
+  const loadDetail = useCallback(() => {
+    setLoading(true);
+    setFetchError(null);
     fetchAgentDetail(agentId)
       .then((detail) => {
         setMemories(detail.memories);
         setTasks(detail.tasks);
       })
-      .catch(() => {
+      .catch((err) => {
         setMemories([]);
         setTasks([]);
+        setFetchError(
+          err instanceof Error ? err.message : "Failed to load agent details",
+        );
       })
       .finally(() => setLoading(false));
   }, [agentId]);
+
+  useEffect(() => {
+    loadDetail();
+  }, [loadDetail]);
 
   function toggleMemoryExpanded(memoryId: number) {
     setExpandedMemoryIds((prev) => {
@@ -502,6 +512,20 @@ function AgentDetail({
 
   if (loading) {
     return <div className="text-xs text-gray-500 py-2">Loading details...</div>;
+  }
+
+  if (fetchError) {
+    return (
+      <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded px-2 py-2 flex items-center gap-2">
+        <span>{fetchError}</span>
+        <button
+          onClick={loadDetail}
+          className="px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -612,8 +636,10 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [triggeringId, setTriggeringId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [promptExpandedId, setPromptExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [promptExpandedIds, setPromptExpandedIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const load = useCallback(() => {
     fetchAgents()
@@ -777,7 +803,12 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
                 <div className="flex items-center gap-2 min-w-0">
                   <button
                     onClick={() =>
-                      setExpandedId(expandedId === a.id ? null : a.id)
+                      setExpandedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(a.id)) next.delete(a.id);
+                        else next.add(a.id);
+                        return next;
+                      })
                     }
                     className="text-sm font-medium text-gray-200 truncate hover:text-blue-400 transition-colors cursor-pointer"
                     title="Click to expand details"
@@ -886,12 +917,17 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
               </div>
 
               <p
-                className={`text-xs text-gray-400 cursor-pointer hover:text-gray-300 transition-colors whitespace-pre-wrap ${promptExpandedId === a.id ? "" : "line-clamp-2"}`}
+                className={`text-xs text-gray-400 cursor-pointer hover:text-gray-300 transition-colors whitespace-pre-wrap ${promptExpandedIds.has(a.id) ? "" : "line-clamp-2"}`}
                 onClick={() =>
-                  setPromptExpandedId(promptExpandedId === a.id ? null : a.id)
+                  setPromptExpandedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(a.id)) next.delete(a.id);
+                    else next.add(a.id);
+                    return next;
+                  })
                 }
                 title={
-                  promptExpandedId === a.id
+                  promptExpandedIds.has(a.id)
                     ? "Click to collapse"
                     : "Click to expand"
                 }
@@ -900,13 +936,18 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
               </p>
 
               <button
-                onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}
+                onClick={() => setExpandedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(a.id)) next.delete(a.id);
+                        else next.add(a.id);
+                        return next;
+                      })}
                 className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
               >
-                {expandedId === a.id ? "Hide details" : "Memories & tasks"}
+                {expandedIds.has(a.id) ? "Hide details" : "Memories & tasks"}
               </button>
 
-              {expandedId === a.id && (
+              {expandedIds.has(a.id) && (
                 <AgentDetail agentId={a.id} onToast={onToast} />
               )}
             </div>

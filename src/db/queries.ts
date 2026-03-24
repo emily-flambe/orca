@@ -7,6 +7,7 @@ import {
   count,
   sum,
   inArray,
+  notInArray,
   and,
   isNotNull,
   isNull,
@@ -1003,6 +1004,25 @@ export function deleteOldCronRuns(db: OrcaDb, beforeDate: string): number {
     .where(lt(cronRuns.startedAt, beforeDate))
     .run();
   return result.changes;
+}
+
+/** Find an active (non-terminal) task for a cron schedule, if any. */
+export function getActiveCronTaskByScheduleId(
+  db: OrcaDb,
+  scheduleId: number,
+): Task | undefined {
+  const terminalStatuses: TaskStatus[] = ["done", "failed", "canceled"];
+  return db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.cronScheduleId, scheduleId),
+        notInArray(tasks.orcaStatus, terminalStatuses),
+      ),
+    )
+    .limit(1)
+    .all()[0];
 }
 
 /** Get all tasks spawned by a specific cron schedule. */
