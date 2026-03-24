@@ -27,6 +27,7 @@ import {
   bridgeSessionCompletion,
   buildDisallowedTools,
 } from "./task-lifecycle.js";
+import { interpolateCronPrompt } from "./cron-dispatch.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -148,8 +149,11 @@ export const cronTaskLifecycle = inngest.createFunction(
             logPath: `logs/${invocationId}.ndjson`,
           });
 
+          // Re-interpolate at spawn time so the agent always uses the current
+          // active port, even if this task was created by a previous instance
+          // (before a blue/green deploy changed the active port).
           const handle = spawnSession({
-            agentPrompt: task.agentPrompt ?? "",
+            agentPrompt: interpolateCronPrompt(task.agentPrompt ?? ""),
             worktreePath,
             maxTurns: config.defaultMaxTurns,
             invocationId,

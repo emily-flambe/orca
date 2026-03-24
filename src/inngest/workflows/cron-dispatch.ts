@@ -17,6 +17,7 @@ import {
   updateCronLastRunStatus,
   insertCronRun,
   completeCronRun,
+  getActiveCronTaskByScheduleId,
 } from "../../db/queries.js";
 import { computeNextRunAt } from "../../cron/index.js";
 import { createLogger } from "../../logger.js";
@@ -45,14 +46,29 @@ function getActivePort(): number {
  * across blue/green deploys.
  *
  * Supported variables:
- *   {{ORCA_PORT}}      → active port (e.g. 4001)
+ *   {{ORCA_PORT}}      → active port (e.g. 4000)
  *   {{ORCA_BASE_URL}}  → http://localhost:<activePort>
+ *
+ * Also re-interpolates already-substituted ports so that cron tasks
+ * created by an old instance (with a stale port baked in) get the
+ * correct port when they run on a new instance after a blue/green deploy.
  */
-function interpolatePrompt(prompt: string): string {
+export function interpolateCronPrompt(prompt: string): string {
   const port = getActivePort();
-  return prompt
+  // Replace any previously-substituted port numbers (e.g. "localhost:4001")
+  // so blue/green deploy doesn't leave stale ports in already-dispatched tasks.
+  const portFixed = prompt.replace(
+    /localhost:(\d{4,5})(?=\/api\/)/g,
+    `localhost:${port}`,
+  );
+  return portFixed
     .replace(/\{\{ORCA_PORT\}\}/g, String(port))
     .replace(/\{\{ORCA_BASE_URL\}\}/g, `http://localhost:${port}`);
+}
+
+// Internal alias for backward compat within this file
+function interpolatePrompt(prompt: string): string {
+  return interpolateCronPrompt(prompt);
 }
 
 export const cronDispatchWorkflow = inngest.createFunction(
@@ -148,6 +164,17 @@ export const cronDispatchWorkflow = inngest.createFunction(
         // Claude cron: create a task and send through task-lifecycle
         await step.run(`dispatch-cron-${schedule.id}`, async () => {
           const { db } = getSchedulerDeps();
+
+          // Skip if a previous run of this cron is still active (prevents
+          // concurrent executions when a task takes longer than its schedule interval)
+          const activeTask = getActiveCronTaskByScheduleId(db, schedule.id);
+          if (activeTask) {
+            logger.info(
+              `[cron-${schedule.id}] skipping dispatch — previous run still active: ${activeTask.linearIssueId} (${activeTask.orcaStatus})`,
+            );
+            return;
+          }
+
           const now = new Date().toISOString();
           const taskId = `cron-${schedule.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
