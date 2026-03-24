@@ -42,6 +42,7 @@ import { initAlertSystem } from "../scheduler/alerts.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
 import { backfillPrState } from "../db/backfill.js";
+import { startInngestHealthMonitor } from "../inngest/health-monitor.js";
 
 const logger = createLogger("cli");
 import { serve } from "@hono/node-server";
@@ -410,6 +411,10 @@ program
             `WARNING: Inngest server is not reachable at ${inngestBaseUrl} — task dispatching will not work`,
           ),
         );
+
+      // Start Inngest self-healing health monitor. Detects Inngest downtime
+      // and auto-restarts via PM2, then re-emits events for stranded tasks.
+      startInngestHealthMonitor(inngest, db);
 
       // Self-register with Inngest server so it knows our callback URL.
       // Without this, deploys/restarts that change ports leave Inngest
