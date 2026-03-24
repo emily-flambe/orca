@@ -8,6 +8,7 @@ const PAGE_TITLES: Record<Page, string> = {
   agents: "Agents",
   settings: "Settings",
   logs: "System Events",
+  health: "Health",
 };
 
 function HealthDot({ online }: { online: boolean | null }) {
