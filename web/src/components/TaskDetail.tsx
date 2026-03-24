@@ -10,7 +10,7 @@ import {
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import LiveRunWidget from "./LiveRunWidget";
-import { getStatusBadgeClasses } from "./ui/StatusBadge";
+import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
@@ -135,7 +135,7 @@ export default function TaskDetail({
             onClick={() => setShowStatusMenu(!showStatusMenu)}
             className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
           >
-            {detail.orcaStatus === "ready" ? "queued" : detail.orcaStatus}{" "}
+            {getStatusDisplayText(detail.orcaStatus)}{" "}
             &#9662;
           </button>
           {showStatusMenu && (
@@ -270,6 +270,16 @@ export default function TaskDetail({
               .catch(console.error)
           }
         />
+      )}
+
+      {/* Stale state banner — task says working but no session is running */}
+      {!runningInvocation && ['running', 'in_review', 'changes_requested', 'awaiting_ci', 'deploying'].includes(detail.orcaStatus) && (
+        <div className="rounded-lg border border-yellow-700/50 bg-yellow-900/10 px-4 py-3 text-sm text-yellow-400 flex items-center gap-2">
+          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>No active session — task may be waiting for dispatch or stalled</span>
+        </div>
       )}
 
       {/* Agent prompt (read-only, synced from Linear) */}

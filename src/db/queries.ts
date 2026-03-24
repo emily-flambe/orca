@@ -7,6 +7,7 @@ import {
   count,
   sum,
   inArray,
+  notInArray,
   and,
   isNotNull,
   isNull,
@@ -1012,6 +1013,28 @@ export function getTasksByCronSchedule(db: OrcaDb, scheduleId: number): Task[] {
     .from(tasks)
     .where(eq(tasks.cronScheduleId, scheduleId))
     .all();
+}
+
+/**
+ * Check if a cron schedule has an active (non-terminal) task running.
+ * Used by cron-dispatch to prevent duplicate concurrent executions.
+ * Terminal statuses: done, failed, canceled, backlog.
+ */
+export function getActiveCronTaskByScheduleId(
+  db: OrcaDb,
+  scheduleId: number,
+): Task | undefined {
+  const terminalStatuses: TaskStatus[] = ["done", "failed", "canceled", "backlog"];
+  return db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.cronScheduleId, scheduleId),
+        notInArray(tasks.orcaStatus, terminalStatuses),
+      ),
+    )
+    .get();
 }
 
 /**
