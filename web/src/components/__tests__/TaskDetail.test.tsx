@@ -173,8 +173,8 @@ describe("TaskDetail", () => {
     render(<TaskDetail taskId="TEST-1" />);
 
     await waitFor(() => {
-      // Status badge shows "running" with a dropdown arrow character
-      expect(screen.getByText(/running/)).toBeInTheDocument();
+      // Status badge shows "working" (display text for "running") with a dropdown arrow character
+      expect(screen.getByText(/working/)).toBeInTheDocument();
     });
   });
 

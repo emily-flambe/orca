@@ -12,6 +12,7 @@ import { fetchRunningInvocations } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
   fetchRunningInvocations: vi.fn(),
+  fetchTasks: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../LiveRunWidget", () => ({
