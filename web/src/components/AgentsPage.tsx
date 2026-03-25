@@ -936,12 +936,14 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
               </p>
 
               <button
-                onClick={() => setExpandedIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(a.id)) next.delete(a.id);
-                        else next.add(a.id);
-                        return next;
-                      })}
+                onClick={() =>
+                  setExpandedIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(a.id)) next.delete(a.id);
+                    else next.add(a.id);
+                    return next;
+                  })
+                }
                 className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
               >
                 {expandedIds.has(a.id) ? "Hide details" : "Memories & tasks"}
