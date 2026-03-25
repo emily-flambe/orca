@@ -998,7 +998,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       // On Windows, detect the drive letter from process.cwd() so we monitor
       // the partition where Orca is actually running, not a hardcoded C:.
       const driveLetter = isWindows
-        ? (process.cwd().match(/^([A-Za-z]):/)?.[1]?.toUpperCase() ?? "C")
+        ? (process
+            .cwd()
+            .match(/^([A-Za-z]):/)?.[1]
+            ?.toUpperCase() ?? "C")
         : null;
       const cmd = isWindows
         ? `wmic logicaldisk where caption=${driveLetter}: get freespace,size /format:csv`

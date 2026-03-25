@@ -1,10 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Card from "./ui/Card.js";
 import Skeleton from "./ui/Skeleton.js";
-import {
-  fetchSystemHealth,
-  type SystemHealthData,
-} from "../hooks/useApi.js";
+import { fetchSystemHealth, type SystemHealthData } from "../hooks/useApi.js";
 
 type HealthData = SystemHealthData;
 
@@ -76,7 +73,9 @@ function CpuSection({ cpu }: { cpu: HealthData["cpu"] }) {
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Load Avg (1m / 5m / 15m)</span>
+          <span className="text-xs text-gray-400">
+            Load Avg (1m / 5m / 15m)
+          </span>
           <span className="text-sm tabular-nums text-gray-200">
             {isWindows ? (
               <span className="text-gray-500">N/A (Windows)</span>
@@ -141,7 +140,9 @@ function InngestSection({ inngest }: { inngest: HealthData["inngest"] }) {
         </span>
       </div>
       {inngest.error && (
-        <div className="mt-2 text-xs text-red-400 truncate">{inngest.error}</div>
+        <div className="mt-2 text-xs text-red-400 truncate">
+          {inngest.error}
+        </div>
       )}
     </Card>
   );
@@ -171,9 +172,7 @@ function DiskSection({ disk }: { disk: HealthData["disk"] }) {
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>
             Used:{" "}
-            <span className="text-gray-200 tabular-nums">
-              {disk.usedGb} GB
-            </span>
+            <span className="text-gray-200 tabular-nums">{disk.usedGb} GB</span>
             {" / "}
             <span className="text-gray-200 tabular-nums">
               {disk.totalGb} GB
