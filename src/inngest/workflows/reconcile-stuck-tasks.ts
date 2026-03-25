@@ -18,6 +18,7 @@ import {
   getRunningInvocations,
   incrementStaleSessionRetryCount,
   insertSystemEvent,
+  updateInvocation,
   updateTaskStatus,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
@@ -170,6 +171,37 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("reconcile", async () => {
       const { db, config } = getSchedulerDeps();
       await runReconciliation({ db, config });
+    });
+
+    await step.run("cleanup-orphaned-invocations", async () => {
+      const { db } = getSchedulerDeps();
+      const runningInvs = getRunningInvocations(db);
+      let cleaned = 0;
+
+      for (const inv of runningInvs) {
+        // Skip invocations with a live session handle
+        if (activeHandles.has(inv.id)) continue;
+
+        // Grace period: don't clean up invocations less than 5 minutes old
+        const startedMs = inv.startedAt ? new Date(inv.startedAt).getTime() : 0;
+        const ageMs = Date.now() - startedMs;
+        if (ageMs < 5 * 60 * 1000) continue;
+
+        updateInvocation(db, inv.id, {
+          status: "failed",
+          endedAt: new Date().toISOString(),
+          outputSummary:
+            inv.outputSummary ?? "orphaned: no active session handle",
+        });
+        cleaned++;
+        logger.info(
+          `[inv:${inv.id}] cleaned orphaned invocation for ${inv.linearIssueId} (age: ${Math.round(ageMs / 60000)}m)`,
+        );
+      }
+
+      if (cleaned > 0) {
+        logger.info(`cleaned ${cleaned} orphaned invocation(s)`);
+      }
     });
 
     await step.run("detect-stuck-tasks", async () => {
