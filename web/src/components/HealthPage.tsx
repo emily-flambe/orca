@@ -1,52 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import Card from "./ui/Card.js";
 import Skeleton from "./ui/Skeleton.js";
+import {
+  fetchSystemHealth,
+  type SystemHealthData,
+} from "../hooks/useApi.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface HealthData {
-  cpu: {
-    loadAvg: number[];
-    cpuCount: number;
-    platform: string;
-  };
-  memory: {
-    totalMb: number;
-    freeMb: number;
-    usedMb: number;
-    usedPercent: number;
-  };
-  pm2: {
-    available: boolean;
-    processes: Array<{
-      name: string;
-      status: string;
-      cpu: number;
-      memory: number;
-      uptime: number;
-      restarts: number;
-    }>;
-  };
-  inngest: {
-    healthy: boolean;
-    url: string;
-    error?: string;
-  };
-  disk: {
-    available: boolean;
-    totalGb: number;
-    usedGb: number;
-    freeGb: number;
-    usedPercent: number;
-  };
-  sessions: {
-    active: number;
-    totalToday: number;
-  };
-  timestamp: string;
-}
+type HealthData = SystemHealthData;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -295,12 +255,6 @@ function SessionsSection({ sessions }: { sessions: HealthData["sessions"] }) {
 // Main HealthPage
 // ---------------------------------------------------------------------------
 
-async function fetchHealth(): Promise<HealthData> {
-  const res = await fetch("/api/system-health");
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<HealthData>;
-}
-
 export default function HealthPage() {
   const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -309,7 +263,7 @@ export default function HealthPage() {
   const [nowTick, setNowTick] = useState(0);
 
   const load = useCallback(() => {
-    fetchHealth()
+    fetchSystemHealth()
       .then((d) => {
         setData(d);
         setLastUpdated(new Date());
