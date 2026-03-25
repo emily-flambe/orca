@@ -162,9 +162,7 @@ export default function HealthPage() {
         {health.uptime != null && (
           <span className="text-sm text-gray-400">
             Uptime:{" "}
-            <span className="text-gray-200">
-              {formatUptime(health.uptime)}
-            </span>
+            <span className="text-gray-200">{formatUptime(health.uptime)}</span>
           </span>
         )}
         <span className="text-sm text-gray-400">
