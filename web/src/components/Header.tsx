@@ -4,6 +4,7 @@ import type { OrcaStatus } from "../types";
 const PAGE_TITLES: Record<Page, string> = {
   tasks: "Tasks",
   metrics: "Metrics",
+  health: "Health",
   cron: "Cron",
   agents: "Agents",
   settings: "Settings",

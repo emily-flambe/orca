@@ -1,5 +1,7 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -176,6 +178,101 @@ async function checkInngestHealth(): Promise<boolean> {
 
   _inngestHealthCache = { value: false, expiresAt: now + 10_000 };
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// System health helpers
+// ---------------------------------------------------------------------------
+
+interface DiskInfo {
+  available: string;
+  used: string;
+  total: string;
+  usedPercent: number;
+}
+
+interface ProcessInfo {
+  name: string;
+  pid: number;
+  status: string;
+  cpu: number;
+  memory: number;
+  uptime: number | null;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)}T`;
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)}G`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)}M`;
+  return `${(bytes / 1e3).toFixed(1)}K`;
+}
+
+function getDiskUsage(): DiskInfo | null {
+  try {
+    const platform = os.platform();
+    if (platform === "win32") {
+      const output = execSync(
+        "wmic logicaldisk where \"DeviceID='C:'\" get size,freespace /format:value",
+        { timeout: 5000 },
+      ).toString();
+      const freeMatch = output.match(/FreeSpace=(\d+)/);
+      const sizeMatch = output.match(/Size=(\d+)/);
+      if (!freeMatch || !sizeMatch) return null;
+      const total = Number(sizeMatch[1]);
+      const free = Number(freeMatch[1]);
+      if (!total) return null;
+      const used = total - free;
+      return {
+        available: formatBytes(free),
+        used: formatBytes(used),
+        total: formatBytes(total),
+        usedPercent: Math.round((used / total) * 100),
+      };
+    } else {
+      const output = execSync("df -k / 2>/dev/null", {
+        timeout: 5000,
+      }).toString();
+      const lines = output.trim().split("\n");
+      const parts = lines[1]!.trim().split(/\s+/);
+      const total = Number(parts[1]) * 1024;
+      const used = Number(parts[2]) * 1024;
+      const free = Number(parts[3]) * 1024;
+      if (!total) return null;
+      return {
+        available: formatBytes(free),
+        used: formatBytes(used),
+        total: formatBytes(total),
+        usedPercent: Math.round((used / total) * 100),
+      };
+    }
+  } catch {
+    return null;
+  }
+}
+
+function getPm2Processes(): ProcessInfo[] | null {
+  try {
+    const output = execSync("pm2 jlist", { timeout: 5000 }).toString();
+    const list = JSON.parse(output) as Array<{
+      name: string;
+      pid: number;
+      pm2_env?: { status?: string; pm_uptime?: number };
+      monit?: { cpu?: number; memory?: number };
+    }>;
+    return list.map((p) => ({
+      name: p.name,
+      pid: p.pid,
+      status: p.pm2_env?.status ?? "unknown",
+      cpu: p.monit?.cpu ?? 0,
+      memory: p.monit?.memory ?? 0,
+      uptime:
+        p.pm2_env?.pm_uptime != null
+          ? Math.floor((Date.now() - p.pm2_env.pm_uptime) / 1000)
+          : null,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -887,6 +984,37 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // 503 only when DB is unreachable
     const httpStatus = !dbOk ? 503 : 200;
     return c.json(body, httpStatus);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET /api/health/system
+  // -----------------------------------------------------------------------
+  app.get("/api/health/system", (c) => {
+    const totalBytes = os.totalmem();
+    const freeBytes = os.freemem();
+    const usedBytes = totalBytes - freeBytes;
+
+    const cpus = os.cpus();
+
+    return c.json({
+      cpu: {
+        loadAvg: os.loadavg(),
+        count: cpus.length,
+        model: cpus[0]?.model ?? "unknown",
+      },
+      memory: {
+        totalBytes,
+        freeBytes,
+        usedBytes,
+        usedPercent: Math.round((usedBytes / totalBytes) * 100),
+      },
+      disk: getDiskUsage(),
+      pm2: getPm2Processes(),
+      platform: os.platform(),
+      arch: os.arch(),
+      nodeVersion: process.version,
+      hostname: os.hostname(),
+    });
   });
 
   // -----------------------------------------------------------------------

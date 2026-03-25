@@ -22,6 +22,7 @@ import CreateTicketModal from "./components/CreateTicketModal";
 import CronPage from "./components/CronPage";
 import AgentsPage from "./components/AgentsPage";
 import MetricsPage from "./components/MetricsPage";
+import HealthPage from "./components/HealthPage";
 import LogsPage from "./components/LogsPage";
 import PulsingDot from "./components/ui/PulsingDot";
 import { MODEL_OPTIONS } from "./constants.js";
@@ -414,6 +415,7 @@ export default function App() {
     const path = location.pathname;
     if (path.startsWith("/tasks")) return "tasks";
     if (path === "/metrics") return "metrics";
+    if (path === "/health") return "health";
     if (path === "/cron") return "cron";
     if (path === "/agents") return "agents";
     if (path === "/logs") return "logs";
@@ -592,6 +594,7 @@ export default function App() {
       const pathMap: Record<Page, string> = {
         tasks: "/tasks",
         metrics: "/metrics",
+        health: "/health",
         cron: "/cron",
         agents: "/agents",
         logs: "/logs",
@@ -660,6 +663,8 @@ export default function App() {
         )}
 
         {activePage === "metrics" && <MetricsPage />}
+
+        {activePage === "health" && <HealthPage />}
 
         {activePage === "settings" && (
           <SettingsPage
