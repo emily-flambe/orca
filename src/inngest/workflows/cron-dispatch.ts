@@ -8,7 +8,7 @@
 
 import { execSync } from "node:child_process";
 import { inngest } from "../client.js";
-import { getSchedulerDeps } from "../deps.js";
+import { getSchedulerDeps, isReady } from "../deps.js";
 import {
   getDueCronSchedules,
   getTask,
@@ -79,6 +79,8 @@ export const cronDispatchWorkflow = inngest.createFunction(
   { cron: "* * * * *" },
   async ({ step }) => {
     const dueSchedules = await step.run("get-due-schedules", () => {
+      // Skip if deps aren't initialized yet (startup grace period).
+      if (!isReady()) return [] as ReturnType<typeof getDueCronSchedules>;
       const { db } = getSchedulerDeps();
       const now = new Date().toISOString();
       return getDueCronSchedules(db, now);

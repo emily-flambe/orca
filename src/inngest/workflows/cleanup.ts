@@ -1,5 +1,5 @@
 import { inngest } from "../client.js";
-import { getSchedulerDeps } from "../deps.js";
+import { getSchedulerDeps, isReady } from "../deps.js";
 import {
   cleanupStaleResourcesAsync,
   cleanupOldInvocationLogs,
@@ -15,6 +15,8 @@ export const cleanupCronWorkflow = inngest.createFunction(
   { cron: "*/5 * * * *" },
   async ({ step }) => {
     await step.run("cleanup", async () => {
+      // Skip if deps aren't initialized yet (startup grace period).
+      if (!isReady()) return;
       sweepExitedHandles();
       const { db, config } = getSchedulerDeps();
       await cleanupStaleResourcesAsync({ db, config });

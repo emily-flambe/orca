@@ -9,7 +9,7 @@
  */
 
 import { inngest } from "../client.js";
-import { getSchedulerDeps } from "../deps.js";
+import { getSchedulerDeps, isReady } from "../deps.js";
 import { isDraining } from "../../deploy.js";
 import {
   getAllTasks,
@@ -169,6 +169,8 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
   { cron: "*/5 * * * *" },
   async ({ step }) => {
     await step.run("reconcile", async () => {
+      // Skip if deps aren't initialized yet (startup grace period).
+      if (!isReady()) return;
       const { db, config } = getSchedulerDeps();
       await runReconciliation({ db, config });
     });

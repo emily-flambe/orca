@@ -62,19 +62,36 @@ function npmInstall(cwd: string): void {
  * with exponential backoff (2s → 4s → 8s → 16s, ~30s total).
  */
 export function rmSyncWithRetry(dirPath: string, maxAttempts = 5): void {
+  let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       rmSync(dirPath, { recursive: true, force: true });
       return;
     } catch (err: unknown) {
+      lastErr = err;
       const code = (err as NodeJS.ErrnoException).code;
-      if ((code !== "EPERM" && code !== "EBUSY") || attempt === maxAttempts) {
+      if (code !== "EPERM" && code !== "EBUSY") {
         throw err;
       }
-      const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+      if (attempt < maxAttempts) {
+        const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+      }
     }
   }
+  // All Node.js attempts failed. On Windows, fall back to cmd.exe rmdir which
+  // can bypass locks held by antivirus/indexing services that block rmSync.
+  if (process.platform === "win32") {
+    try {
+      execFileSync("cmd.exe", ["/c", "rmdir", "/s", "/q", dirPath], {
+        stdio: "pipe",
+      });
+      return;
+    } catch {
+      // cmd.exe also failed — throw the original Node.js error for context
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -85,19 +102,34 @@ export async function rmWithRetry(
   dirPath: string,
   maxAttempts = 5,
 ): Promise<void> {
+  let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await rm(dirPath, { recursive: true, force: true });
       return;
     } catch (err: unknown) {
+      lastErr = err;
       const code = (err as NodeJS.ErrnoException).code;
-      if ((code !== "EPERM" && code !== "EBUSY") || attempt === maxAttempts) {
+      if (code !== "EPERM" && code !== "EBUSY") {
         throw err;
       }
-      const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (attempt < maxAttempts) {
+        const delayMs = 2000 * Math.pow(2, attempt - 1); // 2s, 4s, 8s, 16s
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
   }
+  // All Node.js attempts failed. On Windows, fall back to cmd.exe rmdir which
+  // can bypass locks held by antivirus/indexing services that block rm.
+  if (process.platform === "win32") {
+    try {
+      await execFileAsync("cmd.exe", ["/c", "rmdir", "/s", "/q", dirPath]);
+      return;
+    } catch {
+      // cmd.exe also failed — throw the original Node.js error for context
+    }
+  }
+  throw lastErr;
 }
 
 /**

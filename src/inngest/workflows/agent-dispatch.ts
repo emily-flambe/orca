@@ -7,7 +7,7 @@
  */
 
 import { inngest } from "../client.js";
-import { getSchedulerDeps } from "../deps.js";
+import { getSchedulerDeps, isReady } from "../deps.js";
 import {
   getDueAgents,
   getTask,
@@ -28,6 +28,9 @@ export const agentDispatchWorkflow = inngest.createFunction(
   { cron: "* * * * *" },
   async ({ step }) => {
     const dueAgents = await step.run("get-due-agents", () => {
+      // Skip if deps aren't initialized yet (startup grace period).
+      // The next cron tick (in 1 minute) will pick up any due agents.
+      if (!isReady()) return [] as ReturnType<typeof getDueAgents>;
       const { db } = getSchedulerDeps();
       const now = new Date().toISOString();
       return getDueAgents(db, now);
