@@ -418,6 +418,7 @@ export default function App() {
     if (path === "/cron") return "cron";
     if (path === "/agents") return "agents";
     if (path === "/logs") return "logs";
+    if (path === "/health") return "health";
     if (path === "/settings") return "settings";
     if (path === "/health") return "health";
     return "tasks"; // default to tasks, not dashboard
@@ -597,6 +598,7 @@ export default function App() {
         cron: "/cron",
         agents: "/agents",
         logs: "/logs",
+        health: "/health",
         settings: "/settings",
         health: "/health",
       };

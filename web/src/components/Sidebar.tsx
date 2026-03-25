@@ -6,8 +6,8 @@ export type Page =
   | "cron"
   | "agents"
   | "logs"
-  | "settings"
-  | "health";
+  | "health"
+  | "settings";
 
 interface SidebarProps {
   activePage: Page;

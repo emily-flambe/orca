@@ -6,9 +6,9 @@ const PAGE_TITLES: Record<Page, string> = {
   metrics: "Metrics",
   cron: "Cron",
   agents: "Agents",
+  health: "System Health",
   settings: "Settings",
   logs: "System Events",
-  health: "Health",
 };
 
 function HealthDot({ online }: { online: boolean | null }) {
