@@ -115,7 +115,9 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
 
   // Collect unique repo paths from all tasks
   const allTasks = getAllTasks(db);
-  const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))];
+  const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))].filter(
+    Boolean,
+  );
 
   if (repoPaths.length === 0) return;
 
@@ -401,7 +403,12 @@ function cleanupRepo(
       git(["branch", "-D", branch], { cwd: repoPath });
       log(`deleted stale branch: ${branch}`);
     } catch (err) {
-      log(`failed to delete branch ${branch}: ${err}`);
+      const errStr = String(err);
+      if (errStr.includes("used by worktree")) {
+        // Branch is checked out in a manually-created worktree — skip silently
+      } else {
+        log(`failed to delete branch ${branch}: ${err}`);
+      }
     }
   }
 }
@@ -470,7 +477,9 @@ export async function cleanupStaleResourcesAsync(
   const { db } = deps;
 
   const allTasks = getAllTasks(db);
-  const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))];
+  const repoPaths = [...new Set(allTasks.map((t) => t.repoPath))].filter(
+    Boolean,
+  );
 
   if (repoPaths.length === 0) return;
 
@@ -724,7 +733,12 @@ async function cleanupRepoAsync(
       await gitAsync(["branch", "-D", branch], { cwd: repoPath });
       log(`deleted stale branch: ${branch}`);
     } catch (err) {
-      log(`failed to delete branch ${branch}: ${err}`);
+      const errStr = String(err);
+      if (errStr.includes("used by worktree")) {
+        // Branch is checked out in a manually-created worktree — skip silently
+      } else {
+        log(`failed to delete branch ${branch}: ${err}`);
+      }
     }
 
     // Yield to event loop between branch deletions
