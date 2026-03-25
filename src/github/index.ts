@@ -10,6 +10,63 @@ const logger = createLogger("github");
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
+// gh binary resolution
+// ---------------------------------------------------------------------------
+
+let _resolvedGhCache: { path: string } | null = null;
+
+/**
+ * Resolve the path to the `gh` CLI binary.
+ *
+ * Resolution order:
+ * 1. ORCA_GH_PATH env var (explicit override, like ORCA_CLAUDE_PATH)
+ * 2. On Windows, runs `where gh`; on other platforms, runs `which gh`
+ * 3. Falls back to `"gh"` if resolution fails
+ *
+ * Result is cached to avoid repeated subprocess lookups. The cache is
+ * populated eagerly at module load time so that test mocks (which intercept
+ * execFileSync) don't consume an extra mock call during individual tests.
+ */
+export function resolveGhBinary(): string {
+  if (_resolvedGhCache) return _resolvedGhCache.path;
+
+  // Explicit env var takes priority (like ORCA_CLAUDE_PATH)
+  const envPath = process.env.ORCA_GH_PATH;
+  if (envPath) {
+    _resolvedGhCache = { path: envPath };
+    return envPath;
+  }
+
+  // Try to locate via where/which
+  try {
+    const finder = process.platform === "win32" ? "where" : "which";
+    const found = execFileSync(finder, ["gh"], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+      .trim()
+      .split("\n")[0]
+      ?.trim();
+    if (found) {
+      _resolvedGhCache = { path: found };
+      return found;
+    }
+  } catch {
+    // Fall through to default
+  }
+
+  _resolvedGhCache = { path: "gh" };
+  return "gh";
+}
+
+// Pre-warm the cache at module load time. When running under test mocks
+// (vi.mock("node:child_process")), execFileSync returns undefined, causing
+// an exception that is caught above, so the cache is set to "gh" before any
+// test's beforeEach can configure mock return values. This ensures the
+// where/which lookup never consumes a mock call during individual tests.
+resolveGhBinary();
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -28,8 +85,9 @@ export interface PrInfo {
 // ---------------------------------------------------------------------------
 
 function gh(args: string[], options?: { cwd?: string }): string {
+  const ghBin = resolveGhBinary();
   try {
-    return execFileSync("gh", args, {
+    return execFileSync(ghBin, args, {
       encoding: "utf-8",
       cwd: options?.cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -220,8 +278,9 @@ async function ghAsync(
   args: string[],
   options?: { cwd?: string },
 ): Promise<string> {
+  const ghBin = resolveGhBinary();
   try {
-    const { stdout } = await execFileAsync("gh", args, {
+    const { stdout } = await execFileAsync(ghBin, args, {
       encoding: "utf-8",
       cwd: options?.cwd,
     });

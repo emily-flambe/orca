@@ -68,6 +68,7 @@ import {
   closeSupersededPrs,
   getPrCheckStatus,
   enrichPrDescription,
+  resolveGhBinary,
 } from "../../github/index.js";
 import { activeHandles } from "../../session-handles.js";
 import { isDraining } from "../../deploy.js";
@@ -1288,6 +1289,7 @@ export const taskLifecycle = inngest.createFunction(
             repoPath: enrichTask.repoPath,
             claudePath: enrichConfig.claudePath,
             model: enrichConfig.reviewModel, // haiku
+            ghPath: resolveGhBinary(),
           });
         } catch (err) {
           // Non-fatal — log and continue to review

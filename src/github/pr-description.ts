@@ -39,15 +39,24 @@ export async function enrichPrDescription(opts: {
   repoPath: string;
   claudePath: string;
   model: string; // e.g. "haiku"
+  ghPath?: string;
 }): Promise<void> {
-  const { prNumber, taskId, agentPrompt, repoPath, claudePath, model } = opts;
+  const {
+    prNumber,
+    taskId,
+    agentPrompt,
+    repoPath,
+    claudePath,
+    model,
+    ghPath = "gh",
+  } = opts;
 
   // 1. Get current PR title + body
   let prTitle: string;
   let prBody: string;
   try {
     const prJson = execFileSync(
-      "gh",
+      ghPath,
       ["pr", "view", String(prNumber), "--json", "title,body"],
       { encoding: "utf-8", cwd: repoPath },
     );
@@ -211,7 +220,7 @@ Output only the JSON object, nothing else.`;
   // 7. Apply via gh pr edit
   try {
     execFileSync(
-      "gh",
+      ghPath,
       [
         "pr",
         "edit",
