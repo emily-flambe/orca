@@ -3,6 +3,7 @@ import type { OrcaStatus } from "../types";
 export type Page =
   | "tasks"
   | "metrics"
+  | "health"
   | "cron"
   | "agents"
   | "logs"
@@ -70,6 +71,15 @@ export default function Sidebar({
           onClick={() => onNavigate("metrics")}
         >
           <span>Metrics</span>
+        </button>
+
+        {/* Health */}
+        <button
+          aria-label="Health"
+          className={navItemClass("health")}
+          onClick={() => onNavigate("health")}
+        >
+          <span>Health</span>
         </button>
 
         {/* Cron */}
