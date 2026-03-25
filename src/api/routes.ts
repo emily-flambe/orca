@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
-import { cpus, freemem, totalmem, loadavg } from "node:os";
-import { execSync } from "node:child_process";
+import { cpus, freemem, totalmem, loadavg, platform } from "node:os";
+import { exec } from "node:child_process";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { OrcaDb } from "../db/index.js";
@@ -164,7 +164,7 @@ async function checkInngestHealth(): Promise<boolean> {
       const timerId = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(inngestBaseUrl, { signal: controller.signal });
       clearTimeout(timerId);
-      if (res.status < 500) {
+      if (res.ok) {
         _inngestHealthCache = { value: true, expiresAt: now + 10_000 };
         return true;
       }
@@ -892,125 +892,207 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
-  // GET /api/system-health — detailed system metrics for dashboard health page
+  // GET /api/system-health — system resource dashboard
   // -----------------------------------------------------------------------
   app.get("/api/system-health", async (c) => {
+    const now = new Date();
+
     // CPU
-    const loadAvg = loadavg(); // [1m, 5m, 15m] — zeros on Windows
-    const cpuCount = cpus().length;
+    const cpuInfo = {
+      loadAvg: loadavg(),
+      cpuCount: cpus().length,
+      platform: platform(),
+    };
 
     // Memory
-    const totalBytes = totalmem();
-    const freeBytes = freemem();
-    const usedBytes = totalBytes - freeBytes;
-    const totalMb = totalBytes / 1024 / 1024;
-    const freeMb = freeBytes / 1024 / 1024;
-    const usedMb = usedBytes / 1024 / 1024;
-    const usedPct = (usedBytes / totalBytes) * 100;
+    const totalMb = Math.round(totalmem() / 1024 / 1024);
+    const freeMb = Math.round(freemem() / 1024 / 1024);
+    const usedMb = totalMb - freeMb;
+    const memoryInfo = {
+      totalMb,
+      usedMb,
+      freeMb,
+      usedPercent: Math.round((usedMb / totalMb) * 100),
+    };
 
-    // Process
-    const memUsage = process.memoryUsage();
-    const uptimeSec = process.uptime();
-    const heapUsedMb = memUsage.heapUsed / 1024 / 1024;
-    const heapTotalMb = memUsage.heapTotal / 1024 / 1024;
-    const rssMb = memUsage.rss / 1024 / 1024;
+    // PM2
+    const pm2Info = await new Promise<{
+      available: boolean;
+      processes: Array<{
+        name: string;
+        status: string;
+        cpu: number;
+        memory: number;
+        uptime: number;
+        restarts: number;
+      }>;
+    }>((resolve) => {
+      exec(
+        "pm2 jlist",
+        { timeout: 5000 },
+        (err: Error | null, stdout: string) => {
+          if (err) {
+            resolve({ available: false, processes: [] });
+            return;
+          }
+          try {
+            const list = JSON.parse(stdout) as Array<{
+              name?: string;
+              pm2_env?: {
+                status?: string;
+                restart_time?: number;
+                pm_uptime?: number;
+              };
+              monit?: { cpu?: number; memory?: number };
+            }>;
+            resolve({
+              available: true,
+              processes: list.map((p) => ({
+                name: p.name ?? "unknown",
+                status: p.pm2_env?.status ?? "unknown",
+                cpu: p.monit?.cpu ?? 0,
+                memory: Math.round((p.monit?.memory ?? 0) / 1024 / 1024),
+                uptime: Date.now() - (p.pm2_env?.pm_uptime ?? Date.now()),
+                restarts: p.pm2_env?.restart_time ?? 0,
+              })),
+            });
+          } catch {
+            resolve({ available: false, processes: [] });
+          }
+        },
+      );
+    });
 
     // Inngest
-    const inngestReachable = await checkInngestHealth();
-
-    // Disk — cross-platform, optional
-    let disk:
-      | {
-          path: string;
-          totalGb: number;
-          freeGb: number;
-          usedGb: number;
-          usedPct: number;
-        }
-      | undefined;
-    try {
-      const cwd = process.cwd();
-      if (process.platform === "win32") {
-        // Use wmic to get disk info for the drive letter of cwd
-        const driveLetter = cwd.slice(0, 2).toUpperCase(); // e.g. "C:"
-        const output = execSync(
-          `wmic logicaldisk where "DeviceID='${driveLetter}'" get FreeSpace,Size /format:csv`,
-          { timeout: 3000 },
-        )
-          .toString()
-          .trim();
-        const lines = output.split("\n").map((l) => l.trim()).filter(Boolean);
-        // CSV format: Node,FreeSpace,Size
-        const dataLine = lines.find((l) => !l.startsWith("Node"));
-        if (dataLine) {
-          const parts = dataLine.split(",");
-          const freeSpaceBytes = parseFloat(parts[1] ?? "0");
-          const sizeBytes = parseFloat(parts[2] ?? "0");
-          if (sizeBytes > 0) {
-            const totalGb = sizeBytes / 1e9;
-            const freeGb = freeSpaceBytes / 1e9;
-            const usedGb = totalGb - freeGb;
-            disk = {
-              path: driveLetter,
-              totalGb,
-              freeGb,
-              usedGb,
-              usedPct: (usedGb / totalGb) * 100,
-            };
-          }
-        }
-      } else {
-        // df -k gives output in 1K blocks
-        const output = execSync(`df -k "${cwd}"`, { timeout: 3000 })
-          .toString()
-          .trim();
-        const lines = output.split("\n");
-        const dataLine = lines[lines.length - 1];
-        if (dataLine) {
-          const parts = dataLine.split(/\s+/);
-          // Filesystem  1K-blocks  Used  Available  Use%  Mounted on
-          const totalKb = parseFloat(parts[1] ?? "0");
-          const usedKb = parseFloat(parts[2] ?? "0");
-          const freeKb = parseFloat(parts[3] ?? "0");
-          if (totalKb > 0) {
-            disk = {
-              path: parts[5] ?? cwd,
-              totalGb: totalKb / 1e6,
-              freeGb: freeKb / 1e6,
-              usedGb: usedKb / 1e6,
-              usedPct: (usedKb / totalKb) * 100,
-            };
-          }
-        }
+    const inngestBaseUrl =
+      process.env["INNGEST_BASE_URL"] ?? "http://localhost:8288";
+    const inngestInfo = await (async () => {
+      try {
+        const controller = new AbortController();
+        const timerId = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${inngestBaseUrl}/health`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timerId);
+        return { healthy: res.ok, url: inngestBaseUrl };
+      } catch (err) {
+        return {
+          healthy: false,
+          url: inngestBaseUrl,
+          error: err instanceof Error ? err.message : "unreachable",
+        };
       }
+    })();
+
+    // Disk
+    const diskInfo = await new Promise<{
+      available: boolean;
+      totalGb: number;
+      usedGb: number;
+      freeGb: number;
+      usedPercent: number;
+    }>((resolve) => {
+      const isWindows = platform() === "win32";
+      const cmd = isWindows
+        ? "wmic logicaldisk where caption=C: get freespace,size /format:csv"
+        : "df -k /";
+
+      exec(cmd, { timeout: 5000 }, (err: Error | null, stdout: string) => {
+        if (err) {
+          resolve({
+            available: false,
+            totalGb: 0,
+            usedGb: 0,
+            freeGb: 0,
+            usedPercent: 0,
+          });
+          return;
+        }
+        try {
+          if (isWindows) {
+            // CSV output: Node,FreeSpace,Size
+            const lines = stdout
+              .trim()
+              .split("\n")
+              .filter((l: string) => l.trim() && !l.startsWith("Node"));
+            const line = lines[0];
+            if (!line) throw new Error("no data");
+            const parts = line.trim().split(",");
+            // parts: [Node, FreeSpace, Size]
+            const freeBytes = parseInt(parts[1] ?? "0", 10);
+            const totalBytes = parseInt(parts[2] ?? "0", 10);
+            const usedBytes = totalBytes - freeBytes;
+            const toGb = (b: number) =>
+              Math.round((b / 1024 / 1024 / 1024) * 10) / 10;
+            resolve({
+              available: true,
+              totalGb: toGb(totalBytes),
+              usedGb: toGb(usedBytes),
+              freeGb: toGb(freeBytes),
+              usedPercent: Math.round((usedBytes / totalBytes) * 100),
+            });
+          } else {
+            // df -k output: Filesystem 1K-blocks Used Available Use% Mounted
+            const lines = stdout.trim().split("\n");
+            const dataLine = lines[1];
+            if (!dataLine) throw new Error("no data");
+            const parts = dataLine.trim().split(/\s+/);
+            const totalKb = parseInt(parts[1] ?? "0", 10);
+            const usedKb = parseInt(parts[2] ?? "0", 10);
+            const freeKb = parseInt(parts[3] ?? "0", 10);
+            const toGb = (kb: number) =>
+              Math.round((kb / 1024 / 1024) * 10) / 10;
+            resolve({
+              available: true,
+              totalGb: toGb(totalKb),
+              usedGb: toGb(usedKb),
+              freeGb: toGb(freeKb),
+              usedPercent: Math.round((usedKb / totalKb) * 100),
+            });
+          }
+        } catch {
+          resolve({
+            available: false,
+            totalGb: 0,
+            usedGb: 0,
+            freeGb: 0,
+            usedPercent: 0,
+          });
+        }
+      });
+    });
+
+    // Sessions
+    let activeSessions = 0;
+    let totalToday = 0;
+    try {
+      activeSessions = countActiveSessions(db);
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayStartStr = todayStart.toISOString();
+      const result = db.$client
+        .prepare(
+          "SELECT COUNT(*) as cnt FROM invocations WHERE started_at >= ?",
+        )
+        .get(todayStartStr) as { cnt: number };
+      totalToday = result?.cnt ?? 0;
     } catch {
-      // Disk info is optional — skip if it fails
+      // ignore
     }
 
-    // Recent deploys from system_events
-    const recentDeploys = getRecentSystemEvents(db, 100)
-      .filter((e) => e.type === "deploy")
-      .slice(0, 5)
-      .map((e) => ({
-        id: e.id,
-        type: e.type,
-        message: e.message,
-        createdAt: e.createdAt,
-        metadata: e.metadata,
-      }));
-
-    // Active sessions
-    const activeSessions = countActiveSessions(db);
+    logger.debug("[orca/health] system-health polled");
 
     return c.json({
-      cpu: { loadAvg, cpuCount },
-      memory: { totalMb, freeMb, usedMb, usedPct },
-      process: { uptimeSec, heapUsedMb, heapTotalMb, rssMb },
-      inngest: { reachable: inngestReachable },
-      disk,
-      recentDeploys,
-      activeSessions,
-      timestamp: new Date().toISOString(),
+      cpu: cpuInfo,
+      memory: memoryInfo,
+      pm2: pm2Info,
+      inngest: inngestInfo,
+      disk: diskInfo,
+      sessions: {
+        active: activeSessions,
+        totalToday,
+      },
+      timestamp: now.toISOString(),
     });
   });
 

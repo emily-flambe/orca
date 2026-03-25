@@ -600,7 +600,6 @@ export default function App() {
         logs: "/logs",
         health: "/health",
         settings: "/settings",
-        health: "/health",
       };
       navigate(pathMap[page]);
       setSidebarOpen(false);

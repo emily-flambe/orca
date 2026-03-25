@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Card from "./ui/Card.js";
 import Skeleton from "./ui/Skeleton.js";
-import { timeAgo } from "../utils/time.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -11,38 +10,41 @@ interface HealthData {
   cpu: {
     loadAvg: number[];
     cpuCount: number;
+    platform: string;
   };
   memory: {
     totalMb: number;
     freeMb: number;
     usedMb: number;
-    usedPct: number;
+    usedPercent: number;
   };
-  process: {
-    uptimeSec: number;
-    heapUsedMb: number;
-    heapTotalMb: number;
-    rssMb: number;
+  pm2: {
+    available: boolean;
+    processes: Array<{
+      name: string;
+      status: string;
+      cpu: number;
+      memory: number;
+      uptime: number;
+      restarts: number;
+    }>;
   };
   inngest: {
-    reachable: boolean;
-    queueDepth?: number;
+    healthy: boolean;
+    url: string;
+    error?: string;
   };
-  disk?: {
-    path: string;
+  disk: {
+    available: boolean;
     totalGb: number;
-    freeGb: number;
     usedGb: number;
-    usedPct: number;
+    freeGb: number;
+    usedPercent: number;
   };
-  recentDeploys: Array<{
-    id: number;
-    type: string;
-    message: string;
-    createdAt: string;
-    metadata: unknown;
-  }>;
-  activeSessions: number;
+  sessions: {
+    active: number;
+    totalToday: number;
+  };
   timestamp: string;
 }
 
@@ -50,10 +52,11 @@ interface HealthData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatUptime(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
+function formatUptime(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
   return `${h}h ${m}m ${s}s`;
 }
 
@@ -81,12 +84,18 @@ function barColor(pct: number): string {
   return "bg-red-500";
 }
 
+function textColor(pct: number): string {
+  if (pct >= 80) return "text-red-400";
+  if (pct >= 60) return "text-yellow-400";
+  return "text-green-400";
+}
+
 // ---------------------------------------------------------------------------
 // Section components
 // ---------------------------------------------------------------------------
 
 function CpuSection({ cpu }: { cpu: HealthData["cpu"] }) {
-  const isWindows = cpu.loadAvg.every((v) => v === 0);
+  const isWindows = cpu.platform === "win32";
 
   return (
     <Card>
@@ -95,9 +104,15 @@ function CpuSection({ cpu }: { cpu: HealthData["cpu"] }) {
       </div>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">CPU Cores</span>
+          <span className="text-xs text-gray-400">Cores</span>
           <span className="text-sm tabular-nums text-gray-200">
             {cpu.cpuCount}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">Platform</span>
+          <span className="text-sm tabular-nums text-gray-200">
+            {cpu.platform}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -116,7 +131,7 @@ function CpuSection({ cpu }: { cpu: HealthData["cpu"] }) {
 }
 
 function MemorySection({ memory }: { memory: HealthData["memory"] }) {
-  const pct = memory.usedPct;
+  const pct = memory.usedPercent;
 
   return (
     <Card>
@@ -129,52 +144,18 @@ function MemorySection({ memory }: { memory: HealthData["memory"] }) {
           <span>
             Used:{" "}
             <span className="text-gray-200 tabular-nums">
-              {memory.usedMb.toFixed(0)} MB
+              {memory.usedMb} MB
             </span>
             {" / "}
             <span className="text-gray-200 tabular-nums">
-              {memory.totalMb.toFixed(0)} MB
+              {memory.totalMb} MB
             </span>
           </span>
-          <span
-            className={`tabular-nums font-medium ${pct >= 80 ? "text-red-400" : pct >= 60 ? "text-yellow-400" : "text-green-400"}`}
-          >
-            {pct.toFixed(1)}%
+          <span className={`tabular-nums font-medium ${textColor(pct)}`}>
+            {pct}%
           </span>
         </div>
-        <div className="text-xs text-gray-500">
-          Free: {memory.freeMb.toFixed(0)} MB
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function ProcessSection({ proc }: { proc: HealthData["process"] }) {
-  return (
-    <Card>
-      <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
-        Process
-      </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Uptime</span>
-          <span className="text-sm tabular-nums text-gray-200">
-            {formatUptime(proc.uptimeSec)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Heap Used / Total</span>
-          <span className="text-sm tabular-nums text-gray-200">
-            {proc.heapUsedMb.toFixed(1)} MB / {proc.heapTotalMb.toFixed(1)} MB
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">RSS</span>
-          <span className="text-sm tabular-nums text-gray-200">
-            {proc.rssMb.toFixed(1)} MB
-          </span>
-        </div>
+        <div className="text-xs text-gray-500">Free: {memory.freeMb} MB</div>
       </div>
     </Card>
   );
@@ -188,25 +169,37 @@ function InngestSection({ inngest }: { inngest: HealthData["inngest"] }) {
       </div>
       <div className="flex items-center gap-2">
         <span
-          className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${inngest.reachable ? "bg-green-500" : "bg-red-500"}`}
+          className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${inngest.healthy ? "bg-green-500" : "bg-red-500"}`}
         />
         <span
-          className={`text-sm font-medium ${inngest.reachable ? "text-green-400" : "text-red-400"}`}
+          className={`text-sm font-medium ${inngest.healthy ? "text-green-400" : "text-red-400"}`}
         >
-          {inngest.reachable ? "Reachable" : "Unreachable"}
+          {inngest.healthy ? "Healthy" : "Unhealthy"}
         </span>
-        {inngest.queueDepth !== undefined && (
-          <span className="ml-auto text-xs text-gray-400 tabular-nums">
-            Queue depth: {inngest.queueDepth}
-          </span>
-        )}
+        <span className="ml-auto text-xs text-gray-500 truncate">
+          {inngest.url}
+        </span>
       </div>
+      {inngest.error && (
+        <div className="mt-2 text-xs text-red-400 truncate">{inngest.error}</div>
+      )}
     </Card>
   );
 }
 
-function DiskSection({ disk }: { disk: NonNullable<HealthData["disk"]> }) {
-  const pct = disk.usedPct;
+function DiskSection({ disk }: { disk: HealthData["disk"] }) {
+  if (!disk.available) {
+    return (
+      <Card>
+        <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
+          Disk
+        </div>
+        <div className="text-sm text-gray-500">Unavailable</div>
+      </Card>
+    );
+  }
+
+  const pct = disk.usedPercent;
 
   return (
     <Card>
@@ -214,64 +207,86 @@ function DiskSection({ disk }: { disk: NonNullable<HealthData["disk"]> }) {
         Disk
       </div>
       <div className="space-y-2">
-        <div className="text-xs text-gray-500 truncate">{disk.path}</div>
         <ProgressBar pct={pct} color={barColor(pct)} />
         <div className="flex items-center justify-between text-xs text-gray-400">
           <span>
             Used:{" "}
             <span className="text-gray-200 tabular-nums">
-              {disk.usedGb.toFixed(1)} GB
+              {disk.usedGb} GB
             </span>
             {" / "}
             <span className="text-gray-200 tabular-nums">
-              {disk.totalGb.toFixed(1)} GB
+              {disk.totalGb} GB
             </span>
           </span>
-          <span
-            className={`tabular-nums font-medium ${pct >= 80 ? "text-red-400" : pct >= 60 ? "text-yellow-400" : "text-green-400"}`}
-          >
-            {pct.toFixed(1)}%
+          <span className={`tabular-nums font-medium ${textColor(pct)}`}>
+            {pct}%
           </span>
         </div>
-        <div className="text-xs text-gray-500">
-          Free: {disk.freeGb.toFixed(1)} GB
-        </div>
+        <div className="text-xs text-gray-500">Free: {disk.freeGb} GB</div>
       </div>
     </Card>
   );
 }
 
-function RecentDeploysSection({
-  deploys,
-}: {
-  deploys: HealthData["recentDeploys"];
-}) {
+function Pm2Section({ pm2 }: { pm2: HealthData["pm2"] }) {
   return (
     <Card>
       <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
-        Recent Deploys
+        PM2
       </div>
-      {deploys.length === 0 ? (
-        <div className="py-4 text-center text-sm text-gray-500">
-          No deploy events
-        </div>
+      {!pm2.available ? (
+        <div className="text-sm text-gray-500">Not available</div>
+      ) : pm2.processes.length === 0 ? (
+        <div className="text-sm text-gray-500">No processes</div>
       ) : (
         <div className="divide-y divide-gray-800">
-          {deploys.map((d) => (
-            <div key={d.id} className="py-2 flex items-start gap-3">
-              <span className="inline-block h-2 w-2 rounded-full bg-cyan-500 shrink-0 mt-1.5" />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm text-gray-300 truncate block">
-                  {d.message}
+          {pm2.processes.map((p) => (
+            <div key={p.name} className="py-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-200 font-medium">
+                  {p.name}
                 </span>
-                <span className="text-xs text-gray-600 tabular-nums">
-                  {timeAgo(d.createdAt)}
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded ${p.status === "online" ? "bg-green-900/50 text-green-400" : "bg-red-900/50 text-red-400"}`}
+                >
+                  {p.status}
                 </span>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-gray-400 tabular-nums">
+                <span>CPU: {p.cpu}%</span>
+                <span>Mem: {p.memory} MB</span>
+                <span>Restarts: {p.restarts}</span>
+                <span>Up: {formatUptime(p.uptime)}</span>
               </div>
             </div>
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function SessionsSection({ sessions }: { sessions: HealthData["sessions"] }) {
+  return (
+    <Card>
+      <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
+        Sessions
+      </div>
+      <div className="flex items-center gap-6">
+        <div className="text-center">
+          <div className="text-2xl tabular-nums font-semibold text-gray-200">
+            {sessions.active}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">Active</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl tabular-nums font-semibold text-gray-200">
+            {sessions.totalToday}
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">Today</div>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -318,7 +333,6 @@ export default function HealthPage() {
     return () => clearInterval(tick);
   }, []);
 
-  // Suppress unused variable warning — nowTick is consumed by the render below
   void nowTick;
 
   if (loading) return <Skeleton lines={8} className="m-6" />;
@@ -339,8 +353,8 @@ export default function HealthPage() {
             System Health
           </h2>
           <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300 tabular-nums">
-            {data.activeSessions} active session
-            {data.activeSessions !== 1 ? "s" : ""}
+            {data.sessions.active} active session
+            {data.sessions.active !== 1 ? "s" : ""}
           </span>
         </div>
         {secondsAgo !== null && (
@@ -356,17 +370,17 @@ export default function HealthPage() {
         <MemorySection memory={data.memory} />
       </div>
 
-      {/* Two-column grid for Process + Inngest */}
+      {/* Two-column grid for Inngest + Sessions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ProcessSection proc={data.process} />
         <InngestSection inngest={data.inngest} />
+        <SessionsSection sessions={data.sessions} />
       </div>
 
-      {/* Disk — only if present */}
-      {data.disk && <DiskSection disk={data.disk} />}
+      {/* Disk */}
+      <DiskSection disk={data.disk} />
 
-      {/* Recent Deploys */}
-      <RecentDeploysSection deploys={data.recentDeploys} />
+      {/* PM2 */}
+      <Pm2Section pm2={data.pm2} />
     </div>
   );
 }
