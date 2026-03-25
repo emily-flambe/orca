@@ -7,6 +7,7 @@ import {
   createCronSchedule,
   updateCronSchedule,
   deleteCronSchedule,
+  triggerCron,
 } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
@@ -14,12 +15,16 @@ vi.mock("../../hooks/useApi", () => ({
   createCronSchedule: vi.fn(),
   updateCronSchedule: vi.fn(),
   deleteCronSchedule: vi.fn(),
+  triggerCron: vi.fn(),
+  fetchCronRuns: vi.fn(),
+  fetchCronTasks: vi.fn(),
 }));
 
 const mockFetchCronSchedules = vi.mocked(fetchCronSchedules);
 const mockCreateCronSchedule = vi.mocked(createCronSchedule);
 const mockUpdateCronSchedule = vi.mocked(updateCronSchedule);
 const mockDeleteCronSchedule = vi.mocked(deleteCronSchedule);
+const mockTriggerCron = vi.mocked(triggerCron);
 
 function makeSchedule(overrides: Partial<CronSchedule> = {}): CronSchedule {
   return {
@@ -570,6 +575,104 @@ describe("CronPage", () => {
     });
 
     expect(screen.queryByTitle("Last run failed")).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Run Now button
+  // ---------------------------------------------------------------------------
+
+  it("shows 'Run now' button for an enabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ enabled: 1 })]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Run now' button for a disabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ enabled: 0 })]);
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+  });
+
+  it("calls triggerCron with the schedule id when Run now is clicked", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 42 })]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(mockTriggerCron).toHaveBeenCalledWith(42);
+    });
+  });
+
+  it("calls triggerCron for a disabled schedule", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 7, enabled: 0 }),
+    ]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+
+    render(<CronPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(mockTriggerCron).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it("shows success toast with schedule name after Run now succeeds", async () => {
+    mockFetchCronSchedules.mockResolvedValue([
+      makeSchedule({ id: 1, name: "Nightly job" }),
+    ]);
+    mockTriggerCron.mockResolvedValue({ ok: true });
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(onToast.success).toHaveBeenCalledWith("Triggered: Nightly job");
+    });
+    expect(onToast.error).not.toHaveBeenCalled();
+  });
+
+  it("shows error toast when Run now fails", async () => {
+    mockFetchCronSchedules.mockResolvedValue([makeSchedule({ id: 1 })]);
+    mockTriggerCron.mockRejectedValue(new Error("Server error"));
+    const onToast = { success: vi.fn(), error: vi.fn() };
+
+    render(<CronPage onToast={onToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Run now")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Run now"));
+
+    await waitFor(() => {
+      expect(onToast.error).toHaveBeenCalledWith("Server error");
+    });
+    expect(onToast.success).not.toHaveBeenCalled();
   });
 
   it("opens CronForm pre-filled with schedule data when Edit is clicked", async () => {
