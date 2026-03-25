@@ -164,6 +164,8 @@ async function checkInngestHealth(): Promise<boolean> {
       const timerId = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(inngestBaseUrl, { signal: controller.signal });
       clearTimeout(timerId);
+      // Use res.ok (2xx only) rather than res.status < 500: a 4xx response means
+      // Inngest is reachable but not serving its API correctly, which we treat as unhealthy.
       if (res.ok) {
         _inngestHealthCache = { value: true, expiresAt: now + 10_000 };
         return true;

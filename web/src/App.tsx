@@ -420,7 +420,6 @@ export default function App() {
     if (path === "/logs") return "logs";
     if (path === "/health") return "health";
     if (path === "/settings") return "settings";
-    if (path === "/health") return "health";
     return "tasks"; // default to tasks, not dashboard
   }, [location.pathname]);
 
