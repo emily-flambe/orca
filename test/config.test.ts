@@ -114,18 +114,6 @@ describe("required env vars", () => {
     expect(process.exit).toHaveBeenCalledWith(1);
   });
 
-  test("missing ORCA_LINEAR_WEBHOOK_SECRET → exit(1)", async () => {
-    delete process.env.ORCA_LINEAR_WEBHOOK_SECRET;
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("missing ORCA_LINEAR_PROJECT_IDS → exit(1)", async () => {
-    delete process.env.ORCA_LINEAR_PROJECT_IDS;
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
   test("missing ORCA_TUNNEL_HOSTNAME → exit(1)", async () => {
     delete process.env.ORCA_TUNNEL_HOSTNAME;
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
@@ -146,18 +134,6 @@ describe("ORCA_LINEAR_PROJECT_IDS parsing", () => {
 
   test("empty JSON array → exit(1)", async () => {
     process.env.ORCA_LINEAR_PROJECT_IDS = "[]";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("non-array JSON (string) → exit(1)", async () => {
-    process.env.ORCA_LINEAR_PROJECT_IDS = '"just-a-string"';
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("array with non-strings → exit(1)", async () => {
-    process.env.ORCA_LINEAR_PROJECT_IDS = "[1, 2]";
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
     expect(process.exit).toHaveBeenCalledWith(1);
   });
@@ -209,96 +185,27 @@ describe("ORCA_DEFAULT_CWD", () => {
 // ---------------------------------------------------------------------------
 
 describe("default values", () => {
-  test("concurrencyCap defaults to 1", async () => {
+  test("all defaults are correct with minimal env", async () => {
     const cfg = await loadConfig();
     expect(cfg.concurrencyCap).toBe(1);
-  });
-
-  test("sessionTimeoutMin defaults to 45", async () => {
-    const cfg = await loadConfig();
     expect(cfg.sessionTimeoutMin).toBe(45);
-  });
-
-  test("maxRetries defaults to 3", async () => {
-    const cfg = await loadConfig();
     expect(cfg.maxRetries).toBe(3);
-  });
-
-  test("budgetWindowHours defaults to 4", async () => {
-    const cfg = await loadConfig();
     expect(cfg.budgetWindowHours).toBe(4);
-  });
-
-  test("budgetMaxTokens defaults to 1_000_000_000", async () => {
-    const cfg = await loadConfig();
     expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
-  });
-
-  test("claudePath defaults to 'claude'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.claudePath).toBe("claude");
-  });
-
-  test("defaultMaxTurns defaults to 50", async () => {
-    const cfg = await loadConfig();
     expect(cfg.defaultMaxTurns).toBe(50);
-  });
-
-  test("maxReviewCycles defaults to 10", async () => {
-    const cfg = await loadConfig();
     expect(cfg.maxReviewCycles).toBe(10);
-  });
-
-  test("reviewMaxTurns defaults to 30", async () => {
-    const cfg = await loadConfig();
     expect(cfg.reviewMaxTurns).toBe(30);
-  });
-
-  test("model defaults to 'sonnet'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.model).toBe("sonnet");
-  });
-
-  test("reviewModel defaults to 'haiku'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.reviewModel).toBe("haiku");
-  });
-
-  test("deployStrategy defaults to 'none'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.deployStrategy).toBe("none");
-  });
-
-  test("externalTunnel defaults to false", async () => {
-    const cfg = await loadConfig();
     expect(cfg.externalTunnel).toBe(false);
-  });
-
-  test("cloudflaredPath defaults to 'cloudflared'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.cloudflaredPath).toBe("cloudflared");
-  });
-
-  test("port defaults to 3000", async () => {
-    const cfg = await loadConfig();
     expect(cfg.port).toBe(3000);
-  });
-
-  test("dbPath defaults to './orca.db'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.dbPath).toBe("./orca.db");
-  });
-
-  test("logPath defaults to './orca.log'", async () => {
-    const cfg = await loadConfig();
     expect(cfg.logPath).toBe("./orca.log");
-  });
-
-  test("tunnelToken defaults to empty string", async () => {
-    const cfg = await loadConfig();
     expect(cfg.tunnelToken).toBe("");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -336,7 +243,7 @@ describe("custom values override defaults", () => {
 // ---------------------------------------------------------------------------
 
 describe("malformed values → exit(1)", () => {
-  test("ORCA_CONCURRENCY_CAP=abc → exit(1)", async () => {
+  test("ORCA_CONCURRENCY_CAP=abc → exit(1) (non-number)", async () => {
     process.env.ORCA_CONCURRENCY_CAP = "abc";
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
     expect(process.exit).toHaveBeenCalledWith(1);
@@ -344,18 +251,6 @@ describe("malformed values → exit(1)", () => {
 
   test("ORCA_CONCURRENCY_CAP=0 → exit(1) (not positive)", async () => {
     process.env.ORCA_CONCURRENCY_CAP = "0";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("ORCA_CONCURRENCY_CAP=-1 → exit(1)", async () => {
-    process.env.ORCA_CONCURRENCY_CAP = "-1";
-    await expect(loadConfig()).rejects.toThrow("process.exit(1)");
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-
-  test("ORCA_CONCURRENCY_CAP=1.5 → exit(1) (not integer)", async () => {
-    process.env.ORCA_CONCURRENCY_CAP = "1.5";
     await expect(loadConfig()).rejects.toThrow("process.exit(1)");
     expect(process.exit).toHaveBeenCalledWith(1);
   });

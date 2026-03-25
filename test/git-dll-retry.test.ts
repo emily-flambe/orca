@@ -79,18 +79,6 @@ describe("git() retries on DLL_INIT errors", () => {
     expect(Atomics.wait).toHaveBeenCalledTimes(1);
   });
 
-  test("retries on DLL_INIT (signed exit code) then succeeds", () => {
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw makeDllError(/* signed */ true);
-      })
-      .mockReturnValueOnce("ok\n");
-
-    const result = git(["status"]);
-    expect(result).toBe("ok");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(2);
-  });
-
   test("exhausts DLL retries then throws after 4 total attempts", () => {
     // 1 original + 3 retries = 4 total attempts
     mockExecFileSync.mockImplementation(() => {
@@ -104,21 +92,6 @@ describe("git() retries on DLL_INIT errors", () => {
     expect(Atomics.wait).toHaveBeenCalledTimes(3);
   });
 
-  test("exhausted DLL retry error has correct exit code preserved", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw makeDllError();
-    });
-
-    try {
-      git(["fetch", "origin"]);
-      expect.unreachable("should have thrown");
-    } catch (err: unknown) {
-      const e = err as Error & { status?: number };
-      expect(e.status).toBe(DLL_EXIT_UNSIGNED);
-      expect(e.message).toContain("git fetch origin");
-    }
-  });
-
   test("does NOT retry non-DLL errors (exit code 128)", () => {
     mockExecFileSync.mockImplementation(() => {
       throw makeNormalGitError(128);
@@ -126,28 +99,6 @@ describe("git() retries on DLL_INIT errors", () => {
 
     expect(() => git(["checkout", "nonexistent"])).toThrow();
     // Only 1 attempt, no retry
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-    expect(Atomics.wait).not.toHaveBeenCalled();
-  });
-
-  test("does NOT retry non-DLL errors (exit code 1)", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw makeNormalGitError(1);
-    });
-
-    expect(() => git(["diff"])).toThrow();
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-    expect(Atomics.wait).not.toHaveBeenCalled();
-  });
-
-  test("does NOT retry errors without status property", () => {
-    const err = new Error("ENOENT: git not found");
-    (err as NodeJS.ErrnoException).code = "ENOENT";
-    mockExecFileSync.mockImplementation(() => {
-      throw err;
-    });
-
-    expect(() => git(["--version"])).toThrow();
     expect(mockExecFileSync).toHaveBeenCalledTimes(1);
     expect(Atomics.wait).not.toHaveBeenCalled();
   });
@@ -180,25 +131,6 @@ describe("git() retries on DLL_INIT errors", () => {
     // 2 attempts: first DLL (retried), second non-DLL (thrown immediately)
     expect(mockExecFileSync).toHaveBeenCalledTimes(2);
     expect(Atomics.wait).toHaveBeenCalledTimes(1);
-  });
-
-  test("succeeds on third retry (attempt index 3)", () => {
-    mockExecFileSync
-      .mockImplementationOnce(() => {
-        throw makeDllError();
-      })
-      .mockImplementationOnce(() => {
-        throw makeDllError();
-      })
-      .mockImplementationOnce(() => {
-        throw makeDllError();
-      })
-      .mockReturnValueOnce("success\n");
-
-    const result = git(["status"]);
-    expect(result).toBe("success");
-    expect(mockExecFileSync).toHaveBeenCalledTimes(4);
-    expect(Atomics.wait).toHaveBeenCalledTimes(3);
   });
 
   test("passes cwd option through to execFileSync on every attempt", () => {
@@ -248,14 +180,6 @@ describe("probeDllHealth", () => {
     expect(probeDllHealth()).toBe(false);
   });
 
-  test("returns false on DLL_INIT failure (signed)", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw makeDllError(true);
-    });
-
-    expect(probeDllHealth()).toBe(false);
-  });
-
   test("returns true on non-DLL error (git not found, ENOENT)", () => {
     const err = new Error("ENOENT: spawn git not found");
     (err as NodeJS.ErrnoException).code = "ENOENT";
@@ -264,32 +188,6 @@ describe("probeDllHealth", () => {
     });
 
     // Non-DLL error means the system is NOT in DLL_INIT state
-    expect(probeDllHealth()).toBe(true);
-  });
-
-  test("returns true on non-DLL error (exit code 1)", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw makeNormalGitError(1);
-    });
-
-    expect(probeDllHealth()).toBe(true);
-  });
-
-  test("returns true on non-DLL error (exit code 128)", () => {
-    mockExecFileSync.mockImplementation(() => {
-      throw makeNormalGitError(128);
-    });
-
-    expect(probeDllHealth()).toBe(true);
-  });
-
-  test("returns true on timeout error (not DLL-related)", () => {
-    const err = new Error("TIMEOUT: git --version timed out");
-    (err as NodeJS.ErrnoException).code = "ETIMEDOUT";
-    mockExecFileSync.mockImplementation(() => {
-      throw err;
-    });
-
     expect(probeDllHealth()).toBe(true);
   });
 

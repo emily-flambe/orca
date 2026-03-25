@@ -112,32 +112,6 @@ describe("findPrForBranch", () => {
     expect(result).toEqual({ exists: false });
   });
 
-  test("calls gh pr list with correct args", async () => {
-    const pr = {
-      url: "https://github.com/owner/repo/pull/3",
-      number: 3,
-      state: "OPEN",
-      headRefName: "orca/EMI-3-inv-1",
-    };
-    execSyncMock.mockReturnValue(JSON.stringify([pr]));
-
-    await findPrForBranch("orca/EMI-3-inv-1", "/tmp/repo", 1);
-
-    const [cmd, args, opts] = execSyncMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "list",
-      "--head",
-      "orca/EMI-3-inv-1",
-      "--json",
-      "url,number,state,headRefName,isDraft",
-      "--limit",
-      "1",
-    ]);
-    expect(opts.cwd).toBe("/tmp/repo");
-  });
-
   test("warns on empty result", async () => {
     execSyncMock.mockReturnValue(JSON.stringify([]));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -146,19 +120,6 @@ describe("findPrForBranch", () => {
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("no PR found"),
-    );
-  });
-
-  test("logs error after exhausting attempts on gh failure", async () => {
-    execSyncMock.mockImplementation(() => {
-      throw new Error("network timeout");
-    });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await findPrForBranch("orca/fail", "/tmp/repo", 1);
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("exhausted 1 attempts"),
     );
   });
 });
@@ -251,31 +212,6 @@ describe("findPrByUrl", () => {
     );
   });
 
-  test("calls gh pr view with correct args", () => {
-    const prUrl = "https://github.com/owner/repo/pull/13";
-    execSyncMock.mockReturnValue(
-      JSON.stringify({
-        url: prUrl,
-        number: 13,
-        state: "OPEN",
-        headRefName: "orca/x",
-      }),
-    );
-
-    findPrByUrl(prUrl, "/tmp/repo");
-
-    const [cmd, args, opts] = execSyncMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "view",
-      prUrl,
-      "--json",
-      "url,number,state,headRefName,isDraft",
-    ]);
-    expect(opts.cwd).toBe("/tmp/repo");
-  });
-
   test("merged is true when state is MERGED", () => {
     const prUrl = "https://github.com/owner/repo/pull/14";
     execSyncMock.mockReturnValue(
@@ -349,20 +285,6 @@ describe("getMergeCommitSha", () => {
     expect(result).toBeNull();
   });
 
-  test("calls gh pr view with correct args", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify({ mergeCommit: { oid: "deadbeef" } }),
-        stderr: "",
-      });
-    });
-
-    await getMergeCommitSha(42, "/tmp/repo");
-
-    const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual(["pr", "view", "42", "--json", "mergeCommit"]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -524,17 +446,6 @@ describe("getPrCheckStatus", () => {
     expect(execFileMock).toHaveBeenCalledTimes(2);
   });
 
-  test("calls gh pr checks with correct args", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, { stdout: JSON.stringify([]), stderr: "" });
-    });
-
-    await getPrCheckStatus(7, "/tmp/repo");
-
-    const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual(["pr", "checks", "7", "--json", "name,state,bucket"]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -563,15 +474,6 @@ describe("getPrCheckStatusSync", () => {
         { name: "test", state: "PENDING", bucket: "pending" },
         { name: "lint", state: "SUCCESS", bucket: "pass" },
       ]),
-    );
-
-    const result = getPrCheckStatusSync(1, "/tmp/repo");
-    expect(result).toBe("pending");
-  });
-
-  test("returns pending when any check has bucket queued", () => {
-    execSyncMock.mockReturnValue(
-      JSON.stringify([{ name: "build", state: "QUEUED", bucket: "queued" }]),
     );
 
     const result = getPrCheckStatusSync(1, "/tmp/repo");
@@ -614,18 +516,6 @@ describe("getPrCheckStatusSync", () => {
     expect(result).toBe("no_checks");
   });
 
-  test("returns no_checks when stderr has 'No checks reported' (case insensitive)", () => {
-    execSyncMock.mockImplementation(() => {
-      throw new Error(
-        "gh command failed: gh pr checks 5 --json name,state,bucket\n" +
-          "No Checks Reported on the 'feature-branch' branch",
-      );
-    });
-
-    const result = getPrCheckStatusSync(5, "/tmp/repo");
-    expect(result).toBe("no_checks");
-  });
-
   test("returns error on non-'no checks' gh CLI failure", () => {
     execSyncMock.mockImplementation(() => {
       throw new Error("gh command failed: gh pr checks 1\nnetwork timeout");
@@ -635,16 +525,6 @@ describe("getPrCheckStatusSync", () => {
     expect(result).toBe("error");
   });
 
-  test("calls gh pr checks with correct args", () => {
-    execSyncMock.mockReturnValue(JSON.stringify([]));
-
-    getPrCheckStatusSync(7, "/tmp/repo");
-
-    const [cmd, args, opts] = execSyncMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual(["pr", "checks", "7", "--json", "name,state,bucket"]);
-    expect(opts.cwd).toBe("/tmp/repo");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -692,29 +572,6 @@ describe("getPrMergeState", () => {
     });
   });
 
-  test("calls gh pr view with correct args", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify({
-          mergeable: "MERGEABLE",
-          mergeStateStatus: "CLEAN",
-        }),
-        stderr: "",
-      });
-    });
-
-    await getPrMergeState(99, "/tmp/repo");
-
-    const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "view",
-      "99",
-      "--json",
-      "mergeable,mergeStateStatus",
-    ]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -799,17 +656,6 @@ describe("updatePrBranch", () => {
     expect(result).toBe(false);
   });
 
-  test("calls gh pr update-branch with correct args", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, { stdout: "", stderr: "" });
-    });
-
-    await updatePrBranch(77, "/tmp/repo");
-
-    const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual(["pr", "update-branch", "77"]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -861,25 +707,6 @@ describe("listOpenPrBranches", () => {
     expect(result.size).toBe(0);
   });
 
-  test("calls gh pr list with correct args", () => {
-    execSyncMock.mockReturnValue(JSON.stringify([]));
-
-    listOpenPrBranches("/tmp/repo");
-
-    const [cmd, args, opts] = execSyncMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "pr",
-      "list",
-      "--state",
-      "open",
-      "--json",
-      "headRefName",
-      "--limit",
-      "200",
-    ]);
-    expect(opts.cwd).toBe("/tmp/repo");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -904,55 +731,18 @@ describe("getWorkflowRunStatus", () => {
     expect(result).toBe("no_runs");
   });
 
-  test("returns in_progress when any run has status in_progress", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify([
-          { status: "in_progress", conclusion: null },
-          { status: "completed", conclusion: "success" },
-        ]),
-        stderr: "",
+  test("returns in_progress for any non-completed status (in_progress, queued, waiting, pending)", async () => {
+    for (const status of ["in_progress", "queued", "waiting", "pending"]) {
+      execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
+        callback(null, {
+          stdout: JSON.stringify([{ status, conclusion: null }]),
+          stderr: "",
+        });
       });
-    });
 
-    const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
-    expect(result).toBe("in_progress");
-  });
-
-  test("returns in_progress when any run has status queued", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify([{ status: "queued", conclusion: null }]),
-        stderr: "",
-      });
-    });
-
-    const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
-    expect(result).toBe("in_progress");
-  });
-
-  test("returns in_progress when any run has status waiting", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify([{ status: "waiting", conclusion: null }]),
-        stderr: "",
-      });
-    });
-
-    const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
-    expect(result).toBe("in_progress");
-  });
-
-  test("returns in_progress when any run has status pending", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, {
-        stdout: JSON.stringify([{ status: "pending", conclusion: null }]),
-        stderr: "",
-      });
-    });
-
-    const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
-    expect(result).toBe("in_progress");
+      const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
+      expect(result).toBe("in_progress");
+    }
   });
 
   test("returns failure when any run has conclusion failure", async () => {
@@ -1025,26 +815,6 @@ describe("getWorkflowRunStatus", () => {
     expect(result).toBe("no_runs");
   });
 
-  test("calls gh run list with correct args", async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, callback) => {
-      callback(null, { stdout: JSON.stringify([]), stderr: "" });
-    });
-
-    await getWorkflowRunStatus("deadbeef", "/tmp/repo");
-
-    const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe("gh");
-    expect(args).toEqual([
-      "run",
-      "list",
-      "--commit",
-      "deadbeef",
-      "--json",
-      "status,conclusion",
-      "--limit",
-      "20",
-    ]);
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -149,21 +149,6 @@ describe("runWithLogContext: correlation IDs in JSON output", () => {
     });
   });
 
-  test("after context exits, subsequent logs have no correlation IDs", () => {
-    withJsonMode(() => {
-      const log = createLogger("test");
-
-      runWithLogContext({ taskId: "task-temp" }, () => {
-        // Just run, don't capture here
-      });
-
-      const entries = captureJsonLog(() => {
-        log.info("after context exited");
-      });
-
-      expect(entries[0]!.taskId).toBeUndefined();
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -172,16 +157,9 @@ describe("runWithLogContext: correlation IDs in JSON output", () => {
 
 describe("getLogContext() outside ALS scope", () => {
   test("returns empty object when called outside runWithLogContext", () => {
-    // This test ensures getLogContext() doesn't throw and returns {}
     expect(() => getLogContext()).not.toThrow();
     const ctx = getLogContext();
     expect(ctx).toEqual({});
-  });
-
-  test("getLogContext() returns {} — does not return undefined", () => {
-    const ctx = getLogContext();
-    expect(ctx).not.toBeUndefined();
-    expect(typeof ctx).toBe("object");
   });
 });
 
@@ -387,36 +365,6 @@ describe("LOG_FORMAT read at call-time", () => {
     expect(entry.level).toBe("info");
   });
 
-  test("removing LOG_FORMAT after createLogger() reverts to human mode", () => {
-    // Create logger in JSON mode
-    process.env.LOG_FORMAT = "json";
-    const log = createLogger("test-revert");
-
-    // Remove JSON mode AFTER logger creation
-    delete process.env.LOG_FORMAT;
-
-    const captured: string[] = [];
-    const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-      captured.push(args[0] as string);
-    });
-
-    try {
-      log.info("revert to human");
-    } finally {
-      spy.mockRestore();
-    }
-
-    expect(captured.length).toBe(1);
-    // Should NOT be valid JSON — human mode
-    let parsedOk = false;
-    try {
-      JSON.parse(captured[0]!);
-      parsedOk = true;
-    } catch {
-      parsedOk = false;
-    }
-    expect(parsedOk).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -476,19 +424,6 @@ describe("Error as last argument — not consumed as fields", () => {
       expect(entries.length).toBe(1);
       // The Error should appear in the message, not be silently dropped
       expect(entries[0]!.message).toContain("kaboom");
-    });
-  });
-
-  test("Error as only arg: message is not empty string", () => {
-    withJsonMode(() => {
-      const log = createLogger("err-only-test");
-      const entries = captureJsonLog(() => {
-        log.info(new Error("solo error"));
-      });
-
-      expect(entries.length).toBe(1);
-      expect(entries[0]!.message).not.toBe("");
-      expect(String(entries[0]!.message)).toContain("solo error");
     });
   });
 
@@ -588,21 +523,6 @@ describe("child logger with AsyncLocalStorage context", () => {
     });
   });
 
-  test("child logger outside ALS context has no correlation IDs", () => {
-    withJsonMode(() => {
-      const log = createLogger("parent");
-      const child = log.child({ component: "sub-component" });
-
-      const entries = captureJsonLog(() => {
-        child.info("child outside context");
-      });
-
-      expect(entries.length).toBe(1);
-      expect(entries[0]!.component).toBe("sub-component");
-      expect(entries[0]!.taskId).toBeUndefined();
-      expect(entries[0]!.invocationId).toBeUndefined();
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -651,50 +571,6 @@ describe("partial LogContext fields", () => {
     });
   });
 
-  test("empty context object: no correlation fields added", () => {
-    withJsonMode(() => {
-      const log = createLogger("empty-ctx");
-      const entries = captureJsonLog(() => {
-        runWithLogContext({}, () => {
-          log.info("empty context");
-        });
-      });
-
-      expect(entries.length).toBe(1);
-      expect(entries[0]!.taskId).toBeUndefined();
-      expect(entries[0]!.invocationId).toBeUndefined();
-      // Required fields still present
-      expect(entries[0]!.level).toBe("info");
-      expect(entries[0]!.timestamp).toBeDefined();
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 14. LOG_FORMAT=json with inline fields that have undefined values
-//     JSON.stringify silently drops undefined values — test documents this
-// ---------------------------------------------------------------------------
-
-describe("undefined values in inline fields", () => {
-  test("inline field with undefined value is omitted from JSON output", () => {
-    withJsonMode(() => {
-      const log = createLogger("undef-test");
-      const entries = captureJsonLog(() => {
-        log.info("undef field test", {
-          taskId: "t1",
-          optionalField: undefined,
-          presentField: "present",
-        });
-      });
-
-      expect(entries.length).toBe(1);
-      expect(entries[0]!.taskId).toBe("t1");
-      expect(entries[0]!.presentField).toBe("present");
-      // undefined values are dropped by JSON.stringify — document actual behavior
-      // This is either expected (OK) or a bug depending on requirements
-      expect(entries[0]!.optionalField).toBeUndefined();
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------

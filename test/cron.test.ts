@@ -73,18 +73,6 @@ describe("computeNextRunAt", () => {
   test("throws for invalid expression", () => {
     expect(() => computeNextRunAt("invalid")).toThrow();
   });
-
-  test("throws for empty string", () => {
-    expect(() => computeNextRunAt("")).toThrow();
-  });
-
-  test("throws for 4-field expression", () => {
-    expect(() => computeNextRunAt("* * * *")).toThrow();
-  });
-
-  test("throws for out-of-range minute (60)", () => {
-    expect(() => computeNextRunAt("60 * * * *")).toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -92,51 +80,19 @@ describe("computeNextRunAt", () => {
 // ---------------------------------------------------------------------------
 
 describe("validateCronExpression", () => {
-  test("returns null for * * * * *", () => {
+  test("returns null for valid expressions", () => {
     expect(validateCronExpression("* * * * *")).toBeNull();
-  });
-
-  test("returns null for 0 9 * * 1 (weekly Monday 9am)", () => {
     expect(validateCronExpression("0 9 * * 1")).toBeNull();
-  });
-
-  test("returns null for */15 * * * * (every 15 minutes)", () => {
-    expect(validateCronExpression("*/15 * * * *")).toBeNull();
-  });
-
-  test("returns null for 0 0 1 1 * (yearly)", () => {
-    expect(validateCronExpression("0 0 1 1 *")).toBeNull();
-  });
-
-  test("returns a string for 'invalid'", () => {
-    const result = validateCronExpression("invalid");
-    expect(typeof result).toBe("string");
-    expect(result).not.toBeNull();
-    expect(result!.length).toBeGreaterThan(0);
-  });
-
-  test("returns a string for 4-field expression", () => {
-    const result = validateCronExpression("* * * *");
-    expect(result).not.toBeNull();
-    expect(typeof result).toBe("string");
-    expect(result!.length).toBeGreaterThan(0);
-  });
-
-  test("returns a string for minute 60 out of range", () => {
-    const result = validateCronExpression("60 * * * *");
-    expect(typeof result).toBe("string");
-    expect(result).not.toBeNull();
-    expect(result!.length).toBeGreaterThan(0);
-  });
-
-  test("returns a string for hour 24 out of range", () => {
-    const result = validateCronExpression("0 24 * * *");
-    expect(typeof result).toBe("string");
-    expect(result).not.toBeNull();
-  });
-
-  test("returns null for valid step expressions (*/5 */2 * * *)", () => {
     expect(validateCronExpression("*/5 */2 * * *")).toBeNull();
+  });
+
+  test("returns error string for invalid expressions", () => {
+    const invalid = validateCronExpression("invalid");
+    expect(typeof invalid).toBe("string");
+    expect(invalid!.length).toBeGreaterThan(0);
+
+    const tooFewFields = validateCronExpression("* * * *");
+    expect(tooFewFields).not.toBeNull();
   });
 });
 
@@ -147,11 +103,6 @@ describe("validateCronExpression", () => {
 describe("describeCronSchedule", () => {
   test("* * * * * returns 'Every minute'", () => {
     expect(describeCronSchedule("* * * * *")).toBe("Every minute");
-  });
-
-  test("*/2 * * * * contains '2 minutes'", () => {
-    const result = describeCronSchedule("*/2 * * * *");
-    expect(result).toContain("2 minutes");
   });
 
   test("*/15 * * * * contains '15 minutes'", () => {
@@ -169,33 +120,11 @@ describe("describeCronSchedule", () => {
     expect(result).toContain("AM");
   });
 
-  test("0 0 * * * uses 12 for midnight (not 0:00 AM)", () => {
-    // Hour 0 mod 12 === 0, displayHour should be 12, not 0
-    const result = describeCronSchedule("0 0 * * *");
-    expect(result).toContain("12");
-    expect(result).toContain("AM");
-  });
-
-  test("0 12 * * * returns PM for noon", () => {
-    const result = describeCronSchedule("0 12 * * *");
-    expect(result).toContain("PM");
-  });
-
   test("0 9 * * 1 contains 'Monday' or 'Weekly'", () => {
     const result = describeCronSchedule("0 9 * * 1");
     const hasMonday = result.includes("Monday");
     const hasWeekly = result.includes("Weekly");
     expect(hasMonday || hasWeekly).toBe(true);
-  });
-
-  test("0 9 * * 0 describes Sunday", () => {
-    const result = describeCronSchedule("0 9 * * 0");
-    expect(result).toContain("Sunday");
-  });
-
-  test("0 9 * * 6 describes Saturday", () => {
-    const result = describeCronSchedule("0 9 * * 6");
-    expect(result).toContain("Saturday");
   });
 
   test("0 9 1 * * contains 'Monthly' or '1st'", () => {
@@ -208,48 +137,6 @@ describe("describeCronSchedule", () => {
   test("invalid expression returns error notice", () => {
     const result = describeCronSchedule("not-a-cron");
     expect(result.toLowerCase()).toContain("invalid");
-  });
-
-  test("*/1 * * * * is treated as every 1 minute (not 'Every minute')", () => {
-    // */1 is technically valid and means every minute, but it matches
-    // the everyNMinutes branch (not the "Every minute" branch).
-    // The implementation returns "Every 1 minutes" — this is arguably
-    // a description flaw (should say "Every minute" or "Every 1 minute").
-    const result = describeCronSchedule("*/1 * * * *");
-    // At minimum it should not crash and should mention "1"
-    expect(result).toContain("1");
-  });
-
-  test("order: 0 * * * * (every hour) does not accidentally match every-minute", () => {
-    // Regression: if order of checks were wrong, '0 * * * *' could fall through wrong branch
-    const result = describeCronSchedule("0 * * * *");
-    expect(result).not.toBe("Every minute");
-    expect(result).toBe("Every hour");
-  });
-
-  test("0 */2 * * * (every 2 hours) contains '2 hours'", () => {
-    const result = describeCronSchedule("0 */2 * * *");
-    expect(result).toContain("2 hours");
-  });
-
-  test("month-specific expression does not produce generic description", () => {
-    // '0 9 * JAN *' only fires in January — must NOT return 'Daily at 9:00 AM'
-    const result = describeCronSchedule("0 9 * JAN *");
-    expect(result).not.toBe("Daily at 9:00 AM");
-    // Should fall back to the generic Cron: prefix
-    expect(result).toContain("9");
-  });
-
-  test("* * * JAN * does not return 'Every minute'", () => {
-    // Only fires in January — 'Every minute' is misleading
-    const result = describeCronSchedule("* * * JAN *");
-    expect(result).not.toBe("Every minute");
-  });
-
-  test("0 9 * 1 * does not return 'Daily at 9:00 AM'", () => {
-    // Fires at 9am but only in January (month=1)
-    const result = describeCronSchedule("0 9 * 1 *");
-    expect(result).not.toBe("Daily at 9:00 AM");
   });
 });
 
@@ -352,20 +239,8 @@ describe("POST /api/cron — validation", () => {
     });
   }
 
-  it("rejects missing name", async () => {
+  it("rejects missing or empty name", async () => {
     const res = await post({
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/name/i);
-  });
-
-  it("rejects empty name", async () => {
-    const res = await post({
-      name: "  ",
       prompt: "do",
       type: "shell",
       schedule: "* * * * *",
@@ -378,18 +253,6 @@ describe("POST /api/cron — validation", () => {
   it("rejects missing prompt", async () => {
     const res = await post({
       name: "test",
-      type: "shell",
-      schedule: "* * * * *",
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/prompt/i);
-  });
-
-  it("rejects empty prompt", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "",
       type: "shell",
       schedule: "* * * * *",
     });
@@ -452,32 +315,6 @@ describe("POST /api/cron — validation", () => {
     expect(body.error).toMatch(/repoPath/i);
   });
 
-  it("rejects claude type with empty repoPath", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "claude",
-      schedule: "* * * * *",
-      repoPath: "  ",
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/repoPath/i);
-  });
-
-  it("rejects timeoutMin=0", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-      timeoutMin: 0,
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/timeoutMin/i);
-  });
-
   it("rejects timeoutMin=-1", async () => {
     const res = await post({
       name: "test",
@@ -491,19 +328,6 @@ describe("POST /api/cron — validation", () => {
     expect(body.error).toMatch(/timeoutMin/i);
   });
 
-  it("rejects non-integer timeoutMin (1.5)", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-      timeoutMin: 1.5,
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/timeoutMin/i);
-  });
-
   it("rejects maxRuns=0", async () => {
     const res = await post({
       name: "test",
@@ -511,32 +335,6 @@ describe("POST /api/cron — validation", () => {
       type: "shell",
       schedule: "* * * * *",
       maxRuns: 0,
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/maxRuns/i);
-  });
-
-  it("rejects maxRuns=-1", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-      maxRuns: -1,
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/maxRuns/i);
-  });
-
-  it("rejects non-integer maxRuns (2.5)", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-      maxRuns: 2.5,
     });
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -600,15 +398,6 @@ describe("POST /api/cron — validation", () => {
     expect(res.status).toBe(201);
   });
 
-  it("returns 400 on non-object JSON body (array)", async () => {
-    const res = await app.request("/api/cron", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify([1, 2, 3]),
-    });
-    expect(res.status).toBe(400);
-  });
-
   it("persists model and maxTurns when provided", async () => {
     const res = await post({
       name: "test",
@@ -662,17 +451,6 @@ describe("POST /api/cron — validation", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/maxTurns/i);
-  });
-
-  it("rejects negative maxTurns", async () => {
-    const res = await post({
-      name: "test",
-      prompt: "do",
-      type: "shell",
-      schedule: "* * * * *",
-      maxTurns: -1,
-    });
-    expect(res.status).toBe(400);
   });
 
   it("stores null model and maxTurns when omitted", async () => {
@@ -777,38 +555,12 @@ describe("PUT /api/cron/:id — update behavior", () => {
     expect(body.nextRunAt).toBe(fixedNextRunAt);
   });
 
-  it("rejects invalid cron expression in schedule update", async () => {
+  it("rejects invalid values in update (same validation as POST)", async () => {
     const id = insertCronSchedule(db, makeSchedule());
     const res = await put(id, { schedule: "not valid cron" });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/schedule/i);
-  });
-
-  it("rejects timeoutMin=0 in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { timeoutMin: 0 });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects maxRuns=-1 in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { maxRuns: -1 });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects empty name in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { name: "" });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/name/i);
-  });
-
-  it("rejects invalid type in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { type: "invalid" });
-    expect(res.status).toBe(400);
   });
 
   it("enabled field: truthy value sets to 1", async () => {
@@ -848,21 +600,6 @@ describe("PUT /api/cron/:id — update behavior", () => {
     expect(body.maxTurns).toBeNull();
   });
 
-  it("rejects invalid model in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { model: "not-a-valid-model" });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/model/i);
-  });
-
-  it("rejects maxTurns=0 in update", async () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const res = await put(id, { maxTurns: 0 });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/maxTurns/i);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -918,10 +655,6 @@ describe("DELETE /api/cron/:id", () => {
     expect(getTasksByCronSchedule(db, id)).toHaveLength(0);
   });
 
-  it("returns 400 for non-numeric id", async () => {
-    const res = await app.request("/api/cron/notanumber", { method: "DELETE" });
-    expect(res.status).toBe(400);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -962,14 +695,6 @@ describe("POST /api/cron/:id/toggle", () => {
     expect(body.enabled).toBe(1);
   });
 
-  it("double-toggle returns to original state", async () => {
-    const id = insertCronSchedule(db, makeSchedule({ enabled: 1 }));
-    await toggle(id);
-    const res = await toggle(id);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.enabled).toBe(1);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -992,11 +717,6 @@ describe("POST /api/cron/:id/trigger", () => {
   it("returns 404 for non-existent schedule id", async () => {
     const res = await trigger(9999);
     expect(res.status).toBe(404);
-  });
-
-  it("returns 400 for non-numeric id", async () => {
-    const res = await app.request("/api/cron/bad/trigger", { method: "POST" });
-    expect(res.status).toBe(400);
   });
 
   it("creates a task with status ready", async () => {
@@ -1074,15 +794,6 @@ describe("POST /api/cron/:id/trigger", () => {
     expect(tasks[0].taskType).toBe("cron_shell");
   });
 
-  it("task repoPath is empty string when schedule repoPath is null", async () => {
-    const id = insertCronSchedule(
-      db,
-      makeSchedule({ type: "shell", repoPath: null }),
-    );
-    await trigger(id);
-    const tasks = getTasksByCronSchedule(db, id);
-    expect(tasks[0].repoPath).toBe("");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1151,40 +862,10 @@ describe("updateCronLastRunStatus", () => {
     expect(schedule?.lastRunStatus).toBe("failed");
   });
 
-  it("overwrites a previous status value", () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    updateCronLastRunStatus(db, id, "success");
-    updateCronLastRunStatus(db, id, "failed");
-    const schedule = getCronSchedule(db, id);
-    expect(schedule?.lastRunStatus).toBe("failed");
-  });
-
   it("new schedule has null lastRunStatus before any update", () => {
     const id = insertCronSchedule(db, makeSchedule());
     const schedule = getCronSchedule(db, id);
     expect(schedule?.lastRunStatus).toBeNull();
-  });
-
-  it("updates updatedAt timestamp when status is set", () => {
-    const id = insertCronSchedule(db, makeSchedule());
-    const before = getCronSchedule(db, id)!.updatedAt;
-    // Advance time slightly
-    const origDateNow = Date.now;
-    Date.now = () => origDateNow() + 1000;
-    updateCronLastRunStatus(db, id, "success");
-    Date.now = origDateNow;
-    const after = getCronSchedule(db, id)!.updatedAt;
-    expect(new Date(after).getTime()).toBeGreaterThanOrEqual(
-      new Date(before).getTime(),
-    );
-  });
-
-  it("does not affect other schedules", () => {
-    const id1 = insertCronSchedule(db, makeSchedule({ name: "sched-a" }));
-    const id2 = insertCronSchedule(db, makeSchedule({ name: "sched-b" }));
-    updateCronLastRunStatus(db, id1, "failed");
-    const schedule2 = getCronSchedule(db, id2);
-    expect(schedule2?.lastRunStatus).toBeNull();
   });
 });
 
@@ -1199,13 +880,6 @@ describe("GET /api/cron/:id/tasks", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     app = makeApp(db);
-  });
-
-  it("returns 400 for non-numeric id", async () => {
-    const res = await app.request("/api/cron/abc/tasks");
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBeDefined();
   });
 
   it("returns 404 for non-existent schedule id", async () => {

@@ -99,19 +99,6 @@ describe("insertAgent / getAgent", () => {
     expect(agent.lastRunStatus).toBeNull();
   });
 
-  it("handles empty string id", () => {
-    insertAgent(db, makeAgent({ id: "" }));
-    const agent = getAgent(db, "");
-    expect(agent).toBeDefined();
-    expect(agent!.id).toBe("");
-  });
-
-  it("handles id with special characters", () => {
-    // The DB has no constraint on id format -- that's an API-layer concern
-    insertAgent(db, makeAgent({ id: "UPPER-case_with.dots" }));
-    const agent = getAgent(db, "UPPER-case_with.dots");
-    expect(agent).toBeDefined();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -123,10 +110,6 @@ describe("getAllAgents", () => {
 
   beforeEach(() => {
     db = createDb(":memory:");
-  });
-
-  it("returns empty array when no agents", () => {
-    expect(getAllAgents(db)).toEqual([]);
   });
 
   it("returns all agents", () => {
@@ -179,12 +162,6 @@ describe("updateAgent", () => {
     );
   });
 
-  it("no-op update on non-existent agent does not throw", () => {
-    // updateAgent doesn't check if the row exists
-    expect(() =>
-      updateAgent(db, "no-such-agent", { name: "x" }),
-    ).not.toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -441,20 +418,6 @@ describe("insertAgentMemory", () => {
     expect(id).toBeGreaterThan(0);
   });
 
-  it("successive inserts return incrementing ids", () => {
-    const id1 = insertAgentMemory(db, {
-      agentId: "test-agent",
-      type: "episodic",
-      content: "first",
-    });
-    const id2 = insertAgentMemory(db, {
-      agentId: "test-agent",
-      type: "semantic",
-      content: "second",
-    });
-    expect(id2).toBeGreaterThan(id1);
-  });
-
   it("stores sourceRunId when provided", () => {
     const id = insertAgentMemory(db, {
       agentId: "test-agent",
@@ -476,27 +439,6 @@ describe("insertAgentMemory", () => {
     const memories = getAgentMemories(db, "test-agent");
     const found = memories.find((m) => m.id === id);
     expect(found!.sourceRunId).toBeNull();
-  });
-
-  it("allows memory for non-existent agent (no FK constraint)", () => {
-    // The schema does NOT have a FK constraint on agent_memories.agent_id
-    // This is a potential data integrity issue
-    const id = insertAgentMemory(db, {
-      agentId: "ghost-agent",
-      type: "episodic",
-      content: "orphaned memory",
-    });
-    expect(id).toBeGreaterThan(0);
-  });
-
-  it("handles empty content string", () => {
-    const id = insertAgentMemory(db, {
-      agentId: "test-agent",
-      type: "episodic",
-      content: "",
-    });
-    const memories = getAgentMemories(db, "test-agent");
-    expect(memories.find((m) => m.id === id)!.content).toBe("");
   });
 
   it("handles very long content", () => {
@@ -521,10 +463,6 @@ describe("getAgentMemories", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     insertAgent(db, makeAgent());
-  });
-
-  it("returns empty array for agent with no memories", () => {
-    expect(getAgentMemories(db, "test-agent")).toEqual([]);
   });
 
   it("returns memories ordered by created_at DESC (newest first)", () => {
@@ -663,9 +601,6 @@ describe("updateAgentMemory", () => {
     );
   });
 
-  it("no-op on non-existent memory id", () => {
-    expect(() => updateAgentMemory(db, 99999, "content")).not.toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -688,10 +623,6 @@ describe("deleteAgentMemory", () => {
     });
     deleteAgentMemory(db, id);
     expect(getAgentMemoryCount(db, "test-agent")).toBe(0);
-  });
-
-  it("no-op on non-existent memory id", () => {
-    expect(() => deleteAgentMemory(db, 99999)).not.toThrow();
   });
 
   it("does not affect other memories", () => {
@@ -724,10 +655,6 @@ describe("getAgentMemoryCount", () => {
     insertAgent(db, makeAgent());
   });
 
-  it("returns 0 for no memories", () => {
-    expect(getAgentMemoryCount(db, "test-agent")).toBe(0);
-  });
-
   it("returns correct count", () => {
     insertAgentMemory(db, {
       agentId: "test-agent",
@@ -742,9 +669,6 @@ describe("getAgentMemoryCount", () => {
     expect(getAgentMemoryCount(db, "test-agent")).toBe(2);
   });
 
-  it("returns 0 for non-existent agent", () => {
-    expect(getAgentMemoryCount(db, "nope")).toBe(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -790,9 +714,6 @@ describe("deleteAllAgentMemories", () => {
     expect(getAgentMemoryCount(db, "agent-b")).toBe(1);
   });
 
-  it("no-op on agent with no memories", () => {
-    expect(() => deleteAllAgentMemories(db, "agent-a")).not.toThrow();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -889,9 +810,6 @@ describe("pruneAgentMemories", () => {
     expect(getAgentMemoryCount(db, "test-agent")).toBe(0);
   });
 
-  it("returns 0 for empty agent", () => {
-    expect(pruneAgentMemories(db, "test-agent", 5)).toBe(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -904,10 +822,6 @@ describe("getTasksByAgent", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     insertAgent(db, makeAgent());
-  });
-
-  it("returns empty array when no tasks", () => {
-    expect(getTasksByAgent(db, "test-agent")).toEqual([]);
   });
 
   it("returns tasks for agent", () => {

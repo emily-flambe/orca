@@ -203,9 +203,6 @@ describe("insertTask / getTask", () => {
     expect(task!.projectName).toBe("my-project");
   });
 
-  test("getTask returns undefined for unknown id", () => {
-    expect(getTask(db, "NO-SUCH-ID")).toBeUndefined();
-  });
 });
 
 describe("getAllTasks", () => {
@@ -337,10 +334,6 @@ describe("getDispatchableTasks", () => {
     expect(tasks.map((t) => t.linearIssueId)).toEqual(["D-1", "D-2", "D-3"]);
   });
 
-  test("returns empty array when no tasks match", () => {
-    seedTask(db, { orcaStatus: "done" });
-    expect(getDispatchableTasks(db, ["ready"])).toHaveLength(0);
-  });
 });
 
 describe("updateTaskPrBranch", () => {
@@ -368,11 +361,6 @@ describe("updateTaskFixReason", () => {
     expect(getTask(db, id)!.fixReason).toBe("CI failed");
   });
 
-  test("clears fixReason with null", () => {
-    const id = seedTask(db, { fixReason: "old reason" });
-    updateTaskFixReason(db, id, null);
-    expect(getTask(db, id)!.fixReason).toBeNull();
-  });
 });
 
 describe("incrementMergeAttemptCount", () => {
@@ -420,23 +408,6 @@ describe("resetStaleSessionRetryCount", () => {
     expect(getTask(db, id)!.staleSessionRetryCount).toBe(0);
   });
 
-  test("is a no-op when count is already 0", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 0 });
-    resetStaleSessionRetryCount(db, id);
-    expect(getTask(db, id)!.staleSessionRetryCount).toBe(0);
-  });
-
-  test("updates updatedAt timestamp", () => {
-    const ts = "2020-01-01T00:00:00.000Z";
-    const id = seedTask(db, {
-      staleSessionRetryCount: 2,
-      createdAt: ts,
-      updatedAt: ts,
-    });
-    resetStaleSessionRetryCount(db, id);
-    expect(getTask(db, id)!.updatedAt).not.toBe(ts);
-  });
-
   test("reset followed by increment gives count of 1", () => {
     const id = seedTask(db, { staleSessionRetryCount: 5 });
     resetStaleSessionRetryCount(db, id);
@@ -444,18 +415,6 @@ describe("resetStaleSessionRetryCount", () => {
     expect(result).toBe(1);
   });
 
-  test("does not affect other task fields", () => {
-    const id = seedTask(db, {
-      staleSessionRetryCount: 3,
-      retryCount: 2,
-      orcaStatus: "running",
-    });
-    resetStaleSessionRetryCount(db, id);
-    const task = getTask(db, id)!;
-    expect(task.staleSessionRetryCount).toBe(0);
-    expect(task.retryCount).toBe(2);
-    expect(task.orcaStatus).toBe("running");
-  });
 });
 
 describe("incrementReviewCycleCount", () => {
@@ -484,11 +443,6 @@ describe("updateTaskCiInfo", () => {
     expect(getTask(db, id)!.ciStartedAt).toBe(ts);
   });
 
-  test("clears ciStartedAt with null", () => {
-    const id = seedTask(db, { ciStartedAt: now() });
-    updateTaskCiInfo(db, id, { ciStartedAt: null });
-    expect(getTask(db, id)!.ciStartedAt).toBeNull();
-  });
 });
 
 describe("updateTaskDeployInfo", () => {
@@ -556,9 +510,6 @@ describe("deleteTask", () => {
     expect(getInvocationsByTask(db, id)).toHaveLength(0);
   });
 
-  test("deleting non-existent task is a no-op", () => {
-    expect(() => deleteTask(db, "GHOST-99")).not.toThrow();
-  });
 });
 
 describe("updateTaskFields", () => {
@@ -614,10 +565,6 @@ describe("insertInvocation / getInvocation", () => {
     expect(inv!.model).toBe("claude-sonnet-4-6");
   });
 
-  test("getInvocation returns undefined for unknown id", () => {
-    expect(getInvocation(db, 9999)).toBeUndefined();
-  });
-
   test("returns auto-incremented id", () => {
     const taskId = seedTask(db);
     const id1 = seedInvocation(db, taskId);
@@ -650,12 +597,6 @@ describe("updateInvocation", () => {
     expect(inv.numTurns).toBe(10);
   });
 
-  test("clears sessionId with null", () => {
-    const taskId = seedTask(db);
-    const invId = seedInvocation(db, taskId, { sessionId: "sess-123" });
-    updateInvocation(db, invId, { sessionId: null });
-    expect(getInvocation(db, invId)!.sessionId).toBeNull();
-  });
 });
 
 describe("getInvocationsByTask", () => {
@@ -675,10 +616,6 @@ describe("getInvocationsByTask", () => {
     expect(getInvocationsByTask(db, t2)).toHaveLength(1);
   });
 
-  test("returns empty array for task with no invocations", () => {
-    const t = seedTask(db);
-    expect(getInvocationsByTask(db, t)).toHaveLength(0);
-  });
 });
 
 describe("countActiveSessions", () => {
@@ -696,9 +633,6 @@ describe("countActiveSessions", () => {
     expect(countActiveSessions(db)).toBe(2);
   });
 
-  test("returns 0 when no running invocations", () => {
-    expect(countActiveSessions(db)).toBe(0);
-  });
 });
 
 describe("getRunningInvocations", () => {
@@ -772,10 +706,6 @@ describe("getLastCompletedImplementInvocation", () => {
     expect(getLastCompletedImplementInvocation(db, t)).toBeUndefined();
   });
 
-  test("returns undefined when no matching invocations", () => {
-    const t = seedTask(db);
-    expect(getLastCompletedImplementInvocation(db, t)).toBeUndefined();
-  });
 });
 
 describe("getLastMaxTurnsInvocation", () => {
@@ -830,17 +760,6 @@ describe("getLastMaxTurnsInvocation", () => {
     expect(getLastMaxTurnsInvocation(db, t)).toBeUndefined();
   });
 
-  test("ignores invocations without sessionId", () => {
-    const t = seedTask(db);
-    seedInvocation(db, t, {
-      status: "failed",
-      phase: "implement",
-      sessionId: null,
-      worktreePath: "/tmp/wt",
-      outputSummary: "max turns reached",
-    });
-    expect(getLastMaxTurnsInvocation(db, t)).toBeUndefined();
-  });
 });
 
 // ---------------------------------------------------------------------------

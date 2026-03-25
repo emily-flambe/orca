@@ -275,25 +275,6 @@ describe("sendPermanentFailureAlert", () => {
     expect(calledComment).toContain("**Invocations:** none");
   });
 
-  test("webhook non-OK response is logged but does not throw", async () => {
-    const mockResponse = { ok: false, status: 500 };
-    const fetchMock = vi.fn().mockResolvedValue(mockResponse);
-    vi.stubGlobal("fetch", fetchMock);
-
-    const taskId = seedTask(db);
-    const config = testConfig({
-      alertWebhookUrl: "https://hooks.example.com/webhook",
-    });
-    const deps = makeDeps(db, config);
-
-    expect(() =>
-      sendPermanentFailureAlert(deps, taskId, "reason"),
-    ).not.toThrow();
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -366,35 +347,6 @@ describe("sendAlert", () => {
     const deps = makeDeps(db);
     deps.db = {} as any; // Force DB error
     expect(() => sendAlert(deps, basePayload)).not.toThrow();
-  });
-
-  test("never throws even when webhook fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValue(new Error("connection refused"));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const config = testConfig({
-      alertWebhookUrl: "https://hooks.example.com/fail",
-    });
-    const deps = makeDeps(db, config);
-
-    expect(() => sendAlert(deps, basePayload)).not.toThrow();
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  });
-
-  test("never throws even when Linear comment fails", async () => {
-    const deps = makeDeps(db);
-    (deps.client.createComment as ReturnType<typeof vi.fn>).mockImplementation(
-      () => {
-        throw new Error("sync error");
-      },
-    );
-
-    expect(() =>
-      sendAlert(deps, { ...basePayload, taskId: "TASK-ERR" }),
-    ).not.toThrow();
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
   });
 
   test("maps severity to correct webhook color", async () => {

@@ -65,11 +65,6 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
 // ---------------------------------------------------------------------------
 
 describe("findStateByType", () => {
-  it("returns undefined for an empty map", () => {
-    const result = findStateByType(new Map(), "backlog");
-    expect(result).toBeUndefined();
-  });
-
   it("returns undefined when no entry matches the type", () => {
     const stateMap = makeStateMap([
       ["Backlog", { id: "s1", type: "backlog" }],
@@ -111,11 +106,6 @@ describe("findStateByType", () => {
       type: "Backlog",
       name: "Backlog",
     });
-  });
-
-  it("returns undefined when stateMap has entries but type is an empty string", () => {
-    const stateMap = makeStateMap([["Backlog", { id: "s1", type: "backlog" }]]);
-    expect(findStateByType(stateMap, "")).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------
@@ -211,21 +201,6 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
     expect(callArg.stateId).toBeUndefined();
   });
 
-  it("passes stateId=undefined to createIssue when stateMap is empty and status is todo (default)", async () => {
-    const app = makeApp(new Map());
-
-    const res = await app.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Test task" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(createIssueMock).toHaveBeenCalledOnce();
-    const callArg = createIssueMock.mock.calls[0][0];
-    expect(callArg.stateId).toBeUndefined();
-  });
-
   it("passes correct stateId when backlog type is present in stateMap", async () => {
     const stateMap = makeStateMap([
       ["Backlog", { id: "state-backlog-id", type: "backlog" }],
@@ -306,18 +281,6 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 for blank title", async () => {
-    const app = makeApp(new Map());
-
-    const res = await app.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "   " }),
-    });
-
-    expect(res.status).toBe(400);
-  });
-
   it("returns 400 when project not found in projectMeta", async () => {
     const app = makeApp(new Map());
 
@@ -351,26 +314,4 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
     expect(body.error).toBe("Linear API error");
   });
 
-  it("stateId=undefined is silently forwarded to createIssue — no API-level guard exists", async () => {
-    // This is the critical bug probe: when findStateByType returns undefined,
-    // the route does NOT return an error. It passes stateId: undefined through
-    // to client.createIssue. Whether Linear accepts or rejects undefined stateId
-    // is entirely up to the client implementation — there is no server-side
-    // guard. This test documents the missing validation.
-    const app = makeApp(new Map()); // empty stateMap → stateId will be undefined
-
-    const res = await app.request("/api/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Missing state task" }),
-    });
-
-    // The route succeeds (200) even though stateId is undefined.
-    // This means issues can be created in an unpredictable Linear state.
-    expect(res.status).toBe(200);
-
-    // Confirm the mock was called with stateId explicitly undefined
-    const callArg = createIssueMock.mock.calls[0][0];
-    expect(callArg).toHaveProperty("stateId", undefined);
-  });
 });

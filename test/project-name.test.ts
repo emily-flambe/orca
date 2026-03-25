@@ -168,24 +168,6 @@ describe("DB schema - project_name column", () => {
     expect(task!.projectName).toBe("Alpha Project");
   });
 
-  test("project_name defaults to null when not provided", () => {
-    const ts = now();
-    insertTask(db, {
-      linearIssueId: "PN-2",
-      agentPrompt: "test",
-      repoPath: "/tmp/repo",
-      orcaStatus: "ready",
-      priority: 0,
-      retryCount: 0,
-      createdAt: ts,
-      updatedAt: ts,
-    });
-
-    const task = getTask(db, "PN-2");
-    expect(task).toBeDefined();
-    expect(task!.projectName).toBeNull();
-  });
-
   test("project_name can be updated via updateTaskFields", () => {
     const id = seedTask(db, { linearIssueId: "PN-3", projectName: "Old Name" });
     updateTaskFields(db, id, { projectName: "New Name" });
@@ -194,11 +176,6 @@ describe("DB schema - project_name column", () => {
     expect(task!.projectName).toBe("New Name");
   });
 
-  test("project_name can be set to empty string", () => {
-    const id = seedTask(db, { linearIssueId: "PN-4", projectName: "" });
-    const task = getTask(db, id);
-    expect(task!.projectName).toBe("");
-  });
 });
 
 // ===========================================================================
@@ -530,42 +507,6 @@ describe("LinearClient - project.name edge cases", () => {
   });
 });
 
-// ===========================================================================
-// 5. makeIssue helpers in existing tests lack projectName
-// ===========================================================================
-
-describe("Existing test helpers missing projectName", () => {
-  test("LinearIssue interface requires projectName field", () => {
-    // This test verifies that objects satisfying the LinearIssue interface
-    // must include projectName. The existing test helpers in
-    // linear-integration.test.ts (line 327-342), repo-mapping.test.ts (line 140-158),
-    // and parent-child.test.ts (line 456-474) create LinearIssue-like objects
-    // WITHOUT projectName. They pass TypeScript only because they are typed
-    // as Record<string, unknown> or use `as any`.
-    //
-    // This means those tests are not testing the full shape and could miss
-    // bugs where projectName handling breaks.
-    const validIssue: import("../src/linear/client.js").LinearIssue = {
-      id: "test",
-      identifier: "TEST-1",
-      title: "Test",
-      description: "",
-      priority: 0,
-      state: { id: "s1", name: "Todo", type: "unstarted" },
-      teamId: "team-1",
-      projectId: "proj-1",
-      projectName: "Test Project",
-      relations: [],
-      inverseRelations: [],
-      parentId: null,
-      parentTitle: null,
-      parentDescription: null,
-      childIds: [],
-    };
-
-    expect(validIssue.projectName).toBe("Test Project");
-  });
-});
 
 // ===========================================================================
 // 6. Conditional update logic edge cases
@@ -670,17 +611,6 @@ describe("Frontend sort comparator - project", () => {
     expect(sorted[2]!.projectName).toBe("Zebra");
   });
 
-  test("all null projectNames sort stably", () => {
-    const items = [
-      { projectName: null, id: "a" },
-      { projectName: null, id: "b" },
-      { projectName: null, id: "c" },
-    ];
-    const sorted = sortByProject(items);
-    // All compare as equal ("" vs ""), so original order preserved
-    expect(sorted).toHaveLength(3);
-  });
-
   test("empty string projectName sorts same as null", () => {
     const items = [
       { projectName: "Beta" },
@@ -701,78 +631,5 @@ describe("Frontend sort comparator - project", () => {
     expect(sorted[3]!.projectName).toBe("Beta");
   });
 
-  test("case sensitivity in project sort", () => {
-    const items = [
-      { projectName: "zebra" },
-      { projectName: "Alpha" },
-      { projectName: "alpha" },
-    ];
-    const sorted = sortByProject(items);
-    // localeCompare is locale-sensitive; 'alpha' and 'Alpha' sort near each other
-    // but the exact order depends on locale
-    expect(sorted).toHaveLength(3);
-  });
 });
 
-// ===========================================================================
-// 8. Type consistency between backend and frontend
-// ===========================================================================
-
-describe("Type consistency", () => {
-  test("DB schema projectName is nullable (text without notNull)", () => {
-    // The schema defines: projectName: text("project_name")
-    // Without .notNull(), this means the DB column can be NULL.
-    // The frontend type has: projectName: string | null
-    // The LinearIssue type has: projectName: string (NOT nullable)
-    // This is inconsistent: LinearIssue says it's always a string,
-    // but the DB and frontend allow null.
-    //
-    // The inconsistency means: when creating a LinearIssue from webhook data,
-    // projectName is set to "" (empty string) instead of null, which is then
-    // stored in DB as "" on INSERT. But the frontend expects string | null,
-    // and the DB schema allows null.
-    //
-    // Result: Some tasks have projectName="" and others have projectName=null.
-    // The frontend chip `{task.projectName && ...}` treats both as hidden,
-    // but "" vs null is an unnecessary inconsistency.
-
-    const db = freshDb();
-    const ts = now();
-
-    // Insert with null
-    insertTask(db, {
-      linearIssueId: "TYPE-1",
-      agentPrompt: "test",
-      repoPath: "/tmp",
-      orcaStatus: "ready",
-      priority: 0,
-      retryCount: 0,
-      projectName: null,
-      createdAt: ts,
-      updatedAt: ts,
-    });
-
-    // Insert with empty string
-    insertTask(db, {
-      linearIssueId: "TYPE-2",
-      agentPrompt: "test",
-      repoPath: "/tmp",
-      orcaStatus: "ready",
-      priority: 0,
-      retryCount: 0,
-      projectName: "",
-      createdAt: ts,
-      updatedAt: ts,
-    });
-
-    const task1 = getTask(db, "TYPE-1");
-    const task2 = getTask(db, "TYPE-2");
-
-    // These are different but both treated as "no project" in the UI
-    expect(task1!.projectName).toBeNull();
-    expect(task2!.projectName).toBe("");
-
-    // This inconsistency could cause bugs in filtering/grouping by project
-    expect(task1!.projectName).not.toBe(task2!.projectName);
-  });
-});

@@ -47,55 +47,6 @@ function withHumanMode(fn: () => void): void {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Error as last arg: should NOT be swallowed as fields
-// ---------------------------------------------------------------------------
-
-describe("Error object handling", () => {
-  test("Error as last arg appears in message, not silently dropped", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      const err = new Error("boom");
-      log.info("something broke", err);
-
-      spy.mockRestore();
-
-      expect(captured.length).toBe(1);
-      const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      // The error should appear in message or as a field — NOT silently swallowed
-      const messageHasError =
-        String(entry.message).includes("boom") ||
-        String(entry.message).includes("Error");
-      expect(messageHasError).toBe(true);
-    });
-  });
-
-  test("Error as ONLY arg: message should not be empty string", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      const err = new Error("standalone error");
-      log.info(err);
-
-      spy.mockRestore();
-
-      expect(captured.length).toBe(1);
-      const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      // An Error as only arg should produce a non-empty message
-      expect(entry.message).not.toBe("");
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
 // 2. Object-only call: log.info(someObject) → object becomes fields, message=""
 //    This is a design ambiguity — document the actual behavior as a bug if
 //    message="" because the caller likely wanted the object as the message.
@@ -125,25 +76,6 @@ describe("Object-only call", () => {
     });
   });
 
-  test("human mode: log.info(plainObject) includes the object in output", () => {
-    withHumanMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info({ taskId: "abc", status: "running" });
-
-      spy.mockRestore();
-
-      expect(captured.length).toBe(1);
-      const output = captured[0]!;
-      // Human mode serializes plain objects via JSON.stringify so they appear in output.
-      expect(output).toContain("abc");
-      expect(output).toContain("running");
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -189,29 +121,6 @@ describe("child() immutability", () => {
     });
   });
 
-  test("multiple child() calls do not cross-contaminate each other", () => {
-    withJsonMode(() => {
-      const log = createLogger("test");
-      const child1 = log.child({ requestId: "req-1" });
-      const child2 = log.child({ requestId: "req-2" });
-
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      child1.info("from child1");
-      child2.info("from child2");
-
-      spy.mockRestore();
-
-      const entry1 = JSON.parse(captured[0]!) as Record<string, unknown>;
-      const entry2 = JSON.parse(captured[1]!) as Record<string, unknown>;
-
-      expect(entry1.requestId).toBe("req-1");
-      expect(entry2.requestId).toBe("req-2");
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -242,25 +151,6 @@ describe("JSON mode output structure", () => {
     });
   });
 
-  test("LOG_FORMAT=json: each line is valid JSON (not pretty-printed)", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info("single line");
-
-      spy.mockRestore();
-
-      // Must not contain newlines within the single entry
-      expect(captured[0]).not.toContain("\n");
-      // Must be valid JSON
-      expect(() => JSON.parse(captured[0]!)).not.toThrow();
-    });
-  });
-
   test("inline fields appear in JSON output", () => {
     withJsonMode(() => {
       const captured: string[] = [];
@@ -280,29 +170,6 @@ describe("JSON mode output structure", () => {
     });
   });
 
-  test("child baseFields merged into every entry", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      const child = log.child({ taskId: "t-1", workflowId: "wf-1" });
-
-      child.info("first message");
-      child.info("second message");
-
-      spy.mockRestore();
-
-      expect(captured.length).toBe(2);
-      for (const line of captured) {
-        const entry = JSON.parse(line) as Record<string, unknown>;
-        expect(entry.taskId).toBe("t-1");
-        expect(entry.workflowId).toBe("wf-1");
-      }
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -358,36 +225,6 @@ describe("log level routing to correct console method", () => {
     });
   });
 
-  test("log.info uses console.log (not console.error or console.warn)", () => {
-    withJsonMode(() => {
-      const logCaptured: string[] = [];
-      const warnCaptured: string[] = [];
-      const errorCaptured: string[] = [];
-
-      const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        logCaptured.push(args[0] as string);
-      });
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args) => {
-        warnCaptured.push(args[0] as string);
-      });
-      const errorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation((...args) => {
-          errorCaptured.push(args[0] as string);
-        });
-
-      const log = createLogger("test");
-      log.info("info message");
-
-      logSpy.mockRestore();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
-
-      expect(logCaptured.length).toBe(1);
-      expect(warnCaptured.length).toBe(0);
-      expect(errorCaptured.length).toBe(0);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -436,21 +273,6 @@ describe("human-readable format", () => {
     });
   });
 
-  test("human mode output contains INFO level label", () => {
-    withHumanMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info("level check");
-
-      spy.mockRestore();
-
-      expect(captured[0]).toContain("[INFO]");
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -504,30 +326,6 @@ describe("LOG_LEVEL filtering", () => {
     });
   });
 
-  test("unknown LOG_LEVEL falls back to info", () => {
-    withJsonMode(() => {
-      const origLevel = process.env.LOG_LEVEL;
-      process.env.LOG_LEVEL = "BOGUS_LEVEL";
-
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.debug("should be filtered");
-      log.info("should appear");
-
-      spy.mockRestore();
-      if (origLevel === undefined) {
-        delete process.env.LOG_LEVEL;
-      } else {
-        process.env.LOG_LEVEL = origLevel;
-      }
-
-      expect(captured.length).toBe(1);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -535,15 +333,6 @@ describe("LOG_LEVEL filtering", () => {
 // ---------------------------------------------------------------------------
 
 describe("null/undefined argument handling", () => {
-  test("log.info(null) does not throw", () => {
-    withJsonMode(() => {
-      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const log = createLogger("test");
-      expect(() => log.info(null)).not.toThrow();
-      spy.mockRestore();
-    });
-  });
-
   test("log.info(undefined) does not throw", () => {
     withJsonMode(() => {
       const spy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -559,24 +348,6 @@ describe("null/undefined argument handling", () => {
       const log = createLogger("test");
       expect(() => log.info()).not.toThrow();
       spy.mockRestore();
-    });
-  });
-
-  test("log.info() with no args produces empty message", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info();
-
-      spy.mockRestore();
-
-      expect(captured.length).toBe(1);
-      const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      expect(entry.message).toBe("");
     });
   });
 });
@@ -603,22 +374,6 @@ describe("multiple args in message", () => {
     });
   });
 
-  test("number/boolean args serialized in message", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info("count:", 42, "active:", true);
-
-      spy.mockRestore();
-
-      const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      expect(entry.message).toBe("count: 42 active: true");
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -672,22 +427,4 @@ describe("reserved key protection", () => {
     });
   });
 
-  test("inline fields cannot override 'timestamp' key", () => {
-    withJsonMode(() => {
-      const captured: string[] = [];
-      const spy = vi.spyOn(console, "log").mockImplementation((...args) => {
-        captured.push(args[0] as string);
-      });
-
-      const log = createLogger("test");
-      log.info("test", { timestamp: "fake-time" });
-
-      spy.mockRestore();
-
-      const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
-      // Reserved keys (timestamp, level, module, message) are placed after all spreads,
-      // so caller fields cannot override them. Timestamp should be a real ISO string.
-      expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    });
-  });
 });

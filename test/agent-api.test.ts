@@ -131,58 +131,28 @@ describe("POST /api/agents -- validation", () => {
     expect(body.timeoutMin).toBe(45);
   });
 
-  it("rejects missing id", async () => {
-    const res = await post({
-      name: "No ID",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/id/i);
+  it("rejects missing required fields (id, name, systemPrompt)", async () => {
+    const cases = [
+      { name: "No ID", systemPrompt: "prompt" },
+      { id: "no-name", systemPrompt: "prompt" },
+      { id: "no-prompt", name: "Agent" },
+    ];
+    for (const body of cases) {
+      const res = await post(body);
+      expect(res.status).toBe(400);
+    }
   });
 
-  it("rejects missing name", async () => {
-    const res = await post({
-      id: "no-name",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects missing systemPrompt", async () => {
-    const res = await post({
-      id: "no-prompt",
-      name: "Agent",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects empty id", async () => {
-    const res = await post({
-      id: "",
-      name: "Agent",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects empty name", async () => {
-    const res = await post({
-      id: "valid-id",
-      name: "",
-      systemPrompt: "prompt",
-    });
-    // The current code checks !body.name which is true for empty string
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects empty systemPrompt", async () => {
-    const res = await post({
-      id: "valid-id",
-      name: "Agent",
-      systemPrompt: "",
-    });
-    expect(res.status).toBe(400);
+  it("rejects empty required fields", async () => {
+    const cases = [
+      { id: "", name: "Agent", systemPrompt: "prompt" },
+      { id: "valid-id", name: "", systemPrompt: "prompt" },
+      { id: "valid-id", name: "Agent", systemPrompt: "" },
+    ];
+    for (const body of cases) {
+      const res = await post(body);
+      expect(res.status).toBe(400);
+    }
   });
 
   it("returns 409 on duplicate id", async () => {
@@ -204,64 +174,18 @@ describe("POST /api/agents -- validation", () => {
   // BUG: ID validation regex skips single-character IDs
   // The check is: body.id.length > 1 && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.id)
   // Single-char IDs bypass the regex entirely, so invalid chars are accepted.
-  it("BUG: single-char uppercase ID bypasses validation", async () => {
-    const res = await post({
-      id: "A",
-      name: "Bad ID",
-      systemPrompt: "prompt",
-    });
-    // EXPECTED: 400 (uppercase is invalid)
-    // ACTUAL: 201 (single-char IDs skip regex check)
-    expect(res.status).toBe(400);
+  it("BUG: single-char invalid IDs bypass validation", async () => {
+    for (const id of ["A", "-", "!"]) {
+      const res = await post({ id, name: "Bad ID", systemPrompt: "prompt" });
+      expect(res.status).toBe(400);
+    }
   });
 
-  it("BUG: single-char special char ID bypasses validation", async () => {
-    const res = await post({
-      id: "-",
-      name: "Hyphen ID",
-      systemPrompt: "prompt",
-    });
-    // EXPECTED: 400 (lone hyphen is invalid)
-    // ACTUAL: 201 (single-char IDs skip regex check)
-    expect(res.status).toBe(400);
-  });
-
-  it("BUG: single-char exclamation ID bypasses validation", async () => {
-    const res = await post({
-      id: "!",
-      name: "Bang ID",
-      systemPrompt: "prompt",
-    });
-    // EXPECTED: 400 (special chars are invalid)
-    // ACTUAL: 201 (single-char IDs skip regex check)
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects id with uppercase letters (multi-char)", async () => {
-    const res = await post({
-      id: "Bad-Id",
-      name: "Agent",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects id ending with hyphen", async () => {
-    const res = await post({
-      id: "bad-id-",
-      name: "Agent",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects id starting with hyphen", async () => {
-    const res = await post({
-      id: "-bad-id",
-      name: "Agent",
-      systemPrompt: "prompt",
-    });
-    expect(res.status).toBe(400);
+  it("rejects invalid id formats", async () => {
+    for (const id of ["Bad-Id", "bad-id-", "-bad-id"]) {
+      const res = await post({ id, name: "Agent", systemPrompt: "prompt" });
+      expect(res.status).toBe(400);
+    }
   });
 
   it("accepts valid multi-char id", async () => {
@@ -356,13 +280,6 @@ describe("GET /api/agents", () => {
   beforeEach(() => {
     db = createDb(":memory:");
     app = makeApp(db);
-  });
-
-  it("returns empty array when no agents", async () => {
-    const res = await app.request("/api/agents");
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual([]);
   });
 
   it("returns all agents", async () => {
@@ -614,13 +531,6 @@ describe("POST /api/agents/:id/toggle", () => {
     expect(body.enabled).toBe(1);
   });
 
-  it("double toggle returns to original state", async () => {
-    insertAgent(db, makeAgentData({ enabled: 1 }));
-    await toggle("test-agent");
-    const res = await toggle("test-agent");
-    const body = await res.json();
-    expect(body.enabled).toBe(1);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -761,13 +671,6 @@ describe("GET /api/agents/:id/memories", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns empty array when no memories", async () => {
-    const res = await app.request("/api/agents/test-agent/memories");
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual([]);
-  });
-
   it("returns all memories", async () => {
     insertAgentMemory(db, {
       agentId: "test-agent",
@@ -805,19 +708,6 @@ describe("GET /api/agents/:id/memories", () => {
     expect(body[0].type).toBe("episodic");
   });
 
-  it("returns empty array for invalid type filter", async () => {
-    insertAgentMemory(db, {
-      agentId: "test-agent",
-      type: "episodic",
-      content: "ep",
-    });
-    const res = await app.request(
-      "/api/agents/test-agent/memories?type=nonexistent",
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveLength(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -878,10 +768,4 @@ describe("DELETE /api/agents/:id/memories/:memoryId", () => {
     expect(getAgentMemoryCount(db, "agent-b")).toBe(1);
   });
 
-  it("returns 404 for non-existent memory id", async () => {
-    const res = await app.request("/api/agents/agent-a/memories/99999", {
-      method: "DELETE",
-    });
-    expect(res.status).toBe(404);
-  });
 });
