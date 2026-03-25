@@ -183,9 +183,7 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         if (activeHandles.has(inv.id)) continue;
 
         // Grace period: don't clean up invocations less than 5 minutes old
-        const startedMs = inv.startedAt
-          ? new Date(inv.startedAt).getTime()
-          : 0;
+        const startedMs = inv.startedAt ? new Date(inv.startedAt).getTime() : 0;
         const ageMs = Date.now() - startedMs;
         if (ageMs < 5 * 60 * 1000) continue;
 
