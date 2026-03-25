@@ -328,6 +328,13 @@ export const agentTaskLifecycle = inngest.createFunction(
             }
 
             if (succeeded) {
+              updateInvocation(db, invocationId, {
+                status: "completed",
+                endedAt: new Date().toISOString(),
+                costUsd: sessionEvent.data.costUsd ?? null,
+                inputTokens: sessionEvent.data.inputTokens ?? null,
+                outputTokens: sessionEvent.data.outputTokens ?? null,
+              });
               updateTaskStatus(db, taskId, "done", {
                 reason: "agent_session_succeeded",
               });
@@ -337,6 +344,13 @@ export const agentTaskLifecycle = inngest.createFunction(
               return { outcome: "done" as const };
             }
 
+            updateInvocation(db, invocationId, {
+              status: "failed",
+              endedAt: new Date().toISOString(),
+              costUsd: sessionEvent?.data.costUsd ?? null,
+              inputTokens: sessionEvent?.data.inputTokens ?? null,
+              outputTokens: sessionEvent?.data.outputTokens ?? null,
+            });
             updateTaskStatus(db, taskId, "failed", {
               reason: "agent_session_failed",
               failureReason: `Agent session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,
