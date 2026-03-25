@@ -28,6 +28,7 @@ import {
   buildDisallowedTools,
 } from "./task-lifecycle.js";
 import { interpolateCronPrompt } from "./cron-dispatch.js";
+import { finalizeInvocation } from "./finalize-invocation.js";
 
 const logger = createLogger("inngest/cron-lifecycle");
 
@@ -221,11 +222,8 @@ export const cronTaskLifecycle = inngest.createFunction(
                     error: String(err),
                   });
                 });
-                activeHandles.delete(invocationId);
               }
-              updateInvocation(db, invocationId, {
-                status: "timed_out",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, "timed_out", {
                 outputSummary: `cron session timed out after ${SESSION_TIMEOUT}`,
               });
               updateTaskStatus(db, taskId, "failed", {
@@ -238,6 +236,11 @@ export const cronTaskLifecycle = inngest.createFunction(
             }
 
             if (succeeded) {
+              finalizeInvocation(db, invocationId, "completed", {
+                costUsd: sessionEvent.data.costUsd ?? null,
+                inputTokens: sessionEvent.data.inputTokens ?? null,
+                outputTokens: sessionEvent.data.outputTokens ?? null,
+              });
               updateTaskStatus(db, taskId, "done", {
                 reason: "cron_session_succeeded",
               });
@@ -246,6 +249,11 @@ export const cronTaskLifecycle = inngest.createFunction(
               return { outcome: "done" as const };
             }
 
+            finalizeInvocation(db, invocationId, "failed", {
+              costUsd: sessionEvent?.data.costUsd ?? null,
+              inputTokens: sessionEvent?.data.inputTokens ?? null,
+              outputTokens: sessionEvent?.data.outputTokens ?? null,
+            });
             updateTaskStatus(db, taskId, "failed", {
               reason: "cron_session_failed",
               failureReason: `Cron session failed (exit code: ${sessionEvent?.data.exitCode ?? "timeout"})`,

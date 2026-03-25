@@ -460,10 +460,13 @@ describe("EMI-342: isResumeNotFound in task-lifecycle (fix phase)", () => {
       .mockReturnValueOnce(2)
       .mockReturnValueOnce(3);
     mockGetInvocation
-      .mockReturnValueOnce({ outputSummary: "" })
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
+      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
       .mockReturnValueOnce({
         outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED",
-      });
+      }) // review 0 result
+      .mockReturnValueOnce({ status: "running" }); // finalizeInvocation after fix 0
     mockFindPrForBranch.mockReturnValue({
       exists: true,
       number: 42,

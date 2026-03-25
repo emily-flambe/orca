@@ -33,6 +33,7 @@ import {
   buildOrcaMcpServers,
 } from "./task-lifecycle.js";
 import type { AgentMemoryRow } from "../../db/queries.js";
+import { finalizeInvocation } from "./finalize-invocation.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
 
@@ -310,11 +311,8 @@ export const agentTaskLifecycle = inngest.createFunction(
                     error: String(err),
                   });
                 });
-                activeHandles.delete(invocationId);
               }
-              updateInvocation(db, invocationId, {
-                status: "timed_out",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, "timed_out", {
                 outputSummary: `agent session timed out after ${SESSION_TIMEOUT}`,
               });
               updateTaskStatus(db, taskId, "failed", {
@@ -328,9 +326,7 @@ export const agentTaskLifecycle = inngest.createFunction(
             }
 
             if (succeeded) {
-              updateInvocation(db, invocationId, {
-                status: "completed",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, "completed", {
                 costUsd: sessionEvent.data.costUsd ?? null,
                 inputTokens: sessionEvent.data.inputTokens ?? null,
                 outputTokens: sessionEvent.data.outputTokens ?? null,
@@ -344,9 +340,7 @@ export const agentTaskLifecycle = inngest.createFunction(
               return { outcome: "done" as const };
             }
 
-            updateInvocation(db, invocationId, {
-              status: "failed",
-              endedAt: new Date().toISOString(),
+            finalizeInvocation(db, invocationId, "failed", {
               costUsd: sessionEvent?.data.costUsd ?? null,
               inputTokens: sessionEvent?.data.inputTokens ?? null,
               outputTokens: sessionEvent?.data.outputTokens ?? null,

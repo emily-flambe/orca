@@ -375,7 +375,7 @@ program
       `startup grace period: deferring Inngest registration for ${STARTUP_GRACE_MS / 1000}s`,
     );
 
-    setTimeout(() => {
+    setTimeout(async () => {
       logger.info("startup grace period ended — initializing Inngest");
 
       // Initialize Inngest workflow deps (must happen before workflows fire)
@@ -431,6 +431,38 @@ program
         .catch((err: unknown) =>
           logger.warn(`Inngest registration failed: ${err}`),
         );
+
+      // Send task/cancelled events for tasks that had orphaned invocations.
+      // When Orca crashes (no clean shutdown), old Inngest workflows survive
+      // and hold per-task concurrency locks. Sending cancellation events kills
+      // them so re-emitted task/ready events aren't blocked.
+      //
+      // We must await these before emitting task/ready — otherwise the new
+      // workflow can queue behind the zombie's per-task concurrency lock.
+      if (orphanedTaskIds.size > 0) {
+        const cancelPromises = [...orphanedTaskIds].map((taskId) => {
+          const task = getTask(db, taskId);
+          return inngest
+            .send({
+              name: "task/cancelled" as const,
+              data: {
+                linearIssueId: taskId,
+                reason: "orphaned_by_crash",
+                retryCount: task?.retryCount ?? 0,
+                previousStatus: (task?.orcaStatus ?? "running") as TaskStatus,
+              },
+            })
+            .catch((err: unknown) =>
+              logger.warn(
+                `startup: failed to cancel zombie workflow for ${taskId}: ${err}`,
+              ),
+            );
+        });
+        await Promise.allSettled(cancelPromises);
+        logger.info(
+          `startup: sent task/cancelled for ${orphanedTaskIds.size} orphaned task(s)`,
+        );
+      }
 
       // Re-emit task/ready events for any tasks that need dispatch.
       // Events can be lost if Orca crashes, Inngest is down, or tasks were

@@ -61,6 +61,7 @@ import {
   updateAndEmit,
   transitionToFinalState,
 } from "../workflow-utils.js";
+import { finalizeInvocation } from "./finalize-invocation.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import {
   findPrForBranch,
@@ -206,9 +207,7 @@ export function bridgeSessionCompletion(
           // DB fallback: update invocation and reset task so it gets re-dispatched
           try {
             const { db } = getSchedulerDeps();
-            updateInvocation(db, invocationId, {
-              status: invStatus,
-              endedAt: new Date().toISOString(),
+            finalizeInvocation(db, invocationId, invStatus, {
               costUsd: result.costUsd ?? null,
               inputTokens: result.inputTokens ?? null,
               outputTokens: result.outputTokens ?? null,
@@ -262,10 +261,7 @@ export function bridgeSessionCompletion(
           );
           try {
             const { db } = getSchedulerDeps();
-            updateInvocation(db, invocationId, {
-              status: "failed",
-              endedAt: new Date().toISOString(),
-            });
+            finalizeInvocation(db, invocationId, "failed");
             updateTaskStatus(db, linearIssueId, "failed", {
               reason: "runner_error_db_fallback",
               failureReason: `Runner error (DB fallback, phase: ${phase})`,
@@ -817,11 +813,8 @@ export const taskLifecycle = inngest.createFunction(
                     error: String(err),
                   });
                 });
-                activeHandles.delete(invocationId);
               }
-              updateInvocation(db, invocationId, {
-                status: "timed_out",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, "timed_out", {
                 outputSummary: "session timed out after 45 minutes",
               });
               updateAndEmit(db, taskId, "failed", "session_timed_out", {
@@ -877,17 +870,16 @@ export const taskLifecycle = inngest.createFunction(
             const invRecord = getInvocation(db, invocationId);
             const isMaxTurns = implementEvent.data.isMaxTurns;
 
+            const implStatus = isSuccess ? "completed" : "failed";
             emitInvocationCompleted({
               taskId,
               invocationId,
-              status: isSuccess ? "completed" : "failed",
+              status: implStatus,
               costUsd: implementEvent.data.costUsd ?? 0,
               inputTokens: implementEvent.data.inputTokens ?? 0,
               outputTokens: implementEvent.data.outputTokens ?? 0,
             });
-            updateInvocation(db, invocationId, {
-              status: isSuccess ? "completed" : "failed",
-              endedAt: new Date().toISOString(),
+            finalizeInvocation(db, invocationId, implStatus, {
               costUsd: implementEvent.data.costUsd ?? null,
               inputTokens: implementEvent.data.inputTokens ?? null,
               outputTokens: implementEvent.data.outputTokens ?? null,
@@ -1059,8 +1051,13 @@ export const taskLifecycle = inngest.createFunction(
                   "already_on_main",
                 );
               }
+              // Direct updateInvocation — intentionally overwrites the
+              // "completed" status set by the implement finalize step.
+              // Cannot use finalizeInvocation here: its idempotency guard
+              // would skip the write.
               updateInvocation(db, invocationId, {
                 status: "failed",
+                endedAt: new Date().toISOString(),
                 outputSummary:
                   "Post-implementation gate failed: no branch name",
               });
@@ -1120,8 +1117,13 @@ export const taskLifecycle = inngest.createFunction(
               log(
                 `task ${taskId}: Gate 2 failed — no PR found for branch ${branchName}`,
               );
+              // Direct updateInvocation — intentionally overwrites the
+              // "completed" status set by the implement finalize step.
+              // Cannot use finalizeInvocation here: its idempotency guard
+              // would skip the write.
               updateInvocation(db, invocationId, {
                 status: "failed",
+                endedAt: new Date().toISOString(),
                 outputSummary: `Post-implementation gate failed: no PR found for branch ${branchName}`,
               });
               updateAndEmit(db, taskId, "failed", "gate2_no_pr", {
@@ -1505,11 +1507,8 @@ export const taskLifecycle = inngest.createFunction(
                       error: String(err),
                     });
                   });
-                  activeHandles.delete(invocationId);
                 }
-                updateInvocation(db, invocationId, {
-                  status: "timed_out",
-                  endedAt: new Date().toISOString(),
+                finalizeInvocation(db, invocationId, "timed_out", {
                   outputSummary: "review session timed out after 45 minutes",
                 });
                 updateAndEmit(
@@ -1528,17 +1527,16 @@ export const taskLifecycle = inngest.createFunction(
 
               const isSuccess =
                 reviewEvent.data.exitCode === 0 && !reviewEvent.data.isMaxTurns;
+              const revStatus = isSuccess ? "completed" : "failed";
               emitInvocationCompleted({
                 taskId,
                 invocationId,
-                status: isSuccess ? "completed" : "failed",
+                status: revStatus,
                 costUsd: reviewEvent.data.costUsd ?? 0,
                 inputTokens: reviewEvent.data.inputTokens ?? 0,
                 outputTokens: reviewEvent.data.outputTokens ?? 0,
               });
-              updateInvocation(db, invocationId, {
-                status: isSuccess ? "completed" : "failed",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, revStatus, {
                 costUsd: reviewEvent.data.costUsd ?? null,
                 inputTokens: reviewEvent.data.inputTokens ?? null,
                 outputTokens: reviewEvent.data.outputTokens ?? null,
@@ -1898,11 +1896,8 @@ export const taskLifecycle = inngest.createFunction(
                       error: String(err),
                     });
                   });
-                  activeHandles.delete(invocationId);
                 }
-                updateInvocation(db, invocationId, {
-                  status: "timed_out",
-                  endedAt: new Date().toISOString(),
+                finalizeInvocation(db, invocationId, "timed_out", {
                   outputSummary: "fix session timed out after 45 minutes",
                 });
                 updateAndEmit(db, taskId, "in_review", "fix_session_timed_out");
@@ -1916,17 +1911,16 @@ export const taskLifecycle = inngest.createFunction(
 
               const isSuccess =
                 fixEvent.data.exitCode === 0 && !fixEvent.data.isMaxTurns;
+              const fixStatus = isSuccess ? "completed" : "failed";
               emitInvocationCompleted({
                 taskId,
                 invocationId,
-                status: isSuccess ? "completed" : "failed",
+                status: fixStatus,
                 costUsd: fixEvent.data.costUsd ?? 0,
                 inputTokens: fixEvent.data.inputTokens ?? 0,
                 outputTokens: fixEvent.data.outputTokens ?? 0,
               });
-              updateInvocation(db, invocationId, {
-                status: isSuccess ? "completed" : "failed",
-                endedAt: new Date().toISOString(),
+              finalizeInvocation(db, invocationId, fixStatus, {
                 costUsd: fixEvent.data.costUsd ?? null,
                 inputTokens: fixEvent.data.inputTokens ?? null,
                 outputTokens: fixEvent.data.outputTokens ?? null,

@@ -499,8 +499,10 @@ describe("task-lifecycle workflow", () => {
     // implement invocation
     mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
     mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
       .mockReturnValueOnce({ outputSummary: "" }) // for Gate 2
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // for review
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // for review result
 
     mockFindPrForBranch.mockReturnValue({
       exists: true,
@@ -556,9 +558,13 @@ describe("task-lifecycle workflow", () => {
       .mockReturnValueOnce(4);
 
     mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
       .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review cycle 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review cycle 1
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review cycle 0 result
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 0
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review cycle 1 result
 
     mockFindPrForBranch.mockReturnValue({
       exists: true,
@@ -608,7 +614,9 @@ describe("task-lifecycle workflow", () => {
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
     mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
-    mockGetInvocation.mockReturnValueOnce({ outputSummary: "" });
+    mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
+      .mockReturnValueOnce({ outputSummary: "" }); // Gate 2
 
     mockFindPrForBranch.mockReturnValue({
       exists: true,
@@ -652,9 +660,15 @@ describe("task-lifecycle workflow", () => {
       .mockReturnValueOnce(6);
 
     mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
       .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 1
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0 result
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 0
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 1 result
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 1
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 2
       .mockReturnValueOnce({ outputSummary: "" }); // review 2 - no marker
 
     mockFindPrForBranch.mockReturnValue({
@@ -805,8 +819,10 @@ describe("task-lifecycle workflow", () => {
     mockClaimTaskForDispatch.mockReturnValue(true);
     mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
     mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
       .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review result
     mockFindPrForBranch.mockReturnValue({
       exists: true,
       number: 42,
@@ -855,9 +871,13 @@ describe("task-lifecycle workflow", () => {
       .mockReturnValueOnce(3) // fix
       .mockReturnValueOnce(4); // review cycle 1
     mockGetInvocation
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
       .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review 1
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0 result
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix
+      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
+      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review 1 result
     mockFindPrForBranch.mockReturnValue({
       exists: true,
       number: 42,
