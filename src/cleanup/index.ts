@@ -384,9 +384,20 @@ function cleanupRepo(
 
   if (orcaBranches.length === 0) return;
 
+  // Re-query running invocations immediately before branch deletion.
+  // The protection set was built at the start of the cleanup cycle; worktree
+  // cleanup can take 30-60 seconds, during which new sessions may start and
+  // insert invocations (and create branches) that weren't in the original set.
+  const freshRunningBranches = new Set(ctx.runningBranches);
+  if (ctx.db) {
+    for (const inv of getRunningInvocations(ctx.db)) {
+      if (inv.branchName) freshRunningBranches.add(inv.branchName);
+    }
+  }
+
   for (const branch of orcaBranches) {
     // Safety: never delete branches with running invocations
-    if (ctx.runningBranches.has(branch)) continue;
+    if (freshRunningBranches.has(branch)) continue;
 
     // Safety: never delete branches referenced by active tasks
     if (ctx.activeBranches.has(branch)) continue;
@@ -721,8 +732,19 @@ async function cleanupRepoAsync(
 
   if (orcaBranches.length === 0) return;
 
+  // Re-query running invocations immediately before branch deletion.
+  // The protection set was built at the start of the cleanup cycle; worktree
+  // cleanup can take 30-60 seconds, during which new sessions may start and
+  // insert invocations (and create branches) that weren't in the original set.
+  const freshRunningBranches = new Set(ctx.runningBranches);
+  if (ctx.db) {
+    for (const inv of getRunningInvocations(ctx.db)) {
+      if (inv.branchName) freshRunningBranches.add(inv.branchName);
+    }
+  }
+
   for (const branch of orcaBranches) {
-    if (ctx.runningBranches.has(branch)) continue;
+    if (freshRunningBranches.has(branch)) continue;
     if (ctx.activeBranches.has(branch)) continue;
     if (openPrBranches.has(branch)) continue;
 
