@@ -542,6 +542,17 @@ function migrateSchema(sqlite: DatabaseType): void {
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT");
     sqlite.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
   }
+
+  // ---------------------------------------------------------------------------
+  // Migration 24 (hidden tasks):
+  //   - Add hidden INTEGER column to tasks (0 = visible, 1 = hidden)
+  //   Sentinel: hidden column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "hidden")) {
+    sqlite.exec(
+      "ALTER TABLE tasks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+    );
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

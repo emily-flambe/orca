@@ -6,6 +6,7 @@ import { updateTaskStatus } from "../../hooks/useApi";
 
 vi.mock("../../hooks/useApi", () => ({
   updateTaskStatus: vi.fn().mockResolvedValue({ ok: true }),
+  toggleTaskHidden: vi.fn().mockResolvedValue({ ok: true, hidden: 1 }),
 }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -25,6 +26,15 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     doneAt: null,
     projectName: null,
     invocationCount: 0,
+    taskType: "linear",
+    cronScheduleId: null,
+    agentId: null,
+    lastFailureReason: null,
+    lastFailedPhase: null,
+    lastFailedAt: null,
+    prUrl: null,
+    prState: null,
+    hidden: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,

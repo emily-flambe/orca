@@ -72,6 +72,15 @@ export function updateTaskStatus(
   });
 }
 
+export function toggleTaskHidden(
+  id: string,
+): Promise<{ ok: boolean; hidden: number }> {
+  return fetchJson<{ ok: boolean; hidden: number }>(
+    `/tasks/${encodeURIComponent(id)}/hide`,
+    { method: "POST" },
+  );
+}
+
 export function updateConfig(config: {
   concurrencyCap?: number;
   agentConcurrencyCap?: number;

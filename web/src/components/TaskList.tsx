@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task } from "../types";
-import { updateTaskStatus } from "../hooks/useApi";
+import { updateTaskStatus, toggleTaskHidden } from "../hooks/useApi";
 import PriorityDot from "./ui/PriorityDot";
 import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
@@ -135,6 +135,7 @@ export default function TaskList({
   // hiddenProjects: empty = show all, otherwise hide listed project names
   const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
 
   const allProjects = useMemo(() => {
     const ps = new Set<string>();
@@ -213,10 +214,13 @@ export default function TaskList({
       (selectedStatuses as ReadonlySet<string>).has(t.orcaStatus),
     );
 
+    // Filter hidden tasks unless showHidden is active
+    const byHidden = showHidden ? byStatus : byStatus.filter((t) => !t.hidden);
+
     const byProject =
       hiddenProjects.size === 0
-        ? byStatus
-        : byStatus.filter((t) => !hiddenProjects.has(t.projectName ?? ""));
+        ? byHidden
+        : byHidden.filter((t) => !hiddenProjects.has(t.projectName ?? ""));
 
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
     const withHistory = byProject.filter(
@@ -324,6 +328,17 @@ export default function TaskList({
     }
     return counts;
   }, [tasks]);
+
+  const hiddenCount = useMemo(
+    () => tasks.filter((t) => t.hidden === 1).length,
+    [tasks],
+  );
+
+  const [swipingTaskId, setSwipingTaskId] = useState<string | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const touchStartRef = useRef<{ x: number; y: number; id: string } | null>(
+    null,
+  );
 
   const allStatusesSelected = ALL_FILTER_VALUES.every((v) =>
     selectedStatuses.has(v),
@@ -570,11 +585,23 @@ export default function TaskList({
           </div>
         </div>
 
-        {/* Export */}
-        <div className="flex justify-end">
+        {/* Export & Hidden toggle */}
+        <div className="flex items-center justify-between">
+          {hiddenCount > 0 && (
+            <button
+              onClick={() => setShowHidden((v) => !v)}
+              className={`text-xs px-2 py-1 rounded transition-colors ${
+                showHidden
+                  ? "bg-gray-700 text-gray-200 border border-gray-600"
+                  : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {showHidden ? "Hide" : "Show"} {hiddenCount} hidden
+            </button>
+          )}
           <button
             onClick={handleExport}
-            className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm"
+            className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1 rounded text-sm ml-auto"
           >
             Export
           </button>
@@ -591,14 +618,74 @@ export default function TaskList({
               role="button"
               tabIndex={0}
               onClick={() => onSelect(task.linearIssueId)}
+              onTouchStart={(e) => {
+                const touch = e.touches[0];
+                touchStartRef.current = {
+                  x: touch.clientX,
+                  y: touch.clientY,
+                  id: task.linearIssueId,
+                };
+              }}
+              onTouchMove={(e) => {
+                if (
+                  !touchStartRef.current ||
+                  touchStartRef.current.id !== task.linearIssueId
+                )
+                  return;
+                const dx = e.touches[0].clientX - touchStartRef.current.x;
+                const dy = Math.abs(
+                  e.touches[0].clientY - touchStartRef.current.y,
+                );
+                // Only count horizontal swipes (not scroll)
+                if (dy > 30) {
+                  touchStartRef.current = null;
+                  setSwipingTaskId(null);
+                  setSwipeOffset(0);
+                  return;
+                }
+                if (dx > 10) {
+                  setSwipingTaskId(task.linearIssueId);
+                  setSwipeOffset(Math.min(dx, 120));
+                }
+              }}
+              onTouchEnd={() => {
+                if (swipingTaskId === task.linearIssueId && swipeOffset > 80) {
+                  toggleTaskHidden(task.linearIssueId)
+                    .then((res) => {
+                      onToast?.success(
+                        res.hidden ? "Task hidden" : "Task unhidden",
+                      );
+                    })
+                    .catch((err: unknown) => {
+                      onToast?.error(
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to toggle visibility",
+                      );
+                    });
+                }
+                touchStartRef.current = null;
+                setSwipingTaskId(null);
+                setSwipeOffset(0);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   onSelect(task.linearIssueId);
                 }
               }}
-              className={`w-full text-left px-3 py-3 flex flex-col gap-1 border-b border-gray-800/50 hover:bg-gray-800/50 active:bg-gray-800 transition-colors cursor-pointer ${
+              style={
+                swipingTaskId === task.linearIssueId
+                  ? {
+                      transform: `translateX(${swipeOffset}px)`,
+                      transition: "none",
+                    }
+                  : undefined
+              }
+              className={`w-full text-left px-3 py-3 flex flex-col gap-1 border-b border-gray-800/50 hover:bg-gray-800/50 active:bg-gray-800 cursor-pointer ${
                 isSelected ? "bg-gray-800" : ""
+              } ${swipingTaskId === task.linearIssueId ? "" : "transition-all"} ${
+                task.hidden ? "opacity-50" : ""
               }`}
             >
               {/* Top row: priority + ID + status */}
@@ -711,6 +798,31 @@ export default function TaskList({
                           {s.label}
                         </button>
                       ))}
+                      <div className="border-t border-gray-700 my-1" />
+                      <button
+                        role="menuitem"
+                        tabIndex={-1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStatusMenuTaskId(null);
+                          toggleTaskHidden(task.linearIssueId)
+                            .then((res) => {
+                              onToast?.success(
+                                res.hidden ? "Task hidden" : "Task unhidden",
+                              );
+                            })
+                            .catch((err: unknown) => {
+                              onToast?.error(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to toggle visibility",
+                              );
+                            });
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors text-gray-400"
+                      >
+                        {task.hidden ? "unhide" : "hide"}
+                      </button>
                     </div>
                   )}
                 </div>

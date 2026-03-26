@@ -870,6 +870,21 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // POST /api/tasks/:id/hide
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks/:id/hide", (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "task not found" }, 404);
+    }
+    const newHidden = task.hidden ? 0 : 1;
+    updateTaskFields(db, taskId, { hidden: newHidden });
+    emitTaskUpdated(getTask(db, taskId)!);
+    return c.json({ ok: true, hidden: newHidden });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/sync
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {
