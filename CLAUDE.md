@@ -182,3 +182,9 @@ Each Linear project description must contain a `repo:` line:
 repo: C:\Users\emily\Documents\Github\orca
 ```
 Scheduler uses this to create worktrees in the correct repo. Falls back to `ORCA_DEFAULT_CWD`.
+
+## Knowledge Graph (Agent-MCP)
+
+After significant changes (new features, architecture decisions, schema changes), save context to Agent-MCP using `update_project_context`. Use the key prefix `orca/` (e.g., `orca/architecture`).
+
+Update existing entries when information changes. Create new keys for new topics. This ensures any agent in any session can retrieve project context via `ask_project_rag`.
