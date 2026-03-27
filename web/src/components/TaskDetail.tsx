@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import type { TaskWithInvocations } from "../types";
+import type { TaskWithInvocations, Agent } from "../types";
 import {
   fetchTaskDetail,
   fetchTaskTransitions,
   abortInvocation,
   retryTask,
   updateTaskStatus,
+  fetchAgents,
+  assignTaskAgent,
   type TaskStateTransition,
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
@@ -67,8 +69,13 @@ export default function TaskDetail({
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [transitions, setTransitions] = useState<TaskStateTransition[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    fetchAgents().then(setAgents).catch(console.error);
+  }, []);
 
   // Focus first menu item when the status menu opens
   useEffect(() => {
@@ -192,6 +199,26 @@ export default function TaskDetail({
             </div>
           )}
         </div>
+        {/* Agent assignment */}
+        <select
+          value={detail.agentId ?? ""}
+          onChange={(e) => {
+            const agentId = e.target.value || null;
+            assignTaskAgent(detail.linearIssueId, agentId)
+              .then(() => fetchTaskDetail(taskId))
+              .then((d) => setDetail(d))
+              .catch(console.error);
+          }}
+          className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
+          title="Assign to agent"
+        >
+          <option value="">No agent</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
         {detail.orcaStatus === "failed" && (
           <button
             onClick={() => {

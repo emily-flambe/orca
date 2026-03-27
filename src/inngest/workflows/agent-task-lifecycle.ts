@@ -34,11 +34,18 @@ import {
 } from "./task-lifecycle.js";
 import type { AgentMemoryRow } from "../../db/queries.js";
 import { finalizeInvocation } from "./finalize-invocation.js";
+import { transitionToFinalState } from "../workflow-utils.js";
+import { writeBackStatus } from "../../linear/sync.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
 
 function log(message: string): void {
   logger.info(message);
+}
+
+/** Real Linear issue IDs don't start with synthetic prefixes. */
+function isLinearTicket(taskId: string): boolean {
+  return !taskId.startsWith("agent-") && !taskId.startsWith("cron-");
 }
 
 const SESSION_TIMEOUT = "60m";
@@ -124,9 +131,14 @@ export const agentTaskLifecycle = inngest.createFunction(
           } catch (err) {
             const reason =
               err instanceof Error ? err.message : "session cap reached";
-            // Capacity blocked — delete the task so agent can re-dispatch next schedule
+            // Capacity blocked — delete synthetic tasks so agent can re-dispatch next schedule
+            // Real Linear tickets stay at ready for the reconciler
             const task = getTask(db, taskId);
-            if (task && task.orcaStatus === "ready") {
+            if (
+              task &&
+              task.orcaStatus === "ready" &&
+              !isLinearTicket(taskId)
+            ) {
               deleteTask(db, taskId);
               log(
                 `agent task ${taskId}: capacity blocked, deleted task for re-dispatch`,
@@ -147,6 +159,20 @@ export const agentTaskLifecycle = inngest.createFunction(
           }
 
           emitTaskUpdated(getTask(db, taskId)!);
+
+          // Write back "running" to Linear for assigned tickets
+          if (isLinearTicket(taskId)) {
+            const { client, stateMap } = getSchedulerDeps();
+            writeBackStatus(client, taskId, "running", stateMap).catch(
+              (err: unknown) => {
+                logger.warn("Linear write-back failed (agent claim)", {
+                  taskId,
+                  error: String(err),
+                });
+              },
+            );
+          }
+
           return { claimed: true };
         },
       );
@@ -359,6 +385,20 @@ export const agentTaskLifecycle = inngest.createFunction(
           },
         ),
       );
+
+      // Step 4b: Write back to Linear for assigned tickets
+      if (isLinearTicket(taskId)) {
+        await step.run("linear-writeback", async () => {
+          const { client, stateMap } = getSchedulerDeps();
+          const targetStatus =
+            result.outcome === "done" ? "done" : "failed_permanent";
+          await transitionToFinalState(
+            { client, stateMap },
+            taskId,
+            targetStatus as Parameters<typeof transitionToFinalState>[2],
+          );
+        });
+      }
 
       // Step 5: Cleanup worktree
       if (implementCtx.worktreePath) {

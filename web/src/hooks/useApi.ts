@@ -410,4 +410,18 @@ export function deleteAgentMemory(
   );
 }
 
+export function assignTaskAgent(
+  taskId: string,
+  agentId: string | null,
+): Promise<{ ok: boolean; task: Task }> {
+  return fetchJson<{ ok: boolean; task: Task }>(
+    `/tasks/${encodeURIComponent(taskId)}/assign-agent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId }),
+    },
+  );
+}
+
 export type { CronSchedule };

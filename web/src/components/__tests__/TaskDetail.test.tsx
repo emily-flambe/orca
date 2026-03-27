@@ -9,6 +9,8 @@ vi.mock("../../hooks/useApi", () => ({
   abortInvocation: vi.fn(),
   retryTask: vi.fn().mockResolvedValue({}),
   updateTaskStatus: vi.fn().mockResolvedValue({}),
+  fetchAgents: vi.fn().mockResolvedValue([]),
+  assignTaskAgent: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("../LiveRunWidget", () => ({

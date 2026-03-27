@@ -885,6 +885,30 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // POST /api/tasks/:id/assign-agent
+  // -----------------------------------------------------------------------
+  app.post("/api/tasks/:id/assign-agent", async (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) return c.json({ error: "task not found" }, 404);
+
+    const body = await c.req.json<{ agentId: string | null }>();
+    const { agentId } = body;
+
+    if (agentId) {
+      const agent = getAgent(db, agentId);
+      if (!agent) return c.json({ error: "agent not found" }, 404);
+      updateTaskFields(db, taskId, { agentId, taskType: "agent" });
+    } else {
+      updateTaskFields(db, taskId, { agentId: null, taskType: "linear" });
+    }
+
+    const updated = getTask(db, taskId)!;
+    emitTaskUpdated(updated);
+    return c.json({ ok: true, task: updated });
+  });
+
+  // -----------------------------------------------------------------------
   // POST /api/sync
   // -----------------------------------------------------------------------
   app.post("/api/sync", async (c) => {

@@ -10,6 +10,8 @@ import {
   toggleAgent,
   triggerAgent,
   deleteAgentMemory,
+  assignTaskAgent,
+  fetchTasks,
 } from "../hooks/useApi";
 import { formatTimestamp, formatDurationMs } from "../utils/time.js";
 import LogViewer from "./LogViewer";
@@ -458,6 +460,8 @@ function AgentDetail({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [availableTickets, setAvailableTickets] = useState<Task[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
   const [deletingMemoryId, setDeletingMemoryId] = useState<number | null>(null);
   const [expandedMemoryIds, setExpandedMemoryIds] = useState<Set<number>>(
     new Set(),
@@ -484,6 +488,20 @@ function AgentDetail({
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
+
+  useEffect(() => {
+    fetchTasks()
+      .then((allTasks: Task[]) => {
+        const assignable = allTasks.filter(
+          (t: Task) =>
+            (t.taskType === "linear" || t.taskType === null) &&
+            !t.agentId &&
+            ["backlog", "ready", "failed"].includes(t.orcaStatus),
+        );
+        setAvailableTickets(assignable);
+      })
+      .catch(console.error);
+  }, []);
 
   function toggleMemoryExpanded(memoryId: number) {
     setExpandedMemoryIds((prev) => {
@@ -598,6 +616,51 @@ function AgentDetail({
           </div>
         )}
       </div>
+
+      {/* Assign ticket */}
+      {availableTickets.length > 0 && (
+        <div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">
+            Assign Ticket
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value=""
+              onChange={async (e) => {
+                const ticketId = e.target.value;
+                if (!ticketId) return;
+                setAssigningId(ticketId);
+                try {
+                  await assignTaskAgent(ticketId, agentId);
+                  // Refresh both lists
+                  loadDetail();
+                  setAvailableTickets((prev) =>
+                    prev.filter((t) => t.linearIssueId !== ticketId),
+                  );
+                  onToast?.success(`Assigned ${ticketId} to agent`);
+                } catch (err) {
+                  onToast?.error(
+                    err instanceof Error
+                      ? err.message
+                      : "Failed to assign ticket",
+                  );
+                } finally {
+                  setAssigningId(null);
+                }
+              }}
+              disabled={assigningId !== null}
+              className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-300 cursor-pointer hover:border-gray-500 transition-colors flex-1"
+            >
+              <option value="">Select a ticket...</option>
+              {availableTickets.map((t) => (
+                <option key={t.linearIssueId} value={t.linearIssueId}>
+                  {t.linearIssueId} — {(t.agentPrompt ?? "").slice(0, 60)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* Recent tasks */}
       <div>
