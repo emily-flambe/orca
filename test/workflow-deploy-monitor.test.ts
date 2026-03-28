@@ -155,6 +155,8 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     linearIssueId: "TEST-1",
     orcaStatus: "deploying",
+    lifecycleStage: "active",
+    currentPhase: "deploy",
     repoPath: "/repo",
     prNumber: 42,
     prBranchName: "orca/TEST-1-inv-1",
@@ -206,7 +208,13 @@ describe("deploy-monitor workflow", () => {
   });
 
   test("task status changed from deploying → returns aborted", async () => {
-    mockGetTask.mockReturnValue(makeTask({ orcaStatus: "done" }));
+    mockGetTask.mockReturnValue(
+      makeTask({
+        orcaStatus: "done",
+        lifecycleStage: "done",
+        currentPhase: null,
+      }),
+    );
 
     const step = createDeployMonitorStep();
     const result = await capturedDeployMonitorHandler({

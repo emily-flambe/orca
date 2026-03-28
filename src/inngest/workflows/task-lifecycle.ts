@@ -504,7 +504,7 @@ export const taskLifecycle = inngest.createFunction(
           if (!claimed) {
             return {
               claimed: false,
-              reason: `task ${taskId} not in a dispatchable state (current: ${task.orcaStatus})`,
+              reason: `task ${taskId} not in a dispatchable state (stage: ${task.lifecycleStage}, phase: ${task.currentPhase})`,
             };
           }
 
@@ -517,7 +517,7 @@ export const taskLifecycle = inngest.createFunction(
               }),
           );
 
-          return { claimed: true, phase: task.orcaStatus as string };
+          return { claimed: true, phase: task.currentPhase ?? "implement" };
         }),
     );
 
@@ -542,17 +542,19 @@ export const taskLifecycle = inngest.createFunction(
         const freshTask = getTask(db, taskId);
         if (
           !freshTask ||
-          ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+          ["done", "failed", "canceled"].includes(freshTask.lifecycleStage!)
         ) {
           log(
-            `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+            `task ${taskId} is ${freshTask?.lifecycleStage ?? "deleted"}, aborting stale workflow`,
           );
           insertSystemEvent(db, {
             type: "self_heal",
-            message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+            message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
             metadata: {
               taskId,
-              abortedStatus: freshTask?.orcaStatus ?? "deleted",
+              previousStatus: freshTask?.orcaStatus ?? "deleted",
+              lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
+              currentPhase: freshTask?.currentPhase ?? null,
               phase: "implement",
             },
           });
@@ -612,7 +614,7 @@ export const taskLifecycle = inngest.createFunction(
             }
           }
 
-          const isFixPhase = task.orcaStatus === "changes_requested";
+          const isFixPhase = task.currentPhase === "fix";
           let fixPhaseResumeSessionId: string | undefined;
           if (isFixPhase) {
             const prevInv = getLastCompletedImplementInvocation(db, taskId);
@@ -1417,17 +1419,19 @@ export const taskLifecycle = inngest.createFunction(
           const freshTask = getTask(db, taskId);
           if (
             !freshTask ||
-            ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+            ["done", "failed", "canceled"].includes(freshTask.lifecycleStage!)
           ) {
             log(
-              `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+              `task ${taskId} is ${freshTask?.lifecycleStage ?? "deleted"}, aborting stale workflow`,
             );
             insertSystemEvent(db, {
               type: "self_heal",
-              message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+              message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
               metadata: {
                 taskId,
-                abortedStatus: freshTask?.orcaStatus ?? "deleted",
+                previousStatus: freshTask?.orcaStatus ?? "deleted",
+                lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
+                currentPhase: freshTask?.currentPhase ?? null,
                 phase: "review",
                 cycle,
               },
@@ -1820,17 +1824,19 @@ export const taskLifecycle = inngest.createFunction(
           const freshTask = getTask(db, taskId);
           if (
             !freshTask ||
-            ["done", "failed", "canceled"].includes(freshTask.orcaStatus)
+            ["done", "failed", "canceled"].includes(freshTask.lifecycleStage!)
           ) {
             log(
-              `task ${taskId} is ${freshTask?.orcaStatus ?? "deleted"}, aborting stale workflow`,
+              `task ${taskId} is ${freshTask?.lifecycleStage ?? "deleted"}, aborting stale workflow`,
             );
             insertSystemEvent(db, {
               type: "self_heal",
-              message: `Aborted stale workflow for ${taskId} (status: ${freshTask?.orcaStatus ?? "deleted"})`,
+              message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
               metadata: {
                 taskId,
-                abortedStatus: freshTask?.orcaStatus ?? "deleted",
+                previousStatus: freshTask?.orcaStatus ?? "deleted",
+                lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
+                currentPhase: freshTask?.currentPhase ?? null,
                 phase: "fix",
                 cycle,
               },

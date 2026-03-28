@@ -46,10 +46,10 @@ export const deployMonitorWorkflow = inngest.createFunction(
         return { status: "aborted", reason: "task_not_found" };
       }
 
-      // If task is no longer deploying (e.g. user cancelled), stop polling
-      if (task.orcaStatus !== "deploying") {
+      // If task is no longer in deploy phase (e.g. user cancelled), stop polling
+      if (task.currentPhase !== "deploy") {
         log(
-          `task ${linearIssueId} status changed to ${task.orcaStatus} — stopping deploy poll`,
+          `task ${linearIssueId} status changed (stage=${task.lifecycleStage}, phase=${task.currentPhase}) — stopping deploy poll`,
         );
         return { status: "aborted", reason: "status_changed" };
       }

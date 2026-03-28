@@ -17,20 +17,12 @@ export const DEFAULT_TRACKING_FILE = path.join(
 );
 
 export const STUCK_THRESHOLDS: Record<string, number> = {
-  running: 2,
-  in_review: 2,
-  awaiting_ci: 4,
-  changes_requested: 2,
-  deploying: 2,
+  implement: 2,
+  review: 2,
+  ci: 4,
+  fix: 2,
+  deploy: 2,
 };
-
-export const TERMINAL_STATUSES = new Set([
-  "done",
-  "failed",
-  "canceled",
-  "ready",
-  "backlog",
-]);
 
 const ALERT_COOLDOWN_MS = 1_800_000; // 30 minutes
 
@@ -66,6 +58,8 @@ export function processSnapshot(
   currentTasks: Array<{
     linearIssueId: string;
     orcaStatus: string;
+    lifecycleStage: string | null;
+    currentPhase: string | null;
     retryCount: number;
   }>,
   state: TaskTrackingState,
@@ -79,28 +73,28 @@ export function processSnapshot(
   const updatedState: TaskTrackingState = {};
 
   for (const task of currentTasks) {
-    const { linearIssueId, orcaStatus, retryCount } = task;
+    const { linearIssueId, lifecycleStage, currentPhase, retryCount } = task;
 
-    // Terminal or uninteresting statuses: remove from tracking
-    if (TERMINAL_STATUSES.has(orcaStatus)) {
-      // Don't carry forward — effectively removed
+    // Only active tasks can be stuck — skip all non-active stages
+    if (lifecycleStage !== "active") {
       continue;
     }
 
+    const statusKey = currentPhase ?? lifecycleStage;
     const existing = state[linearIssueId];
 
     if (!existing) {
       // New entry
       updatedState[linearIssueId] = {
-        status: orcaStatus,
+        status: statusKey,
         firstSeenAt: nowDate.toISOString(),
         consecutiveSnapshots: 1,
         retryCount,
       };
-    } else if (existing.status !== orcaStatus) {
+    } else if (existing.status !== statusKey) {
       // Status changed — reset
       updatedState[linearIssueId] = {
-        status: orcaStatus,
+        status: statusKey,
         firstSeenAt: nowDate.toISOString(),
         consecutiveSnapshots: 1,
         retryCount,
@@ -108,7 +102,7 @@ export function processSnapshot(
     } else {
       // Same status — increment
       updatedState[linearIssueId] = {
-        status: orcaStatus,
+        status: statusKey,
         firstSeenAt: existing.firstSeenAt,
         consecutiveSnapshots: existing.consecutiveSnapshots + 1,
         retryCount,
@@ -117,13 +111,13 @@ export function processSnapshot(
 
     // Alert exactly at the threshold boundary (not on every snapshot past it)
     const entry = updatedState[linearIssueId]!;
-    const threshold = STUCK_THRESHOLDS[orcaStatus];
+    const threshold = STUCK_THRESHOLDS[statusKey];
     if (threshold !== undefined && entry.consecutiveSnapshots === threshold) {
       const firstSeenMs = new Date(entry.firstSeenAt).getTime();
       const durationMinutes = Math.round((nowMs - firstSeenMs) / 60000);
       alerts.push({
         linearIssueId,
-        status: orcaStatus,
+        status: statusKey,
         consecutiveSnapshots: entry.consecutiveSnapshots,
         firstSeenAt: entry.firstSeenAt,
         retryCount,
@@ -147,6 +141,8 @@ export async function detectAndAlertStuckTasks(
   currentTasks: Array<{
     linearIssueId: string;
     orcaStatus: string;
+    lifecycleStage: string | null;
+    currentPhase: string | null;
     retryCount: number;
   }>,
   filePath?: string,

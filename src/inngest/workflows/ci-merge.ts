@@ -66,10 +66,10 @@ export const ciMergeWorkflow = inngest.createFunction(
         return { status: "aborted", reason: "task_not_found" };
       }
 
-      // If task is no longer awaiting_ci (e.g. user cancelled), stop polling
-      if (task.orcaStatus !== "awaiting_ci") {
+      // If task is no longer in CI phase (e.g. user cancelled), stop polling
+      if (task.currentPhase !== "ci") {
         log(
-          `task ${linearIssueId} status changed to ${task.orcaStatus} — stopping CI poll`,
+          `task ${linearIssueId} status changed (stage=${task.lifecycleStage}, phase=${task.currentPhase}) — stopping CI poll`,
         );
         return { status: "aborted", reason: "status_changed" };
       }

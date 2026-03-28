@@ -129,16 +129,13 @@ function attemptPm2Restart(): boolean {
 function reEmitDispatchableEvents(): void {
   if (!storedInngest || !storedDb) return;
 
-  const dispatchableStatuses = new Set([
-    "ready",
-    "changes_requested",
-    "in_review",
-  ]);
-
   let dispatchableTasks;
   try {
-    dispatchableTasks = getAllTasks(storedDb).filter((t) =>
-      dispatchableStatuses.has(t.orcaStatus),
+    dispatchableTasks = getAllTasks(storedDb).filter(
+      (t) =>
+        t.lifecycleStage === "ready" ||
+        (t.lifecycleStage === "active" &&
+          (t.currentPhase === "review" || t.currentPhase === "fix")),
     );
   } catch (err) {
     logger.warn(`Failed to query dispatchable tasks: ${err}`);
@@ -168,7 +165,7 @@ function reEmitDispatchableEvents(): void {
   }
 
   logger.info(
-    `Re-emitted task/ready for ${dispatchableTasks.length} task(s) after Inngest restart: ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,
+    `Re-emitted task/ready for ${dispatchableTasks.length} task(s) after Inngest restart: ${dispatchableTasks.map((t) => `${t.linearIssueId}(stage=${t.lifecycleStage}, phase=${t.currentPhase})`).join(", ")}`,
   );
 }
 

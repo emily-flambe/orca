@@ -137,23 +137,16 @@ export function cleanupStaleResources(deps: CleanupDeps): void {
   // Branches referenced by tasks where a workflow is actively using the PR.
   // Tasks in backlog/ready/done/failed have no workflow watching their PR,
   // so those PRs are eligible for orphan cleanup.
-  const PR_ACTIVE_STATUSES = new Set([
-    "running",
-    "in_review",
-    "changes_requested",
-    "awaiting_ci",
-    "deploying",
-  ]);
   const activeBranches = new Set(
     allTasks
-      .filter((t) => PR_ACTIVE_STATUSES.has(t.orcaStatus))
+      .filter((t) => t.lifecycleStage === "active")
       .map((t) => t.prBranchName)
       .filter((b): b is string => b != null),
   );
 
   // Build set of worktree paths preserved for resume (max-turns on "ready" tasks)
   const preservedWorktreePaths = new Set<string>();
-  const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
+  const readyTasks = allTasks.filter((t) => t.lifecycleStage === "ready");
   for (const t of readyTasks) {
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
     if (inv?.worktreePath) {
@@ -506,22 +499,15 @@ export async function cleanupStaleResourcesAsync(
       .filter((p): p is string => p != null),
   );
 
-  const PR_ACTIVE_STATUSES = new Set([
-    "running",
-    "in_review",
-    "changes_requested",
-    "awaiting_ci",
-    "deploying",
-  ]);
   const activeBranches = new Set(
     allTasks
-      .filter((t) => PR_ACTIVE_STATUSES.has(t.orcaStatus))
+      .filter((t) => t.lifecycleStage === "active")
       .map((t) => t.prBranchName)
       .filter((b): b is string => b != null),
   );
 
   const preservedWorktreePaths = new Set<string>();
-  const readyTasks = allTasks.filter((t) => t.orcaStatus === "ready");
+  const readyTasks = allTasks.filter((t) => t.lifecycleStage === "ready");
   for (const t of readyTasks) {
     const inv = getLastMaxTurnsInvocation(db, t.linearIssueId);
     if (inv?.worktreePath) {

@@ -28,8 +28,36 @@ import {
   agentMemories,
   hookEvents,
   type TaskStatus,
+  type LifecycleStage,
+  type CurrentPhase,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
+
+// ---------------------------------------------------------------------------
+// orcaStatus -> lifecycleStage/currentPhase mapping (dual-write helper)
+// ---------------------------------------------------------------------------
+const STATUS_TO_LIFECYCLE: Record<
+  TaskStatus,
+  { stage: LifecycleStage; phase: CurrentPhase | null }
+> = {
+  backlog: { stage: "backlog", phase: null },
+  ready: { stage: "ready", phase: null },
+  running: { stage: "active", phase: "implement" },
+  in_review: { stage: "active", phase: "review" },
+  changes_requested: { stage: "active", phase: "fix" },
+  awaiting_ci: { stage: "active", phase: "ci" },
+  deploying: { stage: "active", phase: "deploy" },
+  done: { stage: "done", phase: null },
+  failed: { stage: "failed", phase: null },
+  canceled: { stage: "canceled", phase: null },
+};
+
+function lifecycleFromStatus(status: TaskStatus): {
+  stage: LifecycleStage;
+  phase: CurrentPhase | null;
+} {
+  return STATUS_TO_LIFECYCLE[status];
+}
 
 // ---------------------------------------------------------------------------
 // Task types
@@ -43,7 +71,14 @@ export type Task = typeof tasks.$inferSelect;
 
 /** Insert a new task. Caller must supply all required fields. */
 export function insertTask(db: OrcaDb, task: NewTask): void {
-  db.insert(tasks).values(task).run();
+  // Dual-write: derive lifecycleStage/currentPhase from orcaStatus if not set
+  const values = { ...task };
+  if (values.orcaStatus && !values.lifecycleStage) {
+    const { stage, phase } = lifecycleFromStatus(values.orcaStatus);
+    values.lifecycleStage = stage;
+    values.currentPhase = phase;
+  }
+  db.insert(tasks).values(values).run();
 }
 
 /** Update a task's orca_status and set updated_at to now. */
@@ -64,9 +99,12 @@ export function updateTaskStatus(
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
+  const { stage, phase } = lifecycleFromStatus(status);
   db.update(tasks)
     .set({
       orcaStatus: status,
+      lifecycleStage: stage,
+      currentPhase: phase,
       doneAt: status === "done" ? new Date().toISOString() : null,
       ...(status === "failed" && options?.failureReason
         ? {
@@ -106,10 +144,13 @@ export function claimTaskForDispatch(
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
+  const runningLifecycle = lifecycleFromStatus("running");
   const result = db
     .update(tasks)
     .set({
       orcaStatus: "running" as TaskStatus,
+      lifecycleStage: runningLifecycle.stage,
+      currentPhase: runningLifecycle.phase,
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -146,10 +187,13 @@ export function incrementRetryCount(
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
+  const { stage, phase } = lifecycleFromStatus(resetStatus);
   db.update(tasks)
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
       orcaStatus: resetStatus,
+      lifecycleStage: stage,
+      currentPhase: phase,
       doneAt: null,
       updatedAt: new Date().toISOString(),
     })
@@ -342,10 +386,19 @@ export function updateTaskFields(
     updatedAt: new Date().toISOString(),
   };
 
-  // Automatically manage doneAt when orcaStatus is being updated
-  if ("orcaStatus" in updates) {
+  // Automatically manage doneAt when orcaStatus or lifecycleStage is being updated
+  if ("orcaStatus" in updates || "lifecycleStage" in updates) {
     setValues.doneAt =
-      updates.orcaStatus === "done" ? new Date().toISOString() : null;
+      updates.orcaStatus === "done" || updates.lifecycleStage === "done"
+        ? new Date().toISOString()
+        : null;
+  }
+
+  // Dual-write: when orcaStatus changes, also update lifecycleStage/currentPhase
+  if ("orcaStatus" in updates && updates.orcaStatus) {
+    const { stage, phase } = lifecycleFromStatus(updates.orcaStatus);
+    setValues.lifecycleStage = stage;
+    setValues.currentPhase = phase;
   }
 
   db.update(tasks)
@@ -790,11 +843,11 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
       i.started_at        AS startedAt,
       i.ended_at          AS endedAt,
       CASE
-        WHEN t.orca_status = 'failed'              THEN 'failed'
-        WHEN t.orca_status = 'done'                THEN 'completed'
+        WHEN t.lifecycle_stage = 'failed'          THEN 'failed'
+        WHEN t.lifecycle_stage = 'done'            THEN 'completed'
         WHEN i.status = 'running'                  THEN 'running'
         WHEN i.status = 'completed'                THEN 'completed'
-        WHEN i.status = 'failed' AND t.orca_status IN ('ready', 'in_review', 'changes_requested', 'running')
+        WHEN i.status = 'failed' AND t.lifecycle_stage IN ('ready', 'active')
                                                    THEN 'queued'
         WHEN i.status = 'failed'                   THEN 'retrying'
         ELSE i.status
@@ -1011,14 +1064,14 @@ export function getActiveCronTaskByScheduleId(
   db: OrcaDb,
   scheduleId: number,
 ): Task | undefined {
-  const terminalStatuses: TaskStatus[] = ["done", "failed", "canceled"];
+  const terminalStages: LifecycleStage[] = ["done", "failed", "canceled"];
   return db
     .select()
     .from(tasks)
     .where(
       and(
         eq(tasks.cronScheduleId, scheduleId),
-        notInArray(tasks.orcaStatus, terminalStatuses),
+        notInArray(tasks.lifecycleStage, terminalStages),
       ),
     )
     .limit(1)
@@ -1040,7 +1093,7 @@ export function getTasksByCronSchedule(db: OrcaDb, scheduleId: number): Task[] {
  */
 export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
   // Only delete terminal cron tasks (done or failed) — never active/running ones.
-  const terminalStatuses: TaskStatus[] = ["done", "failed", "canceled"];
+  const terminalStages: LifecycleStage[] = ["done", "failed", "canceled"];
   const oldTasks = db
     .select({ id: tasks.linearIssueId })
     .from(tasks)
@@ -1048,7 +1101,7 @@ export function deleteOldCronTasks(db: OrcaDb, beforeDate: string): number {
       and(
         isNotNull(tasks.cronScheduleId),
         lt(tasks.createdAt, beforeDate),
-        inArray(tasks.orcaStatus, terminalStatuses),
+        inArray(tasks.lifecycleStage, terminalStages),
       ),
     )
     .all();
@@ -1073,7 +1126,7 @@ export function getFailedTasksWithRetriesRemaining(
     .from(tasks)
     .where(
       and(
-        eq(tasks.orcaStatus, "failed"),
+        eq(tasks.lifecycleStage, "failed"),
         sql`(${tasks.retryCount} + ${tasks.staleSessionRetryCount}) < ${maxRetries}`,
         or(
           isNull(tasks.taskType),

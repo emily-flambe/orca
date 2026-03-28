@@ -807,7 +807,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Kill running session if task is active
     let sessionKilled = false;
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+    if (
+      task.lifecycleStage === "active" &&
+      (task.currentPhase === "implement" ||
+        task.currentPhase === "review" ||
+        task.currentPhase === "fix")
+    ) {
       const runningInvocations = getRunningInvocations(db);
       for (const [invId, handle] of activeHandles) {
         const matchingInv = runningInvocations.find(
@@ -903,7 +908,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "task not found" }, 404);
     }
 
-    if (task.orcaStatus !== "failed") {
+    if (task.lifecycleStage !== "failed") {
       return c.json({ error: `task is "${task.orcaStatus}", not failed` }, 409);
     }
 
@@ -998,7 +1003,9 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const running = getRunningInvocations(db);
     const activeTaskIds = running.map((inv) => inv.linearIssueId);
     const allTasks = getAllTasks(db);
-    const queuedTasks = allTasks.filter((t) => t.orcaStatus === "ready").length;
+    const queuedTasks = allTasks.filter(
+      (t) => t.lifecycleStage === "ready",
+    ).length;
     const windowStart = budgetWindowStart(config.budgetWindowHours);
     const tokensInWindow = sumTokensInWindow(db, windowStart);
     const tokensSplit = sumTokensSplitInWindow(db, windowStart);
@@ -1171,13 +1178,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Current queue state
     const allTasksForMetrics = getAllTasks(db);
     const queueDepth = allTasksForMetrics.filter(
-      (t) => t.orcaStatus === "ready",
+      (t) => t.lifecycleStage === "ready",
     ).length;
     const runningCount = allTasksForMetrics.filter(
-      (t) => t.orcaStatus === "running",
+      (t) => t.lifecycleStage === "active" && t.currentPhase === "implement",
     ).length;
     const inReviewCount = allTasksForMetrics.filter(
-      (t) => t.orcaStatus === "in_review",
+      (t) => t.lifecycleStage === "active" && t.currentPhase === "review",
     ).length;
 
     // Recent events for timeline

@@ -6,6 +6,10 @@ export {
   type TaskType,
   TASK_STATUSES,
   type TaskStatus,
+  LIFECYCLE_STAGES,
+  type LifecycleStage,
+  CURRENT_PHASES,
+  type CurrentPhase,
   INVOCATION_STATUSES,
   type InvocationStatus,
   AGENT_MEMORY_TYPES,
@@ -15,6 +19,8 @@ import {
   CRON_TYPES,
   AGENT_MEMORY_TYPES,
   TASK_STATUSES,
+  LIFECYCLE_STAGES,
+  CURRENT_PHASES,
   INVOCATION_STATUSES,
 } from "../shared/types.js";
 
@@ -23,6 +29,8 @@ export const tasks = sqliteTable("tasks", {
   agentPrompt: text("agent_prompt").notNull(),
   repoPath: text("repo_path").notNull(),
   orcaStatus: text("orca_status", { enum: TASK_STATUSES }).notNull(),
+  lifecycleStage: text("lifecycle_stage", { enum: LIFECYCLE_STAGES }),
+  currentPhase: text("current_phase", { enum: CURRENT_PHASES }),
   priority: integer("priority").notNull().default(0),
   retryCount: integer("retry_count").notNull().default(0),
   prBranchName: text("pr_branch_name"),

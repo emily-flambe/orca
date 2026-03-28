@@ -555,6 +555,48 @@ function migrateSchema(sqlite: DatabaseType): void {
   }
 
   // ---------------------------------------------------------------------------
+  // Migration 25 (lifecycle stage + current phase):
+  //   - Add lifecycle_stage TEXT column to tasks (new state model)
+  //   - Add current_phase TEXT column to tasks (active sub-phase)
+  //   - Backfill from orca_status using the mapping table
+  //   Sentinel: lifecycle_stage column doesn't exist on tasks table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "tasks", "lifecycle_stage")) {
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN lifecycle_stage TEXT");
+    sqlite.exec("ALTER TABLE tasks ADD COLUMN current_phase TEXT");
+
+    // Backfill lifecycle_stage and current_phase from orca_status
+    sqlite.exec(`
+      UPDATE tasks SET
+        lifecycle_stage = CASE orca_status
+          WHEN 'backlog' THEN 'backlog'
+          WHEN 'ready' THEN 'ready'
+          WHEN 'running' THEN 'active'
+          WHEN 'in_review' THEN 'active'
+          WHEN 'changes_requested' THEN 'active'
+          WHEN 'awaiting_ci' THEN 'active'
+          WHEN 'deploying' THEN 'active'
+          WHEN 'done' THEN 'done'
+          WHEN 'failed' THEN 'failed'
+          WHEN 'canceled' THEN 'canceled'
+          ELSE NULL
+        END,
+        current_phase = CASE orca_status
+          WHEN 'running' THEN 'implement'
+          WHEN 'in_review' THEN 'review'
+          WHEN 'changes_requested' THEN 'fix'
+          WHEN 'awaiting_ci' THEN 'ci'
+          WHEN 'deploying' THEN 'deploy'
+          ELSE NULL
+        END
+    `);
+
+    sqlite.exec(
+      "CREATE INDEX IF NOT EXISTS idx_tasks_lifecycle_stage ON tasks(lifecycle_stage)",
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   //   Migration: agents.linear_label
   //   - Add linear_label TEXT column to agents (e.g. "agent:trivia-content")
   //   Sentinel: linear_label column doesn't exist on agents table.

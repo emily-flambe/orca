@@ -172,7 +172,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
           const activeTask = getActiveCronTaskByScheduleId(db, schedule.id);
           if (activeTask) {
             logger.info(
-              `[cron-${schedule.id}] skipping dispatch — previous run still active: ${activeTask.linearIssueId} (${activeTask.orcaStatus})`,
+              `[cron-${schedule.id}] skipping dispatch — previous run still active: ${activeTask.linearIssueId} (stage=${activeTask.lifecycleStage}, phase=${activeTask.currentPhase})`,
             );
             return;
           }

@@ -136,7 +136,7 @@ export const agentTaskLifecycle = inngest.createFunction(
             const task = getTask(db, taskId);
             if (
               task &&
-              task.orcaStatus === "ready" &&
+              task.lifecycleStage === "ready" &&
               !isLinearTicket(taskId)
             ) {
               deleteTask(db, taskId);
@@ -154,7 +154,7 @@ export const agentTaskLifecycle = inngest.createFunction(
           if (!claimed) {
             return {
               claimed: false,
-              reason: `not in ready state (current: ${task.orcaStatus})`,
+              reason: `not in ready state (stage=${task.lifecycleStage}, phase=${task.currentPhase})`,
             };
           }
 

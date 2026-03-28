@@ -347,9 +347,13 @@ describe("orca status", () => {
   test("prints queued task count", async () => {
     mockGetRunningInvocations.mockReturnValue([]);
     mockGetAllTasks.mockReturnValue([
-      { orcaStatus: "ready" },
-      { orcaStatus: "ready" },
-      { orcaStatus: "running" },
+      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
+      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
+      {
+        orcaStatus: "running",
+        lifecycleStage: "active",
+        currentPhase: "implement",
+      },
     ]);
 
     await runCli(["status"]);
@@ -361,9 +365,9 @@ describe("orca status", () => {
   test("prints failed task count", async () => {
     mockGetRunningInvocations.mockReturnValue([]);
     mockGetAllTasks.mockReturnValue([
-      { orcaStatus: "failed" },
-      { orcaStatus: "failed" },
-      { orcaStatus: "ready" },
+      { orcaStatus: "failed", lifecycleStage: "failed", currentPhase: null },
+      { orcaStatus: "failed", lifecycleStage: "failed", currentPhase: null },
+      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
     ]);
 
     await runCli(["status"]);

@@ -13,6 +13,8 @@ export const DEFAULT_SNAPSHOT_FILE = path.join(
 interface MonitorTask {
   linearIssueId: string;
   orcaStatus: string;
+  lifecycleStage: string | null;
+  currentPhase: string | null;
   retryCount: number;
   updatedAt: string;
   lastFailureReason?: string | null;
@@ -35,11 +37,13 @@ export async function writeMonitorSnapshot(
     const entry: Record<string, unknown> = {
       id: task.linearIssueId,
       status: task.orcaStatus,
+      lifecycleStage: task.lifecycleStage,
+      currentPhase: task.currentPhase,
       retryCount: task.retryCount,
       updatedAt: task.updatedAt,
     };
 
-    if (task.orcaStatus === "failed") {
+    if (task.lifecycleStage === "failed") {
       entry.failedPhase = task.lastFailedPhase ?? null;
       entry.failedAt = task.lastFailedAt ?? null;
       entry.failureReason = task.lastFailureReason

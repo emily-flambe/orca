@@ -89,7 +89,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           if (!claimed) {
             return {
               claimed: false,
-              reason: `not in ready state (current: ${task.orcaStatus})`,
+              reason: `not in ready state (stage=${task.lifecycleStage}, phase=${task.currentPhase})`,
             };
           }
 

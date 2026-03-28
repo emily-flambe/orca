@@ -198,7 +198,7 @@ program
     let recovered = 0;
     for (const t of allTasks) {
       if (
-        t.orcaStatus === "running" &&
+        t.lifecycleStage === "active" &&
         !runningInvIssueIds.has(t.linearIssueId)
       ) {
         updateTaskStatus(db, t.linearIssueId, "ready", {
@@ -232,7 +232,7 @@ program
     // "In Progress" or "In Review" and write back "Canceled" with a comment.
     const activeLinearStates = new Set(["In Progress", "In Review"]);
     const failedTasks = getAllTasks(db).filter(
-      (t) => t.orcaStatus === "failed",
+      (t) => t.lifecycleStage === "failed",
     );
     const syncedIssueMap = new Map(
       syncedIssues.map((issue) => [issue.identifier, issue]),
@@ -268,7 +268,7 @@ program
     // On crash/restart, tasks may have been reset to backlog/ready but the
     // Linear status was never updated from "In Progress" / "In Review".
     const resetTasks = getAllTasks(db).filter(
-      (t) => t.orcaStatus === "backlog" || t.orcaStatus === "ready",
+      (t) => t.lifecycleStage === "backlog" || t.lifecycleStage === "ready",
     );
     let reconciledReset = 0;
     for (const task of resetTasks) {
@@ -276,8 +276,9 @@ program
       if (!linearIssue || !activeLinearStates.has(linearIssue.state.name)) {
         continue;
       }
-      const transition = task.orcaStatus === "backlog" ? "backlog" : "retry";
-      const label = task.orcaStatus === "backlog" ? "backlog" : "ready";
+      const transition =
+        task.lifecycleStage === "backlog" ? "backlog" : "retry";
+      const label = task.lifecycleStage === "backlog" ? "backlog" : "ready";
       writeBackStatus(client, task.linearIssueId, transition, stateMap)
         .then(() =>
           client.createComment(
@@ -473,13 +474,12 @@ program
       //
       // Covers: ready, changes_requested, in_review — the claim step accepts
       // all three statuses, so they all need a workflow run to make progress.
-      const dispatchableStatuses = new Set([
-        "ready",
-        "changes_requested",
-        "in_review",
-      ]);
-      const dispatchableTasks = getAllTasks(db).filter((t) =>
-        dispatchableStatuses.has(t.orcaStatus),
+      // Covers: ready, active/review, active/fix — these all need a workflow run.
+      const dispatchableTasks = getAllTasks(db).filter(
+        (t) =>
+          t.lifecycleStage === "ready" ||
+          (t.lifecycleStage === "active" &&
+            (t.currentPhase === "review" || t.currentPhase === "fix")),
       );
       if (dispatchableTasks.length > 0) {
         for (const task of dispatchableTasks) {
@@ -502,7 +502,7 @@ program
             );
         }
         logger.info(
-          `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.orcaStatus})`).join(", ")}`,
+          `startup: re-emitted task/ready for ${dispatchableTasks.length} task(s): ${dispatchableTasks.map((t) => `${t.linearIssueId}(${t.lifecycleStage}${t.currentPhase ? "/" + t.currentPhase : ""})`).join(", ")}`,
         );
       }
 
@@ -698,9 +698,11 @@ program
 
     // Queued tasks
     const allTasks = getAllTasks(db);
-    const readyCount = allTasks.filter((t) => t.orcaStatus === "ready").length;
+    const readyCount = allTasks.filter(
+      (t) => t.lifecycleStage === "ready",
+    ).length;
     const failedCount = allTasks.filter(
-      (t) => t.orcaStatus === "failed",
+      (t) => t.lifecycleStage === "failed",
     ).length;
 
     logger.info("=== Orca Status ===");
@@ -732,6 +734,8 @@ program
     // Header
     console.log(`\n=== ${linearId} ===`);
     console.log(`Status:     ${task.orcaStatus}`);
+    console.log(`Stage:      ${task.lifecycleStage ?? "(not set)"}`);
+    console.log(`Phase:      ${task.currentPhase ?? "(none)"}`);
     console.log(`Priority:   ${task.priority}`);
     console.log(`Retries:    ${task.retryCount}/${config.maxRetries}`);
 

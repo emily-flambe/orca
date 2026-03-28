@@ -26,6 +26,25 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const LIFECYCLE_STAGES = [
+  "backlog",
+  "ready",
+  "active",
+  "done",
+  "failed",
+  "canceled",
+] as const;
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+
+export const CURRENT_PHASES = [
+  "implement",
+  "review",
+  "fix",
+  "ci",
+  "deploy",
+] as const;
+export type CurrentPhase = (typeof CURRENT_PHASES)[number];
+
 export const INVOCATION_STATUSES = [
   "running",
   "completed",
@@ -46,6 +65,8 @@ export interface Task {
   agentPrompt: string;
   repoPath: string;
   orcaStatus: TaskStatus;
+  lifecycleStage: LifecycleStage | null;
+  currentPhase: CurrentPhase | null;
   priority: number;
   retryCount: number;
   prBranchName: string | null;

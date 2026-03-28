@@ -75,28 +75,34 @@ export async function runReconciliation(deps: {
   let reconciledCount = 0;
 
   for (const task of intermediateTasks) {
-    const { linearIssueId, orcaStatus, retryCount, updatedAt } = task;
+    const {
+      linearIssueId,
+      lifecycleStage,
+      currentPhase,
+      retryCount,
+      updatedAt,
+    } = task;
 
     let isStranded = false;
     let reason = "";
 
-    if (orcaStatus === "running") {
-      // Apply a minimum age grace period before declaring stranded.
-      // A task may have just been claimed and not yet spawned a session.
-      const gracePeriodMs = 2 * 60 * 1000; // 2 minutes
+    if (lifecycleStage === "active") {
       const updatedMs = updatedAt ? new Date(updatedAt).getTime() : 0;
       const ageMs = now - updatedMs;
-      if (ageMs > gracePeriodMs && !liveTaskIds.has(linearIssueId)) {
-        isStranded = true;
-        reason = `task in ${orcaStatus} with no active session handle for ${Math.round(ageMs / 60000)} min`;
-      }
-    } else {
-      // awaiting_ci, deploying, in_review — check age threshold.
-      const updatedMs = updatedAt ? new Date(updatedAt).getTime() : 0;
-      const ageMs = now - updatedMs;
-      if (ageMs > thresholdMs) {
-        isStranded = true;
-        reason = `task in ${orcaStatus} for ${Math.round(ageMs / 60000)} min (threshold: ${STRANDED_TASK_THRESHOLD_MIN} min)`;
+
+      if (currentPhase === "implement") {
+        // Implement phase has an active session — check for missing session handle
+        const gracePeriodMs = 2 * 60 * 1000; // 2 minutes
+        if (ageMs > gracePeriodMs && !liveTaskIds.has(linearIssueId)) {
+          isStranded = true;
+          reason = `task in stage=${lifecycleStage}, phase=${currentPhase} with no active session handle for ${Math.round(ageMs / 60000)} min`;
+        }
+      } else {
+        // review, fix, ci, deploy — check age threshold
+        if (ageMs > thresholdMs) {
+          isStranded = true;
+          reason = `task in stage=${lifecycleStage}, phase=${currentPhase} for ${Math.round(ageMs / 60000)} min (threshold: ${STRANDED_TASK_THRESHOLD_MIN} min)`;
+        }
       }
     }
 
@@ -121,7 +127,7 @@ export async function runReconciliation(deps: {
       message: `Reconciled stranded task ${linearIssueId}: ${reason} → ${targetStatus}`,
       metadata: {
         linearIssueId,
-        previousStatus: orcaStatus,
+        previousStatus: currentPhase ?? lifecycleStage,
         targetStatus,
         staleRetryCount: newStaleCount,
         totalAttempts,
