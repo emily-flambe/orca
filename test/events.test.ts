@@ -24,12 +24,35 @@ beforeEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const STATUS_TO_LIFECYCLE: Record<
+  string,
+  { lifecycleStage: string; currentPhase: string | null }
+> = {
+  backlog: { lifecycleStage: "backlog", currentPhase: null },
+  ready: { lifecycleStage: "ready", currentPhase: null },
+  running: { lifecycleStage: "active", currentPhase: "implement" },
+  in_review: { lifecycleStage: "active", currentPhase: "review" },
+  changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+  awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
+  deploying: { lifecycleStage: "active", currentPhase: "deploy" },
+  done: { lifecycleStage: "done", currentPhase: null },
+  failed: { lifecycleStage: "failed", currentPhase: null },
+  canceled: { lifecycleStage: "canceled", currentPhase: null },
+};
+
 function makeTask(overrides: Partial<Task> = {}): Task {
+  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+    lifecycleStage: null,
+    currentPhase: null,
+  };
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Test task",
     repoPath: "/repo",
     orcaStatus: "ready",
+    lifecycleStage: derived.lifecycleStage as Task["lifecycleStage"],
+    currentPhase: derived.currentPhase as Task["currentPhase"],
     priority: 3,
     retryCount: 0,
     prBranchName: null,

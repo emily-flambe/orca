@@ -144,7 +144,10 @@ describe("runReconciliation — running (handle-based detection)", () => {
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("ready");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
+    expect(task.currentPhase).toBeNull();
     expect(mockInngestSend).toHaveBeenCalledWith(
       expect.objectContaining({ name: "task/ready" }),
     );
@@ -162,7 +165,10 @@ describe("runReconciliation — running (handle-based detection)", () => {
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("running");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("running");
+    expect(task.lifecycleStage).toBe("active");
+    expect(task.currentPhase).toBe("implement");
     expect(mockInngestSend).not.toHaveBeenCalled();
   });
 
@@ -177,7 +183,9 @@ describe("runReconciliation — running (handle-based detection)", () => {
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("ready");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
   });
 
   test("running task WITH an active handle is NOT reset", async () => {
@@ -212,7 +220,10 @@ describe("runReconciliation — running (handle-based detection)", () => {
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("failed");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("failed");
+    expect(task.lifecycleStage).toBe("failed");
+    expect(task.currentPhase).toBeNull();
     expect(mockInngestSend).not.toHaveBeenCalled();
   });
 });
@@ -238,7 +249,10 @@ describe("runReconciliation — in_review (time-based, hardcoded 30 min threshol
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("ready");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
+    expect(task.currentPhase).toBeNull();
     expect(mockInngestSend).toHaveBeenCalledWith(
       expect.objectContaining({ name: "task/ready" }),
     );
@@ -258,7 +272,10 @@ describe("runReconciliation — in_review (time-based, hardcoded 30 min threshol
       activeHandles: handles,
     });
 
-    expect(getTask(db, id)?.orcaStatus).toBe("in_review");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("in_review");
+    expect(task.lifecycleStage).toBe("active");
+    expect(task.currentPhase).toBe("review");
     expect(mockInngestSend).not.toHaveBeenCalled();
   });
 });

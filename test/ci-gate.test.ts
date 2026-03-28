@@ -120,6 +120,8 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("awaiting_ci");
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("ci");
   });
 
   test("fresh DB has ci_started_at column (null by default)", () => {
@@ -243,6 +245,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("awaiting_ci");
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("ci");
   });
 
   test("awaiting_ci + 'Done' -> done (human override)", () => {
@@ -256,6 +260,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("awaiting_ci + 'Todo' -> ready (user reset)", () => {
@@ -269,6 +275,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("awaiting_ci + 'Backlog' -> backlog (user reset)", () => {
@@ -282,6 +290,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("awaiting_ci + 'In Progress' -> no-op (upsert protects internal state)", () => {
@@ -296,6 +306,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("awaiting_ci");
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("ci");
   });
 });
 

@@ -5,10 +5,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createDb } from "../src/db/index.js";
 import { createApiRoutes } from "../src/api/routes.js";
-import {
-  insertTask,
-  updateTaskStatus,
-} from "../src/db/queries.js";
+import { insertTask, updateTaskStatus } from "../src/db/queries.js";
 import type { OrcaDb } from "../src/db/index.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { Hono } from "hono";
@@ -59,12 +56,38 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   };
 }
 
+function deriveLifecycle(status: string): {
+  lifecycleStage: string;
+  currentPhase: string | null;
+} {
+  const map: Record<
+    string,
+    { lifecycleStage: string; currentPhase: string | null }
+  > = {
+    backlog: { lifecycleStage: "backlog", currentPhase: null },
+    ready: { lifecycleStage: "ready", currentPhase: null },
+    running: { lifecycleStage: "active", currentPhase: "implement" },
+    in_review: { lifecycleStage: "active", currentPhase: "review" },
+    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+    awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
+    deploying: { lifecycleStage: "active", currentPhase: "deploy" },
+    done: { lifecycleStage: "done", currentPhase: null },
+    failed: { lifecycleStage: "failed", currentPhase: null },
+    canceled: { lifecycleStage: "canceled", currentPhase: null },
+  };
+  return map[status] ?? { lifecycleStage: status, currentPhase: null };
+}
+
 function makeTask(overrides?: Record<string, unknown>) {
+  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
+  const lifecycle = deriveLifecycle(orcaStatus);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: "ready" as const,
+    orcaStatus: orcaStatus as "ready",
+    lifecycleStage: lifecycle.lifecycleStage,
+    currentPhase: lifecycle.currentPhase,
     priority: 2,
     retryCount: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -99,7 +122,10 @@ describe("GET /api/tasks/:id/transitions", () => {
   });
 
   it("returns transitions in insertion order", async () => {
-    insertTask(db, makeTask({ linearIssueId: "TRANS-2", orcaStatus: "ready" as const }));
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "TRANS-2", orcaStatus: "ready" as const }),
+    );
     updateTaskStatus(db, "TRANS-2", "running");
     updateTaskStatus(db, "TRANS-2", "in_review");
 
@@ -121,8 +147,13 @@ describe("GET /api/tasks/:id/transitions", () => {
   });
 
   it("records reason on transitions", async () => {
-    insertTask(db, makeTask({ linearIssueId: "TRANS-3", orcaStatus: "ready" as const }));
-    updateTaskStatus(db, "TRANS-3", "failed", { reason: "session_failed_db_fallback" });
+    insertTask(
+      db,
+      makeTask({ linearIssueId: "TRANS-3", orcaStatus: "ready" as const }),
+    );
+    updateTaskStatus(db, "TRANS-3", "failed", {
+      reason: "session_failed_db_fallback",
+    });
 
     const res = await app.request("/api/tasks/TRANS-3/transitions");
     expect(res.status).toBe(200);

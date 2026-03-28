@@ -151,6 +151,8 @@ describe("get_task query logic", () => {
     expect(task!.linearIssueId).toBe("EMI-100");
     expect(task!.agentPrompt).toBe("add feature");
     expect(task!.orcaStatus).toBe("running");
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("implement");
     expect(task!.priority).toBe(2);
     expect(task!.retryCount).toBe(1);
     expect(task!.prBranchName).toBe("orca/EMI-100");

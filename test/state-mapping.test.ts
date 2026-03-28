@@ -121,19 +121,28 @@ describe("mapLinearStateToOrcaStatus — type-based mapping", () => {
   it("backlog type → maps to backlog", () => {
     seedTask(db, "SM-1", "ready");
     resolveConflict(db, "SM-1", "Backlog", "backlog");
-    expect(getTask(db, "SM-1")!.orcaStatus).toBe("backlog");
+    const task = getTask(db, "SM-1")!;
+    expect(task.orcaStatus).toBe("backlog");
+    expect(task.lifecycleStage).toBe("backlog");
+    expect(task.currentPhase).toBeNull();
   });
 
   it("unstarted type → maps to ready", () => {
     seedTask(db, "SM-2", "done");
     resolveConflict(db, "SM-2", "Todo", "unstarted");
-    expect(getTask(db, "SM-2")!.orcaStatus).toBe("ready");
+    const task = getTask(db, "SM-2")!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
+    expect(task.currentPhase).toBeNull();
   });
 
   it("unstarted type with custom name → still maps to ready", () => {
     seedTask(db, "SM-3", "done");
     resolveConflict(db, "SM-3", "Ready to Start", "unstarted");
-    expect(getTask(db, "SM-3")!.orcaStatus).toBe("ready");
+    const task = getTask(db, "SM-3")!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
+    expect(task.currentPhase).toBeNull();
   });
 
   it("started type without 'review' in name → maps to running (no conflict action for ready→running)", () => {
@@ -142,27 +151,37 @@ describe("mapLinearStateToOrcaStatus — type-based mapping", () => {
     resolveConflict(db, "SM-4", "In Progress", "started");
     // ready === running? No. But there's no explicit conflict rule for ready+running,
     // so resolveConflict falls through without doing anything.
-    expect(getTask(db, "SM-4")!.orcaStatus).toBe("ready");
+    const task = getTask(db, "SM-4")!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
   });
 
   it("completed type → maps to done (ready→done conflict resolved)", () => {
     seedTask(db, "SM-5", "ready");
     resolveConflict(db, "SM-5", "Done", "completed");
-    expect(getTask(db, "SM-5")!.orcaStatus).toBe("done");
+    const task = getTask(db, "SM-5")!;
+    expect(task.orcaStatus).toBe("done");
+    expect(task.lifecycleStage).toBe("done");
+    expect(task.currentPhase).toBeNull();
   });
 
   it("canceled type → returns null (no conflict resolution performed)", () => {
     // canceled: resolveConflict catches it before mapLinearStateToOrcaStatus
     seedTask(db, "SM-6", "running");
     resolveConflict(db, "SM-6", "Canceled", "canceled");
-    expect(getTask(db, "SM-6")!.orcaStatus).toBe("failed");
+    const task = getTask(db, "SM-6")!;
+    expect(task.orcaStatus).toBe("failed");
+    expect(task.lifecycleStage).toBe("failed");
+    expect(task.currentPhase).toBeNull();
   });
 
   it("unknown type → returns null (no action)", () => {
     seedTask(db, "SM-7", "ready");
     resolveConflict(db, "SM-7", "Custom State", "triage");
     // mapLinearStateToOrcaStatus returns null for unknown types → no action
-    expect(getTask(db, "SM-7")!.orcaStatus).toBe("ready");
+    const task = getTask(db, "SM-7")!;
+    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
   });
 });
 

@@ -509,8 +509,7 @@ vi.mock("../src/runner/index.js", () => ({
 }));
 
 vi.mock("../src/linear/sync.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/linear/sync.js")>();
+  const actual = await importOriginal<typeof import("../src/linear/sync.js")>();
   return {
     ...actual,
     fullSync: vi.fn().mockResolvedValue(undefined),
@@ -551,6 +550,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
+    expect(task!.currentPhase).toBeNull();
     vi.useRealTimers();
   });
 
@@ -566,6 +567,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("running"); // NOT killed
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("implement");
   });
 
   test("running task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
@@ -579,6 +582,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("running"); // NOT reset to ready
+    expect(task!.lifecycleStage).toBe("active");
+    expect(task!.currentPhase).toBe("implement");
   });
 
   test("ready task, Linear says Done -> task becomes done", () => {
@@ -592,6 +597,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("done task, Linear says Todo -> task becomes ready", () => {
@@ -605,6 +612,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("any task, Linear says Canceled -> task becomes failed", () => {
@@ -618,6 +627,8 @@ describe("10.3 - Conflict resolution", () => {
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     expect(task!.orcaStatus).toBe("failed");
+    expect(task!.lifecycleStage).toBe("failed");
+    expect(task!.currentPhase).toBeNull();
   });
 
   test("no conflict when states match -> no change", () => {

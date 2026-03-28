@@ -71,12 +71,38 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   };
 }
 
+function deriveLifecycle(status: string): {
+  lifecycleStage: string;
+  currentPhase: string | null;
+} {
+  const map: Record<
+    string,
+    { lifecycleStage: string; currentPhase: string | null }
+  > = {
+    backlog: { lifecycleStage: "backlog", currentPhase: null },
+    ready: { lifecycleStage: "ready", currentPhase: null },
+    running: { lifecycleStage: "active", currentPhase: "implement" },
+    in_review: { lifecycleStage: "active", currentPhase: "review" },
+    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+    awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
+    deploying: { lifecycleStage: "active", currentPhase: "deploy" },
+    done: { lifecycleStage: "done", currentPhase: null },
+    failed: { lifecycleStage: "failed", currentPhase: null },
+    canceled: { lifecycleStage: "canceled", currentPhase: null },
+  };
+  return map[status] ?? { lifecycleStage: status, currentPhase: null };
+}
+
 function makeTask(overrides?: Record<string, unknown>) {
+  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
+  const lifecycle = deriveLifecycle(orcaStatus);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: "ready" as const,
+    orcaStatus: orcaStatus as "ready",
+    lifecycleStage: lifecycle.lifecycleStage,
+    currentPhase: lifecycle.currentPhase,
     priority: 2,
     retryCount: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -520,6 +546,8 @@ describe("POST /api/tasks/:id/status", () => {
 
     const task = getTask(db, "T-1");
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
+    expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
@@ -538,6 +566,8 @@ describe("POST /api/tasks/:id/status", () => {
 
     const task = getTask(db, "T-2");
     expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
+    expect(task!.currentPhase).toBeNull();
   });
 
   it("done -> backlog: succeeds and resets counters", async () => {
@@ -555,6 +585,8 @@ describe("POST /api/tasks/:id/status", () => {
 
     const task = getTask(db, "T-3");
     expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
+    expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
@@ -574,6 +606,7 @@ describe("POST /api/tasks/:id/status", () => {
 
     const task = getTask(db, "T-4");
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.retryCount).toBe(0);
   });
 
@@ -591,6 +624,8 @@ describe("POST /api/tasks/:id/status", () => {
 
     const task = getTask(db, "T-5");
     expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
+    expect(task!.currentPhase).toBeNull();
   });
 
   it("ready -> backlog: succeeds", async () => {
@@ -808,8 +843,10 @@ describe("POST /api/tasks/:id/status", () => {
       }),
     );
 
-    const { updateTaskFields: _updateTaskFields, incrementStaleSessionRetryCount } =
-      await import("../src/db/queries.js");
+    const {
+      updateTaskFields: _updateTaskFields,
+      incrementStaleSessionRetryCount,
+    } = await import("../src/db/queries.js");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
     incrementStaleSessionRetryCount(db, "T-STALE-1");
     incrementStaleSessionRetryCount(db, "T-STALE-1");

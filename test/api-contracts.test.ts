@@ -76,12 +76,38 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
   };
 }
 
+function deriveLifecycle(status: string): {
+  lifecycleStage: string;
+  currentPhase: string | null;
+} {
+  const map: Record<
+    string,
+    { lifecycleStage: string; currentPhase: string | null }
+  > = {
+    backlog: { lifecycleStage: "backlog", currentPhase: null },
+    ready: { lifecycleStage: "ready", currentPhase: null },
+    running: { lifecycleStage: "active", currentPhase: "implement" },
+    in_review: { lifecycleStage: "active", currentPhase: "review" },
+    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+    awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
+    deploying: { lifecycleStage: "active", currentPhase: "deploy" },
+    done: { lifecycleStage: "done", currentPhase: null },
+    failed: { lifecycleStage: "failed", currentPhase: null },
+    canceled: { lifecycleStage: "canceled", currentPhase: null },
+  };
+  return map[status] ?? { lifecycleStage: status, currentPhase: null };
+}
+
 function makeTask(overrides?: Record<string, unknown>) {
+  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
+  const lifecycle = deriveLifecycle(orcaStatus);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: "ready" as const,
+    orcaStatus: orcaStatus as "ready",
+    lifecycleStage: lifecycle.lifecycleStage,
+    currentPhase: lifecycle.currentPhase,
     priority: 2,
     retryCount: 0,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -147,6 +173,9 @@ describe("GET /api/tasks — contract", () => {
     expect(typeof item.agentPrompt).toBe("string");
     expect(typeof item.repoPath).toBe("string");
     expect(typeof item.orcaStatus).toBe("string");
+    expect(typeof item.lifecycleStage).toBe("string");
+    // currentPhase is null for ready status
+    expect(item.currentPhase).toBeNull();
     expect(typeof item.priority).toBe("number");
     expect(typeof item.retryCount).toBe("number");
     expect(typeof item.invocationCount).toBe("number");

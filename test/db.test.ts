@@ -191,6 +191,8 @@ describe("insertTask / getTask", () => {
     expect(task!.agentPrompt).toBe("do work");
     expect(task!.repoPath).toBe("/repos/foo");
     expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
+    expect(task!.currentPhase).toBeNull();
     expect(task!.priority).toBe(2);
     expect(task!.retryCount).toBe(1);
     expect(task!.prBranchName).toBe("feat/it-1");
@@ -202,7 +204,6 @@ describe("insertTask / getTask", () => {
     expect(task!.mergeAttemptCount).toBe(1);
     expect(task!.projectName).toBe("my-project");
   });
-
 });
 
 describe("getAllTasks", () => {
@@ -228,7 +229,10 @@ describe("updateTaskStatus", () => {
   test("updates orcaStatus", () => {
     const id = seedTask(db, { orcaStatus: "ready" });
     updateTaskStatus(db, id, "running");
-    expect(getTask(db, id)!.orcaStatus).toBe("running");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("running");
+    expect(task.lifecycleStage).toBe("active");
+    expect(task.currentPhase).toBe("implement");
   });
 
   test("sets doneAt when status becomes done", () => {
@@ -238,6 +242,8 @@ describe("updateTaskStatus", () => {
     const after = Date.now();
     const task = getTask(db, id)!;
     expect(task.orcaStatus).toBe("done");
+    expect(task.lifecycleStage).toBe("done");
+    expect(task.currentPhase).toBeNull();
     expect(task.doneAt).not.toBeNull();
     const doneAt = new Date(task.doneAt!).getTime();
     expect(doneAt).toBeGreaterThanOrEqual(before);
@@ -274,12 +280,17 @@ describe("incrementRetryCount", () => {
     const task = getTask(db, id)!;
     expect(task.retryCount).toBe(3);
     expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
+    expect(task.currentPhase).toBeNull();
   });
 
   test("supports custom reset status", () => {
     const id = seedTask(db, { orcaStatus: "running", retryCount: 0 });
     incrementRetryCount(db, id, "failed");
-    expect(getTask(db, id)!.orcaStatus).toBe("failed");
+    const task = getTask(db, id)!;
+    expect(task.orcaStatus).toBe("failed");
+    expect(task.lifecycleStage).toBe("failed");
+    expect(task.currentPhase).toBeNull();
   });
 
   test("clears doneAt", () => {
@@ -333,7 +344,6 @@ describe("getDispatchableTasks", () => {
     const tasks = getDispatchableTasks(db, ["ready"]);
     expect(tasks.map((t) => t.linearIssueId)).toEqual(["D-1", "D-2", "D-3"]);
   });
-
 });
 
 describe("updateTaskPrBranch", () => {
@@ -360,7 +370,6 @@ describe("updateTaskFixReason", () => {
     updateTaskFixReason(db, id, "CI failed");
     expect(getTask(db, id)!.fixReason).toBe("CI failed");
   });
-
 });
 
 describe("incrementMergeAttemptCount", () => {
@@ -414,7 +423,6 @@ describe("resetStaleSessionRetryCount", () => {
     const result = incrementStaleSessionRetryCount(db, id);
     expect(result).toBe(1);
   });
-
 });
 
 describe("incrementReviewCycleCount", () => {
@@ -442,7 +450,6 @@ describe("updateTaskCiInfo", () => {
     updateTaskCiInfo(db, id, { ciStartedAt: ts });
     expect(getTask(db, id)!.ciStartedAt).toBe(ts);
   });
-
 });
 
 describe("updateTaskDeployInfo", () => {
@@ -509,7 +516,6 @@ describe("deleteTask", () => {
     expect(getTask(db, id)).toBeUndefined();
     expect(getInvocationsByTask(db, id)).toHaveLength(0);
   });
-
 });
 
 describe("updateTaskFields", () => {
@@ -521,20 +527,28 @@ describe("updateTaskFields", () => {
   test("partially updates task fields", () => {
     const id = seedTask(db, { priority: 0, orcaStatus: "ready" });
     updateTaskFields(db, id, { priority: 3 });
-    expect(getTask(db, id)!.priority).toBe(3);
-    expect(getTask(db, id)!.orcaStatus).toBe("ready"); // unchanged
+    const task = getTask(db, id)!;
+    expect(task.priority).toBe(3);
+    expect(task.orcaStatus).toBe("ready"); // unchanged
+    expect(task.lifecycleStage).toBe("ready");
   });
 
   test("sets doneAt when orcaStatus is updated to done", () => {
     const id = seedTask(db, { orcaStatus: "running" });
     updateTaskFields(db, id, { orcaStatus: "done" });
-    expect(getTask(db, id)!.doneAt).not.toBeNull();
+    const task = getTask(db, id)!;
+    expect(task.doneAt).not.toBeNull();
+    expect(task.lifecycleStage).toBe("done");
+    expect(task.currentPhase).toBeNull();
   });
 
   test("clears doneAt when orcaStatus leaves done", () => {
     const id = seedTask(db, { orcaStatus: "done", doneAt: now() });
     updateTaskFields(db, id, { orcaStatus: "failed" });
-    expect(getTask(db, id)!.doneAt).toBeNull();
+    const task = getTask(db, id)!;
+    expect(task.doneAt).toBeNull();
+    expect(task.lifecycleStage).toBe("failed");
+    expect(task.currentPhase).toBeNull();
   });
 });
 
@@ -596,7 +610,6 @@ describe("updateInvocation", () => {
     expect(inv.costUsd).toBeCloseTo(2.5);
     expect(inv.numTurns).toBe(10);
   });
-
 });
 
 describe("getInvocationsByTask", () => {
@@ -615,7 +628,6 @@ describe("getInvocationsByTask", () => {
     expect(getInvocationsByTask(db, t1)).toHaveLength(2);
     expect(getInvocationsByTask(db, t2)).toHaveLength(1);
   });
-
 });
 
 describe("countActiveSessions", () => {
@@ -632,7 +644,6 @@ describe("countActiveSessions", () => {
     seedInvocation(db, t, { status: "failed" });
     expect(countActiveSessions(db)).toBe(2);
   });
-
 });
 
 describe("getRunningInvocations", () => {
@@ -705,7 +716,6 @@ describe("getLastCompletedImplementInvocation", () => {
     });
     expect(getLastCompletedImplementInvocation(db, t)).toBeUndefined();
   });
-
 });
 
 describe("getLastMaxTurnsInvocation", () => {
@@ -759,7 +769,6 @@ describe("getLastMaxTurnsInvocation", () => {
     });
     expect(getLastMaxTurnsInvocation(db, t)).toBeUndefined();
   });
-
 });
 
 // ---------------------------------------------------------------------------

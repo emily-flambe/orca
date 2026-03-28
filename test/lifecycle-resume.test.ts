@@ -181,10 +181,33 @@ const mockLinearClient = {
 
 const mockDb = {} as never;
 
+const STATUS_TO_LIFECYCLE: Record<
+  string,
+  { lifecycleStage: string; currentPhase: string | null }
+> = {
+  backlog: { lifecycleStage: "backlog", currentPhase: null },
+  ready: { lifecycleStage: "ready", currentPhase: null },
+  running: { lifecycleStage: "active", currentPhase: "implement" },
+  in_review: { lifecycleStage: "active", currentPhase: "review" },
+  changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+  awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
+  deploying: { lifecycleStage: "active", currentPhase: "deploy" },
+  done: { lifecycleStage: "done", currentPhase: null },
+  failed: { lifecycleStage: "failed", currentPhase: null },
+  canceled: { lifecycleStage: "canceled", currentPhase: null },
+};
+
 function makeTask(overrides: Record<string, unknown> = {}) {
+  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+    lifecycleStage: null,
+    currentPhase: null,
+  };
   return {
     linearIssueId: "TEST-1",
-    orcaStatus: "ready",
+    orcaStatus,
+    lifecycleStage: derived.lifecycleStage,
+    currentPhase: derived.currentPhase,
     agentPrompt: "Fix the bug",
     repoPath: "/repo",
     prBranchName: null,
