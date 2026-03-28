@@ -17,6 +17,7 @@ import {
 import LogViewer from "./LogViewer";
 import { formatTimestamp, formatDurationMs } from "../utils/time.js";
 import { runStatusBadge } from "../utils/status.js";
+import { getPhaseDisplayText } from "./ui/StatusBadge";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,12 +413,12 @@ function ClaudeTaskRow({ task }: { task: TaskWithInvocations }) {
   const taskStatusColors: Record<string, string> = {
     done: "bg-green-900/40 text-green-400 border-green-700/40",
     failed: "bg-red-900/40 text-red-400 border-red-700/40",
-    running: "bg-blue-900/40 text-blue-400 border-blue-700/40",
+    active: "bg-blue-900/40 text-blue-400 border-blue-700/40",
     ready: "bg-yellow-900/40 text-yellow-400 border-yellow-700/40",
     canceled: "bg-gray-800 text-gray-500 border-gray-700",
   };
   const statusCls =
-    taskStatusColors[task.orcaStatus] ??
+    taskStatusColors[task.lifecycleStage ?? task.orcaStatus] ??
     "bg-gray-800 text-gray-400 border-gray-700";
 
   const durationMs =
@@ -431,7 +432,7 @@ function ClaudeTaskRow({ task }: { task: TaskWithInvocations }) {
         <span
           className={`text-xs px-1.5 py-0.5 rounded-full border ${statusCls}`}
         >
-          {task.orcaStatus}
+          {getPhaseDisplayText(task.lifecycleStage ?? "", task.currentPhase)}
         </span>
         <span
           className="text-gray-500 font-mono truncate max-w-[160px]"

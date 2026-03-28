@@ -12,7 +12,10 @@ import {
 } from "../hooks/useApi";
 import LogViewer from "./LogViewer";
 import LiveRunWidget from "./LiveRunWidget";
-import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
+import {
+  getStageBadgeClasses,
+  getPhaseDisplayText,
+} from "./ui/StatusBadge";
 import StatusBadge from "./ui/StatusBadge";
 import Skeleton from "./ui/Skeleton";
 import EmptyState from "./ui/EmptyState";
@@ -138,11 +141,11 @@ export default function TaskDetail({
             ref={statusTriggerRef}
             aria-haspopup="menu"
             aria-expanded={showStatusMenu}
-            aria-label={`Change status: ${detail.orcaStatus}`}
+            aria-label={`Change status: ${getPhaseDisplayText(detail.lifecycleStage ?? "", detail.currentPhase)}`}
             onClick={() => setShowStatusMenu(!showStatusMenu)}
-            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(detail.orcaStatus)}`}
+            className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStageBadgeClasses(detail.lifecycleStage ?? "")}`}
           >
-            {getStatusDisplayText(detail.orcaStatus)} &#9662;
+            {getPhaseDisplayText(detail.lifecycleStage ?? "", detail.currentPhase)} &#9662;
           </button>
           {showStatusMenu && (
             <div
@@ -219,7 +222,7 @@ export default function TaskDetail({
             </option>
           ))}
         </select>
-        {detail.orcaStatus === "failed" && (
+        {detail.lifecycleStage === "failed" && (
           <button
             onClick={() => {
               if (
@@ -299,14 +302,7 @@ export default function TaskDetail({
       )}
 
       {/* Stale state banner — task says working but no session is running */}
-      {!runningInvocation &&
-        [
-          "running",
-          "in_review",
-          "changes_requested",
-          "awaiting_ci",
-          "deploying",
-        ].includes(detail.orcaStatus) && (
+      {!runningInvocation && detail.lifecycleStage === "active" && (
           <div className="rounded-lg border border-yellow-700/50 bg-yellow-900/10 px-4 py-3 text-sm text-yellow-400 flex items-center gap-2">
             <svg
               className="w-4 h-4 shrink-0"

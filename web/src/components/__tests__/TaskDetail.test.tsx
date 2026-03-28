@@ -58,14 +58,32 @@ function makeInvocation(overrides: Partial<Invocation> = {}): Invocation {
   };
 }
 
+const STATUS_TO_LIFECYCLE: Record<
+  string,
+  { stage: string; phase: string | null }
+> = {
+  backlog: { stage: "backlog", phase: null },
+  ready: { stage: "ready", phase: null },
+  running: { stage: "active", phase: "implement" },
+  in_review: { stage: "active", phase: "review" },
+  changes_requested: { stage: "active", phase: "fix" },
+  awaiting_ci: { stage: "active", phase: "ci" },
+  deploying: { stage: "active", phase: "deploy" },
+  done: { stage: "done", phase: null },
+  failed: { stage: "failed", phase: null },
+  canceled: { stage: "canceled", phase: null },
+};
+
 function makeTaskWithInvocations(
   overrides: Partial<TaskWithInvocations> = {},
 ): TaskWithInvocations {
-  return {
+  const base: TaskWithInvocations = {
     linearIssueId: "TEST-1",
     agentPrompt: "Implement the feature",
     repoPath: "/repo",
     orcaStatus: "ready",
+    lifecycleStage: "ready",
+    currentPhase: null,
     priority: 3,
     retryCount: 0,
     prBranchName: null,
@@ -81,9 +99,26 @@ function makeTaskWithInvocations(
     updatedAt: new Date().toISOString(),
     taskType: "linear",
     cronScheduleId: null,
+    agentId: null,
+    lastFailureReason: null,
+    lastFailedPhase: null,
+    lastFailedAt: null,
+    prUrl: null,
+    prState: null,
+    hidden: 0,
     invocations: [],
-    ...overrides,
   };
+  const merged = { ...base, ...overrides };
+  if (overrides.orcaStatus && !overrides.lifecycleStage) {
+    const derived = STATUS_TO_LIFECYCLE[overrides.orcaStatus as string];
+    if (derived) {
+      merged.lifecycleStage =
+        derived.stage as TaskWithInvocations["lifecycleStage"];
+      merged.currentPhase =
+        derived.phase as TaskWithInvocations["currentPhase"];
+    }
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,8 +210,8 @@ describe("TaskDetail", () => {
     render(<TaskDetail taskId="TEST-1" />);
 
     await waitFor(() => {
-      // Status badge shows "working" (display text for "running") with a dropdown arrow character
-      expect(screen.getByText(/working/)).toBeInTheDocument();
+      // Status badge shows "implementing" (display text for active/implement) with a dropdown arrow character
+      expect(screen.getByText(/implementing/)).toBeInTheDocument();
     });
   });
 

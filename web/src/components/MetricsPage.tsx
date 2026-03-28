@@ -367,11 +367,11 @@ function SystemConfiguration({
 const PIPELINE_ORDER = [
   "backlog",
   "ready",
-  "running",
-  "in_review",
-  "changes_requested",
-  "awaiting_ci",
-  "deploying",
+  "implement",
+  "review",
+  "fix",
+  "ci",
+  "deploy",
   "done",
   "failed",
 ] as const;
@@ -379,20 +379,40 @@ const PIPELINE_ORDER = [
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   backlog: { bg: "bg-gray-600", text: "text-gray-400" },
   ready: { bg: "bg-yellow-500", text: "text-yellow-400" },
-  running: { bg: "bg-blue-500", text: "text-blue-400" },
-  in_review: { bg: "bg-purple-500", text: "text-purple-400" },
-  changes_requested: { bg: "bg-purple-500", text: "text-purple-400" },
-  awaiting_ci: { bg: "bg-cyan-500", text: "text-cyan-400" },
-  deploying: { bg: "bg-cyan-500", text: "text-cyan-400" },
+  implement: { bg: "bg-blue-500", text: "text-blue-400" },
+  review: { bg: "bg-purple-500", text: "text-purple-400" },
+  fix: { bg: "bg-purple-500", text: "text-purple-400" },
+  ci: { bg: "bg-cyan-500", text: "text-cyan-400" },
+  deploy: { bg: "bg-cyan-500", text: "text-cyan-400" },
   done: { bg: "bg-green-500", text: "text-green-400" },
   failed: { bg: "bg-red-500", text: "text-red-400" },
 };
 
+/** Remap orcaStatus-keyed backend data to lifecycle phase keys */
+function remapTasksByStatus(
+  raw: Record<string, number>,
+): Record<string, number> {
+  const mapping: Record<string, string> = {
+    running: "implement",
+    in_review: "review",
+    changes_requested: "fix",
+    awaiting_ci: "ci",
+    deploying: "deploy",
+  };
+  const result: Record<string, number> = {};
+  for (const [key, count] of Object.entries(raw)) {
+    const newKey = mapping[key] ?? key;
+    result[newKey] = (result[newKey] ?? 0) + count;
+  }
+  return result;
+}
+
 function TaskPipeline({
-  tasksByStatus,
+  tasksByStatus: rawTasksByStatus,
 }: {
   tasksByStatus: Record<string, number>;
 }) {
+  const tasksByStatus = remapTasksByStatus(rawTasksByStatus);
   const entries = PIPELINE_ORDER.filter((s) => (tasksByStatus[s] ?? 0) > 0).map(
     (s) => ({ status: s, count: tasksByStatus[s] ?? 0 }),
   );

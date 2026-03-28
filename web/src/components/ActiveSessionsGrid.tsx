@@ -5,14 +5,6 @@ import LiveRunWidget from "./LiveRunWidget";
 import { formatTokens } from "../utils/formatTokens";
 import { timeAgo } from "../utils/time.js";
 
-const WORKING_STATUSES = new Set([
-  "running",
-  "in_review",
-  "changes_requested",
-  "awaiting_ci",
-  "deploying",
-]);
-
 export interface ActiveSessionsGridProps {
   invocationStartedTrigger?: number;
   lastCompletedEvent?: {
@@ -47,7 +39,7 @@ export default function ActiveSessionsGrid({
       .then((tasks) => {
         const workingTaskIds = new Set(
           tasks
-            .filter((t) => WORKING_STATUSES.has(t.orcaStatus))
+            .filter((t) => t.lifecycleStage === "active")
             .map((t) => t.linearIssueId),
         );
         const coveredIds = new Set(running.map((inv) => inv.linearIssueId));

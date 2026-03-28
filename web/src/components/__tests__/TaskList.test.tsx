@@ -9,12 +9,30 @@ vi.mock("../../hooks/useApi", () => ({
   toggleTaskHidden: vi.fn().mockResolvedValue({ ok: true, hidden: 1 }),
 }));
 
+const STATUS_TO_LIFECYCLE: Record<
+  string,
+  { stage: string; phase: string | null }
+> = {
+  backlog: { stage: "backlog", phase: null },
+  ready: { stage: "ready", phase: null },
+  running: { stage: "active", phase: "implement" },
+  in_review: { stage: "active", phase: "review" },
+  changes_requested: { stage: "active", phase: "fix" },
+  awaiting_ci: { stage: "active", phase: "ci" },
+  deploying: { stage: "active", phase: "deploy" },
+  done: { stage: "done", phase: null },
+  failed: { stage: "failed", phase: null },
+  canceled: { stage: "canceled", phase: null },
+};
+
 function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
+  const base: Task = {
     linearIssueId: "ENG-1",
     agentPrompt: "Test task prompt",
     repoPath: "/repo",
     orcaStatus: "ready",
+    lifecycleStage: "ready",
+    currentPhase: null,
     priority: 3,
     retryCount: 0,
     prBranchName: null,
@@ -37,8 +55,16 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     hidden: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    ...overrides,
   };
+  const merged = { ...base, ...overrides };
+  if (overrides.orcaStatus && !overrides.lifecycleStage) {
+    const derived = STATUS_TO_LIFECYCLE[overrides.orcaStatus as string];
+    if (derived) {
+      merged.lifecycleStage = derived.stage as Task["lifecycleStage"];
+      merged.currentPhase = derived.phase as Task["currentPhase"];
+    }
+  }
+  return merged;
 }
 
 const defaultProps = {

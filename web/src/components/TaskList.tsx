@@ -2,10 +2,34 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task } from "../types";
 import { updateTaskStatus, toggleTaskHidden } from "../hooks/useApi";
 import PriorityDot from "./ui/PriorityDot";
-import { getStatusBadgeClasses, getStatusDisplayText } from "./ui/StatusBadge";
+import {
+  getStageBadgeClasses,
+  getPhaseDisplayText,
+} from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
 import Badge from "./ui/Badge";
 import { MANUAL_STATUSES } from "../constants.js";
+
+/** Map lifecycle fields to filter key for backward-compatible filtering */
+function taskFilterKey(task: Task): string {
+  if (task.lifecycleStage === "active") {
+    switch (task.currentPhase) {
+      case "implement":
+        return "running";
+      case "review":
+        return "in_review";
+      case "fix":
+        return "changes_requested";
+      case "ci":
+        return "awaiting_ci";
+      case "deploy":
+        return "deploying";
+      default:
+        return "running";
+    }
+  }
+  return task.lifecycleStage ?? task.orcaStatus;
+}
 
 /** Auto-hide done tasks after 15 minutes. */
 const DONE_HIDE_MS = 15 * 60 * 1000;
@@ -399,7 +423,7 @@ export default function TaskList({
   const now = Date.now();
   const filtered = (() => {
     const byStatus = tasks.filter((t) =>
-      (selectedStatuses as ReadonlySet<string>).has(t.orcaStatus),
+      (selectedStatuses as ReadonlySet<string>).has(taskFilterKey(t)),
     );
 
     // Filter hidden tasks unless showHidden is active
@@ -412,7 +436,7 @@ export default function TaskList({
 
     // Always hide done tasks that have zero invocations (imported from Linear already complete)
     const withHistory = byProject.filter(
-      (t) => t.orcaStatus !== "done" || (t.invocationCount ?? 0) > 0,
+      (t) => t.lifecycleStage !== "done" || (t.invocationCount ?? 0) > 0,
     );
 
     // When only "done" is selected, show all done tasks regardless of age
@@ -422,7 +446,7 @@ export default function TaskList({
     // Hide done tasks older than 15 min (keep selected task visible)
     const byAge = withHistory.filter(
       (t) =>
-        t.orcaStatus !== "done" ||
+        t.lifecycleStage !== "done" ||
         t.linearIssueId === selectedTaskId ||
         !t.doneAt ||
         now - new Date(t.doneAt).getTime() <= DONE_HIDE_MS,
@@ -449,7 +473,8 @@ export default function TaskList({
       }
     } else if (option === "status") {
       cmp =
-        (STATUS_ORDER[a.orcaStatus] ?? 9) - (STATUS_ORDER[b.orcaStatus] ?? 9);
+        (STATUS_ORDER[taskFilterKey(a)] ?? 9) -
+        (STATUS_ORDER[taskFilterKey(b)] ?? 9);
     } else if (option === "project") {
       cmp = (a.projectName ?? "").localeCompare(b.projectName ?? "");
     } else {
@@ -501,7 +526,7 @@ export default function TaskList({
   const statusCounts = useMemo(() => {
     const counts: Partial<Record<FilterStatus, number>> = {};
     for (const t of tasks) {
-      const s = t.orcaStatus as FilterStatus;
+      const s = taskFilterKey(t) as FilterStatus;
       counts[s] = (counts[s] ?? 0) + 1;
     }
     return counts;
@@ -746,7 +771,7 @@ export default function TaskList({
                     }
                     aria-haspopup="menu"
                     aria-expanded={statusMenuTaskId === task.linearIssueId}
-                    aria-label={`Change status: ${getStatusDisplayText(task.orcaStatus)}`}
+                    aria-label={`Change status: ${getPhaseDisplayText(task.lifecycleStage ?? "", task.currentPhase)}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setStatusMenuTaskId(
@@ -755,9 +780,9 @@ export default function TaskList({
                           : task.linearIssueId,
                       );
                     }}
-                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStatusBadgeClasses(task.orcaStatus)}`}
+                    className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStageBadgeClasses(task.lifecycleStage ?? "")}`}
                   >
-                    {getStatusDisplayText(task.orcaStatus)} &#9662;
+                    {getPhaseDisplayText(task.lifecycleStage ?? "", task.currentPhase)} &#9662;
                   </button>
                   {statusMenuTaskId === task.linearIssueId && (
                     <div
@@ -888,7 +913,7 @@ export default function TaskList({
                   )}
                 </span>
               )}
-              {task.orcaStatus === "failed" && task.lastFailureReason && (
+              {task.lifecycleStage === "failed" && task.lastFailureReason && (
                 <span
                   className="text-xs text-red-400/80 leading-snug pl-[18px] truncate"
                   title={task.lastFailureReason}
