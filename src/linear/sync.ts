@@ -18,6 +18,7 @@ import {
   updateTaskFields,
   updateInvocation,
   getRunningInvocations,
+  getAgent,
 } from "../db/queries.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
@@ -200,6 +201,22 @@ export function buildPrompt(issue: LinearIssue): string {
   return ownPrompt;
 }
 
+/**
+ * Extract agent ID from labels matching the `agent:<id>` convention.
+ * Returns the agent ID if found and the agent exists in the DB, otherwise null.
+ */
+function resolveAgentFromLabels(
+  db: OrcaDb,
+  labels: string[],
+): string | null {
+  const agentLabel = labels.find((l) => l.startsWith("agent:"));
+  if (!agentLabel) return null;
+  const agentId = agentLabel.slice("agent:".length);
+  if (!agentId) return null;
+  const agent = getAgent(db, agentId);
+  return agent ? agent.id : null;
+}
+
 function upsertTask(
   db: OrcaDb,
   issue: LinearIssue,
@@ -254,6 +271,9 @@ function upsertTask(
         ? "ready"
         : orcaStatus;
     const now = new Date().toISOString();
+    // Check for agent routing label (e.g., "agent:trivia-content")
+    const routedAgentId = resolveAgentFromLabels(db, issue.labels ?? []);
+
     insertTask(db, {
       linearIssueId: issue.identifier,
       agentPrompt,
@@ -267,7 +287,13 @@ function upsertTask(
       projectName: issue.projectName,
       createdAt: now,
       updatedAt: now,
+      ...(routedAgentId
+        ? { agentId: routedAgentId, taskType: "agent" as const }
+        : {}),
     });
+    if (routedAgentId) {
+      log(`auto-routed ${issue.identifier} to agent ${routedAgentId} via label`);
+    }
     return insertStatus === "ready";
   } else {
     // Determine whether Linear's state should override Orca's local status.
@@ -292,6 +318,15 @@ function upsertTask(
     const resetCounters =
       orcaStatus === "ready" && existing.orcaStatus !== "ready";
 
+    // Check for agent routing label — only when labels were fetched (non-empty)
+    const labels = issue.labels ?? [];
+    const routedAgentId =
+      labels.length > 0
+        ? resolveAgentFromLabels(db, labels)
+        : null;
+    const agentFieldsChanged =
+      labels.length > 0 && routedAgentId !== (existing.agentId ?? null);
+
     updateTaskFields(db, issue.identifier, {
       agentPrompt,
       repoPath,
@@ -308,7 +343,20 @@ function upsertTask(
             staleSessionRetryCount: 0,
           }
         : {}),
+      ...(agentFieldsChanged
+        ? {
+            agentId: routedAgentId,
+            taskType: routedAgentId ? ("agent" as const) : ("linear" as const),
+          }
+        : {}),
     });
+    if (agentFieldsChanged) {
+      log(
+        routedAgentId
+          ? `auto-routed ${issue.identifier} to agent ${routedAgentId} via label`
+          : `cleared agent routing for ${issue.identifier} (label removed)`,
+      );
+    }
     return effectiveStatus === "ready" && existing.orcaStatus !== "ready";
   }
 }
@@ -475,6 +523,17 @@ export async function processWebhookEvent(
   // For prompt enrichment fields, we set null — the DB already has the correct
   // agentPrompt from fullSync.
   const existingTask = getTask(db, event.data.identifier);
+
+  // Resolve webhook labelIds to label names for agent routing
+  let resolvedLabels: string[] = [];
+  if (event.data.labelIds?.length) {
+    try {
+      resolvedLabels = await client.fetchLabelsByIds(event.data.labelIds);
+    } catch (err) {
+      log(`failed to resolve label names for ${event.data.identifier}: ${err}`);
+    }
+  }
+
   const issueFromEvent: LinearIssue = {
     id: event.data.id,
     identifier: event.data.identifier,
@@ -491,7 +550,7 @@ export async function processWebhookEvent(
     parentDescription: null,
     projectName: "", // webhook payloads don't include project name; preserved via conditional update
     childIds: existingTask?.isParent ? ["_placeholder"] : [],
-    labels: [],
+    labels: resolvedLabels,
   };
 
   // Only upsert if we have state info

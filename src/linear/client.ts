@@ -646,4 +646,27 @@ export class LinearClient {
 
     return data.issueLabels.nodes[0]?.id;
   }
+
+  // -------------------------------------------------------------------------
+  // fetchLabelsByIds — resolve label UUIDs to names (for webhook processing)
+  // -------------------------------------------------------------------------
+
+  async fetchLabelsByIds(ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const graphql = `
+      query($ids: [ID!]!) {
+        issueLabels(filter: { id: { in: $ids } }) {
+          nodes { id name }
+        }
+      }
+    `;
+
+    const data = await this.query<{
+      issueLabels: {
+        nodes: Array<{ id: string; name: string }>;
+      };
+    }>(graphql, { ids });
+
+    return data.issueLabels.nodes.map((n) => n.name);
+  }
 }
