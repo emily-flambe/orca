@@ -10,18 +10,24 @@
 
 import { inngest } from "../client.js";
 import { getSchedulerDeps, isReady } from "../deps.js";
-import { isDraining } from "../../deploy.js";
+import {
+  isDraining,
+  getDrainingForSeconds,
+  autoClearDrainIfStuck,
+} from "../../deploy.js";
 import {
   getAllTasks,
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
+  countActiveSessions,
   incrementStaleSessionRetryCount,
   insertSystemEvent,
   updateInvocation,
   updateTaskStatus,
 } from "../../db/queries.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
+import { checkDrainState } from "../../scheduler/drain-detector.js";
 import { writeMonitorSnapshot } from "../../scheduler/monitor-snapshot.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
@@ -174,6 +180,28 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
   },
   { cron: "*/5 * * * *" },
   async ({ step }) => {
+    await step.run("check-drain-timeout", async () => {
+      if (!isReady()) return;
+      const { db, config } = getSchedulerDeps();
+      const activeSessions = countActiveSessions(db);
+
+      // Auto-clear stuck drain
+      const cleared = autoClearDrainIfStuck(activeSessions, config.drainTimeoutMin);
+      if (cleared) {
+        logger.warn(
+          `drain flag auto-cleared: draining with 0 active sessions for >${config.drainTimeoutMin} min`,
+        );
+        insertSystemEvent(db, {
+          type: "health_check",
+          message: `Drain flag auto-cleared: exceeded ${config.drainTimeoutMin} min timeout with 0 active sessions`,
+          metadata: { drainTimeoutMin: config.drainTimeoutMin },
+        });
+      }
+
+      // Alert on stuck drain state (2+ consecutive snapshots)
+      await checkDrainState(getSchedulerDeps(), isDraining(), activeSessions);
+    });
+
     await step.run("reconcile", async () => {
       // Skip if deps aren't initialized yet (startup grace period).
       if (!isReady()) return;
@@ -312,7 +340,10 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("write-monitor-snapshot", async () => {
       const { db } = getSchedulerDeps();
       const allTasks = getAllTasks(db);
-      await writeMonitorSnapshot(allTasks);
+      await writeMonitorSnapshot(allTasks, undefined, {
+        draining: isDraining(),
+        drainingForSeconds: getDrainingForSeconds(),
+      });
     });
   },
 );

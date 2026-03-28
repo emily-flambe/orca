@@ -12,6 +12,7 @@ import type { Hono } from "hono";
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainingForSeconds: vi.fn().mockReturnValue(null),
   setDraining: vi.fn(),
   initDeployState: vi.fn(),
 }));

@@ -10,6 +10,7 @@ interface HealthData {
   status: "healthy" | "degraded" | "draining";
   uptime: number | null;
   activeSessions: number;
+  drainingForSeconds?: number | null;
   checks: {
     db: "ok" | "error";
     inngest: "ok" | "unreachable";
@@ -169,6 +170,14 @@ export default function HealthPage() {
           Active sessions:{" "}
           <span className="text-gray-200">{health.activeSessions}</span>
         </span>
+        {health.status === "draining" && health.drainingForSeconds != null && (
+          <span className="text-sm text-yellow-400">
+            Draining for{" "}
+            <span className="text-yellow-200 font-medium">
+              {formatUptime(health.drainingForSeconds)}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Checks: DB + Inngest */}

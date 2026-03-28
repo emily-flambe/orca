@@ -19,6 +19,7 @@ import { EventEmitter } from "node:events";
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainingForSeconds: vi.fn().mockReturnValue(null),
   setDraining: vi.fn(),
   initDeployState: vi.fn(),
 }));

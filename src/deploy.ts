@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
+let drainingStartedAt: number | null = null;
 
 const logger = createLogger("deploy");
 
@@ -57,6 +58,7 @@ export function setDraining(): void {
     return;
   }
   draining = true;
+  drainingStartedAt = Date.now();
   log("draining flag set (external deploy mode)");
 }
 
@@ -71,5 +73,30 @@ export function clearDraining(): void {
     return;
   }
   draining = false;
+  drainingStartedAt = null;
   log("draining flag cleared (unpause)");
+}
+
+/**
+ * Returns how many seconds draining has been active, or null if not draining.
+ */
+export function getDrainingForSeconds(): number | null {
+  if (!draining || drainingStartedAt === null) return null;
+  return Math.floor((Date.now() - drainingStartedAt) / 1000);
+}
+
+/**
+ * Auto-clears the drain flag if stuck: draining with 0 active sessions
+ * for longer than timeoutMin minutes. Returns true if the flag was cleared.
+ */
+export function autoClearDrainIfStuck(
+  activeSessions: number,
+  timeoutMin: number,
+): boolean {
+  if (!draining) return false;
+  if (activeSessions !== 0) return false;
+  const seconds = getDrainingForSeconds();
+  if (seconds === null || seconds <= timeoutMin * 60) return false;
+  clearDraining();
+  return true;
 }
