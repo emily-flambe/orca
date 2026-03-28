@@ -514,7 +514,8 @@ function AgentDetail({
           (t: Task) =>
             (t.taskType === "linear" || t.taskType === null) &&
             !t.agentId &&
-            t.lifecycleStage !== "active" && t.lifecycleStage !== "done",
+            t.lifecycleStage !== "active" &&
+            t.lifecycleStage !== "done",
         );
         setAvailableTickets(assignable);
       })
