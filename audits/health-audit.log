@@ -240,3 +240,41 @@ Context on known non-issues:
 
 Tests: passing (1650 passed, 0 failed, 71 test files)
 Deploy: yes — pushed fixes to main, deploying
+
+=== AUDIT: 2026-03-28T06:22:00Z ===
+Status: HEALTHY (1 fix applied)
+Active port: 4000 (uptime: ~10min, deployed 2026-03-28T06:12:44Z, commit 15522cf)
+Tasks: 182/192 done, 5 running (SRE-self, EMI-387, EMI-348, EMI-390, EMI-391), 5 backlog
+Sessions: 5 active
+Inngest: reachable
+
+Issues found: 1
+  - [FIXED] vi.mock() inside beforeEach in deploy-graceful.test.ts
+    Root cause: vi.mock() calls are hoisted to module top level even when written inside
+    functions. The nested vi.mock() calls inside beforeEach() after vi.resetModules() were
+    flagged by Vitest as "will become an error in a future version." They also don't re-
+    apply mocks as intended after resetModules — vi.doMock() (non-hoisted) is the correct
+    pattern for this use case.
+    Fix: replaced 2x vi.mock() with vi.doMock() inside beforeEach. Commit: a5b0b82
+    Pushed to main. No deploy needed (test-only change).
+
+Context on known non-issues:
+  - [KNOWN] EMI-348 running again with review_cycle_count=5: task was previously canceled
+    in Linear then re-assigned. Now in active implement/review cycle. Normal behavior.
+  - [KNOWN] EMI-348 stuck-in-in_review reconciliation events: review phase was timing out
+    during prior invocations (now current invocation is fresh implement phase). Self-heal
+    is working correctly.
+  - [KNOWN] 0-turn failures for sessions killed by deploys: sessions killed by blue/green
+    deploy record failed status with 0 turns. Expected behavior.
+  - [KNOWN] CI failure on commit 2bde080 (Strip secrets): lint error was fixed in the
+    immediately subsequent commit 15522cf. System deployed from 15522cf which passed CI.
+  - [KNOWN] Modified files in main repo (CRLF line endings only): git shows ~16 modified
+    files but diff shows no content changes — Windows line-ending normalization artifact.
+  - [KNOWN] Untracked temp files in main repo: babier-steps/ (nested git repo from Mar 15),
+    fix-cron3.js, tmp-apply.cjs, pr_review.txt — dev artifacts, not committed.
+  - [KNOWN] 203 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] 5 backlog tasks (EMI-392-396): awaiting Linear advancement to ready state.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed, not cleaned by SRE.
+
+Tests: passing (1652 passed, 0 failed, 71 test files)
+Deploy: no (test-only change — deployed instance is commit 15522cf, CI passed)
