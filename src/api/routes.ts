@@ -1996,6 +1996,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       timeoutMin?: number;
       repoPath?: string;
       schedule?: string;
+      linearLabel?: string | null;
       maxMemories?: number;
     }>();
 
@@ -2032,6 +2033,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       timeoutMin: body.timeoutMin ?? 45,
       repoPath: body.repoPath ?? null,
       schedule: body.schedule ?? null,
+      linearLabel: body.linearLabel ?? null,
       maxMemories: body.maxMemories ?? 200,
       enabled: 1,
       runCount: 0,
@@ -2065,6 +2067,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       timeoutMin?: number;
       repoPath?: string | null;
       schedule?: string | null;
+      linearLabel?: string | null;
       maxMemories?: number;
       enabled?: number;
     }>();
@@ -2086,6 +2089,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     if (body.timeoutMin !== undefined) updates.timeoutMin = body.timeoutMin;
     if (body.repoPath !== undefined) updates.repoPath = body.repoPath;
     if (body.maxMemories !== undefined) updates.maxMemories = body.maxMemories;
+    if (body.linearLabel !== undefined) updates.linearLabel = body.linearLabel;
     if (body.enabled !== undefined) updates.enabled = body.enabled;
 
     if (body.schedule !== undefined) {
