@@ -355,6 +355,75 @@ export function createApiRoutes(deps: ApiDeps): Hono {
   });
 
   // -----------------------------------------------------------------------
+  // GET /api/tasks/:id/debug
+  // -----------------------------------------------------------------------
+  app.get("/api/tasks/:id/debug", (c) => {
+    const taskId = c.req.param("id");
+    const task = getTask(db, taskId);
+    if (!task) {
+      return c.json({ error: "Task not found" }, 404);
+    }
+    const invocations = getInvocationsByTask(db, taskId);
+    const transitions = getTaskStateTransitions(db, taskId);
+
+    // Sort invocations newest-first
+    const sortedInvocations = [...invocations].sort((a, b) =>
+      (b.startedAt ?? "").localeCompare(a.startedAt ?? ""),
+    );
+
+    // Sort transitions oldest-first
+    const sortedTransitions = [...transitions].sort((a, b) =>
+      (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+    );
+
+    // Build summary aggregates
+    const byPhase: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCostUsd = 0;
+    let firstInvocation: string | null = null;
+    let lastInvocation: string | null = null;
+
+    for (const inv of invocations) {
+      const phase = inv.phase ?? "unknown";
+      byPhase[phase] = (byPhase[phase] ?? 0) + 1;
+
+      const status = inv.status ?? "unknown";
+      byStatus[status] = (byStatus[status] ?? 0) + 1;
+
+      totalInputTokens += inv.inputTokens ?? 0;
+      totalOutputTokens += inv.outputTokens ?? 0;
+      totalCostUsd += inv.costUsd ?? 0;
+
+      if (inv.startedAt) {
+        if (!firstInvocation || inv.startedAt < firstInvocation) {
+          firstInvocation = inv.startedAt;
+        }
+        if (!lastInvocation || inv.startedAt > lastInvocation) {
+          lastInvocation = inv.startedAt;
+        }
+      }
+    }
+
+    return c.json({
+      task,
+      invocations: sortedInvocations,
+      transitions: sortedTransitions,
+      summary: {
+        totalInvocations: invocations.length,
+        byPhase,
+        byStatus,
+        totalInputTokens,
+        totalOutputTokens,
+        firstInvocation,
+        lastInvocation,
+        totalCostUsd: Math.round(totalCostUsd * 100) / 100,
+      },
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // GET /api/invocations/running
   // -----------------------------------------------------------------------
   app.get("/api/invocations/running", (c) => {

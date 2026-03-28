@@ -16,6 +16,8 @@ import {
   updateTaskFields,
   clearSessionIds,
   insertSystemEvent,
+  getInvocationsByTask,
+  getTaskStateTransitions,
 } from "../db/queries.js";
 import { LinearClient } from "../linear/client.js";
 import { DependencyGraph } from "../linear/graph.js";
@@ -708,6 +710,89 @@ program
     );
     logger.info(`Queued tasks:    ${readyCount}`);
     logger.info(`Failed tasks:    ${failedCount}`);
+  });
+
+// ---------------------------------------------------------------------------
+// orca inspect <linearId>
+// ---------------------------------------------------------------------------
+
+program
+  .command("inspect <linearId>")
+  .description("Show diagnostic summary for a task")
+  .action(async (linearId: string) => {
+    const config = loadConfig();
+    const db = createDb(config.dbPath);
+
+    const task = getTask(db, linearId);
+    if (!task) {
+      console.log("Task not found");
+      process.exit(1);
+    }
+
+    // Header
+    console.log(`\n=== ${linearId} ===`);
+    console.log(`Status:     ${task.orcaStatus}`);
+    console.log(`Priority:   ${task.priority}`);
+    console.log(`Retries:    ${task.retryCount}/${config.maxRetries}`);
+
+    const prDisplay = task.prBranchName
+      ? `${task.prBranchName}${task.prNumber ? ` (#${task.prNumber})` : ""}`
+      : "(none)";
+    console.log(`PR:         ${prDisplay}`);
+    console.log(`Project:    ${task.projectName ?? "(unknown)"}`);
+    console.log(`Repo:       ${task.repoPath}`);
+    console.log(`Created:    ${task.createdAt}`);
+    console.log(`Updated:    ${task.updatedAt}`);
+
+    // Last failure info
+    if (task.lastFailureReason) {
+      console.log("");
+      console.log(`Last failure: ${task.lastFailureReason}`);
+      if (task.lastFailedPhase) {
+        console.log(`Failed phase: ${task.lastFailedPhase}`);
+      }
+      if (task.lastFailedAt) {
+        console.log(`Failed at:    ${task.lastFailedAt}`);
+      }
+    }
+
+    // Invocations (newest first)
+    const allInvocations = getInvocationsByTask(db, linearId);
+    const sorted = [...allInvocations].sort(
+      (a, b) => (b.id ?? 0) - (a.id ?? 0),
+    );
+    console.log(`\n--- Invocations (${sorted.length}) ---`);
+    for (const inv of sorted) {
+      const startShort = inv.startedAt
+        ? inv.startedAt.replace(/\.\d+Z$/, "Z")
+        : "?";
+      const endShort = inv.endedAt
+        ? inv.endedAt.replace(/^.*T/, "").replace(/\.\d+Z$/, "Z")
+        : "running";
+      const summary = inv.outputSummary
+        ? inv.outputSummary.length > 60
+          ? inv.outputSummary.slice(0, 60) + "..."
+          : inv.outputSummary
+        : "";
+      const turns =
+        inv.numTurns != null
+          ? `${String(inv.numTurns).padStart(2)} turns`
+          : "       ";
+      console.log(
+        `#${inv.id} | ${inv.phase ?? "?"} | ${inv.status} | ${inv.model ?? "?"} | ${turns} | ${startShort} → ${endShort} | ${summary}`,
+      );
+    }
+
+    // State transitions (oldest first — already ordered by id asc from query)
+    const transitions = getTaskStateTransitions(db, linearId);
+    console.log(`\n--- State Transitions (${transitions.length}) ---`);
+    for (const t of transitions) {
+      const from = t.fromStatus ?? "(init)";
+      const reason = t.reason ?? "";
+      console.log(`${from} → ${t.toStatus} | ${reason} | ${t.createdAt}`);
+    }
+
+    console.log("");
   });
 
 // ---------------------------------------------------------------------------
