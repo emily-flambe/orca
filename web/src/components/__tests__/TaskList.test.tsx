@@ -7,6 +7,7 @@ import { updateTaskStatus } from "../../hooks/useApi";
 vi.mock("../../hooks/useApi", () => ({
   updateTaskStatus: vi.fn().mockResolvedValue({ ok: true }),
   toggleTaskHidden: vi.fn().mockResolvedValue({ ok: true, hidden: 1 }),
+  fetchAgents: vi.fn().mockResolvedValue([]),
 }));
 
 const STATUS_TO_LIFECYCLE: Record<

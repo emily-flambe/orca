@@ -25,6 +25,7 @@ vi.mock("../../hooks/useApi", () => ({
   fetchRunningInvocations: vi.fn().mockResolvedValue([]),
   triggerSync: vi.fn(),
   updateConfig: vi.fn(),
+  fetchAgents: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../hooks/useSSE", () => ({
