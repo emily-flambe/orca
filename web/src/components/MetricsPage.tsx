@@ -114,7 +114,10 @@ function HealthBanner({
       </span>
       {status?.draining && (
         <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
-          Draining ({status.drainSessionCount})
+          Draining
+          {status.drainingForSeconds != null &&
+            ` — ${Math.round(status.drainingForSeconds / 60)}m`}{" "}
+          ({status.drainSessionCount} sessions)
         </span>
       )}
       {uptime.restartsToday > 0 && (
