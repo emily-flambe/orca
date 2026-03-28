@@ -264,15 +264,13 @@ describe("BUG 5: processDrainSnapshot — negative activeSessions treated as zer
 // When tasks=[] and draining=true, the output is:
 //   {"type":"system","draining":true,"drainingForSeconds":N}\n
 //
-// The trailing "\n" comes from `lines.join("\n") + "\n"`.
-// With one header line and zero task lines, join produces just the header
-// with no trailing newline from join itself — but the `+ "\n"` adds one.
-// This is technically correct NDJSON, but a reader doing `lines.split("\n")`
-// gets ["header", ""] — an empty trailing element that may cause parse errors
-// in naive consumers. Not exposed by current tests.
+// The trailing "\n" comes from the `+ "\n"` suffix. A naive split("\n")
+// gets ["header", ""] — an empty trailing element that may cause parse
+// errors in naive consumers. This is standard NDJSON, documented here.
 //
-// More critically: drainingForSeconds=null is serialized as the JSON literal
-// null, not omitted. Consumers expecting a number will get null and may crash.
+// Also: if null slips into drainingForSeconds at runtime (e.g. via the
+// health API returning getDrainingForSeconds() directly), JSON.stringify
+// serializes it as the JSON literal null — not undefined (which is omitted).
 // ---------------------------------------------------------------------------
 
 describe("BUG 6: writeMonitorSnapshot — drainingForSeconds=null serialization", () => {
@@ -280,10 +278,20 @@ describe("BUG 6: writeMonitorSnapshot — drainingForSeconds=null serialization"
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "orca-snap-test-"));
     const snapFile = path.join(tmpDir, "snapshot.ndjson");
 
+    // NOTE: drainingForSeconds is typed as `?: number` (not null), but the
+    // health API returns getDrainingForSeconds() which can be null. This cast
+    // documents the runtime behaviour when null slips through.
     await writeMonitorSnapshot(
       [],
+      {
+        type: "system",
+        timestamp: new Date().toISOString(),
+        draining: true,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        drainingForSeconds: null as any,
+        activeSessions: 0,
+      },
       snapFile,
-      { draining: true, drainingForSeconds: null },
     );
 
     const content = await fs.readFile(snapFile, "utf8");
@@ -309,8 +317,14 @@ describe("BUG 6: writeMonitorSnapshot — drainingForSeconds=null serialization"
 
     await writeMonitorSnapshot(
       [],
+      {
+        type: "system",
+        timestamp: new Date().toISOString(),
+        draining: true,
+        drainingForSeconds: 30,
+        activeSessions: 0,
+      },
       snapFile,
-      { draining: true, drainingForSeconds: 30 },
     );
 
     const raw = await fs.readFile(snapFile, "utf8");
@@ -326,27 +340,42 @@ describe("BUG 6: writeMonitorSnapshot — drainingForSeconds=null serialization"
 });
 
 // ---------------------------------------------------------------------------
-// BUG 7: writeMonitorSnapshot — system header written when draining=false
-//         should NOT appear, but what if systemState is provided with
-//         draining explicitly set to false?
+// BUG 7: writeMonitorSnapshot — system header always written regardless of
+//         drain state. There is no conditional suppression of the header
+//         when draining=false. Callers must check header.draining to
+//         determine drain state. If a stale drainingForSeconds slips in
+//         alongside draining=false, it IS serialized into the file.
 // ---------------------------------------------------------------------------
 
-describe("BUG 7: writeMonitorSnapshot — systemState.draining=false suppresses header", () => {
-  test("no system header when draining=false even if drainingForSeconds is set", async () => {
+describe("BUG 7: writeMonitorSnapshot — system header always written", () => {
+  test("system header is written even when draining=false with stale drainingForSeconds", async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "orca-snap-test3-"));
     const snapFile = path.join(tmpDir, "snapshot.ndjson");
 
+    // If a caller passes draining=false with a stale drainingForSeconds value,
+    // the system header is written with both fields as-is. There is no
+    // conditional header suppression — the header always appears.
     await writeMonitorSnapshot(
       [],
+      {
+        type: "system",
+        timestamp: new Date().toISOString(),
+        draining: false,
+        drainingForSeconds: 999, // stale value
+        activeSessions: 0,
+      },
       snapFile,
-      { draining: false, drainingForSeconds: 999 },
     );
 
     const content = await fs.readFile(snapFile, "utf8");
-    // When draining=false, no system header should appear even if
-    // drainingForSeconds has a stale non-null value.
     const lines = content.trim().split("\n").filter(Boolean);
-    expect(lines).toHaveLength(0); // no tasks, no header
+    expect(lines).toHaveLength(1); // system header is always present
+
+    const header = JSON.parse(lines[0]!) as Record<string, unknown>;
+    expect(header.type).toBe("system");
+    expect(header.draining).toBe(false);
+    // Stale drainingForSeconds IS preserved in the header even when draining=false.
+    expect(header.drainingForSeconds).toBe(999);
 
     // Cleanup
     await fs.rm(tmpDir, { recursive: true, force: true });
