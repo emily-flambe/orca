@@ -469,10 +469,26 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
     writeHookConfig(options.worktreePath, options.hookUrl);
   }
 
-  // Strip Claude nesting-detection env vars so child sessions don't refuse to
-  // start.  Use filter (not delete) because delete on a spread of process.env
-  // doesn't reliably remove vars from child processes on Windows.
-  const STRIP_VARS = new Set(["claudecode", "claude_code_entrypoint"]);
+  // Strip env vars that should not leak into agent sessions:
+  //  - Claude nesting-detection vars (prevent "already running" refusal)
+  //  - Orca-internal secrets (Cloudflare tunnel, Inngest, Linear, GitHub webhook)
+  //    These are Orca's own credentials. Repos that need deploy tokens should
+  //    provide them via their own .env files (copied to worktrees automatically).
+  const STRIP_VARS = new Set([
+    "claudecode",
+    "claude_code_entrypoint",
+    // Orca's Cloudflare tunnel/deploy tokens — NOT for agent use
+    "cloudflare_api_token",
+    "cloudflare_account_id",
+    "cloudflare_tunnel_id",
+    // Orca's own config — agents don't need these
+    "orca_linear_api_key",
+    "orca_linear_webhook_secret",
+    "orca_github_webhook_secret",
+    "orca_tunnel_token",
+    "inngest_event_key",
+    "inngest_signing_key",
+  ]);
   const childEnv = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) => !STRIP_VARS.has(key.toLowerCase()),
