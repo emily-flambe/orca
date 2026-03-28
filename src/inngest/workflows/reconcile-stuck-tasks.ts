@@ -340,9 +340,17 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("write-monitor-snapshot", async () => {
       const { db } = getSchedulerDeps();
       const allTasks = getAllTasks(db);
-      await writeMonitorSnapshot(allTasks, undefined, {
-        draining: isDraining(),
-        drainingForSeconds: getDrainingForSeconds(),
+
+      const draining = isDraining();
+      const drainingForSeconds = getDrainingForSeconds();
+      const activeSessions = activeHandles.size;
+
+      await writeMonitorSnapshot(allTasks, {
+        type: "system",
+        timestamp: new Date().toISOString(),
+        draining,
+        drainingForSeconds: drainingForSeconds ?? undefined,
+        activeSessions,
       });
     });
   },

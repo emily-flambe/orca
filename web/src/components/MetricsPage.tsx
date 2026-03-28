@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type {
   MetricsData,
   SystemEvent,
@@ -31,6 +31,25 @@ function trendPct(current: number, previous: number): number | null {
   if (previous === 0 && current === 0) return null;
   if (previous === 0) return 100;
   return Math.round(((current - previous) / previous) * 100);
+}
+
+// ---------------------------------------------------------------------------
+// Drain Timer
+// ---------------------------------------------------------------------------
+
+function DrainTimer({ initialSeconds }: { initialSeconds: number }) {
+  const [seconds, setSeconds] = useState(initialSeconds);
+  useEffect(() => {
+    const interval = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return (
+    <span>
+      {m}m {s}s
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +133,14 @@ function HealthBanner({
       </span>
       {status?.draining && (
         <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
-          Draining
-          {status.drainingForSeconds != null &&
-            ` — ${Math.round(status.drainingForSeconds / 60)}m`}{" "}
-          ({status.drainSessionCount} sessions)
+          Draining{" "}
+          {status.drainingForSeconds !== undefined && (
+            <>
+              &mdash;{" "}
+              <DrainTimer initialSeconds={status.drainingForSeconds} />
+            </>
+          )}
+          {status.drainSessionCount > 0 && ` (${status.drainSessionCount})`}
         </span>
       )}
       {uptime.restartsToday > 0 && (
