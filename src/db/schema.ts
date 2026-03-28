@@ -153,6 +153,7 @@ export const agents = sqliteTable("agents", {
   lastRunAt: text("last_run_at"),
   nextRunAt: text("next_run_at"),
   lastRunStatus: text("last_run_status"),
+  linearLabel: text("linear_label"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

@@ -19,6 +19,7 @@ import {
   updateInvocation,
   getRunningInvocations,
   getAgent,
+  getAllAgents,
 } from "../db/queries.js";
 import { activeHandles } from "../session-handles.js";
 import { killSession } from "../runner/index.js";
@@ -202,13 +203,24 @@ export function buildPrompt(issue: LinearIssue): string {
 }
 
 /**
- * Extract agent ID from labels matching the `agent:<id>` convention.
- * Returns the agent ID if found and the agent exists in the DB, otherwise null.
+ * Match ticket labels against agents' configured linearLabel fields,
+ * falling back to the `agent:<id>` naming convention.
  */
 function resolveAgentFromLabels(
   db: OrcaDb,
   labels: string[],
 ): string | null {
+  if (labels.length === 0) return null;
+
+  // First: check if any agent has a linearLabel matching one of the ticket's labels
+  const allAgents = getAllAgents(db);
+  for (const agent of allAgents) {
+    if (agent.linearLabel && labels.includes(agent.linearLabel)) {
+      return agent.id;
+    }
+  }
+
+  // Fallback: convention-based `agent:<id>`
   const agentLabel = labels.find((l) => l.startsWith("agent:"));
   if (!agentLabel) return null;
   const agentId = agentLabel.slice("agent:".length);

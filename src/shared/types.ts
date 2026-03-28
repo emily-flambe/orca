@@ -136,6 +136,7 @@ export interface Agent {
   schedule: string | null;
   maxMemories: number;
   enabled: number; // 1 or 0 (SQLite boolean)
+  linearLabel: string | null;
   runCount: number;
   lastRunAt: string | null;
   nextRunAt: string | null;

@@ -553,6 +553,15 @@ function migrateSchema(sqlite: DatabaseType): void {
       "ALTER TABLE tasks ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
     );
   }
+
+  // ---------------------------------------------------------------------------
+  //   Migration: agents.linear_label
+  //   - Add linear_label TEXT column to agents (e.g. "agent:trivia-content")
+  //   Sentinel: linear_label column doesn't exist on agents table.
+  // ---------------------------------------------------------------------------
+  if (!hasColumn(sqlite, "agents", "linear_label")) {
+    sqlite.exec("ALTER TABLE agents ADD COLUMN linear_label TEXT");
+  }
 }
 
 export type OrcaDb = ReturnType<typeof createDb>;

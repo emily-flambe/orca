@@ -69,6 +69,7 @@ interface FormState {
   timeoutMin: string;
   repoPath: string;
   schedule: string;
+  linearLabel: string;
   maxMemories: string;
   enabled: boolean;
 }
@@ -83,6 +84,7 @@ const DEFAULT_FORM: FormState = {
   timeoutMin: "45",
   repoPath: "",
   schedule: "",
+  linearLabel: "",
   maxMemories: "100",
   enabled: true,
 };
@@ -98,6 +100,7 @@ function agentToForm(a: Agent): FormState {
     timeoutMin: String(a.timeoutMin),
     repoPath: a.repoPath ?? "",
     schedule: a.schedule ?? "",
+    linearLabel: a.linearLabel ?? "",
     maxMemories: String(a.maxMemories),
     enabled: a.enabled === 1,
   };
@@ -224,14 +227,28 @@ function AgentForm({
         />
       </div>
 
-      <div>
-        <label className={labelClass}>Repo path (optional)</label>
-        <input
-          className={inputClass}
-          value={form.repoPath}
-          onChange={(e) => set("repoPath", e.target.value)}
-          placeholder="/path/to/repo"
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelClass}>Repo path (optional)</label>
+          <input
+            className={inputClass}
+            value={form.repoPath}
+            onChange={(e) => set("repoPath", e.target.value)}
+            placeholder="/path/to/repo"
+          />
+        </div>
+        <div>
+          <label className={labelClass}>Linear label (optional)</label>
+          <input
+            className={inputClass}
+            value={form.linearLabel}
+            onChange={(e) => set("linearLabel", e.target.value)}
+            placeholder={`agent:${form.id || "agent-id"}`}
+          />
+          <span className="text-xs text-gray-600 mt-0.5 block">
+            Tickets with this label auto-route to this agent
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
