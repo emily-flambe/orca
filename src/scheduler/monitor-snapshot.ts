@@ -24,14 +24,29 @@ interface MonitorTask {
  * Writes a NDJSON snapshot of all tasks to disk.
  * Each line is a JSON object with key task fields.
  * Failed tasks include lastFailureReason truncated to 80 chars.
+ * When systemState is provided and draining, prepends a system header line.
  */
 export async function writeMonitorSnapshot(
   tasks: MonitorTask[],
   filePath?: string,
+  systemState?: { draining?: boolean; drainingForSeconds?: number | null },
 ): Promise<void> {
   const targetPath = filePath ?? DEFAULT_SNAPSHOT_FILE;
 
-  const lines = tasks.map((task) => {
+  const lines: string[] = [];
+
+  // Prepend system header if draining
+  if (systemState?.draining === true) {
+    lines.push(
+      JSON.stringify({
+        type: "system",
+        draining: true,
+        drainingForSeconds: systemState.drainingForSeconds ?? null,
+      }),
+    );
+  }
+
+  for (const task of tasks) {
     const entry: Record<string, unknown> = {
       id: task.linearIssueId,
       status: task.orcaStatus,
@@ -47,8 +62,8 @@ export async function writeMonitorSnapshot(
         : null;
     }
 
-    return JSON.stringify(entry);
-  });
+    lines.push(JSON.stringify(entry));
+  }
 
   try {
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
