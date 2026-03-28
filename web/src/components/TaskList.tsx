@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { Task } from "../types";
-import { updateTaskStatus, toggleTaskHidden } from "../hooks/useApi";
-import PriorityDot from "./ui/PriorityDot";
+import type { Task, Agent } from "../types";
 import {
-  getStageBadgeClasses,
-  getPhaseDisplayText,
-} from "./ui/StatusBadge";
+  updateTaskStatus,
+  toggleTaskHidden,
+  fetchAgents,
+} from "../hooks/useApi";
+import PriorityDot from "./ui/PriorityDot";
+import { getStageBadgeClasses, getPhaseDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
 import Badge from "./ui/Badge";
 import { MANUAL_STATUSES } from "../constants.js";
@@ -357,6 +358,18 @@ export default function TaskList({
   const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+
+  const [agents, setAgents] = useState<Agent[]>([]);
+  useEffect(() => {
+    fetchAgents()
+      .then(setAgents)
+      .catch(() => {});
+  }, []);
+  const agentNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of agents) m.set(a.id, a.name);
+    return m;
+  }, [agents]);
 
   const allProjects = useMemo(() => {
     const ps = new Set<string>();
@@ -750,11 +763,6 @@ export default function TaskList({
                     cron
                   </Badge>
                 )}
-                {task.projectName && (
-                  <Badge className="shrink-0 !text-[10px] !px-1.5 !py-0 !text-gray-500 !bg-transparent !border-gray-700">
-                    {task.projectName}
-                  </Badge>
-                )}
                 <div
                   className="relative shrink-0 ml-auto"
                   ref={
@@ -782,7 +790,11 @@ export default function TaskList({
                     }}
                     className={`text-xs px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-colors ${getStageBadgeClasses(task.lifecycleStage ?? "")}`}
                   >
-                    {getPhaseDisplayText(task.lifecycleStage ?? "", task.currentPhase)} &#9662;
+                    {getPhaseDisplayText(
+                      task.lifecycleStage ?? "",
+                      task.currentPhase,
+                    )}{" "}
+                    &#9662;
                   </button>
                   {statusMenuTaskId === task.linearIssueId && (
                     <div
@@ -877,6 +889,14 @@ export default function TaskList({
                   )}
                 </div>
               </div>
+              {(task.projectName || task.agentId) && (
+                <span className="text-[11px] text-gray-500 pl-[18px] truncate">
+                  {task.projectName}
+                  {task.projectName && task.agentId && " \u00b7 "}
+                  {task.agentId &&
+                    (agentNames.get(task.agentId) ?? task.agentId)}
+                </span>
+              )}
               {/* Title row — full on mobile, clamped on desktop */}
               <span className="text-sm text-gray-200 leading-snug line-clamp-4 md:line-clamp-2 pl-[18px]">
                 {task.agentPrompt
