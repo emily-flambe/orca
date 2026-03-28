@@ -78,16 +78,22 @@ export function sendAlert(deps: SchedulerDeps, payload: AlertPayload): void {
     log(`sendAlert: DB insert failed: ${err}`);
   }
 
-  // 2. Post Linear comment (if taskId is set)
-  if (payload.taskId) {
+  // 2. Post Linear comment (if taskId is a real Linear issue, not a synthetic agent/cron ID)
+  const linearTaskId =
+    payload.taskId &&
+    !payload.taskId.startsWith("agent-") &&
+    !payload.taskId.startsWith("cron-")
+      ? payload.taskId
+      : undefined;
+  if (linearTaskId) {
     try {
       deps.client
         .createComment(
-          payload.taskId,
+          linearTaskId,
           `**[Orca Self-Heal] ${payload.title}**\n\n${payload.message}`,
         )
         .catch((err: unknown) => {
-          log(`sendAlert: Linear comment failed for ${payload.taskId}: ${err}`);
+          log(`sendAlert: Linear comment failed for ${linearTaskId}: ${err}`);
         });
     } catch (err) {
       log(`sendAlert: Linear comment setup failed: ${err}`);
