@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createLogger } from "../logger.js";
 import { resolveClaudeBinary } from "../runner/index.js";
+import { getDefaultBranch } from "../git.js";
 
 const logger = createLogger("github/pr-description");
 
@@ -78,10 +79,11 @@ export async function enrichPrDescription(opts: {
     return;
   }
 
-  // 3. Get git diff (branch vs main), truncated to 8KB
+  // 3. Get git diff (branch vs default branch), truncated to 8KB
+  const defaultBranch = getDefaultBranch(repoPath);
   let diff = "";
   try {
-    diff = execFileSync("git", ["diff", "origin/main...HEAD"], {
+    diff = execFileSync("git", ["diff", `origin/${defaultBranch}...HEAD`], {
       encoding: "utf-8",
       cwd: repoPath,
       maxBuffer: 500 * 1024,

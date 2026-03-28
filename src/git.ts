@@ -224,3 +224,75 @@ export function cleanStaleLockFiles(repoPath: string, maxAgeMs = 60_000): void {
     logger.warn(`failed to clean lock file ${lockPath}: ${err}`);
   }
 }
+
+/**
+ * Detect the default branch for a repo by inspecting origin/HEAD.
+ * Falls back to checking if origin/main or origin/master exist.
+ * Returns just the branch name (e.g. "main", "master").
+ */
+export function getDefaultBranch(repoPath: string): string {
+  // Try symbolic-ref first (most reliable)
+  try {
+    const ref = git(["symbolic-ref", "refs/remotes/origin/HEAD"], {
+      cwd: repoPath,
+    });
+    // Returns e.g. "refs/remotes/origin/main"
+    const match = ref.match(/refs\/remotes\/origin\/(.+)/);
+    if (match) return match[1];
+  } catch {
+    // origin/HEAD may not be set
+  }
+
+  // Fallback: check common branch names
+  try {
+    git(["rev-parse", "--verify", "origin/main"], { cwd: repoPath });
+    return "main";
+  } catch {
+    // origin/main doesn't exist
+  }
+
+  try {
+    git(["rev-parse", "--verify", "origin/master"], { cwd: repoPath });
+    return "master";
+  } catch {
+    // origin/master doesn't exist either
+  }
+
+  // Last resort: default to "main"
+  return "main";
+}
+
+/**
+ * Async version of getDefaultBranch.
+ */
+export async function getDefaultBranchAsync(repoPath: string): Promise<string> {
+  try {
+    const ref = await gitAsync(["symbolic-ref", "refs/remotes/origin/HEAD"], {
+      cwd: repoPath,
+    });
+    const match = ref.match(/refs\/remotes\/origin\/(.+)/);
+    if (match) return match[1];
+  } catch {
+    // origin/HEAD may not be set
+  }
+
+  try {
+    await gitAsync(["rev-parse", "--verify", "origin/main"], {
+      cwd: repoPath,
+    });
+    return "main";
+  } catch {
+    // origin/main doesn't exist
+  }
+
+  try {
+    await gitAsync(["rev-parse", "--verify", "origin/master"], {
+      cwd: repoPath,
+    });
+    return "master";
+  } catch {
+    // origin/master doesn't exist either
+  }
+
+  return "main";
+}

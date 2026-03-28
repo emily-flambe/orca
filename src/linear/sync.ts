@@ -206,10 +206,7 @@ export function buildPrompt(issue: LinearIssue): string {
  * Match ticket labels against agents' configured linearLabel fields,
  * falling back to the `agent:<id>` naming convention.
  */
-function resolveAgentFromLabels(
-  db: OrcaDb,
-  labels: string[],
-): string | null {
+function resolveAgentFromLabels(db: OrcaDb, labels: string[]): string | null {
   if (labels.length === 0) return null;
 
   // First: check if any agent has a linearLabel matching one of the ticket's labels
@@ -304,7 +301,9 @@ function upsertTask(
         : {}),
     });
     if (routedAgentId) {
-      log(`auto-routed ${issue.identifier} to agent ${routedAgentId} via label`);
+      log(
+        `auto-routed ${issue.identifier} to agent ${routedAgentId} via label`,
+      );
     }
     return insertStatus === "ready";
   } else {
@@ -333,9 +332,7 @@ function upsertTask(
     // Check for agent routing label — only when labels were fetched (non-empty)
     const labels = issue.labels ?? [];
     const routedAgentId =
-      labels.length > 0
-        ? resolveAgentFromLabels(db, labels)
-        : null;
+      labels.length > 0 ? resolveAgentFromLabels(db, labels) : null;
     const agentFieldsChanged =
       labels.length > 0 && routedAgentId !== (existing.agentId ?? null);
 

@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { git } from "../git.js";
+import { git, getDefaultBranch } from "../git.js";
 import { updateTaskStatus, getTask } from "../db/queries.js";
 import { emitTaskUpdated } from "../events.js";
 import { writeBackStatus } from "../linear/sync.js";
@@ -31,6 +31,9 @@ export const alreadyDonePatterns: string[] = [
   "already on main",
   "already on `main`",
   "already on `origin/main`",
+  "already on master",
+  "already on `master`",
+  "already on `origin/master`",
   "already exists",
   "already satisfied",
   "already done",
@@ -82,20 +85,23 @@ export async function extractMarkerFromLog(
 }
 
 // ---------------------------------------------------------------------------
-// worktreeHasNoChanges — check if worktree has no commits ahead of origin/main
+// worktreeHasNoChanges — check if worktree has no commits ahead of origin's default branch
 // ---------------------------------------------------------------------------
 
 /**
  * Returns true if the worktree at `worktreePath` has no commits ahead of
- * `origin/main`. Used to detect "already done" tasks where Claude succeeded
- * but made no changes (because none were needed).
+ * origin's default branch. Used to detect "already done" tasks where Claude
+ * succeeded but made no changes (because none were needed).
  */
 export async function worktreeHasNoChanges(
   worktreePath: string,
 ): Promise<boolean> {
   try {
     if (!existsSync(worktreePath)) return false;
-    const diff = git(["diff", "origin/main...HEAD"], { cwd: worktreePath });
+    const defaultBranch = getDefaultBranch(worktreePath);
+    const diff = git(["diff", `origin/${defaultBranch}...HEAD`], {
+      cwd: worktreePath,
+    });
     return diff.trim() === "";
   } catch {
     return false;

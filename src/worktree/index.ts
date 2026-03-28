@@ -12,7 +12,12 @@ import {
 import { rm } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { platform } from "node:os";
-import { git, gitAsync, cleanStaleLockFiles } from "../git.js";
+import {
+  git,
+  gitAsync,
+  cleanStaleLockFiles,
+  getDefaultBranch,
+} from "../git.js";
 import { createLogger } from "../logger.js";
 
 const execFileAsync = promisify(execFile);
@@ -236,13 +241,13 @@ function copyEnvFiles(srcDir: string, destDir: string): void {
  * Create a git worktree for a task invocation.
  *
  * - Fetches origin in the base repo
- * - Creates branch `orca/<taskId>-inv-<invocationId>` from `origin/main`
+ * - Creates branch `orca/<taskId>-inv-<invocationId>` from origin's default branch
  * - Creates worktree as sibling directory `<repoDirname>-<taskId>`
  * - Copies `.env*` files from the base repo (if any)
  * - Runs `npm install` if `package.json` exists in the worktree
  *
  * If the worktree already exists at the target path (retry scenario),
- * it is reset to `origin/main` instead of being recreated.
+ * it is reset to origin's default branch instead of being recreated.
  *
  * If the branch already exists (e.g. review/fix phase reusing the implement branch),
  * it is checked out directly and reset to origin instead of being deleted and recreated.
@@ -251,7 +256,7 @@ function copyEnvFiles(srcDir: string, destDir: string): void {
  * @param taskId - Task identifier (e.g. "ORC-12")
  * @param invocationId - Invocation identifier (e.g. 7)
  * @param options - Optional settings: `baseRef` to check out an existing remote branch
- *   instead of creating a new branch from origin/main (used for review/fix phases)
+ *   instead of creating a new branch from origin's default branch (used for review/fix phases)
  * @returns Object with `worktreePath` and `branchName`
  * @throws Error if `repoPath` does not exist or git operations fail
  */
@@ -291,6 +296,9 @@ export function createWorktree(
   // Fetch origin (with retry for transient OS errors)
   git(["fetch", "origin"], { cwd: repoPath });
 
+  // Detect the default branch after fetch so refs are up to date
+  const defaultBranch = getDefaultBranch(repoPath);
+
   // If worktree already exists at target path, reuse it (retry scenario)
   if (
     existsSync(worktreePath) &&
@@ -303,12 +311,14 @@ export function createWorktree(
         git(["reset", "--hard", `origin/${baseRef}`], { cwd: worktreePath });
       } catch {
         logger.warn(
-          `reset to origin/${baseRef} failed, falling back to origin/main`,
+          `reset to origin/${baseRef} failed, falling back to origin/${defaultBranch}`,
         );
-        git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+        git(["reset", "--hard", `origin/${defaultBranch}`], {
+          cwd: worktreePath,
+        });
       }
     } else {
-      resetWorktree(worktreePath);
+      resetWorktree(worktreePath, repoPath);
     }
     return { worktreePath, branchName };
   }
@@ -372,16 +382,26 @@ export function createWorktree(
         },
       );
     } else {
-      // Remote ref gone (branch deleted or name mismatch) — fall back to origin/main
+      // Remote ref gone (branch deleted or name mismatch) — fall back to origin's default branch
       logger.warn(
-        `remote ref origin/${baseRef} not found, falling back to origin/main`,
+        `remote ref origin/${baseRef} not found, falling back to origin/${defaultBranch}`,
       );
-      git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
-        cwd: repoPath,
-      });
+      git(
+        [
+          "worktree",
+          "add",
+          "-b",
+          branchName,
+          worktreePath,
+          `origin/${defaultBranch}`,
+        ],
+        {
+          cwd: repoPath,
+        },
+      );
     }
   } else {
-    // If branch exists locally, delete it so we can create fresh from origin/main.
+    // If branch exists locally, delete it so we can create fresh from origin's default branch.
     // If deletion fails because the branch is checked out in another worktree,
     // auto-increment the suffix to find a free name (prevents infinite retry loops
     // when a user has manually checked out an orca-managed branch).
@@ -406,23 +426,35 @@ export function createWorktree(
         }
       }
     }
-    // Create worktree with new branch based on origin/main.
+    // Create worktree with new branch based on origin's default branch.
     // If -b fails because the branch name conflicts with a remote-tracking ref
     // (e.g., from a previous invocation that was pushed to origin), recover by
-    // creating the local branch explicitly at origin/main and checking it out.
+    // creating the local branch explicitly at origin's default branch and checking it out.
     try {
-      git(["worktree", "add", "-b", branchName, worktreePath, "origin/main"], {
-        cwd: repoPath,
-      });
+      git(
+        [
+          "worktree",
+          "add",
+          "-b",
+          branchName,
+          worktreePath,
+          `origin/${defaultBranch}`,
+        ],
+        {
+          cwd: repoPath,
+        },
+      );
     } catch (err) {
       const msg = (err as Error).message ?? "";
       if (msg.includes("already exists")) {
         logger.warn(
           `git worktree add -b failed (branch already exists on remote), recovering: ${branchName}`,
         );
-        // Create local branch at origin/main (ignoring remote-tracking ref content),
+        // Create local branch at origin's default branch (ignoring remote-tracking ref content),
         // then checkout in the worktree.
-        git(["branch", branchName, "origin/main"], { cwd: repoPath });
+        git(["branch", branchName, `origin/${defaultBranch}`], {
+          cwd: repoPath,
+        });
         git(["worktree", "add", worktreePath, branchName], { cwd: repoPath });
       } else {
         throw err;
@@ -469,9 +501,9 @@ export function createWorktree(
   const conflictedFiles = hasConflictMarkers(worktreePath);
   if (conflictedFiles.length > 0) {
     logger.warn(
-      `merge conflicts detected in ${worktreePath} (${conflictedFiles.join(", ")}) — resetting to origin/main`,
+      `merge conflicts detected in ${worktreePath} (${conflictedFiles.join(", ")}) — resetting to origin/${defaultBranch}`,
     );
-    git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+    git(["reset", "--hard", `origin/${defaultBranch}`], { cwd: worktreePath });
   }
 
   return { worktreePath, branchName };
@@ -820,18 +852,22 @@ export async function removeWorktreeAsync(worktreePath: string): Promise<void> {
 }
 
 /**
- * Reset a worktree to origin/main.
+ * Reset a worktree to origin's default branch.
  *
  * Fetches the latest from origin, then hard-resets the worktree
- * to `origin/main`. Used for retry scenarios where the worktree
+ * to the default branch. Used for retry scenarios where the worktree
  * already exists and needs a clean slate.
  *
  * @param worktreePath - Absolute path to the worktree directory
+ * @param repoPath - Optional path to the base repo (used to detect default branch)
  * @throws Error if the git fetch or reset commands fail
  */
-export function resetWorktree(worktreePath: string): void {
+export function resetWorktree(worktreePath: string, repoPath?: string): void {
   git(["fetch", "origin"], { cwd: worktreePath });
-  git(["reset", "--hard", "origin/main"], { cwd: worktreePath });
+  const defaultBranch = repoPath
+    ? getDefaultBranch(repoPath)
+    : getDefaultBranch(worktreePath);
+  git(["reset", "--hard", `origin/${defaultBranch}`], { cwd: worktreePath });
 }
 
 /**

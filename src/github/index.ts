@@ -2,7 +2,7 @@ import { execFileSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, basename } from "node:path";
 import { rmSync, existsSync } from "node:fs";
-import { isTransientGitError, git } from "../git.js";
+import { isTransientGitError, git, getDefaultBranch } from "../git.js";
 import { createLogger } from "../logger.js";
 
 const logger = createLogger("github");
@@ -704,11 +704,11 @@ export async function updatePrBranch(
 }
 
 /**
- * Rebase a PR branch onto origin/main and force-push the result.
+ * Rebase a PR branch onto origin's default branch and force-push the result.
  *
  * Creates a temporary git worktree adjacent to the main repo, fetches
  * origin, checks out the branch at origin/<branchName>, rebases onto
- * origin/main, and force-pushes. Aborts on conflicts.
+ * origin's default branch, and force-pushes. Aborts on conflicts.
  *
  * Returns:
  *   { success: true } — rebase and push succeeded
@@ -722,7 +722,7 @@ export function rebasePrBranch(
   | { success: true }
   | { success: false; hasConflicts: true }
   | { success: false; hasConflicts: false; error: string } {
-  // Fetch latest so origin/main and origin/<branchName> are up to date
+  // Fetch latest so origin's default branch and origin/<branchName> are up to date
   try {
     git(["fetch", "origin"], { cwd: repoPath });
   } catch (err) {
@@ -732,6 +732,9 @@ export function rebasePrBranch(
       error: `fetch failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+
+  // Detect default branch after fetch so refs are up to date
+  const defaultBranch = getDefaultBranch(repoPath);
 
   // Create a temp worktree adjacent to the main repo.
   // Include branchName in the path to avoid collisions when two tasks for the
@@ -785,9 +788,9 @@ export function rebasePrBranch(
     };
   }
 
-  // Attempt rebase onto origin/main
+  // Attempt rebase onto origin's default branch
   try {
-    git(["rebase", "origin/main"], { cwd: tempPath });
+    git(["rebase", `origin/${defaultBranch}`], { cwd: tempPath });
   } catch {
     // Abort the in-progress rebase to leave the worktree clean
     try {

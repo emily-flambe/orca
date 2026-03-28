@@ -13,6 +13,7 @@
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { getDefaultBranch } from "../../git.js";
 import { getHookUrl } from "../../hooks.js";
 import type { OrcaDb } from "../../db/index.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -678,13 +679,21 @@ export const taskLifecycle = inngest.createFunction(
 
           if (isFixPhase) {
             if (task.fixReason === "merge_conflict") {
-              agentPrompt +=
-                "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
+              const defaultBranch = getDefaultBranch(task.repoPath);
+              agentPrompt += `\n\nThe PR branch has merge conflicts. Run \`git fetch origin && git rebase origin/${defaultBranch}\` to rebase onto ${defaultBranch}, resolve any conflicts, then force-push the branch.`;
               updateTaskFixReason(db, taskId, null);
             }
             appendSystemPrompt = config.fixSystemPrompt || undefined;
           } else {
             appendSystemPrompt = config.implementSystemPrompt || undefined;
+          }
+
+          if (appendSystemPrompt) {
+            const defaultBranchForPrompt = getDefaultBranch(task.repoPath);
+            appendSystemPrompt = appendSystemPrompt.replace(
+              /\{\{DEFAULT_BRANCH_REF\}\}/g,
+              `origin/${defaultBranchForPrompt}`,
+            );
           }
 
           const now = new Date().toISOString();
@@ -1441,6 +1450,15 @@ export const taskLifecycle = inngest.createFunction(
               logPath: `logs/${invocationId}.ndjson`,
             });
 
+            let reviewAppendPrompt = config.reviewSystemPrompt || undefined;
+            if (reviewAppendPrompt) {
+              const defaultBranchForReview = getDefaultBranch(task.repoPath);
+              reviewAppendPrompt = reviewAppendPrompt.replace(
+                /\{\{DEFAULT_BRANCH_REF\}\}/g,
+                `origin/${defaultBranchForReview}`,
+              );
+            }
+
             const startedAt = Date.now();
             const handle = spawnSession({
               agentPrompt,
@@ -1449,7 +1467,7 @@ export const taskLifecycle = inngest.createFunction(
               invocationId,
               projectRoot: process.cwd(),
               claudePath: config.claudePath,
-              appendSystemPrompt: config.reviewSystemPrompt || undefined,
+              appendSystemPrompt: reviewAppendPrompt,
               disallowedTools: buildDisallowedTools(config),
               repoPath: task.repoPath,
               model: config.reviewModel,
@@ -1792,8 +1810,8 @@ export const taskLifecycle = inngest.createFunction(
 
             let agentPrompt = task.agentPrompt ?? "";
             if (task.fixReason === "merge_conflict") {
-              agentPrompt +=
-                "\n\nThe PR branch has merge conflicts. Run `git fetch origin && git rebase origin/main` to rebase onto main, resolve any conflicts, then force-push the branch.";
+              const defaultBranch = getDefaultBranch(task.repoPath);
+              agentPrompt += `\n\nThe PR branch has merge conflicts. Run \`git fetch origin && git rebase origin/${defaultBranch}\` to rebase onto ${defaultBranch}, resolve any conflicts, then force-push the branch.`;
               updateTaskFixReason(db, taskId, null);
             }
 
@@ -1832,6 +1850,15 @@ export const taskLifecycle = inngest.createFunction(
               logPath: `logs/${invocationId}.ndjson`,
             });
 
+            let fixAppendPrompt = config.fixSystemPrompt || undefined;
+            if (fixAppendPrompt) {
+              const defaultBranchForFix = getDefaultBranch(task.repoPath);
+              fixAppendPrompt = fixAppendPrompt.replace(
+                /\{\{DEFAULT_BRANCH_REF\}\}/g,
+                `origin/${defaultBranchForFix}`,
+              );
+            }
+
             const startedAt = Date.now();
             const handle = spawnSession({
               agentPrompt,
@@ -1840,7 +1867,7 @@ export const taskLifecycle = inngest.createFunction(
               invocationId,
               projectRoot: process.cwd(),
               claudePath: config.claudePath,
-              appendSystemPrompt: config.fixSystemPrompt || undefined,
+              appendSystemPrompt: fixAppendPrompt,
               disallowedTools: buildDisallowedTools(config),
               resumeSessionId,
               repoPath: task.repoPath,

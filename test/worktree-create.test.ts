@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 vi.mock("../src/git.js", () => ({
   git: vi.fn(),
   cleanStaleLockFiles: vi.fn(),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {

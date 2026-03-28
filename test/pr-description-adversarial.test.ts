@@ -9,6 +9,10 @@ vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
 }));
 
+vi.mock("../src/git.js", () => ({
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
+}));
+
 vi.mock("../src/runner/index.js", () => ({
   resolveClaudeBinary: vi
     .fn()

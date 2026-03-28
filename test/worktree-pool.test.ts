@@ -23,6 +23,8 @@ vi.mock("../src/git.js", () => ({
   git: vi.fn(),
   gitAsync: vi.fn(),
   cleanStaleLockFiles: vi.fn(),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
+  getDefaultBranchAsync: vi.fn().mockResolvedValue("main"),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {

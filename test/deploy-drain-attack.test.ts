@@ -132,6 +132,7 @@ vi.mock("../src/github/index.js", () => ({
 
 vi.mock("../src/git.js", () => ({
   git: vi.fn().mockReturnValue(""),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
 vi.mock("../src/scheduler/alerts.js", async (importOriginal) => {

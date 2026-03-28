@@ -1,5 +1,6 @@
 import { inngest } from "../client.js";
 import { getSchedulerDeps } from "../deps.js";
+import { getDefaultBranch } from "../../git.js";
 import { createLogger } from "../../logger.js";
 import {
   getTask,
@@ -453,10 +454,11 @@ async function mergeAndFinalizeStep(
 
         const maxMergeAttempts = 3;
 
-        // On the first failure, attempt a rebase onto main
+        // On the first failure, attempt a rebase onto the default branch
         if (attemptsSoFar === 1 && prBranchName) {
+          const defaultBranch = getDefaultBranch(task.repoPath);
           log(
-            `task ${taskId} merge attempt 1 failed — attempting rebase of ${prBranchName} onto origin/main`,
+            `task ${taskId} merge attempt 1 failed — attempting rebase of ${prBranchName} onto origin/${defaultBranch}`,
           );
           const rebaseResult = rebasePrBranch(prBranchName, task.repoPath);
 
@@ -465,7 +467,7 @@ async function mergeAndFinalizeStep(
             client
               .createComment(
                 taskId,
-                `Merge failed for PR #${task.prNumber}: ${mergeResult.error}\n\nRebased branch \`${prBranchName}\` onto \`main\` and force-pushed — waiting for CI to re-run before retrying merge.`,
+                `Merge failed for PR #${task.prNumber}: ${mergeResult.error}\n\nRebased branch \`${prBranchName}\` onto \`${defaultBranch}\` and force-pushed — waiting for CI to re-run before retrying merge.`,
               )
               .catch((err) => {
                 log(

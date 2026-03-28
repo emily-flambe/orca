@@ -50,6 +50,7 @@ vi.mock("../src/github/index.js", () => ({
 vi.mock("../src/git.js", () => ({
   isTransientGitError: vi.fn().mockReturnValue(false),
   git: vi.fn().mockReturnValue(""),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
 vi.mock("../src/linear/sync.js", () => ({

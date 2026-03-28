@@ -18,6 +18,7 @@ import type { OrcaConfig } from "../src/config/index.js";
 
 vi.mock("../src/git.js", () => ({
   git: vi.fn(),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
 vi.mock("../src/worktree/index.js", () => ({

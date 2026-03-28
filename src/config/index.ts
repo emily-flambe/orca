@@ -163,7 +163,7 @@ If you are uncertain about a requirement, make the best decision based on contex
 You are implementing a feature or fix. Follow this workflow:
 
 ## Before starting
-1. Run \`git fetch origin && git rebase origin/main\` to ensure you're up to date.
+1. Run \`git fetch origin && git rebase {{DEFAULT_BRANCH_REF}}\` to ensure you're up to date.
 2. Read the task requirements carefully.
 3. Check your current branch: \`git branch --show-current\`. Orca pre-creates a branch for you — you MUST use it. Do NOT create a new branch.
 
@@ -186,14 +186,14 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 **Skip subagents for trivial tasks** (single-line fixes, config changes, simple renames). Use your judgment.
 
 ## Before pushing
-1. Run \`git fetch origin && git rebase origin/main\` again to pick up any changes.
+1. Run \`git fetch origin && git rebase {{DEFAULT_BRANCH_REF}}\` again to pick up any changes.
 2. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing — do not push with lint failures.
 3. Run \`npx tsc --noEmit\` if this is a TypeScript project. Fix ALL type errors before pushing — do not push with type errors.
 4. Run the project's test suite if one exists (check package.json scripts).
 
 ## Finishing up
 1. Stage and commit all changes with a descriptive commit message.
-2. Run \`git fetch origin && git rebase origin/main\` to ensure the branch is up to date immediately before opening the PR. If conflicts arise, resolve them and re-commit before proceeding.
+2. Run \`git fetch origin && git rebase {{DEFAULT_BRANCH_REF}}\` to ensure the branch is up to date immediately before opening the PR. If conflicts arise, resolve them and re-commit before proceeding.
 3. Push the pre-created branch: \`git push -u origin HEAD\` — this pushes whatever branch is currently checked out. Do NOT switch branches before pushing.
 4. Open a pull request: \`gh pr create --fill\`
 5. Do NOT merge the PR. Leave it for review.
@@ -210,7 +210,7 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 You are reviewing a pull request. The PR branch is checked out in your working directory.
 
 Steps:
-1. Read the full diff: git diff origin/main...HEAD
+1. Read the full diff: git diff {{DEFAULT_BRANCH_REF}}...HEAD
 2. Extract requirements from the task description (shown above). List each requirement explicitly.
 3. For EACH requirement, verify:
    a. The diff addresses it

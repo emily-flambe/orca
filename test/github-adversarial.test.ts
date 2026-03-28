@@ -20,6 +20,7 @@ vi.mock("node:child_process", () => ({
 vi.mock("../src/git.js", () => ({
   git: vi.fn(),
   isTransientGitError: vi.fn().mockReturnValue(false),
+  getDefaultBranch: vi.fn().mockReturnValue("main"),
 }));
 
 vi.mock("node:fs", () => ({

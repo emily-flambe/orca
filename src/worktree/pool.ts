@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readdirSync, copyFileSync, renameSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
-import { gitAsync, git } from "../git.js";
+import { gitAsync, git, getDefaultBranchAsync } from "../git.js";
 import { createWorktree, removeWorktreeAsync } from "./index.js";
 import { createLogger } from "../logger.js";
 
@@ -109,9 +109,19 @@ async function createPoolEntry(repoPath: string): Promise<PoolEntry> {
   // Fetch origin
   await gitAsync(["fetch", "origin"], { cwd: repoPath });
 
-  // Create worktree with new branch at origin/main
+  // Detect default branch after fetch so refs are up to date
+  const defaultBranch = await getDefaultBranchAsync(repoPath);
+
+  // Create worktree with new branch at origin's default branch
   await gitAsync(
-    ["worktree", "add", "-b", branchName, worktreePath, "origin/main"],
+    [
+      "worktree",
+      "add",
+      "-b",
+      branchName,
+      worktreePath,
+      `origin/${defaultBranch}`,
+    ],
     { cwd: repoPath },
   );
 
@@ -339,7 +349,7 @@ export class WorktreePoolService {
 
   /**
    * Refresh stale pool entries (older than freshnessThresholdMs) by
-   * fetching origin and hard-resetting to origin/main.
+   * fetching origin and hard-resetting to origin's default branch.
    */
   private refreshStaleEntries(repoPath: string): void {
     if (this.stopped) return;
@@ -352,11 +362,12 @@ export class WorktreePoolService {
       if (now - entry.createdAt < this.freshnessThresholdMs) continue;
 
       gitAsync(["fetch", "origin"], { cwd: entry.worktreePath })
-        .then(() =>
-          gitAsync(["reset", "--hard", "origin/main"], {
+        .then(async () => {
+          const defaultBranch = await getDefaultBranchAsync(repoPath);
+          await gitAsync(["reset", "--hard", `origin/${defaultBranch}`], {
             cwd: entry.worktreePath,
-          }),
-        )
+          });
+        })
         .then(() => {
           entry.createdAt = Date.now();
           logger.info(`refreshed stale pool entry: ${entry.worktreePath}`);
