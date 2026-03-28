@@ -743,6 +743,7 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
       timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : 45,
       repoPath: form.repoPath || null,
       schedule: form.schedule || null,
+      linearLabel: form.linearLabel || null,
       maxMemories: form.maxMemories ? parseInt(form.maxMemories, 10) : 100,
       enabled: form.enabled ? 1 : 0,
     });
@@ -762,6 +763,7 @@ export default function AgentsPage({ onToast }: { onToast?: ToastCallbacks }) {
         timeoutMin: form.timeoutMin ? parseInt(form.timeoutMin, 10) : 45,
         repoPath: form.repoPath || null,
         schedule: form.schedule || null,
+        linearLabel: form.linearLabel || null,
         maxMemories: form.maxMemories ? parseInt(form.maxMemories, 10) : 100,
         enabled: form.enabled ? 1 : 0,
       });
