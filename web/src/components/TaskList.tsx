@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, Agent } from "../types";
-import { updateTaskStatus, toggleTaskHidden, fetchAgents } from "../hooks/useApi";
+import {
+  updateTaskStatus,
+  toggleTaskHidden,
+  fetchAgents,
+} from "../hooks/useApi";
 import PriorityDot from "./ui/PriorityDot";
 import { getStageBadgeClasses, getPhaseDisplayText } from "./ui/StatusBadge";
 import EmptyState from "./ui/EmptyState";
@@ -889,7 +893,8 @@ export default function TaskList({
                 <span className="text-[11px] text-gray-500 pl-[18px] truncate">
                   {task.projectName}
                   {task.projectName && task.agentId && " \u00b7 "}
-                  {task.agentId && (agentNames.get(task.agentId) ?? task.agentId)}
+                  {task.agentId &&
+                    (agentNames.get(task.agentId) ?? task.agentId)}
                 </span>
               )}
               {/* Title row — full on mobile, clamped on desktop */}
