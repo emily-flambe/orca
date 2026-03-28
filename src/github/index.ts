@@ -126,6 +126,8 @@ export async function findPrForBranch(
           "list",
           "--head",
           branchName,
+          "--state",
+          "all",
           "--json",
           "url,number,state,headRefName,isDraft",
           "--limit",

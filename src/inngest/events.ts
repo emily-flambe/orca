@@ -39,6 +39,7 @@ export type OrcaEvents = {
       worktreePath: string | null;
       isMaxTurns: boolean;
       isResumeNotFound: boolean;
+      isRateLimited: boolean;
     };
   };
   "task/awaiting-ci": {

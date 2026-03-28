@@ -41,6 +41,7 @@ import {
   resetStaleSessionRetryCount,
   countActiveSessions,
   countActiveAgentSessions,
+  getTaskStateTransitions,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
 import type { SessionHandle, McpServerConfig } from "../../runner/index.js";
@@ -218,6 +219,7 @@ export function bridgeSessionCompletion(
             worktreePath: worktreePath ?? null,
             isMaxTurns: result.subtype === "error_max_turns",
             isResumeNotFound: result.isResumeNotFound ?? false,
+            isRateLimited: result.subtype === "rate_limited",
           },
         })
         .catch((err) => {
@@ -284,6 +286,7 @@ export function bridgeSessionCompletion(
             worktreePath: null,
             isMaxTurns: false,
             isResumeNotFound: false,
+            isRateLimited: false,
           },
         })
         .catch((sendErr) => {
@@ -664,6 +667,36 @@ export const taskLifecycle = inngest.createFunction(
               log(
                 `task ${taskId}: implement spawn blocked by worktree error: ${err}`,
               );
+
+              // Check consecutive worktree errors — fail permanently after 5
+              const MAX_CONSECUTIVE_WORKTREE_ERRORS = 5;
+              const transitions = getTaskStateTransitions(db, taskId);
+              let consecutiveErrors = 0;
+              for (let i = transitions.length - 1; i >= 0; i--) {
+                if (transitions[i]!.reason === "spawn_blocked_worktree_error") {
+                  consecutiveErrors++;
+                } else {
+                  break;
+                }
+              }
+
+              if (consecutiveErrors >= MAX_CONSECUTIVE_WORKTREE_ERRORS) {
+                log(
+                  `task ${taskId}: ${consecutiveErrors} consecutive worktree errors — failing permanently`,
+                );
+                updateAndEmit(
+                  db,
+                  taskId,
+                  "failed",
+                  "worktree_error_limit_exceeded",
+                  {
+                    failureReason: `${consecutiveErrors} consecutive worktree creation failures`,
+                    failedPhase: "implement",
+                  },
+                );
+                return null;
+              }
+
               updateTaskStatus(db, taskId, "ready", {
                 reason: "spawn_blocked_worktree_error",
               });
@@ -1031,6 +1064,15 @@ export const taskLifecycle = inngest.createFunction(
                 return { outcome: "retry" };
               }
 
+              // Rate-limited sessions are not the agent's fault — retry without
+              // incrementing the counter so real failures get full retry budget.
+              if (implementEvent.data.isRateLimited) {
+                log(
+                  `task ${taskId}: rate limited — retrying without incrementing retry count (invocation ${invocationId})`,
+                );
+                return { outcome: "retry" };
+              }
+
               if (task.retryCount >= config.maxRetries) {
                 insertSystemEvent(db, {
                   type: "task_failed",
@@ -1202,6 +1244,26 @@ export const taskLifecycle = inngest.createFunction(
               }
               incrementRetryCount(db, taskId);
               return { outcome: "retry" };
+            }
+
+            // PR found but already merged — the work is done, skip review
+            if (prInfo.merged) {
+              log(
+                `task ${taskId}: PR already merged (${prInfo.url}) — marking done`,
+              );
+              try {
+                removeWorktree(worktreePath);
+              } catch {
+                /* ignore */
+              }
+              return markAlreadyDone(
+                db,
+                taskId,
+                client,
+                stateMap,
+                worktreePath,
+                "pr_already_merged",
+              );
             }
 
             // PR found — store branch + PR info
@@ -1408,6 +1470,35 @@ export const taskLifecycle = inngest.createFunction(
               log(
                 `task ${taskId}: review spawn blocked by worktree error: ${err}`,
               );
+
+              const MAX_CONSECUTIVE_WORKTREE_ERRORS = 5;
+              const transitions = getTaskStateTransitions(db, taskId);
+              let consecutiveErrors = 0;
+              for (let i = transitions.length - 1; i >= 0; i--) {
+                if (transitions[i]!.reason === "spawn_blocked_worktree_error") {
+                  consecutiveErrors++;
+                } else {
+                  break;
+                }
+              }
+
+              if (consecutiveErrors >= MAX_CONSECUTIVE_WORKTREE_ERRORS) {
+                log(
+                  `task ${taskId}: ${consecutiveErrors} consecutive worktree errors — failing permanently`,
+                );
+                updateAndEmit(
+                  db,
+                  taskId,
+                  "failed",
+                  "worktree_error_limit_exceeded",
+                  {
+                    failureReason: `${consecutiveErrors} consecutive worktree creation failures`,
+                    failedPhase: "review",
+                  },
+                );
+                return null;
+              }
+
               updateTaskStatus(db, taskId, "ready", {
                 reason: "spawn_blocked_worktree_error",
               });
@@ -1801,6 +1892,35 @@ export const taskLifecycle = inngest.createFunction(
               log(
                 `task ${taskId}: fix spawn blocked by worktree error: ${err}`,
               );
+
+              const MAX_CONSECUTIVE_WORKTREE_ERRORS = 5;
+              const transitions = getTaskStateTransitions(db, taskId);
+              let consecutiveErrors = 0;
+              for (let i = transitions.length - 1; i >= 0; i--) {
+                if (transitions[i]!.reason === "spawn_blocked_worktree_error") {
+                  consecutiveErrors++;
+                } else {
+                  break;
+                }
+              }
+
+              if (consecutiveErrors >= MAX_CONSECUTIVE_WORKTREE_ERRORS) {
+                log(
+                  `task ${taskId}: ${consecutiveErrors} consecutive worktree errors — failing permanently`,
+                );
+                updateAndEmit(
+                  db,
+                  taskId,
+                  "failed",
+                  "worktree_error_limit_exceeded",
+                  {
+                    failureReason: `${consecutiveErrors} consecutive worktree creation failures`,
+                    failedPhase: "fix",
+                  },
+                );
+                return null;
+              }
+
               updateTaskStatus(db, taskId, "ready", {
                 reason: "spawn_blocked_worktree_error",
               });
