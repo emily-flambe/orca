@@ -170,6 +170,9 @@ export default function TaskList({
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const statusFilterTriggerRef = useRef<HTMLButtonElement>(null);
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const projectFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -202,6 +205,12 @@ export default function TaskList({
         !statusDropdownRef.current.contains(e.target as Node)
       ) {
         setStatusDropdownOpen(false);
+      }
+      if (
+        projectDropdownRef.current &&
+        !projectDropdownRef.current.contains(e.target as Node)
+      ) {
+        setProjectDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -510,49 +519,155 @@ export default function TaskList({
           </div>
         </div>
 
-        {/* Project filter — only shown when multiple projects exist */}
+        {/* Project filter dropdown — only shown when multiple projects exist */}
         {allProjects.length > 1 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-                Project
-              </span>
+          <div className="flex items-center gap-2" ref={projectDropdownRef}>
+            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">
+              Project
+            </span>
+            <div className="relative flex-1">
               <button
-                onClick={() => setHiddenProjects(new Set())}
-                className={`text-[11px] transition-colors ${hiddenProjects.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                disabled={hiddenProjects.size === 0}
+                ref={projectFilterTriggerRef}
+                id="project-filter-btn"
+                aria-haspopup="listbox"
+                aria-expanded={projectDropdownOpen}
+                aria-controls="project-filter-menu"
+                aria-label="Filter by project"
+                onClick={() => setProjectDropdownOpen((o) => !o)}
+                className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
               >
-                all
+                <span className="truncate">
+                  {hiddenProjects.size === 0
+                    ? "all projects"
+                    : hiddenProjects.size === allProjects.length
+                      ? "none"
+                      : allProjects.length - hiddenProjects.size === 1
+                        ? allProjects.find((p) => !hiddenProjects.has(p)) ?? "1 project"
+                        : `${allProjects.length - hiddenProjects.size} of ${allProjects.length}`}
+                </span>
+                <svg
+                  className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${projectDropdownOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
               </button>
-            </div>
-            <div className="overflow-x-auto scrollbar-none">
-              <div className="flex gap-1 flex-nowrap min-w-max">
-                {allProjects.map((p) => {
-                  const active = !hiddenProjects.has(p);
-                  const count = projectCounts[p] ?? 0;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => toggleProject(p)}
-                      title={active ? `Hide ${p}` : `Show ${p}`}
-                      className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full whitespace-nowrap transition-colors ${
-                        active
-                          ? "bg-gray-700/60 text-gray-300 border border-gray-600"
-                          : "text-gray-700 hover:text-gray-500 line-through"
-                      }`}
-                    >
-                      {p}
-                      {count > 0 && (
+              {projectDropdownOpen && (
+                <div
+                  id="project-filter-menu"
+                  role="listbox"
+                  aria-multiselectable="true"
+                  className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setProjectDropdownOpen(false);
+                      projectFilterTriggerRef.current?.focus();
+                      return;
+                    }
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      const items = Array.from(
+                        e.currentTarget.querySelectorAll<HTMLElement>(
+                          '[role="option"]',
+                        ),
+                      );
+                      const idx = items.indexOf(
+                        document.activeElement as HTMLElement,
+                      );
+                      if (e.key === "ArrowDown") {
+                        items[idx === -1 ? 0 : (idx + 1) % items.length]?.focus();
+                      } else {
+                        items[
+                          idx === -1
+                            ? items.length - 1
+                            : (idx - 1 + items.length) % items.length
+                        ]?.focus();
+                      }
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                      Filter by project
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        role="menuitem"
+                        tabIndex={-1}
+                        onClick={() => setHiddenProjects(new Set())}
+                        className={`text-[10px] transition-colors ${hiddenProjects.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                        disabled={hiddenProjects.size === 0}
+                      >
+                        all
+                      </button>
+                      <button
+                        role="menuitem"
+                        tabIndex={-1}
+                        onClick={() =>
+                          setHiddenProjects(new Set(allProjects))
+                        }
+                        className={`text-[10px] transition-colors ${hiddenProjects.size === allProjects.length ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                        disabled={hiddenProjects.size === allProjects.length}
+                      >
+                        none
+                      </button>
+                    </div>
+                  </div>
+                  {allProjects.map((p) => {
+                    const active = !hiddenProjects.has(p);
+                    const count = projectCounts[p] ?? 0;
+                    return (
+                      <button
+                        key={p}
+                        role="option"
+                        aria-selected={active}
+                        onClick={() => toggleProject(p)}
+                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
+                      >
                         <span
-                          className={`text-[10px] tabular-nums leading-none ${active ? "opacity-60" : "opacity-40"}`}
+                          className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}
                         >
-                          {count}
+                          {active && (
+                            <svg
+                              className="w-2 h-2 text-gray-900"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={3}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                          )}
                         </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                        <span
+                          className={`flex-1 text-left truncate ${active ? "text-gray-300" : "text-gray-600 line-through"}`}
+                        >
+                          {p}
+                        </span>
+                        {count > 0 && (
+                          <span
+                            className={`text-[10px] tabular-nums ${active ? "text-gray-500" : "text-gray-700"}`}
+                          >
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
