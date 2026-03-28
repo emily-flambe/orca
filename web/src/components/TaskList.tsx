@@ -104,6 +104,209 @@ const STATUS_ORDER: Record<string, number> = {
   backlog: 8,
 };
 
+function CheckIcon() {
+  return (
+    <svg
+      className="w-2 h-2 text-gray-900"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={3}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M5 13l4 4L19 7"
+      />
+    </svg>
+  );
+}
+
+interface FilterItem {
+  key: string;
+  label: string;
+  active: boolean;
+  count: number;
+  labelClass?: string;
+  activeClass?: string;
+}
+
+function FilterDropdown({
+  label,
+  allLabel,
+  id,
+  items,
+  allSelected,
+  noneSelected,
+  onToggle,
+  onSelectAll,
+  onSelectNone,
+}: {
+  label: string;
+  allLabel: string;
+  id: string;
+  items: FilterItem[];
+  allSelected: boolean;
+  noneSelected: boolean;
+  onToggle: (key: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selected = items.filter((i) => i.active).length;
+  const total = items.length;
+  let summary: string;
+  if (selected === total) {
+    summary = `all ${allLabel}`;
+  } else if (selected === 0) {
+    summary = "none";
+  } else if (selected === 1) {
+    summary = items.find((i) => i.active)!.label;
+  } else {
+    summary = `${selected} of ${total}`;
+  }
+
+  return (
+    <div className="flex items-center gap-2" ref={containerRef}>
+      <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">
+        {label}
+      </span>
+      <div className="relative flex-1">
+        <button
+          ref={triggerRef}
+          id={`${id}-filter-btn`}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={`${id}-filter-menu`}
+          aria-label={`Filter by ${label.toLowerCase()}`}
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
+        >
+          <span className="truncate">{summary}</span>
+          <svg
+            className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+        {open && (
+          <div
+            id={`${id}-filter-menu`}
+            role="listbox"
+            aria-multiselectable="true"
+            className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setOpen(false);
+                triggerRef.current?.focus();
+                return;
+              }
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                const opts = Array.from(
+                  e.currentTarget.querySelectorAll<HTMLElement>(
+                    '[role="option"]',
+                  ),
+                );
+                const idx = opts.indexOf(
+                  document.activeElement as HTMLElement,
+                );
+                const next =
+                  e.key === "ArrowDown"
+                    ? idx === -1
+                      ? 0
+                      : (idx + 1) % opts.length
+                    : idx === -1
+                      ? opts.length - 1
+                      : (idx - 1 + opts.length) % opts.length;
+                opts[next]?.focus();
+              }
+            }}
+          >
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                Filter by {label.toLowerCase()}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={onSelectAll}
+                  className={`text-[10px] transition-colors ${allSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                  disabled={allSelected}
+                >
+                  all
+                </button>
+                <button
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={onSelectNone}
+                  className={`text-[10px] transition-colors ${noneSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
+                  disabled={noneSelected}
+                >
+                  none
+                </button>
+              </div>
+            </div>
+            {items.map((item) => (
+              <button
+                key={item.key}
+                role="option"
+                aria-selected={item.active}
+                onClick={() => onToggle(item.key)}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
+              >
+                <span
+                  className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${item.active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}
+                >
+                  {item.active && <CheckIcon />}
+                </span>
+                <span
+                  className={`flex-1 text-left ${item.labelClass ?? ""} ${item.active ? (item.activeClass ?? "text-gray-300") : "text-gray-600 line-through"}`}
+                >
+                  {item.label}
+                </span>
+                {item.count > 0 && (
+                  <span
+                    className={`text-[10px] tabular-nums ${item.active ? "text-gray-500" : "text-gray-700"}`}
+                  >
+                    {item.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type SortDirection = "asc" | "desc";
 interface SortState {
   option: SortOption | null;
@@ -167,12 +370,6 @@ export default function TaskList({
     });
   }
 
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
-  const statusFilterTriggerRef = useRef<HTMLButtonElement>(null);
-  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
-  const projectDropdownRef = useRef<HTMLDivElement>(null);
-  const projectFilterTriggerRef = useRef<HTMLButtonElement>(null);
   const [, tick] = useState(0);
   const [statusMenuTaskId, setStatusMenuTaskId] = useState<string | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
@@ -199,18 +396,6 @@ export default function TaskList({
         !statusMenuRef.current.contains(e.target as Node)
       ) {
         setStatusMenuTaskId(null);
-      }
-      if (
-        statusDropdownRef.current &&
-        !statusDropdownRef.current.contains(e.target as Node)
-      ) {
-        setStatusDropdownOpen(false);
-      }
-      if (
-        projectDropdownRef.current &&
-        !projectDropdownRef.current.contains(e.target as Node)
-      ) {
-        setProjectDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -349,10 +534,6 @@ export default function TaskList({
     null,
   );
 
-  const allStatusesSelected = ALL_FILTER_VALUES.every((v) =>
-    selectedStatuses.has(v),
-  );
-
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
@@ -367,309 +548,50 @@ export default function TaskList({
         />
 
         {/* Status filter dropdown */}
-        <div className="flex items-center gap-2" ref={statusDropdownRef}>
-          <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">
-            Status
-          </span>
-          <div className="relative flex-1">
-            <button
-              ref={statusFilterTriggerRef}
-              id="status-filter-btn"
-              aria-haspopup="listbox"
-              aria-expanded={statusDropdownOpen}
-              aria-controls="status-filter-menu"
-              aria-label="Filter by status"
-              onClick={() => setStatusDropdownOpen((o) => !o)}
-              className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
-            >
-              <span className="truncate">
-                {selectedStatuses.size === ALL_FILTER_VALUES.length
-                  ? "all statuses"
-                  : selectedStatuses.size === 0
-                    ? "none"
-                    : selectedStatuses.size === 1
-                      ? (STATUS_FILTERS.find((f) =>
-                          selectedStatuses.has(f.value),
-                        )?.label ?? "1 status")
-                      : `${selectedStatuses.size} of ${ALL_FILTER_VALUES.length}`}
-              </span>
-              <svg
-                className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </button>
-            {statusDropdownOpen && (
-              <div
-                id="status-filter-menu"
-                role="listbox"
-                aria-multiselectable="true"
-                className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setStatusDropdownOpen(false);
-                    statusFilterTriggerRef.current?.focus();
-                    return;
-                  }
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const items = Array.from(
-                      e.currentTarget.querySelectorAll<HTMLElement>(
-                        '[role="option"]',
-                      ),
-                    );
-                    const idx = items.indexOf(
-                      document.activeElement as HTMLElement,
-                    );
-                    if (e.key === "ArrowDown") {
-                      items[idx === -1 ? 0 : (idx + 1) % items.length]?.focus();
-                    } else {
-                      items[
-                        idx === -1
-                          ? items.length - 1
-                          : (idx - 1 + items.length) % items.length
-                      ]?.focus();
-                    }
-                  }
-                }}
-              >
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
-                  <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                    Filter by status
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      role="menuitem"
-                      tabIndex={-1}
-                      onClick={() =>
-                        setSelectedStatuses(new Set(ALL_FILTER_VALUES))
-                      }
-                      className={`text-[10px] transition-colors ${allStatusesSelected ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                      disabled={allStatusesSelected}
-                    >
-                      all
-                    </button>
-                    <button
-                      role="menuitem"
-                      tabIndex={-1}
-                      onClick={() => setSelectedStatuses(new Set())}
-                      className={`text-[10px] transition-colors ${selectedStatuses.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                      disabled={selectedStatuses.size === 0}
-                    >
-                      none
-                    </button>
-                  </div>
-                </div>
-                {STATUS_FILTERS.map((f) => {
-                  const active = selectedStatuses.has(f.value);
-                  const count = statusCounts[f.value] ?? 0;
-                  return (
-                    <button
-                      key={f.value}
-                      role="option"
-                      aria-selected={active}
-                      onClick={() => toggleStatus(f.value)}
-                      className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
-                    >
-                      <span
-                        className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}
-                      >
-                        {active && (
-                          <svg
-                            className="w-2 h-2 text-gray-900"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={3}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M5 13l4 4L19 7"
-                            />
-                          </svg>
-                        )}
-                      </span>
-                      <span
-                        className={`flex-1 text-left rounded-full px-1.5 py-0.5 ${active ? statusFilterActiveStyle(f.value) : "text-gray-600 line-through"}`}
-                      >
-                        {f.label}
-                      </span>
-                      {count > 0 && (
-                        <span
-                          className={`text-[10px] tabular-nums ${active ? "text-gray-500" : "text-gray-700"}`}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+        <FilterDropdown
+          label="Status"
+          allLabel="statuses"
+          id="status"
+          items={STATUS_FILTERS.map((f) => ({
+            key: f.value,
+            label: f.label,
+            active: selectedStatuses.has(f.value),
+            count: statusCounts[f.value] ?? 0,
+            labelClass: "rounded-full px-1.5 py-0.5",
+            activeClass: statusFilterActiveStyle(f.value),
+          }))}
+          allSelected={ALL_FILTER_VALUES.every((v) =>
+            selectedStatuses.has(v),
+          )}
+          noneSelected={selectedStatuses.size === 0}
+          onToggle={(key) => toggleStatus(key as FilterStatus)}
+          onSelectAll={() =>
+            setSelectedStatuses(new Set(ALL_FILTER_VALUES))
+          }
+          onSelectNone={() => setSelectedStatuses(new Set())}
+        />
 
         {/* Project filter dropdown — only shown when multiple projects exist */}
         {allProjects.length > 1 && (
-          <div className="flex items-center gap-2" ref={projectDropdownRef}>
-            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider shrink-0">
-              Project
-            </span>
-            <div className="relative flex-1">
-              <button
-                ref={projectFilterTriggerRef}
-                id="project-filter-btn"
-                aria-haspopup="listbox"
-                aria-expanded={projectDropdownOpen}
-                aria-controls="project-filter-menu"
-                aria-label="Filter by project"
-                onClick={() => setProjectDropdownOpen((o) => !o)}
-                className="flex items-center justify-between w-full px-2 py-1 text-xs bg-gray-800/60 border border-gray-700 rounded-md hover:border-gray-600 transition-colors text-gray-300 gap-1"
-              >
-                <span className="truncate">
-                  {hiddenProjects.size === 0
-                    ? "all projects"
-                    : hiddenProjects.size === allProjects.length
-                      ? "none"
-                      : allProjects.length - hiddenProjects.size === 1
-                        ? allProjects.find((p) => !hiddenProjects.has(p)) ?? "1 project"
-                        : `${allProjects.length - hiddenProjects.size} of ${allProjects.length}`}
-                </span>
-                <svg
-                  className={`w-3 h-3 shrink-0 text-gray-500 transition-transform ${projectDropdownOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-              </button>
-              {projectDropdownOpen && (
-                <div
-                  id="project-filter-menu"
-                  role="listbox"
-                  aria-multiselectable="true"
-                  className="absolute top-full left-0 mt-1 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1 min-w-full w-48"
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setProjectDropdownOpen(false);
-                      projectFilterTriggerRef.current?.focus();
-                      return;
-                    }
-                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                      e.preventDefault();
-                      const items = Array.from(
-                        e.currentTarget.querySelectorAll<HTMLElement>(
-                          '[role="option"]',
-                        ),
-                      );
-                      const idx = items.indexOf(
-                        document.activeElement as HTMLElement,
-                      );
-                      if (e.key === "ArrowDown") {
-                        items[idx === -1 ? 0 : (idx + 1) % items.length]?.focus();
-                      } else {
-                        items[
-                          idx === -1
-                            ? items.length - 1
-                            : (idx - 1 + items.length) % items.length
-                        ]?.focus();
-                      }
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 mb-1">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                      Filter by project
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        role="menuitem"
-                        tabIndex={-1}
-                        onClick={() => setHiddenProjects(new Set())}
-                        className={`text-[10px] transition-colors ${hiddenProjects.size === 0 ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                        disabled={hiddenProjects.size === 0}
-                      >
-                        all
-                      </button>
-                      <button
-                        role="menuitem"
-                        tabIndex={-1}
-                        onClick={() =>
-                          setHiddenProjects(new Set(allProjects))
-                        }
-                        className={`text-[10px] transition-colors ${hiddenProjects.size === allProjects.length ? "text-gray-700 cursor-default" : "text-gray-500 hover:text-gray-300"}`}
-                        disabled={hiddenProjects.size === allProjects.length}
-                      >
-                        none
-                      </button>
-                    </div>
-                  </div>
-                  {allProjects.map((p) => {
-                    const active = !hiddenProjects.has(p);
-                    const count = projectCounts[p] ?? 0;
-                    return (
-                      <button
-                        key={p}
-                        role="option"
-                        aria-selected={active}
-                        onClick={() => toggleProject(p)}
-                        className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-800 transition-colors"
-                      >
-                        <span
-                          className={`w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 ${active ? "bg-gray-400 border-gray-400" : "border-gray-600"}`}
-                        >
-                          {active && (
-                            <svg
-                              className="w-2 h-2 text-gray-900"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={3}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
-                          )}
-                        </span>
-                        <span
-                          className={`flex-1 text-left truncate ${active ? "text-gray-300" : "text-gray-600 line-through"}`}
-                        >
-                          {p}
-                        </span>
-                        {count > 0 && (
-                          <span
-                            className={`text-[10px] tabular-nums ${active ? "text-gray-500" : "text-gray-700"}`}
-                          >
-                            {count}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          <FilterDropdown
+            label="Project"
+            allLabel="projects"
+            id="project"
+            items={allProjects.map((p) => ({
+              key: p,
+              label: p,
+              active: !hiddenProjects.has(p),
+              count: projectCounts[p] ?? 0,
+              labelClass: "truncate",
+            }))}
+            allSelected={hiddenProjects.size === 0}
+            noneSelected={hiddenProjects.size === allProjects.length}
+            onToggle={toggleProject}
+            onSelectAll={() => setHiddenProjects(new Set())}
+            onSelectNone={() =>
+              setHiddenProjects(new Set(allProjects))
+            }
+          />
         )}
 
         {/* Sort */}
