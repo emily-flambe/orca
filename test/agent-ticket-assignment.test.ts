@@ -174,13 +174,11 @@ function mockLinearClient(issues: LinearIssue[] = []) {
 
 describe("resolveAgentFromLabels", () => {
   let db: OrcaDb;
-  let resolveAgentFromLabels: (db: OrcaDb, labels: string[]) => string | null;
 
   beforeEach(async () => {
     db = freshDb();
     vi.spyOn(console, "log").mockImplementation(() => {});
-    // resolveAgentFromLabels is not exported, so we test it indirectly via
-    // fullSync. But first, let's verify the logic through the sync behavior.
+    // resolveAgentFromLabels is not exported, so we test it indirectly via fullSync.
   });
 
   afterEach(() => {

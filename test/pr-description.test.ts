@@ -233,6 +233,40 @@ describe("enrichPrDescription", () => {
     expect(claudeCall[1]).toContain("/path/to/cli.js");
   });
 
+  it("extracts JSON when claude wraps output in markdown code fences", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce("");
+    // Markdown fence wrapping — the actual failure pattern seen in production
+    const jsonPayload =
+      '{"title":"[EMI-123] feat","body":"## Summary\\n- done\\n\\n## Changes\\n- x\\n\\n## Test Plan\\n- y\\n\\nCloses EMI-123"}';
+    execSyncMock.mockReturnValueOnce("```json\n" + jsonPayload + "\n```");
+    execSyncMock.mockReturnValueOnce("");
+
+    await enrichPrDescription(baseOpts);
+
+    const editCall = execSyncMock.mock.calls[3]!;
+    expect(editCall[1]).toContain("[EMI-123] feat");
+  });
+
+  it("extracts JSON from output with json fences and trailing backtick noise", async () => {
+    execSyncMock.mockReturnValueOnce(
+      JSON.stringify({ title: "PR", body: "short" }),
+    );
+    execSyncMock.mockReturnValueOnce("");
+    // Backtick-only fence (no language tag)
+    const jsonPayload =
+      '{"title":"[EMI-123] fix","body":"## Summary\\n- fix\\n\\n## Changes\\n- c\\n\\n## Test Plan\\n- t\\n\\nCloses EMI-123"}';
+    execSyncMock.mockReturnValueOnce("```\n" + jsonPayload + "\n```");
+    execSyncMock.mockReturnValueOnce("");
+
+    await enrichPrDescription(baseOpts);
+
+    const editCall = execSyncMock.mock.calls[3]!;
+    expect(editCall[1]).toContain("[EMI-123] fix");
+  });
+
   it("extracts JSON from claude output that contains preamble text", async () => {
     execSyncMock.mockReturnValueOnce(
       JSON.stringify({ title: "PR", body: "short" }),

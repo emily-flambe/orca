@@ -113,11 +113,7 @@ function CheckIcon() {
       stroke="currentColor"
       strokeWidth={3}
     >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M5 13l4 4L19 7"
-      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
     </svg>
   );
 }
@@ -233,9 +229,7 @@ function FilterDropdown({
                     '[role="option"]',
                   ),
                 );
-                const idx = opts.indexOf(
-                  document.activeElement as HTMLElement,
-                );
+                const idx = opts.indexOf(document.activeElement as HTMLElement);
                 const next =
                   e.key === "ArrowDown"
                     ? idx === -1
@@ -560,14 +554,10 @@ export default function TaskList({
             labelClass: "rounded-full px-1.5 py-0.5",
             activeClass: statusFilterActiveStyle(f.value),
           }))}
-          allSelected={ALL_FILTER_VALUES.every((v) =>
-            selectedStatuses.has(v),
-          )}
+          allSelected={ALL_FILTER_VALUES.every((v) => selectedStatuses.has(v))}
           noneSelected={selectedStatuses.size === 0}
           onToggle={(key) => toggleStatus(key as FilterStatus)}
-          onSelectAll={() =>
-            setSelectedStatuses(new Set(ALL_FILTER_VALUES))
-          }
+          onSelectAll={() => setSelectedStatuses(new Set(ALL_FILTER_VALUES))}
           onSelectNone={() => setSelectedStatuses(new Set())}
         />
 
@@ -588,9 +578,7 @@ export default function TaskList({
             noneSelected={hiddenProjects.size === allProjects.length}
             onToggle={toggleProject}
             onSelectAll={() => setHiddenProjects(new Set())}
-            onSelectNone={() =>
-              setHiddenProjects(new Set(allProjects))
-            }
+            onSelectNone={() => setHiddenProjects(new Set(allProjects))}
           />
         )}
 

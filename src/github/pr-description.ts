@@ -151,31 +151,62 @@ Output only the JSON object, nothing else.`;
     return;
   }
 
-  // 6. Parse JSON from output — try each `{` position to find a valid object
+  // 6. Parse JSON from output — strip markdown fences first, then walk `{` positions
+  // Claude sometimes wraps output in ```json...``` even when asked not to, which
+  // causes JSON.parse to fail on the trailing backticks.
+  const strippedOutput = rawOutput
+    .replace(/^```(?:json)?\s*/m, "")
+    .replace(/\s*```\s*$/m, "")
+    .trim();
+
   let generated: { title: string; body: string } | null = null;
+  const isValidGenerated = (c: unknown): c is { title: string; body: string } =>
+    c !== null &&
+    typeof c === "object" &&
+    "title" in c &&
+    "body" in c &&
+    typeof (c as Record<string, unknown>).title === "string" &&
+    typeof (c as Record<string, unknown>).body === "string";
+
   try {
-    // Walk through all `{` positions and try to parse from each one.
-    // This handles cases where Claude emits preamble JSON or thinking blocks
-    // before the actual answer object.
-    let pos = 0;
-    while ((pos = rawOutput.indexOf("{", pos)) !== -1) {
-      try {
-        const candidate = JSON.parse(rawOutput.slice(pos)) as unknown;
-        if (
-          candidate !== null &&
-          typeof candidate === "object" &&
-          "title" in candidate &&
-          "body" in candidate &&
-          typeof (candidate as Record<string, unknown>).title === "string" &&
-          typeof (candidate as Record<string, unknown>).body === "string"
-        ) {
-          generated = candidate as { title: string; body: string };
-          break;
-        }
-      } catch {
-        // Not valid JSON from this position — try next `{`
+    // First: try parsing the stripped output directly (handles pure JSON response)
+    try {
+      const candidate = JSON.parse(strippedOutput) as unknown;
+      if (isValidGenerated(candidate)) {
+        generated = candidate;
       }
-      pos++;
+    } catch {
+      // Not pure JSON — fall through to positional search
+    }
+
+    if (!generated) {
+      // Walk through all `{` positions. For each, try:
+      //   (a) parse from `{` to the last `}` — handles trailing content like code fences
+      //   (b) parse from `{` to end of string — handles pure JSON with trailing whitespace
+      let pos = 0;
+      const lastBrace = strippedOutput.lastIndexOf("}");
+      while ((pos = strippedOutput.indexOf("{", pos)) !== -1) {
+        const slices =
+          lastBrace > pos
+            ? [
+                strippedOutput.slice(pos, lastBrace + 1),
+                strippedOutput.slice(pos),
+              ]
+            : [strippedOutput.slice(pos)];
+        for (const slice of slices) {
+          try {
+            const candidate = JSON.parse(slice) as unknown;
+            if (isValidGenerated(candidate)) {
+              generated = candidate;
+              break;
+            }
+          } catch {
+            // Not valid JSON from this slice — continue
+          }
+        }
+        if (generated) break;
+        pos++;
+      }
     }
   } catch {
     // Outer catch for any unexpected errors in the loop

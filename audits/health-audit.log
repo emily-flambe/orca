@@ -85,3 +85,158 @@ No tasks stuck in intermediate states
 EMI-368 remains in ready/running cycle until PR #489 is deployed
 
 ================================================================================
+
+=== AUDIT: 2026-03-25T06:35:00.000Z ===
+Status: HEALTHY
+Active port: 4000
+Tasks: 151/154 done, 1 running (this SRE session), 2 failed (permanent)
+Sessions: 1 active (SRE agent itself)
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found. All recent fixes already deployed.
+
+  Context on known non-issues:
+  - [KNOWN] spawnSync gh ENOENT errors: appeared in logs at ~00:10 UTC-6. Already fixed by commit d943822 ("Resolve gh binary path to fix ENOENT in PM2 environments") deployed at 00:31 UTC-6. No longer occurring.
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both hit max retries=3, canceled in Linear, synced as failed. Expected behavior.
+  - [KNOWN] Orphaned dev worktrees dev-EMI-379 and dev-remove-budget: Developer worktrees (not orca-task worktrees), not cleaned by orca cleanup cron. Not actionable by SRE.
+  - [KNOWN] PM2 shows 8 restarts for orca-4000: These are from the blue/green deploy cycles (two deploys today), not crash loops.
+
+Tests: passing (1567 passed, 0 failed)
+Deploy: no (no code changes made — system already healthy)
+
+=== AUDIT: 2026-03-25T23:09:00.000Z ===
+Status: HEALTHY
+Active port: 4001
+Tasks: 155/159 done, 2 running (SRE agent + backlog-doer), 2 failed (permanent)
+Sessions: 2 active
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found.
+
+  Context on known non-issues:
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both at max retries=3, canceled in Linear. Expected.
+  - [KNOWN] Port changed from 4000→4001: Blue/green deploy at 2026-03-25T18:36:18Z (commit 791752d "Fix startup race in cron workflows and EBUSY worktree cleanup on Windows"). Normal.
+  - [KNOWN] Inngest health check failures (entries 494-496) visible in PM2 logs: These were on the old orca-4000 instance before the deploy. Current orca-4001 instance reports inngestReachable:true.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget, exercise-tracker-pr-confirmed, exercise-tracker-refactor-app): Not Orca-managed, not cleaned by SRE. exercise-tracker-move-timer and exercise-tracker-muscle-group are non-git output directories (playwright artifacts), not worktrees.
+  - [KNOWN] Many stale orca/* remote branches: Cleanup cron running every 5 min and managing these. Normal accumulation.
+  - [KNOWN] PM2 shows 13 restarts for orca-4001 today: Includes blue/green deploy cycles, not crash loops.
+
+Tests: passing (1568 passed, 0 failed — 1 more than previous run)
+Deploy: no (no code changes made — system healthy)
+
+=== AUDIT: 2026-03-26T06:10:00.000Z ===
+Status: HEALTHY
+Active port: 4001
+Tasks: 159/162 done, 1 running (SRE agent), 2 failed (permanent)
+Sessions: 1 active
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found.
+
+  Context on known non-issues:
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both at max retries=3, canceled in Linear. Expected.
+  - [KNOWN] EMI-383 had a resume failure (invocation 1361: "No conversation found with session ID") followed by a 201-turn max-turns run (invocation 1362), then self-healed: reconciler found the PR (orca/EMI-383-inv-0, PR #495) already passing CI and transitioned to awaiting_ci. EMI-383 is now done. PR merged as commit ba96ed8. The self-heal path worked correctly.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): Not Orca-managed, not cleaned by SRE.
+  - [KNOWN] PM2 shows 7 restarts for orca-4001 today: Normal — includes blue/green deploy cycles.
+  - [KNOWN] 196 ESLint warnings (no-explicit-any): All in test files. Not errors. Not blocking.
+
+Tests: passing (1568 passed, 0 failed)
+Deploy: no (no code changes made — system healthy, main up to date)
+
+=== AUDIT: 2026-03-26T18:10:00.000Z ===
+Status: HEALTHY
+Active port: 4001
+Tasks: 163/166 done, 1 running (SRE agent), 2 failed (permanent)
+Sessions: 1 active
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found.
+
+  Context on known non-issues:
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both at max retries=3, canceled in Linear. Expected.
+  - [KNOWN] Recurring worktree cleanup WARN logs (Permission denied / "not a working tree"): Directories eventually cleaned — no orphaned worktrees remain in git worktree list. Same pattern as previous runs; pre-existing Windows EPERM issue.
+  - [KNOWN] Double-cleanup attempts with different path cases (C:/Users/.../GitHub/ vs C:\Users\...\Github\): Two code paths (task cleanup + cron cleanup) both attempt removal. Both succeed via fallback. Noisy but not harmful.
+  - [KNOWN] PM2 shows 5 restarts today for orca-4001 metric (but ↺0 in pm2 list): Restarts counted from previous blue/green port instances. Current instance has 0 restarts, 18h uptime.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): Not Orca-managed, not cleaned by SRE.
+  - [KNOWN] 196 ESLint warnings (no-explicit-any): All in test files. Not errors. Not blocking.
+
+Tests: passing (1568 passed, 0 failed)
+Deploy: no (no code changes made — system healthy)
+
+=== AUDIT: 2026-03-27T06:10:00.000Z ===
+Status: HEALTHY
+Active port: 4001
+Tasks: 167/170 done, 1 running (SRE agent), 2 failed (permanent)
+Sessions: 1 active
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found.
+
+  Context on known non-issues:
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both at max retries=3, canceled in Linear. Expected.
+  - [KNOWN] Worktree cleanup WARN for active SRE worktree (EBUSY/Permission denied): Expected — cleanup cron tries to remove the SRE worktree while this session is running in it. Will be cleaned on next run.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): Not Orca-managed, not cleaned by SRE.
+  - [KNOWN] 2 commits since last deploy (ba96ed8, 15f0d98): Documentation and scripts only (docs/agent-mcp-knowledge-graph.md, scripts/seed-agent-mcp.js, CLAUDE.md). No runtime code changes — deploy not needed.
+  - [KNOWN] Inngest step replay causes duplicate log lines ("found 1 due cron schedule(s)" / "dispatched 1 cron task(s)" appearing twice per minute): Normal Inngest step execution behavior — each step.run checkpoint causes the outer function to replay. Not a bug.
+  - [KNOWN] 196 ESLint warnings (no-explicit-any): All in test files. Not errors. Not blocking.
+
+Tests: passing (1568 passed, 0 failed)
+Deploy: no (no code changes — system healthy, pending commits are docs/scripts only)
+
+=== AUDIT: 2026-03-27T18:02:00.000Z ===
+Status: HEALTHY
+Active port: 4001
+Tasks: 171/174 done, 1 running (SRE agent), 2 failed (permanent)
+Sessions: 1 active
+Inngest: reachable
+
+Issues found: 0
+  No actionable issues found.
+
+  Context on known non-issues:
+  - [KNOWN] 2 permanently failed tasks (EMI-25, EMI-348): Both at max retries=3, canceled in Linear. Expected.
+  - [KNOWN] Worktree cleanup WARN for active SRE worktree (EBUSY): Expected — cleanup cron tries to remove the SRE worktree while running in it.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): Not Orca-managed, not cleaned by SRE.
+  - [KNOWN] No new commits since last deploy (2026-03-25T18:36Z). Most recent: 15f0d98 (docs), ba96ed8 (docs). No deploy needed.
+  - [KNOWN] 196 ESLint warnings (no-explicit-any): All in test files. Not errors.
+  - [KNOWN] Inngest step replay causes duplicate cron-dispatch log lines per minute: Expected behavior.
+
+Tests: passing (1568 passed, 0 failed, 69 test files)
+Deploy: no (no code changes — system healthy)
+=== AUDIT: 2026-03-28T06:15:00.000Z ===
+Status: FIXED
+Active port: 4001 (uptime: ~4h, deployed 2026-03-28T01:16:41Z)
+Tasks: 181/192 done, 6 running, 0 failed, 5 backlog
+Sessions: 6 active (EMI-348, EMI-385, EMI-387, EMI-390, EMI-391, SRE-self)
+Inngest: reachable
+
+Issues found: 2
+  - [FIXED] Lint error: unused variable in agent-ticket-assignment test
+    Root cause: test/agent-ticket-assignment.test.ts:177 declared `let resolveAgentFromLabels` but never assigned/used.
+    Left over from when the test was written to test the private function directly, before deciding to test indirectly via fullSync.
+    Fix: removed unused variable declaration. Commit: TBD
+
+  - [FIXED] enrichPrDescription JSON parsing fails when Claude wraps output in markdown code fences
+    Root cause: enrichPrDescription calls `claude -p --output-format text`, which should return plain text.
+    But Claude (haiku) sometimes wraps JSON in ```json...``` code fences despite the prompt saying not to.
+    The existing `{`-walker used `JSON.parse(rawOutput.slice(pos))` which fails on trailing ` ``` ` because
+    JSON.parse rejects trailing non-whitespace content. Result: "no valid JSON with title+body found" warning
+    for every PR — the PR description enrichment never applied.
+    Fix: (1) strip markdown code fences from rawOutput before parsing; (2) when walking `{` positions, also try
+    parsing `slice(pos, lastBrace+1)` instead of only `slice(pos)`. Added 2 regression tests.
+    Commit: TBD
+
+Context on known non-issues:
+  - [KNOWN] EMI-348 is now running again (was previously permanently failed): User reset this ticket with new requirements (drain timeout/visibility feature). retryCount reset to 0. Expected.
+  - [KNOWN] Worktree cleanup WARN for active SRE worktree (EBUSY): Expected — cleanup cron tries to remove SRE worktree while running in it.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): Not Orca-managed, not cleaned.
+  - [KNOWN] 203 ESLint warnings (no-explicit-any): All in test files. Not errors.
+  - [KNOWN] EPERM errors on fun-trivia-game worktree removal: Fallback to rm+prune works correctly. Known Windows behavior.
+
+Tests: passing (1650 passed, 0 failed, 71 test files)
+Deploy: yes — pushed fixes to main, deploying
