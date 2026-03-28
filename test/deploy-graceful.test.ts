@@ -40,11 +40,11 @@ describe("deploy drain state", () => {
     vi.resetModules();
     vi.clearAllMocks();
 
-    // Re-apply mocks after module reset
-    vi.mock("node:child_process", () => ({
+    // Re-apply mocks after module reset using vi.doMock (not hoisted)
+    vi.doMock("node:child_process", () => ({
       execFileSync: vi.fn(),
     }));
-    vi.mock("node:fs", () => ({
+    vi.doMock("node:fs", () => ({
       existsSync: vi.fn().mockReturnValue(false),
       readFileSync: vi.fn(),
     }));
