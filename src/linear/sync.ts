@@ -238,7 +238,7 @@ function upsertTask(
       updateTaskStatus(db, issue.identifier, "failed", {
         reason: "linear_canceled",
         failureReason: "Task canceled in Linear",
-        failedPhase: existing.orcaStatus ?? "implement",
+        failedPhase: existing.currentPhase ?? "implement",
       });
       log(`canceled task ${issue.identifier} → failed`);
       closePrsForCanceledTask(issue.identifier, existing.repoPath);
@@ -327,7 +327,7 @@ function upsertTask(
     // When Linear "Todo" overrides a non-ready state, reset retry/review counts
     // so the task gets a completely fresh start.
     const resetCounters =
-      orcaStatus === "ready" && existing.orcaStatus !== "ready";
+      orcaStatus === "ready" && existing.lifecycleStage !== "ready";
 
     // Check for agent routing label — only when labels were fetched (non-empty)
     const labels = issue.labels ?? [];
@@ -366,21 +366,13 @@ function upsertTask(
           : `cleared agent routing for ${issue.identifier} (label removed)`,
       );
     }
-    return effectiveStatus === "ready" && existing.orcaStatus !== "ready";
+    return effectiveStatus === "ready" && existing.lifecycleStage !== "ready";
   }
 }
 
 // ---------------------------------------------------------------------------
 // Parent status rollup
 // ---------------------------------------------------------------------------
-
-const ACTIVE_CHILD_STATUSES = new Set<string>([
-  "running",
-  "in_review",
-  "changes_requested",
-  "deploying",
-  "awaiting_ci",
-]);
 
 /**
  * Evaluate and update parent task statuses based on their children's progress.
@@ -404,12 +396,10 @@ export async function evaluateParentStatuses(
     const children = getChildTasks(db, parent.linearIssueId);
     if (children.length === 0) continue;
 
-    const allDone = children.every((c) => c.orcaStatus === "done");
-    const anyActive = children.some((c) =>
-      ACTIVE_CHILD_STATUSES.has(c.orcaStatus),
-    );
+    const allDone = children.every((c) => c.lifecycleStage === "done");
+    const anyActive = children.some((c) => c.lifecycleStage === "active");
 
-    if (allDone && parent.orcaStatus !== "done") {
+    if (allDone && parent.lifecycleStage !== "done") {
       updateTaskStatus(db, parent.linearIssueId, "done", {
         reason: "all_children_done",
       });
@@ -419,7 +409,7 @@ export async function evaluateParentStatuses(
         },
       );
       log(`parent ${parent.linearIssueId} → done (all children done)`);
-    } else if (anyActive && parent.orcaStatus === "ready") {
+    } else if (anyActive && parent.lifecycleStage === "ready") {
       updateTaskStatus(db, parent.linearIssueId, "running", {
         reason: "child_activity_detected",
       });
@@ -566,7 +556,7 @@ export async function processWebhookEvent(
   if (event.data.state) {
     // Capture previous state BEFORE resolveConflict modifies the DB
     const previousTask = getTask(db, event.data.identifier);
-    const previousStatus = previousTask?.orcaStatus ?? null;
+    const previousLifecycleStage = previousTask?.lifecycleStage ?? null;
 
     // Resolve conflicts BEFORE upsert overwrites the Orca status
     resolveConflict(
@@ -591,8 +581,8 @@ export async function processWebhookEvent(
       // Emit task/ready when task transitions to ready
       if (
         finalTask &&
-        finalTask.orcaStatus === "ready" &&
-        previousStatus !== "ready"
+        finalTask.lifecycleStage === "ready" &&
+        previousLifecycleStage !== "ready"
       ) {
         inngest
           .send({
@@ -615,19 +605,12 @@ export async function processWebhookEvent(
 
       // Emit task/cancelled when Linear sends a cancelled state for an active task.
       // Skip terminal states (failed, done, backlog) — no active workflow to cancel.
-      const CANCELLABLE_STATUSES = new Set<TaskStatus>([
-        "ready",
-        "running",
-        "in_review",
-        "changes_requested",
-        "awaiting_ci",
-        "deploying",
-      ]);
       if (
         event.data.state.type === "canceled" &&
         previousTask &&
-        previousStatus &&
-        CANCELLABLE_STATUSES.has(previousStatus)
+        previousLifecycleStage &&
+        (previousLifecycleStage === "ready" ||
+          previousLifecycleStage === "active")
       ) {
         inngest
           .send({
@@ -636,7 +619,7 @@ export async function processWebhookEvent(
               linearIssueId: event.data.identifier,
               reason: "cancelled in Linear",
               retryCount: previousTask.retryCount,
-              previousStatus,
+              previousStatus: previousTask.orcaStatus,
             },
           })
           .catch((err: unknown) => {
@@ -697,13 +680,13 @@ export function resolveConflict(
 
   // Canceled — must be checked before null guard
   if (linearStateType === "canceled") {
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+    if (task.lifecycleStage === "active") {
       killRunningSession(db, taskId);
     }
     updateTaskStatus(db, taskId, "failed", {
       reason: "linear_canceled",
       failureReason: "Task canceled in Linear",
-      failedPhase: task.orcaStatus ?? "implement",
+      failedPhase: task.currentPhase ?? "implement",
     });
     log(`conflict resolved: task ${taskId} → failed (Linear Canceled)`);
     closePrsForCanceledTask(taskId, task.repoPath);
@@ -721,7 +704,7 @@ export function resolveConflict(
 
   // Any state → Linear Backlog: reset to backlog.
   if (linearStateType === "backlog") {
-    if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
+    if (task.lifecycleStage === "active") {
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, {
@@ -732,7 +715,7 @@ export function resolveConflict(
       staleSessionRetryCount: 0,
     });
     log(
-      `conflict resolved: task ${taskId} reset to backlog from ${task.orcaStatus} (Linear moved to Backlog)`,
+      `conflict resolved: task ${taskId} reset to backlog from ${task.lifecycleStage}/${task.currentPhase} (Linear moved to Backlog)`,
     );
     return;
   }
@@ -742,18 +725,20 @@ export function resolveConflict(
   // this is almost certainly a stale webhook echo from a previous retry cycle or
   // pre-deploy write-back, not a genuine user action. Skip to avoid disrupting work.
   if (linearStateType === "unstarted") {
-    const activeStates = ["running", "in_review"];
-    if (activeStates.includes(task.orcaStatus)) {
+    // Stale-echo guard: only for phases with an active agent session (implement, review).
+    // Other active phases (ci, deploy, fix) should proceed directly to reset.
+    const hasRunningSession =
+      task.lifecycleStage === "active" &&
+      (task.currentPhase === "implement" || task.currentPhase === "review");
+    if (hasRunningSession) {
       const updatedAgo = Date.now() - new Date(task.updatedAt).getTime();
       if (updatedAgo < 120_000) {
         log(
-          `conflict suppressed: task ${taskId} is ${task.orcaStatus} (updated ${Math.round(updatedAgo / 1000)}s ago), ignoring stale "Todo" webhook`,
+          `conflict suppressed: task ${taskId} is ${task.lifecycleStage}/${task.currentPhase} (updated ${Math.round(updatedAgo / 1000)}s ago), ignoring stale "Todo" webhook`,
         );
         return;
       }
-      if (task.orcaStatus === "running" || task.orcaStatus === "in_review") {
-        killRunningSession(db, taskId);
-      }
+      killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, {
       orcaStatus: "ready",
@@ -763,20 +748,24 @@ export function resolveConflict(
       staleSessionRetryCount: 0,
     });
     log(
-      `conflict resolved: task ${taskId} reset to ready from ${task.orcaStatus} (Linear moved to Todo)`,
+      `conflict resolved: task ${taskId} reset to ready from ${task.lifecycleStage}/${task.currentPhase} (Linear moved to Todo)`,
     );
     return;
   }
 
   // Conflict case 2: Orca ready, Linear Done → set done
-  if (task.orcaStatus === "ready" && linearStateType === "completed") {
+  if (task.lifecycleStage === "ready" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
 
   // Conflict case 5: in_review, Linear Done → mark done (human override)
-  if (task.orcaStatus === "in_review" && linearStateType === "completed") {
+  if (
+    task.lifecycleStage === "active" &&
+    task.currentPhase === "review" &&
+    linearStateType === "completed"
+  ) {
     updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`,
@@ -786,7 +775,7 @@ export function resolveConflict(
 
   // Conflict case 8: deploying, Linear "started+review" → no-op
   if (
-    task.orcaStatus === "deploying" &&
+    task.currentPhase === "deploy" &&
     linearStateType === "started" &&
     /review/i.test(linearStateName)
   ) {
@@ -795,7 +784,7 @@ export function resolveConflict(
 
   // Conflict case 8b: awaiting_ci, Linear "started+review" → no-op
   if (
-    task.orcaStatus === "awaiting_ci" &&
+    task.currentPhase === "ci" &&
     linearStateType === "started" &&
     /review/i.test(linearStateName)
   ) {
@@ -803,7 +792,7 @@ export function resolveConflict(
   }
 
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
-  if (task.orcaStatus === "deploying" && linearStateType === "completed") {
+  if (task.currentPhase === "deploy" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`,
@@ -812,7 +801,7 @@ export function resolveConflict(
   }
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
-  if (task.orcaStatus === "awaiting_ci" && linearStateType === "completed") {
+  if (task.currentPhase === "ci" && linearStateType === "completed") {
     updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
     log(
       `conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`,
