@@ -20,33 +20,28 @@ interface MonitorTask {
   lastFailedAt?: string | null;
 }
 
+export interface MonitorSystemMetadata {
+  type: "system";
+  timestamp: string;
+  draining: boolean;
+  drainingForSeconds?: number;
+  activeSessions: number;
+}
+
 /**
  * Writes a NDJSON snapshot of all tasks to disk.
- * Each line is a JSON object with key task fields.
+ * The first line is a system metadata header (type: 'system').
+ * Each subsequent line is a JSON object with key task fields.
  * Failed tasks include lastFailureReason truncated to 80 chars.
- * When systemState is provided and draining, prepends a system header line.
  */
 export async function writeMonitorSnapshot(
   tasks: MonitorTask[],
+  systemMeta: MonitorSystemMetadata,
   filePath?: string,
-  systemState?: { draining?: boolean; drainingForSeconds?: number | null },
 ): Promise<void> {
   const targetPath = filePath ?? DEFAULT_SNAPSHOT_FILE;
 
-  const lines: string[] = [];
-
-  // Prepend system header if draining
-  if (systemState?.draining === true) {
-    lines.push(
-      JSON.stringify({
-        type: "system",
-        draining: true,
-        drainingForSeconds: systemState.drainingForSeconds ?? null,
-      }),
-    );
-  }
-
-  for (const task of tasks) {
+  const taskLines = tasks.map((task) => {
     const entry: Record<string, unknown> = {
       id: task.linearIssueId,
       status: task.orcaStatus,
@@ -62,12 +57,18 @@ export async function writeMonitorSnapshot(
         : null;
     }
 
-    lines.push(JSON.stringify(entry));
-  }
+    return JSON.stringify(entry);
+  });
+
+  const systemLine = JSON.stringify(systemMeta);
 
   try {
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, lines.join("\n") + "\n", "utf8");
+    const content =
+      taskLines.length > 0
+        ? systemLine + "\n" + taskLines.join("\n") + "\n"
+        : systemLine + "\n";
+    await fs.writeFile(targetPath, content, "utf8");
   } catch (err) {
     logger.error(`writeMonitorSnapshot: failed to write snapshot: ${err}`);
   }

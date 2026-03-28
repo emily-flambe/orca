@@ -967,7 +967,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       model: config.model,
       reviewModel: config.reviewModel,
       draining,
-      drainingForSeconds: getDrainingForSeconds(),
+      drainingForSeconds: getDrainingForSeconds() ?? undefined,
       drainSessionCount: draining ? activeSessions : 0,
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
