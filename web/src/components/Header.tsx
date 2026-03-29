@@ -60,6 +60,7 @@ export default function Header({
       </button>
 
       <span className="md:hidden flex items-center gap-2 text-sm font-bold tracking-widest uppercase text-gray-100">
+        <img src="/logo.jpg" alt="" className="w-6 h-6 rounded" />
         Orca
         <HealthDot online={online} />
       </span>
