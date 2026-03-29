@@ -189,6 +189,7 @@ export interface OrcaStatus {
   reviewModel: string;
   draining: boolean;
   drainSessionCount: number;
+  drainingForSeconds: number | null;
   // Session metrics
   tokensPerMinute: number | null;
   inputTokensInWindow: number;

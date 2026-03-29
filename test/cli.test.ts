@@ -78,6 +78,7 @@ vi.mock("../src/github/webhook.js", () => ({
 vi.mock("../src/deploy.js", () => ({
   initDeployState: vi.fn(),
   isDraining: vi.fn(() => false),
+  getDrainingSeconds: vi.fn().mockReturnValue(null),
 }));
 vi.mock("../src/tunnel/index.js", () => ({ startTunnel: vi.fn() }));
 vi.mock("../src/linear/poller.js", () => ({
