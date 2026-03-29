@@ -43,6 +43,7 @@ export interface OrcaConfig {
 
   logLevel: string;
   worktreePoolSize: number;
+  drainTimeoutMin: number;
 }
 
 function exitWithError(message: string): never {
@@ -321,6 +322,7 @@ Steps:
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
 
     worktreePoolSize: readIntOrDefault("ORCA_WORKTREE_POOL_SIZE", 0),
+    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
 
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();
