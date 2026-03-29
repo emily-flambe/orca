@@ -9,12 +9,7 @@ import { fetchMetrics, fetchStatus } from "../hooks/useApi";
 import type { OrcaStatus } from "../types";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
-import {
-  timeAgo,
-  formatUptime,
-  formatDateTime,
-  formatDurationMs,
-} from "../utils/time.js";
+import { timeAgo, formatUptime, formatDateTime } from "../utils/time.js";
 import { useFetchWithPolling } from "../hooks/useFetchWithPolling.js";
 import { eventDotColor } from "../utils/events.js";
 
