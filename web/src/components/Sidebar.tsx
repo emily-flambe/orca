@@ -43,7 +43,8 @@ export default function Sidebar({
     >
       {/* Header */}
       <div className="h-14 flex items-center px-4 border-b border-gray-800 shrink-0">
-        <span className="text-sm font-bold tracking-widest uppercase text-gray-100">
+        <span className="flex items-center gap-2 text-sm font-bold tracking-widest uppercase text-gray-100">
+          <img src="/logo.jpg" alt="" className="w-6 h-6 rounded" />
           Orca
         </span>
       </div>
