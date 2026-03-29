@@ -214,9 +214,19 @@ export const agentTaskLifecycle = inngest.createFunction(
           const model = agent?.model ?? "opus";
           const maxTurns = agent?.maxTurns ?? config.defaultMaxTurns;
 
-          // Build system prompt with memories
+          // Build system prompt with memories.
+          // For label-routed tickets the agentPrompt (-p) is the ticket
+          // content, so inject the agent's own systemPrompt into
+          // appendSystemPrompt so the agent knows HOW to work.
+          // For scheduled/manual tasks agentPrompt already IS the
+          // systemPrompt, so skip to avoid duplication.
           let systemPrompt = config.implementSystemPrompt || "";
           if (agent && agentId) {
+            if (isLinearTicket(taskId) && agent.systemPrompt) {
+              systemPrompt =
+                agent.systemPrompt +
+                (systemPrompt ? `\n\n${systemPrompt}` : "");
+            }
             const memories = getAgentMemories(db, agentId);
             const memoryBlock = formatMemoriesForPrompt(memories);
             if (memoryBlock) {
