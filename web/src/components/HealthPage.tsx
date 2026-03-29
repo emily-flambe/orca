@@ -12,7 +12,6 @@ interface HealthData {
   draining: boolean;
   drainingForSeconds: number | null;
   activeSessions: number;
-  drainingForSeconds?: number | null;
   checks: {
     db: "ok" | "error";
     inngest: "ok" | "unreachable";

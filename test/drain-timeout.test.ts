@@ -8,6 +8,15 @@
 //   3. Alert threshold logic (sendAlertThrottled at consecutiveCount >= 2)
 //   4. Auto-clear logic (clearDraining when timeout exceeded)
 //   5. Monitor snapshot includes drainingForSeconds metadata line
+//
+// Adversarial additions (Part 4+):
+//   6. getDrainingForSeconds() — distinct from getDrainingSeconds() (no floor)
+//   7. setDraining() idempotency — duplicate call must NOT reset drainingStartedAt
+//   8. tickDrainZeroSessions() when not draining — counter increments without guard
+//   9. writeMonitorSnapshot with drainingForSeconds=0 — zero is a valid value
+//  10. writeMonitorSnapshot with drainingForSeconds=null — must NOT add meta line
+//  11. writeMonitorSnapshot with drainingForSeconds=undefined — must NOT add meta line
+//  12. trackDrainState() — full behavioral coverage (file-based persistent tracking)
 // ---------------------------------------------------------------------------
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -287,3 +296,250 @@ describe("drain consecutive tick alert threshold", () => {
     expect(count >= 2).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Part 4 (adversarial): getDrainingForSeconds() — float vs floored integer
+// ---------------------------------------------------------------------------
+// The implementation exports TWO functions:
+//   getDrainingForSeconds() — returns raw float (no floor)
+//   getDrainingSeconds()    — returns Math.floor'd integer
+// The existing tests only cover getDrainingSeconds(). The new OrcaStatus field
+// uses getDrainingForSeconds(), so it needs its own coverage.
+// ---------------------------------------------------------------------------
+
+describe("getDrainingForSeconds (float, not floored)", () => {
+  type DeployModule = typeof import("../src/deploy.js");
+  let deploy: DeployModule;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+    }));
+    deploy = await import("../src/deploy.js");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("returns null when not draining", () => {
+    expect(deploy.getDrainingForSeconds()).toBeNull();
+  });
+
+  test("returns null after clearDraining", () => {
+    deploy.setDraining();
+    deploy.clearDraining();
+    expect(deploy.getDrainingForSeconds()).toBeNull();
+  });
+
+  test("returns a positive number immediately after setDraining", () => {
+    deploy.setDraining();
+    const val = deploy.getDrainingForSeconds();
+    expect(val).not.toBeNull();
+    expect(val).toBeGreaterThanOrEqual(0);
+  });
+
+  test("returns float (not necessarily integer) after fractional time", () => {
+    vi.useFakeTimers();
+    deploy.setDraining();
+    // Advance by 1500ms — getDrainingForSeconds should return ~1.5, getDrainingSeconds returns 1
+    vi.advanceTimersByTime(1500);
+    const floatVal = deploy.getDrainingForSeconds()!;
+    const flooredVal = deploy.getDrainingSeconds()!;
+    expect(floatVal).toBeGreaterThanOrEqual(1.5);
+    // getDrainingForSeconds should give a LARGER or equal value than getDrainingSeconds
+    expect(floatVal).toBeGreaterThanOrEqual(flooredVal);
+  });
+
+  test("getDrainingForSeconds and getDrainingSeconds both advance with time", () => {
+    vi.useFakeTimers();
+    deploy.setDraining();
+    vi.advanceTimersByTime(90_000); // 90 seconds
+    expect(deploy.getDrainingForSeconds()!).toBeGreaterThanOrEqual(90);
+    expect(deploy.getDrainingSeconds()!).toBeGreaterThanOrEqual(90);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Part 5 (adversarial): setDraining() idempotency — duplicate call safety
+// ---------------------------------------------------------------------------
+// A duplicate setDraining() call should be silently ignored.
+// CRITICAL: drainingStartedAt must NOT be updated on the duplicate call.
+// If it were reset, the drain duration timer would be wrong.
+// ---------------------------------------------------------------------------
+
+describe("setDraining idempotency", () => {
+  type DeployModule = typeof import("../src/deploy.js");
+  let deploy: DeployModule;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+    }));
+    deploy = await import("../src/deploy.js");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("second setDraining() does not reset drainingStartedAt", () => {
+    vi.useFakeTimers();
+    deploy.setDraining();
+    const startedAt1 = deploy.getDrainingStartedAt();
+
+    // Advance time — simulate drain in progress
+    vi.advanceTimersByTime(30_000);
+
+    // Second call — should be ignored
+    deploy.setDraining();
+    const startedAt2 = deploy.getDrainingStartedAt();
+
+    // drainingStartedAt must be unchanged
+    expect(startedAt2).toBe(startedAt1);
+  });
+
+  test("second setDraining() does not reset the consecutive counter", () => {
+    deploy.setDraining();
+    deploy.tickDrainZeroSessions();
+    deploy.tickDrainZeroSessions(); // count=2
+
+    // Duplicate — must not reset counter to 0
+    deploy.setDraining();
+
+    // Counter continues from where it was (still 2, not reset to 0)
+    // If setDraining reset the counter, tick would return 1 instead of 3
+    const count = deploy.tickDrainZeroSessions();
+    expect(count).toBe(3);
+  });
+
+  test("isDraining stays true after duplicate setDraining", () => {
+    deploy.setDraining();
+    deploy.setDraining();
+    expect(deploy.isDraining()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Part 6 (adversarial): tickDrainZeroSessions() without drain active
+// ---------------------------------------------------------------------------
+// The counter can be incremented even when NOT draining. This is a logic gap:
+// stale counter state could cause a false alert if drain starts after ticks.
+// ---------------------------------------------------------------------------
+
+describe("tickDrainZeroSessions when not draining", () => {
+  type DeployModule = typeof import("../src/deploy.js");
+  let deploy: DeployModule;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      existsSync: vi.fn().mockReturnValue(false),
+      readFileSync: vi.fn(),
+    }));
+    deploy = await import("../src/deploy.js");
+  });
+
+  test("tickDrainZeroSessions increments even when not draining", () => {
+    // Not draining — but the counter still works
+    expect(deploy.isDraining()).toBe(false);
+    const count = deploy.tickDrainZeroSessions();
+    // Implementation does NOT guard against this
+    expect(count).toBe(1);
+  });
+
+  test("counter carries stale state into a new drain cycle if not reset", () => {
+    // Tick without draining
+    deploy.tickDrainZeroSessions();
+    deploy.tickDrainZeroSessions(); // count=2
+
+    // Now start draining — setDraining() DOES reset the counter
+    deploy.setDraining();
+
+    // After setDraining, the counter should be 0 (reset in setDraining)
+    // First tick should return 1, not 3
+    const count = deploy.tickDrainZeroSessions();
+    expect(count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Part 7 (adversarial): writeMonitorSnapshot edge cases
+// ---------------------------------------------------------------------------
+// The existing tests miss: drainingForSeconds=0, drainingForSeconds=null,
+// and drainingForSeconds=undefined. All three are distinct.
+// ---------------------------------------------------------------------------
+
+describe("writeMonitorSnapshot edge cases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  test("drainingForSeconds=0 DOES include meta line (zero is a valid value, not null)", async () => {
+    // 0 seconds = just started draining. The condition is `!= null` which is true for 0.
+    await writeMonitorSnapshot([], "/tmp/test-zero.ndjson", {
+      drainingForSeconds: 0,
+    });
+    const writeFile = vi.mocked(fsPromises.writeFile);
+    expect(writeFile).toHaveBeenCalledOnce();
+    const content = writeFile.mock.calls[0]![1] as string;
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    const meta = JSON.parse(lines[0]!);
+    expect(meta._type).toBe("meta");
+    expect(meta.drainingForSeconds).toBe(0);
+  });
+
+  test("drainingForSeconds=null does NOT include meta line", async () => {
+    // Passing null explicitly should be treated same as not draining
+    await writeMonitorSnapshot([], "/tmp/test-null.ndjson", {
+      drainingForSeconds: null,
+    });
+    const writeFile = vi.mocked(fsPromises.writeFile);
+    expect(writeFile).toHaveBeenCalledOnce();
+    const content = writeFile.mock.calls[0]![1] as string;
+    // Empty task list with no meta: just a newline
+    expect(content).toBe("\n");
+  });
+
+  test("drainingForSeconds=undefined does NOT include meta line", async () => {
+    await writeMonitorSnapshot([], "/tmp/test-undef.ndjson", {
+      drainingForSeconds: undefined,
+    });
+    const writeFile = vi.mocked(fsPromises.writeFile);
+    expect(writeFile).toHaveBeenCalledOnce();
+    const content = writeFile.mock.calls[0]![1] as string;
+    expect(content).toBe("\n");
+  });
+
+  test("meta line has a valid ISO timestamp", async () => {
+    await writeMonitorSnapshot([], "/tmp/test-ts.ndjson", {
+      drainingForSeconds: 42,
+    });
+    const writeFile = vi.mocked(fsPromises.writeFile);
+    const content = writeFile.mock.calls[0]![1] as string;
+    const meta = JSON.parse(content.trim());
+    expect(() => new Date(meta.timestamp)).not.toThrow();
+    expect(new Date(meta.timestamp).getTime()).toBeGreaterThan(0);
+  });
+
+  test("meta line drainingForSeconds is a number, not a string", async () => {
+    await writeMonitorSnapshot([], "/tmp/test-num.ndjson", {
+      drainingForSeconds: 99.7,
+    });
+    const writeFile = vi.mocked(fsPromises.writeFile);
+    const content = writeFile.mock.calls[0]![1] as string;
+    const meta = JSON.parse(content.trim());
+    expect(typeof meta.drainingForSeconds).toBe("number");
+    expect(meta.drainingForSeconds).toBe(99.7);
+  });
+});
+
+// NOTE: trackDrainState() tests are in test/drain-state-tracker.test.ts.
+// They are intentionally in a separate file because the top-level
+// vi.mock("node:fs/promises") in this file interferes with the real
+// filesystem operations trackDrainState() needs.
