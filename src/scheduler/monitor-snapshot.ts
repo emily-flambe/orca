@@ -39,8 +39,9 @@ export async function writeMonitorSnapshot(
   if (options?.drainingForSeconds != null) {
     headerLines.push(
       JSON.stringify({
-        type: "header",
+        _type: "meta",
         drainingForSeconds: options.drainingForSeconds,
+        timestamp: new Date().toISOString(),
       }),
     );
   }

@@ -29,10 +29,7 @@ import {
   updateInvocation,
   updateTaskStatus,
 } from "../../db/queries.js";
-import {
-  sendAlert,
-  sendAlertThrottled,
-} from "../../scheduler/alerts.js";
+import { sendAlert, sendAlertThrottled } from "../../scheduler/alerts.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { writeMonitorSnapshot } from "../../scheduler/monitor-snapshot.js";
 import { trackDrainState } from "../../scheduler/drain-state-tracker.js";
