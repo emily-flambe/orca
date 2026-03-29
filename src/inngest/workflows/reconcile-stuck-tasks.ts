@@ -13,12 +13,14 @@ import { getSchedulerDeps, isReady } from "../deps.js";
 import {
   isDraining,
   clearDraining,
+  getDrainingForSeconds,
   getDrainingSeconds,
   tickDrainZeroSessions,
   resetDrainZeroSessions,
 } from "../../deploy.js";
 import {
   getAllTasks,
+  countActiveSessions,
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
@@ -26,7 +28,6 @@ import {
   insertSystemEvent,
   updateInvocation,
   updateTaskStatus,
-  countActiveSessions,
 } from "../../db/queries.js";
 import {
   sendAlert,
@@ -34,6 +35,7 @@ import {
 } from "../../scheduler/alerts.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { writeMonitorSnapshot } from "../../scheduler/monitor-snapshot.js";
+import { trackDrainState } from "../../scheduler/drain-state-tracker.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -185,6 +187,13 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
   },
   { cron: "*/5 * * * *" },
   async ({ step }) => {
+    await step.run("track-drain-state", async () => {
+      if (!isReady()) return;
+      const deps = getSchedulerDeps();
+      const activeSessions = countActiveSessions(deps.db);
+      await trackDrainState(deps, isDraining(), activeSessions);
+    });
+
     await step.run("reconcile", async () => {
       // Skip if deps aren't initialized yet (startup grace period).
       if (!isReady()) return;
@@ -421,12 +430,10 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
     await step.run("write-monitor-snapshot", async () => {
       const { db } = getSchedulerDeps();
       const allTasks = getAllTasks(db);
-      const drainingSeconds = getDrainingSeconds();
-      await writeMonitorSnapshot(
-        allTasks,
-        undefined,
-        drainingSeconds !== null ? { drainingForSeconds: drainingSeconds } : undefined,
-      );
+      const drainingForSeconds = getDrainingForSeconds();
+      await writeMonitorSnapshot(allTasks, undefined, {
+        drainingForSeconds: drainingForSeconds ?? undefined,
+      });
     });
   },
 );

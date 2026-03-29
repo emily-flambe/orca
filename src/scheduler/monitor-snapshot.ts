@@ -26,14 +26,24 @@ interface MonitorTask {
  * Writes a NDJSON snapshot of all tasks to disk.
  * Each line is a JSON object with key task fields.
  * Failed tasks include lastFailureReason truncated to 80 chars.
- * If drainingForSeconds is provided, a metadata line is prepended.
+ * If options.drainingForSeconds is provided, prepends a header line with drain state.
  */
 export async function writeMonitorSnapshot(
   tasks: MonitorTask[],
   filePath?: string,
-  meta?: { drainingForSeconds?: number },
+  options?: { drainingForSeconds?: number | null },
 ): Promise<void> {
   const targetPath = filePath ?? DEFAULT_SNAPSHOT_FILE;
+
+  const headerLines: string[] = [];
+  if (options?.drainingForSeconds != null) {
+    headerLines.push(
+      JSON.stringify({
+        type: "header",
+        drainingForSeconds: options.drainingForSeconds,
+      }),
+    );
+  }
 
   const lines = tasks.map((task) => {
     const entry: Record<string, unknown> = {
@@ -56,19 +66,7 @@ export async function writeMonitorSnapshot(
     return JSON.stringify(entry);
   });
 
-  const allLines: string[] = [];
-
-  if (meta?.drainingForSeconds !== undefined) {
-    allLines.push(
-      JSON.stringify({
-        _type: "meta",
-        drainingForSeconds: meta.drainingForSeconds,
-        timestamp: new Date().toISOString(),
-      }),
-    );
-  }
-
-  allLines.push(...lines);
+  const allLines = [...headerLines, ...lines];
 
   try {
     await fs.mkdir(path.dirname(targetPath), { recursive: true });

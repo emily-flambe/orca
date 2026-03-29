@@ -22,6 +22,7 @@ vi.mock("../src/linear/sync.js", () => ({
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
   getDrainingSeconds: vi.fn().mockReturnValue(null),
+  getDrainingForSeconds: vi.fn().mockReturnValue(null),
 }));
 
 function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {

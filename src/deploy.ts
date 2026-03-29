@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { createLogger } from "./logger.js";
 
 let draining = false;
+// Tasks ARE blocked during drain — task-lifecycle throws if draining (see inngest workflow).
+// drainingStartedAt is used for the drain timeout auto-clear logic in the reconcile cron.
 let drainingStartedAt: number | null = null;
 
 // Consecutive reconciler ticks where draining=true and activeSessions=0.
@@ -52,8 +54,20 @@ export function isDraining(): boolean {
   return draining;
 }
 
+export function getDrainingStartedAt(): number | null {
+  return drainingStartedAt;
+}
+
 /**
- * Returns how long the instance has been draining, in seconds.
+ * Returns how many seconds the instance has been draining, or null if not draining.
+ */
+export function getDrainingForSeconds(): number | null {
+  if (!draining || drainingStartedAt === null) return null;
+  return (Date.now() - drainingStartedAt) / 1000;
+}
+
+/**
+ * Returns how long the instance has been draining, in seconds (floored).
  * Returns null if not currently draining.
  */
 export function getDrainingSeconds(): number | null {

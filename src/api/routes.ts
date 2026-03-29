@@ -78,7 +78,7 @@ import {
   isDraining,
   setDraining,
   clearDraining,
-  getDrainingSeconds,
+  getDrainingForSeconds,
 } from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
@@ -1031,7 +1031,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const inngestReachable = await checkInngestHealth();
 
     const draining = isDraining();
-    const drainingForSeconds = getDrainingSeconds();
+    const drainingForSeconds = getDrainingForSeconds();
     return c.json({
       activeSessions,
       activeTaskIds,
@@ -1077,7 +1077,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Draining
     const draining = isDraining();
-    const drainingForSeconds = getDrainingSeconds();
+    const drainingForSeconds = getDrainingForSeconds();
 
     // Inngest check
     const inngestOk = await checkInngestHealth();
