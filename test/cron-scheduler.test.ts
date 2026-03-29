@@ -22,6 +22,8 @@ import { computeNextRunAt } from "../src/cron/index.js";
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainingSeconds: vi.fn().mockReturnValue(null),
+  getDrainingForSeconds: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("../src/runner/index.js", () => ({

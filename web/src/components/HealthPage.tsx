@@ -9,6 +9,8 @@ import Skeleton from "./ui/Skeleton.js";
 interface HealthData {
   status: "healthy" | "degraded" | "draining";
   uptime: number | null;
+  draining: boolean;
+  drainingForSeconds: number | null;
   activeSessions: number;
   checks: {
     db: "ok" | "error";
@@ -158,6 +160,12 @@ export default function HealthPage() {
       >
         <span className={`text-2xl font-bold ${statusStyle.text}`}>
           {statusStyle.label}
+          {health.status === "draining" &&
+            health.drainingForSeconds != null && (
+              <span className="text-lg font-normal ml-2">
+                ({Math.round(health.drainingForSeconds / 60)}m)
+              </span>
+            )}
         </span>
         {health.uptime != null && (
           <span className="text-sm text-gray-400">
@@ -169,6 +177,14 @@ export default function HealthPage() {
           Active sessions:{" "}
           <span className="text-gray-200">{health.activeSessions}</span>
         </span>
+        {health.draining && health.drainingForSeconds != null && (
+          <span className="text-sm text-yellow-400">
+            Draining for{" "}
+            <span className="font-medium">
+              {formatUptime(health.drainingForSeconds)}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Checks: DB + Inngest */}

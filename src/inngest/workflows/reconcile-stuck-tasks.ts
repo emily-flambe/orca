@@ -10,9 +10,17 @@
 
 import { inngest } from "../client.js";
 import { getSchedulerDeps, isReady } from "../deps.js";
-import { isDraining } from "../../deploy.js";
+import {
+  isDraining,
+  clearDraining,
+  getDrainingForSeconds,
+  getDrainingSeconds,
+  tickDrainZeroSessions,
+  resetDrainZeroSessions,
+} from "../../deploy.js";
 import {
   getAllTasks,
+  countActiveSessions,
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
@@ -21,8 +29,10 @@ import {
   updateInvocation,
   updateTaskStatus,
 } from "../../db/queries.js";
+import { sendAlert, sendAlertThrottled } from "../../scheduler/alerts.js";
 import { detectAndAlertStuckTasks } from "../../scheduler/stuck-task-detector.js";
 import { writeMonitorSnapshot } from "../../scheduler/monitor-snapshot.js";
+import { trackDrainState } from "../../scheduler/drain-state-tracker.js";
 import { activeHandles, sweepExitedHandles } from "../../session-handles.js";
 import { createLogger } from "../../logger.js";
 import type { OrcaConfig } from "../../config/index.js";
@@ -174,6 +184,13 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
   },
   { cron: "*/5 * * * *" },
   async ({ step }) => {
+    await step.run("track-drain-state", async () => {
+      if (!isReady()) return;
+      const deps = getSchedulerDeps();
+      const activeSessions = countActiveSessions(deps.db);
+      await trackDrainState(deps, isDraining(), activeSessions);
+    });
+
     await step.run("reconcile", async () => {
       // Skip if deps aren't initialized yet (startup grace period).
       if (!isReady()) return;
@@ -307,12 +324,113 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       );
     });
 
-    // Step 5: Write monitor snapshot — NDJSON file of all tasks,
+    // Step 5: Check for stuck drain state. If draining=true with zero active
+    // sessions for too long, auto-clear and alert.
+    await step.run("check-drain-timeout", async () => {
+      const deps = getSchedulerDeps();
+      const { db, config } = deps;
+
+      if (!isDraining()) {
+        resetDrainZeroSessions();
+        return;
+      }
+
+      const activeSessions = countActiveSessions(db);
+
+      if (activeSessions > 0) {
+        // Sessions still running — drain is progressing normally.
+        resetDrainZeroSessions();
+        return;
+      }
+
+      // draining=true AND activeSessions=0
+      const drainingSeconds = getDrainingSeconds() ?? 0;
+      const consecutiveCount = tickDrainZeroSessions();
+      const timeoutSeconds = (config.drainTimeoutMin ?? 10) * 60;
+
+      logger.warn(
+        `drain stuck: draining=true, activeSessions=0 for ${drainingSeconds}s (consecutive ticks: ${consecutiveCount})`,
+      );
+
+      // Auto-clear if past the timeout
+      if (drainingSeconds >= timeoutSeconds) {
+        logger.warn(
+          `drain timeout exceeded (${drainingSeconds}s >= ${timeoutSeconds}s) — auto-clearing drain flag`,
+        );
+        clearDraining();
+
+        insertSystemEvent(db, {
+          type: "health_check",
+          message: `Drain auto-cleared after ${Math.round(drainingSeconds / 60)}min with zero active sessions (timeout: ${config.drainTimeoutMin}min)`,
+          metadata: {
+            drainingSeconds,
+            drainTimeoutMin: config.drainTimeoutMin,
+            consecutiveTicks: consecutiveCount,
+          },
+        });
+
+        sendAlert(deps, {
+          severity: "warning",
+          title: "Drain auto-cleared (timeout)",
+          message: `Instance was draining with 0 active sessions for ${Math.round(drainingSeconds / 60)} min (timeout: ${config.drainTimeoutMin} min). Drain flag auto-cleared — task dispatch resumed.`,
+          fields: [
+            {
+              title: "Drain duration",
+              value: `${Math.round(drainingSeconds / 60)} min`,
+              short: true,
+            },
+            {
+              title: "Timeout setting",
+              value: `${config.drainTimeoutMin} min`,
+              short: true,
+            },
+          ],
+        });
+        return;
+      }
+
+      // Alert if stuck for 2+ consecutive ticks (without auto-clear yet)
+      if (consecutiveCount >= 2) {
+        sendAlertThrottled(
+          deps,
+          "drain-stuck-zero-sessions",
+          {
+            severity: "warning",
+            title: "Drain stuck with zero sessions",
+            message: `Instance has been draining with 0 active sessions for ${Math.round(drainingSeconds / 60)} min (${consecutiveCount} consecutive reconciler ticks). Expected drain should complete after sessions finish. Auto-clear will trigger at ${config.drainTimeoutMin} min.`,
+            fields: [
+              {
+                title: "Drain duration",
+                value: `${Math.round(drainingSeconds / 60)} min`,
+                short: true,
+              },
+              {
+                title: "Consecutive ticks",
+                value: String(consecutiveCount),
+                short: true,
+              },
+              {
+                title: "Auto-clear at",
+                value: `${config.drainTimeoutMin} min`,
+                short: true,
+              },
+            ],
+          },
+          15 * 60 * 1000, // 15 min cooldown between alerts
+        );
+      }
+    });
+
+    // Step 6: Write monitor snapshot — NDJSON file of all tasks,
     // including lastFailureReason (truncated to 80 chars) for failed tasks.
+    // Prepends a metadata line when draining.
     await step.run("write-monitor-snapshot", async () => {
       const { db } = getSchedulerDeps();
       const allTasks = getAllTasks(db);
-      await writeMonitorSnapshot(allTasks);
+      const drainingForSeconds = getDrainingForSeconds();
+      await writeMonitorSnapshot(allTasks, undefined, {
+        drainingForSeconds: drainingForSeconds ?? undefined,
+      });
     });
   },
 );

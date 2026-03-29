@@ -24,6 +24,7 @@ export interface OrcaConfig {
   deployStrategy: "none" | "github_actions";
   maxDeployPollAttempts: number;
   maxCiPollAttempts: number;
+  drainTimeoutMin: number;
   port: number;
   dbPath: string;
   logPath: string;
@@ -304,6 +305,7 @@ Steps:
       60,
     ),
     maxCiPollAttempts: readIntOrDefault("ORCA_CI_MAX_POLL_ATTEMPTS", 240),
+    drainTimeoutMin: readIntOrDefault("ORCA_DRAIN_TIMEOUT_MIN", 10),
     port: readIntOrDefault("ORCA_PORT", 3000),
     dbPath: readEnvOrDefault("ORCA_DB_PATH", "./orca.db"),
     logPath: readEnvOrDefault("ORCA_LOG_PATH", "./orca.log"),

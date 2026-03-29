@@ -37,6 +37,14 @@ function trendPct(current: number, previous: number): number | null {
 // Health Banner
 // ---------------------------------------------------------------------------
 
+function formatDrainDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return "";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 type HealthLevel = "green" | "yellow" | "red";
 
 function getHealthLevel(
@@ -114,7 +122,9 @@ function HealthBanner({
       </span>
       {status?.draining && (
         <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
-          Draining ({status.drainSessionCount})
+          Draining &mdash; {status.drainSessionCount} sessions
+          {status.drainingForSeconds != null &&
+            `, ${formatDrainDuration(status.drainingForSeconds)}`}
         </span>
       )}
       {uptime.restartsToday > 0 && (
@@ -351,7 +361,7 @@ function SystemConfiguration({
             className={`text-sm ${status.draining ? "text-yellow-400" : "text-gray-500"}`}
           >
             {status.draining
-              ? `Active (${status.drainSessionCount} sessions)`
+              ? `Active (${status.drainSessionCount} sessions${status.drainingForSeconds != null ? `, ${formatDrainDuration(status.drainingForSeconds)}` : ""})`
               : "Off"}
           </span>
         </div>
