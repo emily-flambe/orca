@@ -9,7 +9,12 @@ import { fetchMetrics, fetchStatus } from "../hooks/useApi";
 import type { OrcaStatus } from "../types";
 import Card from "./ui/Card";
 import Skeleton from "./ui/Skeleton";
-import { timeAgo, formatUptime, formatDateTime } from "../utils/time.js";
+import {
+  timeAgo,
+  formatUptime,
+  formatDateTime,
+  formatDurationMs,
+} from "../utils/time.js";
 import { useFetchWithPolling } from "../hooks/useFetchWithPolling.js";
 import { eventDotColor } from "../utils/events.js";
 
@@ -114,7 +119,11 @@ function HealthBanner({
       </span>
       {status?.draining && (
         <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400">
-          Draining ({status.drainSessionCount})
+          Draining ({status.drainSessionCount}
+          {status.drainingForSeconds != null
+            ? ` · ${formatDurationMs(status.drainingForSeconds * 1000)}`
+            : ""}
+          )
         </span>
       )}
       {uptime.restartsToday > 0 && (
@@ -351,7 +360,7 @@ function SystemConfiguration({
             className={`text-sm ${status.draining ? "text-yellow-400" : "text-gray-500"}`}
           >
             {status.draining
-              ? `Active (${status.drainSessionCount} sessions)`
+              ? `Active (${status.drainSessionCount} sessions${status.drainingForSeconds != null ? ` · ${formatDurationMs(status.drainingForSeconds * 1000)}` : ""})`
               : "Off"}
           </span>
         </div>

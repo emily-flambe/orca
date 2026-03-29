@@ -74,7 +74,12 @@ import {
 import { activeHandles } from "../session-handles.js";
 import { killSession, invocationLogs } from "../runner/index.js";
 import { writeBackStatus, findStateByType } from "../linear/sync.js";
-import { isDraining, setDraining, clearDraining } from "../deploy.js";
+import {
+  isDraining,
+  setDraining,
+  clearDraining,
+  getDrainingSeconds,
+} from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
 import type { TaskStatus } from "../shared/types.js";
@@ -1026,6 +1031,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const inngestReachable = await checkInngestHealth();
 
     const draining = isDraining();
+    const drainingForSeconds = getDrainingSeconds();
     return c.json({
       activeSessions,
       activeTaskIds,
@@ -1039,6 +1045,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       reviewModel: config.reviewModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
+      drainingForSeconds,
       tokensPerMinute,
       inputTokensInWindow: tokensSplit.input,
       outputTokensInWindow: tokensSplit.output,
@@ -1070,6 +1077,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Draining
     const draining = isDraining();
+    const drainingForSeconds = getDrainingSeconds();
 
     // Inngest check
     const inngestOk = await checkInngestHealth();
@@ -1089,6 +1097,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       version: ORCA_VERSION,
       uptime: uptimeSeconds,
       draining,
+      drainingForSeconds,
       activeSessions,
       checks: {
         db: dbOk ? "ok" : "error",

@@ -18,6 +18,7 @@ import { getOrcaPort, getHookUrl } from "../src/hooks.js";
 
 vi.mock("../src/deploy.js", () => ({
   isDraining: vi.fn().mockReturnValue(false),
+  getDrainingSeconds: vi.fn().mockReturnValue(null),
   setDraining: vi.fn(),
   initDeployState: vi.fn(),
 }));

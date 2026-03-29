@@ -26,10 +26,12 @@ interface MonitorTask {
  * Writes a NDJSON snapshot of all tasks to disk.
  * Each line is a JSON object with key task fields.
  * Failed tasks include lastFailureReason truncated to 80 chars.
+ * If drainingForSeconds is provided, a metadata line is prepended.
  */
 export async function writeMonitorSnapshot(
   tasks: MonitorTask[],
   filePath?: string,
+  meta?: { drainingForSeconds?: number },
 ): Promise<void> {
   const targetPath = filePath ?? DEFAULT_SNAPSHOT_FILE;
 
@@ -54,9 +56,23 @@ export async function writeMonitorSnapshot(
     return JSON.stringify(entry);
   });
 
+  const allLines: string[] = [];
+
+  if (meta?.drainingForSeconds !== undefined) {
+    allLines.push(
+      JSON.stringify({
+        _type: "meta",
+        drainingForSeconds: meta.drainingForSeconds,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+
+  allLines.push(...lines);
+
   try {
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, lines.join("\n") + "\n", "utf8");
+    await fs.writeFile(targetPath, allLines.join("\n") + "\n", "utf8");
   } catch (err) {
     logger.error(`writeMonitorSnapshot: failed to write snapshot: ${err}`);
   }
