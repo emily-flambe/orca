@@ -66,7 +66,7 @@ export async function enrichPrDescription(opts: {
     prBody = pr.body ?? "";
   } catch (err) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: failed to fetch PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
+      `[${taskId}] enrichPrDescription: failed to fetch PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
   }
@@ -74,7 +74,7 @@ export async function enrichPrDescription(opts: {
   // 2. Skip if already well-structured
   if (isWellStructuredPrBody(prBody, taskId)) {
     logger.info(
-      `[EMI-367] PR #${prNumber}: already well-structured, skipping enrichment`,
+      `[${taskId}] PR #${prNumber}: already well-structured, skipping enrichment`,
     );
     return;
   }
@@ -146,7 +146,7 @@ Output only the JSON object, nothing else.`;
     );
   } catch (err) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: claude invocation failed for PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
+      `[${taskId}] enrichPrDescription: claude invocation failed for PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
   }
@@ -214,13 +214,13 @@ Output only the JSON object, nothing else.`;
 
   if (!generated) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: no valid JSON with title+body found in claude output for PR #${prNumber}`,
+      `[${taskId}] enrichPrDescription: no valid JSON with title+body found in claude output for PR #${prNumber}`,
     );
     return;
   }
   if (!generated.title || !generated.body) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: generated JSON missing title or body for PR #${prNumber}`,
+      `[${taskId}] enrichPrDescription: generated JSON missing title or body for PR #${prNumber}`,
     );
     return;
   }
@@ -229,13 +229,13 @@ Output only the JSON object, nothing else.`;
   const titlePrefix = `[${taskId}]`;
   if (!generated.title.startsWith(titlePrefix)) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: generated title does not start with "${titlePrefix}" for PR #${prNumber}, skipping`,
+      `[${taskId}] enrichPrDescription: generated title does not start with "${titlePrefix}" for PR #${prNumber}, skipping`,
     );
     return;
   }
   if (generated.title.length > 70) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: generated title exceeds 70 chars (${generated.title.length}) for PR #${prNumber}, truncating`,
+      `[${taskId}] enrichPrDescription: generated title exceeds 70 chars (${generated.title.length}) for PR #${prNumber}, truncating`,
     );
     generated.title = generated.title.slice(0, 70);
   }
@@ -245,7 +245,7 @@ Output only the JSON object, nothing else.`;
   );
   if (missingSections.length > 0) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: generated body missing sections ${missingSections.join(", ")} for PR #${prNumber}, skipping`,
+      `[${taskId}] enrichPrDescription: generated body missing sections ${missingSections.join(", ")} for PR #${prNumber}, skipping`,
     );
     return;
   }
@@ -266,11 +266,11 @@ Output only the JSON object, nothing else.`;
       { encoding: "utf-8", cwd: repoPath },
     );
     logger.info(
-      `[EMI-367] PR #${prNumber}: description enriched (title: "${generated.title}")`,
+      `[${taskId}] PR #${prNumber}: description enriched (title: "${generated.title}")`,
     );
   } catch (err) {
     logger.warn(
-      `[EMI-367] enrichPrDescription: gh pr edit failed for PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
+      `[${taskId}] enrichPrDescription: gh pr edit failed for PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
