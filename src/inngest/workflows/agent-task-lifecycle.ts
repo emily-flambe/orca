@@ -28,10 +28,7 @@ import {
   updateTaskDeployInfo,
 } from "../../db/queries.js";
 import { spawnSession, killSession } from "../../runner/index.js";
-import {
-  emitTaskUpdated,
-  emitInvocationStarted,
-} from "../../events.js";
+import { emitTaskUpdated, emitInvocationStarted } from "../../events.js";
 import { createWorktree, removeWorktree } from "../../worktree/index.js";
 import { getHookUrl } from "../../hooks.js";
 import { activeHandles } from "../../session-handles.js";
