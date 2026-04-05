@@ -73,7 +73,6 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     cloudflaredPath: "cloudflared",
     externalTunnel: false,
     logLevel: "info",
-    worktreePoolSize: 0,
     ...overrides,
   };
 }

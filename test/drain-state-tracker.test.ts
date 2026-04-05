@@ -65,7 +65,6 @@ function makeDeps() {
     logLevel: "info",
     projectRepoMap: new Map(),
     githubMcpPat: undefined,
-    worktreePoolSize: 0,
   };
   return {
     db,
