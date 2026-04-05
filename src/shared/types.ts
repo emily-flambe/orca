@@ -22,13 +22,7 @@ export const LIFECYCLE_STAGES = [
 ] as const;
 export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
 
-export const CURRENT_PHASES = [
-  "implement",
-  "review",
-  "fix",
-  "ci",
-  "deploy",
-] as const;
+export const CURRENT_PHASES = ["implement", "fix", "ci", "deploy"] as const;
 export type CurrentPhase = (typeof CURRENT_PHASES)[number];
 
 /**
@@ -43,10 +37,8 @@ export function statusLabel(
     switch (phase) {
       case "implement":
         return "running";
-      case "review":
-        return "in_review";
       case "fix":
-        return "changes_requested";
+        return "running";
       case "ci":
         return "awaiting_ci";
       case "deploy":
@@ -69,7 +61,8 @@ export function labelToStagePhase(label: string): {
     case "running":
       return { stage: "active", phase: "implement" };
     case "in_review":
-      return { stage: "active", phase: "review" };
+      // Legacy: in_review no longer exists, map to implement for backwards compat
+      return { stage: "active", phase: "implement" };
     case "changes_requested":
       return { stage: "active", phase: "fix" };
     case "awaiting_ci":
@@ -92,8 +85,6 @@ export const TASK_STATUSES = [
   "done",
   "failed",
   "canceled",
-  "in_review",
-  "changes_requested",
   "deploying",
   "awaiting_ci",
 ] as const;
@@ -123,7 +114,6 @@ export interface Task {
   priority: number;
   retryCount: number;
   prBranchName: string | null;
-  reviewCycleCount: number;
   mergeCommitSha: string | null;
   prNumber: number | null;
   deployStartedAt: string | null;
@@ -239,7 +229,6 @@ export interface OrcaStatus {
   concurrencyCap: number;
   agentConcurrencyCap: number;
   model: string;
-  reviewModel: string;
   draining: boolean;
   drainSessionCount: number;
   drainingForSeconds: number | null;

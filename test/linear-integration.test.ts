@@ -69,13 +69,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -541,7 +537,8 @@ describe("10.3 - Conflict resolution", () => {
     vi.useFakeTimers();
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
     // Advance time past the 2-min stale-echo guard window
@@ -560,7 +557,8 @@ describe("10.3 - Conflict resolution", () => {
   test("running task recently dispatched, Linear says Todo -> suppressed as stale echo", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1b",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
     // updatedAt is "now" (from seedTask), so within the 2-min guard window
@@ -575,7 +573,8 @@ describe("10.3 - Conflict resolution", () => {
   test("running task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1c",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
@@ -619,7 +618,8 @@ describe("10.3 - Conflict resolution", () => {
   test("any task, Linear says Canceled -> task becomes failed", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-4",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
     resolveConflict(db, taskId, "Canceled", "canceled");
@@ -1236,21 +1236,7 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
     expect(body.variables.stateId).toBe("s-progress");
   });
 
-  test("in_review → finds review-containing started state", async () => {
-    const { client, writeBackStatus } = await getWriteBack();
-    mockSuccess();
-
-    const stateMap = new Map([
-      ["In Progress", { id: "s-progress", type: "started" }],
-      ["In Review", { id: "s-review", type: "started" }],
-    ]);
-
-    await writeBackStatus(client, "TASK-2", "in_review", stateMap);
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.variables.stateId).toBe("s-review");
-  });
+  // in_review test removed in EMI-504 (review phase removal)
 
   test("done → prefers exact 'Done' over 'Done Pending Deployment'", async () => {
     const { client, writeBackStatus } = await getWriteBack();
@@ -1348,9 +1334,8 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
     expect(body.variables.stateId).toBe("s-backlog");
   });
 
-  test("logStateMapping warns when multiple started states and none contain 'review'", async () => {
+  test("logStateMapping notes when multiple started states exist", async () => {
     const { logStateMapping } = await getWriteBack();
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const stateMap = new Map([
       ["In Progress", { id: "s1", type: "started" }],
@@ -1358,26 +1343,8 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
       ["Done", { id: "s3", type: "completed" }],
     ]);
 
+    // Just verify it doesn't throw — the note goes to logger.info, not console.warn
     logStateMapping(stateMap);
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("multiple started states exist but none contain"),
-    );
-  });
-
-  test("logStateMapping does NOT warn when one started state contains 'review'", async () => {
-    const { logStateMapping } = await getWriteBack();
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const stateMap = new Map([
-      ["In Progress", { id: "s1", type: "started" }],
-      ["In Review", { id: "s2", type: "started" }],
-      ["Done", { id: "s3", type: "completed" }],
-    ]);
-
-    logStateMapping(stateMap);
-
-    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   test("deploying and awaiting_ci are no-ops (no fetch)", async () => {

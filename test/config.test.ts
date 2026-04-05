@@ -194,10 +194,7 @@ describe("default values", () => {
     expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
     expect(cfg.claudePath).toBe("claude");
     expect(cfg.defaultMaxTurns).toBe(50);
-    expect(cfg.maxReviewCycles).toBe(10);
-    expect(cfg.reviewMaxTurns).toBe(30);
     expect(cfg.model).toBe("sonnet");
-    expect(cfg.reviewModel).toBe("haiku");
     expect(cfg.deployStrategy).toBe("none");
     expect(cfg.externalTunnel).toBe(false);
     expect(cfg.cloudflaredPath).toBe("cloudflared");
@@ -267,7 +264,6 @@ describe("malformed values → exit(1)", () => {
 // ---------------------------------------------------------------------------
 
 describe("boolean parsing", () => {
-
   test("ORCA_EXTERNAL_TUNNEL=true → true", async () => {
     process.env.ORCA_EXTERNAL_TUNNEL = "true";
     const cfg = await loadConfig();

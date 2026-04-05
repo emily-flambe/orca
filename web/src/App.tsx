@@ -78,7 +78,6 @@ function SettingsPage({
     agentConcurrencyCap?: number;
     tokenBudgetLimit?: number;
     model?: string;
-    reviewModel?: string;
   }) => Promise<void>;
   onSync: () => Promise<void>;
   onNewTicket: (identifier: string) => Promise<void>;
@@ -246,37 +245,30 @@ function SettingsPage({
         <div className="text-xs text-gray-500 uppercase tracking-wide">
           Models
         </div>
-        {(["model", "review"] as const).map((phase) => {
-          const field = phase === "model" ? "model" : "reviewModel";
-          return (
-            <div key={phase} className="flex items-center gap-3">
-              <span className="text-sm text-gray-400 w-20 capitalize">
-                {phase}
-              </span>
-              <select
-                value={status[field]}
-                onChange={(e) => {
-                  const newModel = e.target.value;
-                  if (
-                    newModel === "opus" &&
-                    !window.confirm(
-                      "Switching to opus will significantly increase costs. Continue?",
-                    )
-                  )
-                    return;
-                  onConfigUpdate({ [field]: newModel });
-                }}
-                className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-400 w-20">Model</span>
+          <select
+            value={status.model}
+            onChange={(e) => {
+              const newModel = e.target.value;
+              if (
+                newModel === "opus" &&
+                !window.confirm(
+                  "Switching to opus will significantly increase costs. Continue?",
+                )
+              )
+                return;
+              onConfigUpdate({ model: newModel });
+            }}
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 cursor-pointer hover:border-gray-500 transition-colors"
+          >
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Actions card */}
@@ -546,7 +538,6 @@ export default function App() {
       agentConcurrencyCap?: number;
       tokenBudgetLimit?: number;
       model?: string;
-      reviewModel?: string;
     }) => {
       try {
         await updateConfig(config);

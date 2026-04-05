@@ -52,13 +52,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -89,8 +85,6 @@ function deriveLifecycle(status: string): {
     backlog: { lifecycleStage: "backlog", currentPhase: null },
     ready: { lifecycleStage: "ready", currentPhase: null },
     running: { lifecycleStage: "active", currentPhase: "implement" },
-    in_review: { lifecycleStage: "active", currentPhase: "review" },
-    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
     awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
     deploying: { lifecycleStage: "active", currentPhase: "deploy" },
     done: { lifecycleStage: "done", currentPhase: null },
@@ -236,7 +230,11 @@ describe("GET /api/invocations/running — contract", () => {
   it("200: running invocation has agentPrompt field", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "RUN-1", lifecycleStage: "active", currentPhase: "implement" }),
+      makeTask({
+        linearIssueId: "RUN-1",
+        lifecycleStage: "active",
+        currentPhase: "implement",
+      }),
     );
     insertInvocation(db, {
       linearIssueId: "RUN-1",
@@ -368,7 +366,8 @@ describe("POST /api/invocations/:id/abort — contract", () => {
       db,
       makeTask({
         linearIssueId: "ABORT-RUN-1",
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
     const invId = insertInvocation(db, {
@@ -549,7 +548,6 @@ describe("GET /api/status — contract", () => {
     expect(typeof body.budgetWindowHours).toBe("number");
     expect(typeof body.concurrencyCap).toBe("number");
     expect(typeof body.model).toBe("string");
-    expect(typeof body.reviewModel).toBe("string");
     expect(typeof body.draining).toBe("boolean");
     expect(typeof body.drainSessionCount).toBe("number");
     expect(typeof body.inngestReachable).toBe("boolean");
@@ -569,7 +567,7 @@ describe("POST /api/config — contract", () => {
     app = makeApp(db);
   });
 
-  it("200: valid update — returns { ok: true, concurrencyCap, model, reviewModel }", async () => {
+  it("200: valid update — returns { ok: true, concurrencyCap, model }", async () => {
     const res = await app.request("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -580,7 +578,6 @@ describe("POST /api/config — contract", () => {
     expect(body.ok).toBe(true);
     expect(typeof body.concurrencyCap).toBe("number");
     expect(typeof body.model).toBe("string");
-    expect(typeof body.reviewModel).toBe("string");
   });
 
   it("400: invalid concurrencyCap — returns { error: string }", async () => {

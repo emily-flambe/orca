@@ -53,7 +53,6 @@ function seedTask(db: OrcaDb, id?: string): string {
     priority: 0,
     retryCount: 3,
     prBranchName: null,
-    reviewCycleCount: 0,
     isParent: 0,
     parentIdentifier: null,
     mergeCommitSha: null,
@@ -81,13 +80,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -274,7 +269,6 @@ describe("sendPermanentFailureAlert", () => {
     ).mock.calls[0];
     expect(calledComment).toContain("**Invocations:** none");
   });
-
 });
 
 // ---------------------------------------------------------------------------

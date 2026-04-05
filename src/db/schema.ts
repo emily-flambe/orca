@@ -34,16 +34,12 @@ export const tasks = sqliteTable("tasks", {
   priority: integer("priority").notNull().default(0),
   retryCount: integer("retry_count").notNull().default(0),
   prBranchName: text("pr_branch_name"),
-  reviewCycleCount: integer("review_cycle_count").notNull().default(0),
   mergeCommitSha: text("merge_commit_sha"),
   prNumber: integer("pr_number"),
   deployStartedAt: text("deploy_started_at"),
   ciStartedAt: text("ci_started_at"),
   fixReason: text("fix_reason"),
   mergeAttemptCount: integer("merge_attempt_count").notNull().default(0),
-  staleSessionRetryCount: integer("stale_session_retry_count")
-    .notNull()
-    .default(0),
   doneAt: text("done_at"),
   parentIdentifier: text("parent_identifier"),
   isParent: integer("is_parent").notNull().default(0),
@@ -79,7 +75,7 @@ export const invocations = sqliteTable("invocations", {
   numTurns: integer("num_turns"),
   outputSummary: text("output_summary"),
   logPath: text("log_path"),
-  phase: text("phase", { enum: ["implement", "review"] as const }),
+  phase: text("phase", { enum: ["implement"] as const }),
   model: text("model"),
 });
 

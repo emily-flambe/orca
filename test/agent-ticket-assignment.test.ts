@@ -50,13 +50,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -675,7 +671,8 @@ describe("Agent linearLabel CRUD", () => {
   });
 
   test("linearLabel with special characters round-trips correctly", () => {
-    const weirdLabel = "agent:label with spaces & 'quotes' and \"double quotes\"";
+    const weirdLabel =
+      "agent:label with spaces & 'quotes' and \"double quotes\"";
     seedAgent(db, { id: "crud-7", linearLabel: weirdLabel });
 
     const agent = getAgent(db, "crud-7");
@@ -973,9 +970,8 @@ describe("Webhook label routing via processWebhookEvent", () => {
   });
 
   test("webhook with labelIds resolves labels and routes to agent", async () => {
-    const { processWebhookEvent, clearStartupGrace } = await import(
-      "../src/linear/sync.js"
-    );
+    const { processWebhookEvent, clearStartupGrace } =
+      await import("../src/linear/sync.js");
     const { DependencyGraph } = await import("../src/linear/graph.js");
     const config = testConfig();
     const graph = new DependencyGraph();
@@ -1018,9 +1014,8 @@ describe("Webhook label routing via processWebhookEvent", () => {
   });
 
   test("webhook with no labelIds leaves agent assignment unchanged", async () => {
-    const { processWebhookEvent, clearStartupGrace } = await import(
-      "../src/linear/sync.js"
-    );
+    const { processWebhookEvent, clearStartupGrace } =
+      await import("../src/linear/sync.js");
     const { DependencyGraph } = await import("../src/linear/graph.js");
     const config = testConfig();
     const graph = new DependencyGraph();
@@ -1068,9 +1063,8 @@ describe("Webhook label routing via processWebhookEvent", () => {
   });
 
   test("webhook with labelIds but fetchLabelsByIds failure preserves existing agent", async () => {
-    const { processWebhookEvent, clearStartupGrace } = await import(
-      "../src/linear/sync.js"
-    );
+    const { processWebhookEvent, clearStartupGrace } =
+      await import("../src/linear/sync.js");
     const { DependencyGraph } = await import("../src/linear/graph.js");
     const config = testConfig();
     const graph = new DependencyGraph();

@@ -33,13 +33,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -70,8 +66,6 @@ function deriveLifecycle(status: string): {
     backlog: { lifecycleStage: "backlog", currentPhase: null },
     ready: { lifecycleStage: "ready", currentPhase: null },
     running: { lifecycleStage: "active", currentPhase: "implement" },
-    in_review: { lifecycleStage: "active", currentPhase: "review" },
-    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
     awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
     deploying: { lifecycleStage: "active", currentPhase: "deploy" },
     done: { lifecycleStage: "done", currentPhase: null },
@@ -129,7 +123,7 @@ describe("GET /api/tasks/:id/transitions", () => {
       makeTask({ linearIssueId: "TRANS-2", lifecycleStage: "ready" }),
     );
     updateTaskStatus(db, "TRANS-2", "running");
-    updateTaskStatus(db, "TRANS-2", "in_review");
+    updateTaskStatus(db, "TRANS-2", "awaiting_ci");
 
     const res = await app.request("/api/tasks/TRANS-2/transitions");
     expect(res.status).toBe(200);
@@ -138,7 +132,7 @@ describe("GET /api/tasks/:id/transitions", () => {
     expect(body[0].fromStatus).toBe("ready");
     expect(body[0].toStatus).toBe("running");
     expect(body[1].fromStatus).toBe("running");
-    expect(body[1].toStatus).toBe("in_review");
+    expect(body[1].toStatus).toBe("awaiting_ci");
   });
 
   it("returns 404 for missing task", async () => {

@@ -106,7 +106,7 @@ server.registerTool(
       currentPhase: task.currentPhase,
       priority: task.priority,
       retryCount: task.retryCount,
-      reviewCycleCount: task.reviewCycleCount,
+      // reviewCycleCount removed in EMI-504
       prBranchName: task.prBranchName,
       prNumber: task.prNumber,
       repoPath: task.repoPath,

@@ -72,13 +72,9 @@ function _testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -205,20 +201,6 @@ describe("mapLinearStateToOrcaStatus — review heuristic", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  // To verify "started+review" → in_review, we need a task in a state that
-  // conflicts with in_review. in_review→done is case 5, so we use that.
-  it('"In Review" (started type) → maps to in_review', () => {
-    seedTask(db, "RH-1", "in_review");
-    resolveConflict(db, "RH-1", "Done", "completed");
-    expect(getTask(db, "RH-1")!.lifecycleStage).toBe("done");
-    // Re-seed to test the review heuristic directly
-    const db2 = freshDb();
-    seedTask(db2, "RH-1b", "in_review");
-    resolveConflict(db2, "RH-1b", "In Review", "started");
-    // in_review matches in_review → no change
-    expect(getTask(db2, "RH-1b")!.lifecycleStage).toBe("active");
   });
 
   it('"Code Review" (started type) → review heuristic matches (no-op for deploying)', () => {

@@ -50,7 +50,6 @@ function seedTask(
     lifecycleStage: string;
     priority: number;
     retryCount: number;
-    reviewCycleCount: number;
     isParent: number;
     parentIdentifier: string | null;
     mergeCommitSha: string | null;
@@ -60,7 +59,6 @@ function seedTask(
     ciStartedAt: string | null;
     fixReason: string | null;
     mergeAttemptCount: number;
-    staleSessionRetryCount: number;
     doneAt: string | null;
     projectName: string | null;
     createdAt: string;
@@ -77,7 +75,6 @@ function seedTask(
     currentPhase: ((overrides as any).currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
-    reviewCycleCount: overrides.reviewCycleCount ?? 0,
     isParent: overrides.isParent ?? 0,
     parentIdentifier: overrides.parentIdentifier ?? null,
     mergeCommitSha: overrides.mergeCommitSha ?? null,
@@ -87,7 +84,6 @@ function seedTask(
     ciStartedAt: overrides.ciStartedAt ?? null,
     fixReason: overrides.fixReason ?? null,
     mergeAttemptCount: overrides.mergeAttemptCount ?? 0,
-    staleSessionRetryCount: overrides.staleSessionRetryCount ?? 0,
     doneAt: overrides.doneAt ?? null,
     projectName: overrides.projectName ?? null,
     createdAt: overrides.createdAt ?? ts,
@@ -136,10 +132,10 @@ describe("get_task query logic", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EMI-100",
       agentPrompt: "add feature",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       priority: 2,
       retryCount: 1,
-      reviewCycleCount: 0,
       prBranchName: "orca/EMI-100",
       prNumber: 42,
       projectName: "my-project",
@@ -451,7 +447,8 @@ describe("get_sibling_tasks query logic", () => {
     seedTask(db, {
       linearIssueId: "CHILD-B",
       parentIdentifier: "PARENT-S",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedTask(db, {
       linearIssueId: "CHILD-C",
@@ -628,7 +625,11 @@ describe("list_tasks query logic", () => {
 
   test("returns all tasks when no status filter", () => {
     seedTask(db, { linearIssueId: "LT-1", lifecycleStage: "ready" });
-    seedTask(db, { linearIssueId: "LT-2", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, {
+      linearIssueId: "LT-2",
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     seedTask(db, { linearIssueId: "LT-3", lifecycleStage: "done" });
 
     const allTasks = getAllTasks(db);
@@ -637,7 +638,11 @@ describe("list_tasks query logic", () => {
 
   test("status filter returns only matching tasks", () => {
     seedTask(db, { linearIssueId: "LT-4", lifecycleStage: "ready" });
-    seedTask(db, { linearIssueId: "LT-5", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, {
+      linearIssueId: "LT-5",
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     seedTask(db, { linearIssueId: "LT-6", lifecycleStage: "ready" });
 
     const allTasks = getAllTasks(db);
@@ -648,7 +653,11 @@ describe("list_tasks query logic", () => {
 
   test("status filter returns empty array when no matches", () => {
     seedTask(db, { linearIssueId: "LT-7", lifecycleStage: "ready" });
-    seedTask(db, { linearIssueId: "LT-8", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, {
+      linearIssueId: "LT-8",
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
 
     const allTasks = getAllTasks(db);
     const filtered = allTasks.filter((t) => t.lifecycleStage === "done");

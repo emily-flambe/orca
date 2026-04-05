@@ -26,7 +26,12 @@ describe("getResourceSnapshot", () => {
   test("returns memory in MB from os.freemem()", () => {
     mockOs.freemem.mockReturnValue(4 * 1024 * 1024 * 1024); // 4 GB
     mockOs.loadavg.mockReturnValue([0, 0, 0]);
-    mockOs.cpus.mockReturnValue([{} as never, {} as never, {} as never, {} as never]);
+    mockOs.cpus.mockReturnValue([
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    ]);
 
     const snap = getResourceSnapshot();
     expect(snap.memAvailableMb).toBeCloseTo(4096, 0);

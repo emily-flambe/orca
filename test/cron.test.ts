@@ -158,13 +158,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -599,7 +595,6 @@ describe("PUT /api/cron/:id — update behavior", () => {
     expect(body.model).toBeNull();
     expect(body.maxTurns).toBeNull();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -641,9 +636,7 @@ describe("DELETE /api/cron/:id", () => {
       updatedAt: now(),
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     expect(getTasksByCronSchedule(db, id)).toHaveLength(1);
@@ -654,7 +647,6 @@ describe("DELETE /api/cron/:id", () => {
     expect(getCronSchedule(db, id)).toBeUndefined();
     expect(getTasksByCronSchedule(db, id)).toHaveLength(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -694,7 +686,6 @@ describe("POST /api/cron/:id/toggle", () => {
     const body = await res.json();
     expect(body.enabled).toBe(1);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -793,7 +784,6 @@ describe("POST /api/cron/:id/trigger", () => {
     const tasks = getTasksByCronSchedule(db, id);
     expect(tasks[0].taskType).toBe("cron_shell");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -912,9 +902,7 @@ describe("GET /api/cron/:id/tasks", () => {
       updatedAt: "2026-01-01T10:05:00.000Z",
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     const invId = insertInvocation(db, {
@@ -952,25 +940,22 @@ describe("GET /api/cron/:id/tasks", () => {
       updatedAt: "2026-01-01T08:05:00.000Z",
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     insertTask(db, {
       linearIssueId: taskId2,
       agentPrompt: "new task",
       repoPath: "/tmp",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "cron_claude",
       cronScheduleId: id,
       createdAt: "2026-01-02T10:00:00.000Z",
       updatedAt: "2026-01-02T10:05:00.000Z",
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
 
@@ -997,9 +982,7 @@ describe("GET /api/cron/:id/tasks", () => {
       updatedAt: now(),
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
 
@@ -1024,9 +1007,7 @@ describe("GET /api/cron/:id/tasks", () => {
       updatedAt: now(),
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
 

@@ -30,13 +30,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -356,25 +352,22 @@ describe("GET /api/agents/:id", () => {
       updatedAt: "2026-01-01T08:00:00.000Z",
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     insertTask(db, {
       linearIssueId: "agent-test-agent-new",
       agentPrompt: "new task",
       repoPath: "/tmp",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "agent",
       agentId: "test-agent",
       createdAt: "2026-01-02T10:00:00.000Z",
       updatedAt: "2026-01-02T10:00:00.000Z",
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
 
@@ -530,7 +523,6 @@ describe("POST /api/agents/:id/toggle", () => {
     const body = await res.json();
     expect(body.enabled).toBe(1);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -707,7 +699,6 @@ describe("GET /api/agents/:id/memories", () => {
     expect(body).toHaveLength(1);
     expect(body[0].type).toBe("episodic");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -767,5 +758,4 @@ describe("DELETE /api/agents/:id/memories/:memoryId", () => {
     // agent-b's memory should still exist
     expect(getAgentMemoryCount(db, "agent-b")).toBe(1);
   });
-
 });

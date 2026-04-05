@@ -9,7 +9,6 @@ import {
   updateTaskFixReason,
   incrementMergeAttemptCount,
   resetMergeAttemptCount,
-  incrementReviewCycleCount,
 } from "../../db/queries.js";
 import { emitTaskUpdated } from "../../events.js";
 import {
@@ -243,37 +242,36 @@ export const ciMergeWorkflow = inngest.createFunction(
               const freshTask = getTask(db, linearIssueId);
               if (!freshTask) return { action: "none" };
 
-              if (freshTask.reviewCycleCount < config.maxReviewCycles) {
-                incrementReviewCycleCount(db, linearIssueId);
+              if (freshTask.retryCount < config.maxRetries) {
                 updateAndEmit(
                   db,
                   linearIssueId,
                   "changes_requested",
-                  "ci_failed_changes_requested",
+                  "ci_failed_fix_needed",
                 );
                 await transitionToFinalState(
                   { client, stateMap },
                   linearIssueId,
-                  "changes_requested",
-                  `CI failed on PR #${prNumber} — requesting fixes (cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                  "running",
+                  `CI failed on PR #${prNumber} — dispatching fix (retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
                 );
                 log(
-                  `task ${linearIssueId} CI failed → changes_requested ` +
-                    `(cycle ${freshTask.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                  `task ${linearIssueId} CI failed → fix phase ` +
+                    `(retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
                 );
                 return {
                   action: "re-dispatch",
                   repoPath: freshTask.repoPath,
                 };
               } else {
-                // Cycles exhausted — mark as failed
+                // Retries exhausted — mark as failed
                 updateAndEmit(
                   db,
                   linearIssueId,
                   "failed",
-                  "ci_failed_cycles_exhausted",
+                  "ci_failed_retries_exhausted",
                   {
-                    failureReason: `CI failed and review cycle limit (${config.maxReviewCycles}) exhausted`,
+                    failureReason: `CI failed and retry limit (${config.maxRetries}) exhausted`,
                     failedPhase: "ci",
                   },
                 );
@@ -281,10 +279,10 @@ export const ciMergeWorkflow = inngest.createFunction(
                   { client, stateMap },
                   linearIssueId,
                   "failed_permanent",
-                  `CI failed and review cycles exhausted (${config.maxReviewCycles}) — task failed permanently`,
+                  `CI failed and retries exhausted (${config.maxRetries}) — task failed permanently`,
                 );
                 log(
-                  `task ${linearIssueId} CI failed, cycles exhausted → failed`,
+                  `task ${linearIssueId} CI failed, retries exhausted → failed`,
                 );
                 return { action: "failed" };
               }
@@ -399,36 +397,41 @@ async function mergeAndFinalizeStep(
         `task ${taskId} PR #${task.prNumber} has CONFLICTING state — triggering conflict resolution fix phase`,
       );
 
-      if (task.reviewCycleCount < config.maxReviewCycles) {
-        incrementReviewCycleCount(db, taskId);
+      if (task.retryCount < config.maxRetries) {
         updateTaskFixReason(db, taskId, "merge_conflict");
         updateAndEmit(db, taskId, "changes_requested", "merge_conflict");
 
         client
           .createComment(
             taskId,
-            `PR #${task.prNumber} has merge conflicts — dispatching fix phase to rebase and resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+            `PR #${task.prNumber} has merge conflicts — dispatching fix phase to rebase and resolve (retry ${task.retryCount + 1}/${config.maxRetries})`,
           )
           .catch((err) => {
             log(`comment failed on merge conflict for task ${taskId}: ${err}`);
           });
 
         log(
-          `task ${taskId} → changes_requested (merge conflict, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+          `task ${taskId} → fix phase (merge conflict, retry ${task.retryCount + 1}/${config.maxRetries})`,
         );
       } else {
-        // Review cycles exhausted — fail the task
-        updateAndEmit(db, taskId, "failed", "merge_conflict_cycles_exhausted", {
-          failureReason: `PR #${task.prNumber} has merge conflicts and review cycle limit (${config.maxReviewCycles}) reached`,
-          failedPhase: "merge",
-        });
+        // Retries exhausted — fail the task
+        updateAndEmit(
+          db,
+          taskId,
+          "failed",
+          "merge_conflict_retries_exhausted",
+          {
+            failureReason: `PR #${task.prNumber} has merge conflicts and retry limit (${config.maxRetries}) reached`,
+            failedPhase: "merge",
+          },
+        );
         await transitionToFinalState(
           { client, stateMap },
           taskId,
           "failed_permanent",
-          `PR #${task.prNumber} has merge conflicts and review cycle limit reached — marking failed`,
+          `PR #${task.prNumber} has merge conflicts and retry limit reached — marking failed`,
         );
-        log(`task ${taskId} merge conflict — review cycles exhausted → failed`);
+        log(`task ${taskId} merge conflict — retries exhausted → failed`);
         return { done: false, action: "failed" };
       }
       return { done: false, action: "changes_requested" };
@@ -487,8 +490,7 @@ async function mergeAndFinalizeStep(
               `task ${taskId} rebase has conflicts — triggering conflict resolution fix phase`,
             );
 
-            if (task.reviewCycleCount < config.maxReviewCycles) {
-              incrementReviewCycleCount(db, taskId);
+            if (task.retryCount < config.maxRetries) {
               updateTaskFixReason(db, taskId, "merge_conflict");
               resetMergeAttemptCount(db, taskId);
               updateAndEmit(db, taskId, "changes_requested", "merge_conflict");
@@ -496,7 +498,7 @@ async function mergeAndFinalizeStep(
               client
                 .createComment(
                   taskId,
-                  `Merge failed for PR #${task.prNumber} and rebase has conflicts — dispatching fix phase to resolve (cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                  `Merge failed for PR #${task.prNumber} and rebase has conflicts — dispatching fix phase to resolve (retry ${task.retryCount + 1}/${config.maxRetries})`,
                 )
                 .catch((err) => {
                   log(
@@ -505,17 +507,17 @@ async function mergeAndFinalizeStep(
                 });
 
               log(
-                `task ${taskId} → changes_requested (rebase conflicts, cycle ${task.reviewCycleCount + 1}/${config.maxReviewCycles})`,
+                `task ${taskId} → fix phase (rebase conflicts, retry ${task.retryCount + 1}/${config.maxRetries})`,
               );
             } else {
-              // Review cycles exhausted — fail the task
+              // Retries exhausted — fail the task
               updateAndEmit(
                 db,
                 taskId,
                 "failed",
-                "merge_conflict_cycles_exhausted",
+                "merge_conflict_retries_exhausted",
                 {
-                  failureReason: `Merge failed for PR #${task.prNumber}: rebase has conflicts and review cycle limit (${config.maxReviewCycles}) reached`,
+                  failureReason: `Merge failed for PR #${task.prNumber}: rebase has conflicts and retry limit (${config.maxRetries}) reached`,
                   failedPhase: "merge",
                 },
               );
@@ -523,10 +525,10 @@ async function mergeAndFinalizeStep(
                 { client, stateMap },
                 taskId,
                 "failed_permanent",
-                `Merge failed for PR #${task.prNumber}, rebase has conflicts, and review cycle limit reached — marking failed`,
+                `Merge failed for PR #${task.prNumber}, rebase has conflicts, and retry limit reached — marking failed`,
               );
               log(
-                `task ${taskId} rebase conflicts — review cycles exhausted → failed`,
+                `task ${taskId} rebase conflicts — retries exhausted → failed`,
               );
               return { done: false, action: "failed" };
             }
@@ -564,7 +566,7 @@ async function mergeAndFinalizeStep(
         await transitionToFinalState(
           { client, stateMap },
           taskId,
-          "in_review",
+          "failed_permanent",
           `Merge failed after ${attemptsSoFar} attempts for PR #${task.prNumber}: ${mergeResult.error}\n\nThe PR has been preserved. Please resolve the merge blocker and merge manually, or reset this issue to Todo to re-implement.`,
         );
         log(

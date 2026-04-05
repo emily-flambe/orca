@@ -41,13 +41,9 @@ function makeConfig() {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none" as const,
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -478,7 +474,6 @@ describe("getHookUrl", () => {
     const url = getHookUrl(7);
     expect(url).toBe("http://localhost:4001/api/hooks/7");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -542,5 +537,4 @@ describe("DB migration 21 — hook_events table", () => {
       insertHookEvent(db, 1, "Notification", JSON.stringify({ ok: true }));
     }).not.toThrow();
   });
-
 });

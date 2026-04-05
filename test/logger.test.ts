@@ -180,7 +180,6 @@ describe("timestamp prefix behavior", () => {
     expect(content).toContain("line two");
     expect(content).toContain("line three");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -372,7 +371,6 @@ describe("pre-init behavior", () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // 13. Rotation boundary: file at exactly maxSizeBytes triggers rotation
 // ---------------------------------------------------------------------------
@@ -402,6 +400,4 @@ describe("rotation boundary conditions", () => {
     const backupPath = logPath + ".1";
     expect(existsSync(backupPath)).toBe(true);
   });
-
 });
-

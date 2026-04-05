@@ -33,7 +33,7 @@ import type { OrcaConfig } from "../src/config/index.js";
 function activeTask(linearIssueId: string, phase: string, retryCount = 0) {
   return {
     linearIssueId,
-    
+
     lifecycleStage: "active" as const,
     currentPhase: phase,
     retryCount,
@@ -47,7 +47,7 @@ function terminalTask(
 ) {
   return {
     linearIssueId,
-    
+
     lifecycleStage: stage,
     currentPhase: null,
     retryCount,
@@ -65,13 +65,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,

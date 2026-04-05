@@ -148,7 +148,6 @@ function seedTask(
     priority: 0,
     retryCount: 0,
     prBranchName: null,
-    reviewCycleCount: 0,
     isParent: 0,
     parentIdentifier: null,
     mergeCommitSha: null,
@@ -267,7 +266,8 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000); // 8 days ago
     const taskId = seedTask(db, {
       linearIssueId: "CRON-1-1",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
@@ -293,7 +293,8 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000);
     const taskId = seedTask(db, {
       linearIssueId: "CRON-2-1",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
@@ -337,7 +338,8 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const recentDate = pastIso(60 * 60 * 1000); // 1 hour ago
     const taskId = seedTask(db, {
       linearIssueId: "CRON-4-1",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: recentDate,
@@ -381,7 +383,8 @@ describe("BUG 3 — cron_shell timeout does not trigger retry", () => {
     const oldStarted = pastIso(5 * 60 * 1000); // started 5 min ago (past 1-min timeout)
     seedTask(db, {
       linearIssueId: taskId,
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
     });

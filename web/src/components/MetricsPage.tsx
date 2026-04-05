@@ -328,14 +328,9 @@ function SystemConfiguration({
         {/* Models */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-400">Models</span>
-          <div className="flex gap-2">
-            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-              model: {status.model}
-            </span>
-            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
-              review: {status.reviewModel}
-            </span>
-          </div>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
+            {status.model}
+          </span>
         </div>
 
         {/* Token budget */}

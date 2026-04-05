@@ -34,13 +34,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -313,5 +309,4 @@ describe("POST /api/tasks — stateId resolution via findStateByType", () => {
     const body = await res.json();
     expect(body.error).toBe("Linear API error");
   });
-
 });

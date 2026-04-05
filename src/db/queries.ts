@@ -268,16 +268,6 @@ export function getDispatchableTasks(
           eq(tasks.lifecycleStage, "active"),
           eq(tasks.currentPhase, "implement"),
         );
-      case "in_review":
-        return and(
-          eq(tasks.lifecycleStage, "active"),
-          eq(tasks.currentPhase, "review"),
-        );
-      case "changes_requested":
-        return and(
-          eq(tasks.lifecycleStage, "active"),
-          eq(tasks.currentPhase, "fix"),
-        );
       case "awaiting_ci":
         return and(
           eq(tasks.lifecycleStage, "active"),
@@ -339,45 +329,6 @@ export function incrementMergeAttemptCount(db: OrcaDb, taskId: string): void {
   db.update(tasks)
     .set({
       mergeAttemptCount: sql`${tasks.mergeAttemptCount} + 1`,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(tasks.linearIssueId, taskId))
-    .run();
-}
-
-/** Reset stale_session_retry_count to 0. Used when a task makes real progress (phase transition). */
-export function resetStaleSessionRetryCount(db: OrcaDb, taskId: string): void {
-  db.update(tasks)
-    .set({ staleSessionRetryCount: 0, updatedAt: new Date().toISOString() })
-    .where(eq(tasks.linearIssueId, taskId))
-    .run();
-}
-
-/** Increment stale_session_retry_count by 1 and return the new count. */
-export function incrementStaleSessionRetryCount(
-  db: OrcaDb,
-  taskId: string,
-): number {
-  db.update(tasks)
-    .set({
-      staleSessionRetryCount: sql`${tasks.staleSessionRetryCount} + 1`,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(tasks.linearIssueId, taskId))
-    .run();
-  const row = db
-    .select({ count: tasks.staleSessionRetryCount })
-    .from(tasks)
-    .where(eq(tasks.linearIssueId, taskId))
-    .get();
-  return row?.count ?? 0;
-}
-
-/** Increment review_cycle_count by 1. */
-export function incrementReviewCycleCount(db: OrcaDb, taskId: string): void {
-  db.update(tasks)
-    .set({
-      reviewCycleCount: sql`${tasks.reviewCycleCount} + 1`,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))
@@ -1207,7 +1158,7 @@ export function getFailedTasksWithRetriesRemaining(
     .where(
       and(
         eq(tasks.lifecycleStage, "failed"),
-        sql`(${tasks.retryCount} + ${tasks.staleSessionRetryCount}) < ${maxRetries}`,
+        sql`${tasks.retryCount} < ${maxRetries}`,
         or(
           isNull(tasks.taskType),
           sql`${tasks.taskType} NOT IN ('cron_claude', 'cron_shell')`,

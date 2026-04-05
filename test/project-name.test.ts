@@ -12,11 +12,7 @@ import {
   type Mock,
 } from "vitest";
 import { createDb, type OrcaDb } from "../src/db/index.js";
-import {
-  insertTask,
-  getTask,
-  updateTaskFields,
-} from "../src/db/queries.js";
+import { insertTask, getTask, updateTaskFields } from "../src/db/queries.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // Mock scheduler + runner so sync imports don't fail
@@ -52,13 +48,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -175,7 +167,6 @@ describe("DB schema - project_name column", () => {
     const task = getTask(db, id);
     expect(task!.projectName).toBe("New Name");
   });
-
 });
 
 // ===========================================================================
@@ -507,7 +498,6 @@ describe("LinearClient - project.name edge cases", () => {
   });
 });
 
-
 // ===========================================================================
 // 6. Conditional update logic edge cases
 // ===========================================================================
@@ -630,6 +620,4 @@ describe("Frontend sort comparator - project", () => {
     expect(sorted[2]!.projectName).toBe("Alpha");
     expect(sorted[3]!.projectName).toBe("Beta");
   });
-
 });
-
