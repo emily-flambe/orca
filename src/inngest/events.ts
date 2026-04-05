@@ -26,7 +26,7 @@ export type OrcaEvents = {
     data: {
       invocationId: number;
       linearIssueId: string;
-      phase: "implement" | "review";
+      phase: "implement";
       exitCode: number;
       summary: string | null;
       costUsd: number | null;

@@ -181,9 +181,7 @@ function mapLinearStateToLifecycle(
     case "unstarted":
       return { stage: "ready", phase: null };
     case "started":
-      return /review/i.test(stateName)
-        ? { stage: "active", phase: "review" }
-        : { stage: "active", phase: "implement" };
+      return { stage: "active", phase: "implement" };
     case "completed":
       return { stage: "done", phase: null };
     case "canceled":
@@ -352,9 +350,7 @@ function upsertTask(
       ...(resetCounters
         ? {
             retryCount: 0,
-            reviewCycleCount: 0,
             mergeAttemptCount: 0,
-            staleSessionRetryCount: 0,
           }
         : {}),
       ...(agentFieldsChanged
@@ -723,9 +719,7 @@ export function resolveConflict(
       lifecycleStage: "backlog" as LifecycleStage,
       currentPhase: null,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
     });
     log(
       `conflict resolved: task ${taskId} reset to backlog from ${task.lifecycleStage}/${task.currentPhase} (Linear moved to Backlog)`,
@@ -741,8 +735,7 @@ export function resolveConflict(
     // Stale-echo guard: only for phases with an active agent session (implement, review).
     // Other active phases (ci, deploy, fix) should proceed directly to reset.
     const hasRunningSession =
-      task.lifecycleStage === "active" &&
-      (task.currentPhase === "implement" || task.currentPhase === "review");
+      task.lifecycleStage === "active" && task.currentPhase === "implement";
     if (hasRunningSession) {
       const updatedAgo = Date.now() - new Date(task.updatedAt).getTime();
       if (updatedAgo < 120_000) {
@@ -757,9 +750,7 @@ export function resolveConflict(
       lifecycleStage: "ready" as LifecycleStage,
       currentPhase: null,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
     });
     log(
       `conflict resolved: task ${taskId} reset to ready from ${task.lifecycleStage}/${task.currentPhase} (Linear moved to Todo)`,
@@ -773,21 +764,6 @@ export function resolveConflict(
       reason: "linear_done_override",
     });
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
-    return;
-  }
-
-  // Conflict case 5: in_review, Linear Done → mark done (human override)
-  if (
-    task.lifecycleStage === "active" &&
-    task.currentPhase === "review" &&
-    linearStateType === "completed"
-  ) {
-    updateTaskStatus(db, taskId, "done", null, {
-      reason: "linear_done_override",
-    });
-    log(
-      `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`,
-    );
     return;
   }
 
@@ -841,7 +817,6 @@ export async function writeBackStatus(
   taskId: string,
   orcaTransition:
     | "running"
-    | "in_review"
     | "deploying"
     | "awaiting_ci"
     | "done"
@@ -861,7 +836,6 @@ export async function writeBackStatus(
     { targetType: string; matchReview?: boolean }
   > = {
     running: { targetType: "started", matchReview: false },
-    in_review: { targetType: "started", matchReview: true },
     done: { targetType: "completed" },
     changes_requested: { targetType: "started", matchReview: false },
     failed_permanent: { targetType: "canceled" },
@@ -918,7 +892,6 @@ export function logStateMapping(stateMap: WorkflowStateMap): void {
     matchReview?: boolean;
   }> = [
     { name: "running", targetType: "started", matchReview: false },
-    { name: "in_review", targetType: "started", matchReview: true },
     { name: "done", targetType: "completed" },
     { name: "changes_requested", targetType: "started", matchReview: false },
     { name: "failed_permanent", targetType: "canceled" },
@@ -950,12 +923,9 @@ export function logStateMapping(stateMap: WorkflowStateMap): void {
       startedStates.push(name);
     }
   }
-  if (
-    startedStates.length > 1 &&
-    !startedStates.some((name) => /review/i.test(name))
-  ) {
-    logger.warn(
-      'warning: multiple started states exist but none contain "review" — in_review write-back will use first started state; add ORCA_STATE_MAP to disambiguate',
+  if (startedStates.length > 1) {
+    logger.info(
+      `note: multiple started states exist (${startedStates.join(", ")}) — using first match for running write-back`,
     );
   }
 }

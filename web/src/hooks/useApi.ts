@@ -86,14 +86,12 @@ export function updateConfig(config: {
   agentConcurrencyCap?: number;
   tokenBudgetLimit?: number;
   model?: string;
-  reviewModel?: string;
 }): Promise<{
   ok: boolean;
   concurrencyCap: number;
   agentConcurrencyCap: number;
   tokenBudgetLimit: number;
   model: string;
-  reviewModel: string;
 }> {
   return fetchJson<{
     ok: boolean;
@@ -101,7 +99,6 @@ export function updateConfig(config: {
     agentConcurrencyCap: number;
     tokenBudgetLimit: number;
     model: string;
-    reviewModel: string;
   }>("/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

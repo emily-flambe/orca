@@ -17,7 +17,6 @@ import {
   getRunningInvocations,
   updateInvocation,
   updateTaskStatus,
-  updateTaskFields,
   clearSessionIds,
   insertSystemEvent,
   getInvocationsByTask,
@@ -179,11 +178,10 @@ program
     );
     for (const taskId of orphanedTaskIds) {
       clearSessionIds(db, taskId);
-      updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
     }
     if (orphanedTaskIds.size > 0) {
       logger.info(
-        `cleared session IDs and reset stale counts for ${orphanedTaskIds.size} task(s) with orphaned invocations`,
+        `cleared session IDs for ${orphanedTaskIds.size} task(s) with orphaned invocations`,
       );
     }
 
@@ -202,7 +200,6 @@ program
         updateTaskStatus(db, t.linearIssueId, "ready", {
           reason: "manual_cli_add",
         });
-        updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
         clearSessionIds(db, t.linearIssueId);
         recovered++;
       }
@@ -459,8 +456,7 @@ program
       const dispatchableTasks = getAllTasks(db).filter(
         (t) =>
           t.lifecycleStage === "ready" ||
-          (t.lifecycleStage === "active" &&
-            (t.currentPhase === "review" || t.currentPhase === "fix")),
+          (t.lifecycleStage === "active" && t.currentPhase === "fix"),
       );
       if (dispatchableTasks.length > 0) {
         for (const task of dispatchableTasks) {
@@ -595,7 +591,7 @@ program
         if (!deployInProgress) {
           clearSessionIds(db, inv.linearIssueId);
         }
-        updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
+        // staleSessionRetryCount removed in EMI-504
       }
 
       // 3. Send task/cancelled events to Inngest so orphaned workflow runs

@@ -14,8 +14,6 @@ import {
   insertInvocation,
   updateInvocation,
   updateTaskStatus,
-  updateTaskFields,
-  getTask,
   getAllTasks,
   getRunningInvocations,
   getInvocationsByTask,
@@ -39,13 +37,7 @@ function now(): string {
 function seedTask(
   db: OrcaDb,
   id: string,
-  status:
-    | "ready"
-    | "running"
-    | "failed"
-    | "in_review"
-    | "changes_requested" = "ready",
-  staleSessionRetryCount = 0,
+  status: "ready" | "running" | "failed" = "ready",
 ): void {
   const ts = now();
   insertTask(db, {
@@ -58,9 +50,6 @@ function seedTask(
     createdAt: ts,
     updatedAt: ts,
   });
-  if (staleSessionRetryCount > 0) {
-    updateTaskFields(db, id, { staleSessionRetryCount });
-  }
 }
 
 /** Simulate what the startup orphan recovery logic does (mirrors src/cli/index.ts). */
@@ -84,7 +73,6 @@ function runStartupRecovery(db: OrcaDb): {
   );
   for (const taskId of orphanedTaskIds) {
     clearSessionIds(db, taskId);
-    updateTaskFields(db, taskId, { staleSessionRetryCount: 0 });
   }
 
   // Step 3: Recover stuck tasks (running with no running invocation)
@@ -99,7 +87,6 @@ function runStartupRecovery(db: OrcaDb): {
       !runningInvIssueIds.has(t.linearIssueId)
     ) {
       updateTaskStatus(db, t.linearIssueId, "ready");
-      updateTaskFields(db, t.linearIssueId, { staleSessionRetryCount: 0 });
       clearSessionIds(db, t.linearIssueId);
       recovered++;
     }
@@ -119,7 +106,6 @@ function runShutdownHandler(db: OrcaDb): void {
     });
     updateTaskStatus(db, inv.linearIssueId, "ready");
     clearSessionIds(db, inv.linearIssueId);
-    updateTaskFields(db, inv.linearIssueId, { staleSessionRetryCount: 0 });
   }
 }
 
@@ -261,22 +247,6 @@ describe("startup recovery — orphaned invocations", () => {
     expect(inv?.sessionId).toBeNull();
   });
 
-  test("staleSessionRetryCount is reset for task with orphaned invocation", () => {
-    seedTask(db, "TASK-STALE", "running", 2);
-    insertInvocation(db, {
-      linearIssueId: "TASK-STALE",
-      startedAt: now(),
-      status: "running",
-      phase: "implement",
-      sessionId: "stale-session",
-    });
-
-    runStartupRecovery(db);
-
-    const task = getTask(db, "TASK-STALE");
-    expect(task?.staleSessionRetryCount).toBe(0);
-  });
-
   test("previously-completed implement invocations also get session ID cleared", () => {
     // This is the core bug scenario: task had a completed implement invocation
     // (session was used for fix-phase resume) and then crashed while in review.
@@ -292,13 +262,13 @@ describe("startup recovery — orphaned invocations", () => {
       sessionId: "impl-session-abc",
     });
 
-    // Running review invocation (the orphan)
+    // Running implement invocation (the orphan)
     insertInvocation(db, {
       linearIssueId: "TASK-FIX-RESUME",
       startedAt: now(),
       status: "running",
-      phase: "review",
-      sessionId: "review-session-xyz",
+      phase: "implement",
+      sessionId: "second-session-xyz",
     });
 
     runStartupRecovery(db);
@@ -330,7 +300,7 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
   });
 
   test("session ID persists after graceful shutdown and is not cleared on next startup", () => {
-    seedTask(db, "TASK-GRACEFUL", "running", 1);
+    seedTask(db, "TASK-GRACEFUL", "running");
 
     // Session is running at shutdown time
     const invId = insertInvocation(db, {
@@ -365,32 +335,7 @@ describe("BUG: graceful shutdown leaves stale session IDs", () => {
     expect(invAfterStartup?.sessionId).toBeNull();
   });
 
-  test("staleSessionRetryCount persists after graceful shutdown into next startup", () => {
-    seedTask(db, "TASK-GRACEFUL-STALE", "running", 2);
-
-    insertInvocation(db, {
-      linearIssueId: "TASK-GRACEFUL-STALE",
-      startedAt: now(),
-      status: "running",
-      phase: "implement",
-      sessionId: "session-with-prior-stale-count",
-    });
-
-    // Graceful shutdown: marks invocation failed, resets task to "ready",
-    // but does NOT reset staleSessionRetryCount
-    runShutdownHandler(db);
-
-    // Verify shutdown resets the stale count (fix: shutdown handler now calls updateTaskFields)
-    const taskAfterShutdown = getTask(db, "TASK-GRACEFUL-STALE");
-    expect(taskAfterShutdown?.staleSessionRetryCount).toBe(0);
-
-    // Next startup: no running invocations found, stale count already reset
-    const { orphanCount } = runStartupRecovery(db);
-    expect(orphanCount).toBe(0);
-
-    const taskAfterStartup = getTask(db, "TASK-GRACEFUL-STALE");
-    expect(taskAfterStartup?.staleSessionRetryCount).toBe(0);
-  });
+  // staleSessionRetryCount test removed in EMI-504
 });
 
 // ---------------------------------------------------------------------------
@@ -464,42 +409,39 @@ describe("startup recovery — correct behavior", () => {
     expect(inv?.sessionId).toBeNull();
   });
 
-  test("tasks in in_review with running invocation get session cleared and stale count reset", () => {
-    seedTask(db, "TASK-IN-REVIEW", "in_review", 3);
+  test("tasks with running invocation get session cleared", () => {
+    seedTask(db, "TASK-ACTIVE", "running");
 
-    // Completed implement invocation (source of fix-phase session)
+    // Completed implement invocation
     const implInvId = insertInvocation(db, {
-      linearIssueId: "TASK-IN-REVIEW",
+      linearIssueId: "TASK-ACTIVE",
       startedAt: now(),
       status: "completed",
       phase: "implement",
       sessionId: "implement-session-abc",
     });
 
-    // Orphaned running review invocation
+    // Orphaned running implement invocation
     insertInvocation(db, {
-      linearIssueId: "TASK-IN-REVIEW",
+      linearIssueId: "TASK-ACTIVE",
       startedAt: now(),
       status: "running",
-      phase: "review",
+      phase: "implement",
     });
 
     const { orphanCount } = runStartupRecovery(db);
     expect(orphanCount).toBe(1);
 
     // Implement session ID should be cleared
-    const implInv = getInvocationsByTask(db, "TASK-IN-REVIEW").find(
+    const implInv = getInvocationsByTask(db, "TASK-ACTIVE").find(
       (i) => i.id === implInvId,
     );
     expect(implInv?.sessionId).toBeNull();
-
-    // Stale count should be reset
-    expect(getTask(db, "TASK-IN-REVIEW")?.staleSessionRetryCount).toBe(0);
   });
 
   test("multiple tasks with orphaned invocations all get cleared", () => {
     for (let i = 1; i <= 3; i++) {
-      seedTask(db, `TASK-MULTI-${i}`, "running", i);
+      seedTask(db, `TASK-MULTI-${i}`, "running");
       insertInvocation(db, {
         linearIssueId: `TASK-MULTI-${i}`,
         startedAt: now(),
@@ -513,8 +455,6 @@ describe("startup recovery — correct behavior", () => {
     expect(orphanCount).toBe(3);
 
     for (let i = 1; i <= 3; i++) {
-      const task = getTask(db, `TASK-MULTI-${i}`);
-      expect(task?.staleSessionRetryCount).toBe(0);
       // Session IDs should be cleared
       expect(
         getLastCompletedImplementInvocation(db, `TASK-MULTI-${i}`),

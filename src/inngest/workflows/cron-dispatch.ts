@@ -192,9 +192,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
               updatedAt: now,
               priority: 0,
               retryCount: 0,
-              reviewCycleCount: 0,
               mergeAttemptCount: 0,
-              staleSessionRetryCount: 0,
               isParent: 0,
             });
 

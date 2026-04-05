@@ -75,7 +75,6 @@ describe("Object-only call", () => {
       expect(entry.taskId).toBe("abc");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -120,7 +119,6 @@ describe("child() immutability", () => {
       expect(childEntry.childField).toBe("child-value");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -169,7 +167,6 @@ describe("JSON mode output structure", () => {
       expect(entry.message).toBe("task dispatched");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -182,9 +179,11 @@ describe("log level routing to correct console method", () => {
       const warnCaptured: string[] = [];
       const logCaptured: string[] = [];
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation((...args) => {
-        warnCaptured.push(args[0] as string);
-      });
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation((...args) => {
+          warnCaptured.push(args[0] as string);
+        });
       const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
         logCaptured.push(args[0] as string);
       });
@@ -224,7 +223,6 @@ describe("log level routing to correct console method", () => {
       expect(logCaptured.length).toBe(0);
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -272,7 +270,6 @@ describe("human-readable format", () => {
       expect(captured[0]).toContain("test msg");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -325,7 +322,6 @@ describe("LOG_LEVEL filtering", () => {
       expect(entry.level).toBe("debug");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -373,7 +369,6 @@ describe("multiple args in message", () => {
       expect(entry.message).toBe("part1 part2 part3");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -426,5 +421,4 @@ describe("reserved key protection", () => {
       expect(entry.level).toBe("info");
     });
   });
-
 });

@@ -163,7 +163,7 @@ const mockFindPrForBranch = vi.mocked(findPrForBranch);
 const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
 const mockGetInvocation = vi.mocked(getInvocation);
 const mockInsertSystemEvent = vi.mocked(insertSystemEvent);
-const mockResetStaleSessionRetryCount = vi.mocked(resetStaleSessionRetryCount);
+const _mockResetStaleSessionRetryCount = vi.mocked(resetStaleSessionRetryCount);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockCreateWorktree = vi.mocked(createWorktree);
@@ -175,14 +175,10 @@ const mockCreateWorktree = vi.mocked(createWorktree);
 const mockConfig = {
   budgetWindowHours: 4,
   maxRetries: 3,
-  maxReviewCycles: 3,
   model: "claude-sonnet-4-5",
-  reviewModel: "claude-haiku-4-5",
   defaultMaxTurns: 200,
-  reviewMaxTurns: 50,
   claudePath: "claude",
   implementSystemPrompt: "",
-  reviewSystemPrompt: "",
   fixSystemPrompt: "",
   disallowedTools: "",
   maxDeployPollAttempts: 60,
@@ -229,7 +225,6 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     prBranchName: null,
     prNumber: null,
     retryCount: 0,
-    reviewCycleCount: 0,
     fixReason: null,
     mergeAttemptCount: 0,
     ...overrides,
@@ -404,7 +399,7 @@ describe("task-lifecycle workflow", () => {
     );
   });
 
-  test("implement succeeds, PR found → transitions to in_review", async () => {
+  test("implement succeeds, PR found → transitions to awaiting_ci", async () => {
     const task = makeTask();
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
@@ -426,17 +421,11 @@ describe("task-lifecycle workflow", () => {
       step,
     });
 
-    // After Gate 2 passes with PR found, the workflow continues to review loop.
-    // With no review event it returns timed_out or awaiting_ci based on flow.
-    // The in_review transition happens inside the step.run, then it continues to review.
-    expect(mockResetStaleSessionRetryCount).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-    );
+    // After Gate 2 passes with PR found, transitions directly to awaiting_ci (review removed)
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
-      "in_review",
+      "awaiting_ci",
       { reason: "pr_found" },
     );
   });
@@ -513,228 +502,8 @@ describe("task-lifecycle workflow", () => {
     expect(mockIncrementRetryCount).not.toHaveBeenCalled();
   });
 
-  test("review returns APPROVED → transitions to awaiting_ci", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-
-    // implement invocation
-    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // for Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // for review result
-
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-    });
-
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent],
-      ]),
-    );
-
-    const result = await capturedHandler({
-      event: makeTaskReadyEvent(),
-      step,
-    });
-
-    expect(result).toMatchObject({ outcome: "awaiting_ci" });
-    // Stale count should be reset on the implement→in_review transition
-    // AND on the review approved→awaiting_ci transition
-    expect(mockResetStaleSessionRetryCount).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-    );
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "awaiting_ci",
-      { reason: "review_approved" },
-    );
-  });
-
-  test("review returns CHANGES_REQUESTED → spawns fix session, next review cycle returns awaiting_ci", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-
-    // invocation IDs: implement=1, review=2, fix=3, review2=4
-    mockInsertInvocation
-      .mockReturnValueOnce(1)
-      .mockReturnValueOnce(2)
-      .mockReturnValueOnce(3)
-      .mockReturnValueOnce(4);
-
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review cycle 0 result
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 0
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review cycle 1 result
-
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent0 = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-    });
-    const fixEvent0 = makeSessionCompletedEvent({ invocationId: 3 });
-    const reviewEvent1 = makeSessionCompletedEvent({
-      invocationId: 4,
-      phase: "review",
-    });
-
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent0],
-        ["await-fix-0", fixEvent0],
-        ["await-review-1", reviewEvent1],
-      ]),
-    );
-
-    const result = await capturedHandler({
-      event: makeTaskReadyEvent(),
-      step,
-    });
-
-    expect(result).toMatchObject({ outcome: "awaiting_ci" });
-    // changes_requested transition should have been called (in fix spawn step)
-    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
-      "changes_requested",
-      { reason: "review_changes_requested" },
-    );
-  });
-
-  test("review times out → returns timed_out", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }); // Gate 2
-
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-
-    // review times out → null
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", null],
-      ]),
-    );
-
-    const result = await capturedHandler({
-      event: makeTaskReadyEvent(),
-      step,
-    });
-
-    expect(result).toMatchObject({ outcome: "timed_out" });
-  });
-
-  test("review exhausts all cycles → in_review_needs_human", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-
-    // 1 implement + 3 reviews + 2 fix sessions (cycles 0,1) + cycle 2 returns no_marker → needs_human
-    // invocations: implement=1, review0=2, fix0=3, review1=4, fix1=5, review2=6
-    mockInsertInvocation
-      .mockReturnValueOnce(1)
-      .mockReturnValueOnce(2)
-      .mockReturnValueOnce(3)
-      .mockReturnValueOnce(4)
-      .mockReturnValueOnce(5)
-      .mockReturnValueOnce(6);
-
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0 result
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 0
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 1 result
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix 1
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 2
-      .mockReturnValueOnce({ outputSummary: "" }); // review 2 - no marker
-
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent0 = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-    });
-    const fixEvent0 = makeSessionCompletedEvent({ invocationId: 3 });
-    const reviewEvent1 = makeSessionCompletedEvent({
-      invocationId: 4,
-      phase: "review",
-    });
-    const fixEvent1 = makeSessionCompletedEvent({ invocationId: 5 });
-    const reviewEvent2 = makeSessionCompletedEvent({
-      invocationId: 6,
-      phase: "review",
-    });
-
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent0],
-        ["await-fix-0", fixEvent0],
-        ["await-review-1", reviewEvent1],
-        ["await-fix-1", fixEvent1],
-        ["await-review-2", reviewEvent2],
-      ]),
-    );
-
-    const result = await capturedHandler({
-      event: makeTaskReadyEvent(),
-      step,
-    });
-
-    expect(result).toMatchObject({ outcome: "in_review_needs_human" });
-  });
+  // Review tests (APPROVED, CHANGES_REQUESTED, timeout, exhausts all cycles)
+  // removed in EMI-504 — review phase no longer exists.
 
   test("workflow is configured to cancel on task/cancelled event", () => {
     // capturedFunctionConfig was saved when the module was loaded and
@@ -835,118 +604,7 @@ describe("task-lifecycle workflow", () => {
     );
   });
 
-  test("review success → invocation finalized with completed status", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review result
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-      costUsd: 0.003,
-      inputTokens: 200,
-      outputTokens: 100,
-    });
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent],
-      ]),
-    );
-
-    await capturedHandler({ event: makeTaskReadyEvent(), step });
-
-    expect(mockUpdateInvocation).toHaveBeenCalledWith(
-      mockDb,
-      2,
-      expect.objectContaining({
-        status: "completed",
-        costUsd: 0.003,
-        inputTokens: 200,
-        outputTokens: 100,
-        endedAt: expect.any(String),
-      }),
-    );
-  });
-
-  test("fix success → invocation finalized with completed status", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-    mockInsertInvocation
-      .mockReturnValueOnce(1) // implement
-      .mockReturnValueOnce(2) // review
-      .mockReturnValueOnce(3) // fix
-      .mockReturnValueOnce(4); // review cycle 1
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED" }) // review 0 result
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after fix
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 1
-      .mockReturnValueOnce({ outputSummary: "REVIEW_RESULT:APPROVED" }); // review 1 result
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent0 = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-    });
-    const fixEvent = makeSessionCompletedEvent({
-      invocationId: 3,
-      costUsd: 0.04,
-      inputTokens: 400,
-      outputTokens: 200,
-    });
-    const reviewEvent1 = makeSessionCompletedEvent({
-      invocationId: 4,
-      phase: "review",
-    });
-
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent0],
-        ["await-fix-0", fixEvent],
-        ["await-review-1", reviewEvent1],
-      ]),
-    );
-
-    await capturedHandler({ event: makeTaskReadyEvent(), step });
-
-    expect(mockUpdateInvocation).toHaveBeenCalledWith(
-      mockDb,
-      3,
-      expect.objectContaining({
-        status: "completed",
-        costUsd: 0.04,
-        inputTokens: 400,
-        outputTokens: 200,
-        endedAt: expect.any(String),
-      }),
-    );
-  });
+  // review/fix invocation finalization tests removed in EMI-504
 
   test("implement timeout → killSession called on the active handle", async () => {
     const task = makeTask();
@@ -976,53 +634,7 @@ describe("task-lifecycle workflow", () => {
     );
   });
 
-  test("review timeout → killSession called on the active handle", async () => {
-    const task = makeTask();
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-    // invocationId 1 for implement, 2 for review
-    mockInsertInvocation.mockReturnValueOnce(1).mockReturnValueOnce(2);
-    mockGetInvocation.mockReturnValue({ outputSummary: "" });
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const reviewHandle = {
-      done: new Promise(() => {}),
-      sessionId: "sess-review-timeout",
-      process: { exitCode: null, killed: false, pid: 5678 } as never,
-      kill: vi.fn(),
-    };
-    // First spawn (implement) returns a normal handle, second (review) returns reviewHandle
-    mockSpawnSession
-      .mockReturnValueOnce({
-        done: new Promise(() => {}),
-        sessionId: "sess-implement",
-        process: { exitCode: null, killed: false, pid: 1111 } as never,
-        kill: vi.fn(),
-      })
-      .mockReturnValueOnce(reviewHandle);
-    mockKillSession.mockResolvedValue(undefined as never);
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    // implement succeeds, review times out
-    const step = createStepPreserveHandlesOnTimeout(
-      new Map([["await-implement", implementEvent]]),
-    );
-
-    await capturedHandler({ event: makeTaskReadyEvent(), step });
-
-    expect(mockKillSession).toHaveBeenCalledWith(reviewHandle);
-    expect(mockUpdateInvocation).toHaveBeenCalledWith(
-      mockDb,
-      2,
-      expect.objectContaining({ status: "timed_out" }),
-    );
-  });
+  // review timeout killSession test removed in EMI-504
 });
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +645,9 @@ describe("Guard A — stale workflow abort", () => {
   test("canceled task → workflow aborts with aborted_stale", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim (emitTaskUpdated)
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: getTask after claim (emitTaskUpdated)
       .mockReturnValueOnce(makeTask({ lifecycleStage: "canceled" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1053,7 +667,9 @@ describe("Guard A — stale workflow abort", () => {
   test("done task → workflow aborts", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: getTask after claim
       .mockReturnValueOnce(makeTask({ lifecycleStage: "done" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1073,7 +689,9 @@ describe("Guard A — stale workflow abort", () => {
   test("deleted task (null) → workflow aborts", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: getTask after claim
       .mockReturnValueOnce(null); // guard-a-implement: task deleted
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1094,9 +712,15 @@ describe("Guard A — stale workflow abort", () => {
     // Guard A returns non-terminal status, so workflow continues to start-implement
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
-      .mockReturnValue(makeTask({ lifecycleStage: "active", currentPhase: "implement" })); // all subsequent calls
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: getTask after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // guard-a-implement
+      .mockReturnValue(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ); // all subsequent calls
     mockClaimTaskForDispatch.mockReturnValue(true);
     mockInsertInvocation.mockReturnValue(1);
 
@@ -1116,11 +740,16 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with green PR → rescued to awaiting_ci", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          lifecycleStage: "active", currentPhase: "implement",
+          lifecycleStage: "active",
+          currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1169,11 +798,16 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with failing PR → falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          lifecycleStage: "active", currentPhase: "implement",
+          lifecycleStage: "active",
+          currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1214,11 +848,16 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with no PR → falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          lifecycleStage: "active", currentPhase: "implement",
+          lifecycleStage: "active",
+          currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1252,11 +891,16 @@ describe("Guard B — orphaned green PR recovery", () => {
   test("gh CLI error → try/catch catches, falls through to normal failure", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // claim-task: after claim
+      .mockReturnValueOnce(
+        makeTask({ lifecycleStage: "active", currentPhase: "implement" }),
+      ) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          lifecycleStage: "active", currentPhase: "implement",
+          lifecycleStage: "active",
+          currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),

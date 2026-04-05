@@ -25,9 +25,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 async function importBuildOrcaMcpServers() {
   vi.resetModules();
-  const mod = await import(
-    "../src/inngest/workflows/task-lifecycle.js"
-  );
+  const mod = await import("../src/inngest/workflows/task-lifecycle.js");
   return mod.buildOrcaMcpServers;
 }
 
@@ -40,9 +38,7 @@ function baseConfig(overrides: Record<string, unknown> = {}) {
 }
 
 // Placeholder — replaced per-test after import
-let buildOrcaMcpServers: Awaited<
-  ReturnType<typeof importBuildOrcaMcpServers>
->;
+let buildOrcaMcpServers: Awaited<ReturnType<typeof importBuildOrcaMcpServers>>;
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -64,8 +60,8 @@ afterEach(() => {
 describe("buildOrcaMcpServers", () => {
   describe("orca MCP server", () => {
     test("included when dist/mcp-server.js exists and dbPath is set", () => {
-      mockExistsSync.mockImplementation((p: string) =>
-        p === join(process.cwd(), "dist", "mcp-server.js"),
+      mockExistsSync.mockImplementation(
+        (p: string) => p === join(process.cwd(), "dist", "mcp-server.js"),
       );
       const result = buildOrcaMcpServers(baseConfig({ dbPath: "./orca.db" }));
       expect(result).toBeDefined();
@@ -127,8 +123,8 @@ describe("buildOrcaMcpServers", () => {
 
   describe("orca and github servers coexist", () => {
     test("both servers present when both conditions are met", () => {
-      mockExistsSync.mockImplementation((p: string) =>
-        p === join(process.cwd(), "dist", "mcp-server.js"),
+      mockExistsSync.mockImplementation(
+        (p: string) => p === join(process.cwd(), "dist", "mcp-server.js"),
       );
       const result = buildOrcaMcpServers(
         baseConfig({ dbPath: "./orca.db", githubMcpPat: "ghp_tok" }),

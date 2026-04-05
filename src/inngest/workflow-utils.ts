@@ -3,8 +3,7 @@
  * Extracted from task-lifecycle.ts to avoid duplication.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { git, getDefaultBranch } from "../git.js";
 import { updateTaskStatus, getTask } from "../db/queries.js";
 import { emitTaskUpdated } from "../events.js";
@@ -41,48 +40,6 @@ export const alreadyDonePatterns: string[] = [
   "no changes needed",
   "acceptance criteria",
 ];
-
-// ---------------------------------------------------------------------------
-// extractMarkerFromLog — scan NDJSON session log for REVIEW_RESULT marker
-// ---------------------------------------------------------------------------
-
-/**
- * Scans the NDJSON session log for a REVIEW_RESULT marker in assistant messages.
- *
- * Returns "APPROVED", "CHANGES_REQUESTED", or null if no marker is found.
- */
-export async function extractMarkerFromLog(
-  invocationId: number,
-): Promise<"APPROVED" | "CHANGES_REQUESTED" | null> {
-  try {
-    const logPath = join(process.cwd(), "logs", `${invocationId}.ndjson`);
-    if (!existsSync(logPath)) return null;
-    const lines = readFileSync(logPath, "utf8").split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const msg = JSON.parse(line) as Record<string, unknown>;
-        if (msg.type !== "assistant") continue;
-        const message = msg.message as Record<string, unknown> | undefined;
-        const content = message?.content;
-        if (!Array.isArray(content)) continue;
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === "text" && typeof b.text === "string") {
-            if (b.text.includes("REVIEW_RESULT:APPROVED")) return "APPROVED";
-            if (b.text.includes("REVIEW_RESULT:CHANGES_REQUESTED"))
-              return "CHANGES_REQUESTED";
-          }
-        }
-      } catch {
-        /* malformed line — skip */
-      }
-    }
-  } catch {
-    /* log unreadable — skip */
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // worktreeHasNoChanges — check if worktree has no commits ahead of origin's default branch

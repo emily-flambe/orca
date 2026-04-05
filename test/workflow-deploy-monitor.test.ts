@@ -40,7 +40,6 @@ vi.mock("../src/inngest/client.js", () => ({
 const mockDb = {} as never;
 
 const mockConfig = {
-  maxReviewCycles: 3,
   maxDeployPollAttempts: 60,
   deployStrategy: "github_actions" as const,
   maxRetries: 3,
@@ -154,13 +153,13 @@ function makeDeployingEvent(overrides: Record<string, unknown> = {}) {
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     linearIssueId: "TEST-1",
-    lifecycleStage: "active", currentPhase: "deploy",
+    lifecycleStage: "active",
+    currentPhase: "deploy",
     lifecycleStage: "active",
     currentPhase: "deploy",
     repoPath: "/repo",
     prNumber: 42,
     prBranchName: "orca/TEST-1-inv-1",
-    reviewCycleCount: 0,
     mergeAttemptCount: 0,
     ...overrides,
   };

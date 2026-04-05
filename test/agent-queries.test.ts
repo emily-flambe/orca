@@ -98,7 +98,6 @@ describe("insertAgent / getAgent", () => {
     expect(agent.nextRunAt).toBeNull();
     expect(agent.lastRunStatus).toBeNull();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -161,7 +160,6 @@ describe("updateAgent", () => {
       new Date(before).getTime(),
     );
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -600,7 +598,6 @@ describe("updateAgentMemory", () => {
       new Date(before).getTime(),
     );
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -668,7 +665,6 @@ describe("getAgentMemoryCount", () => {
     });
     expect(getAgentMemoryCount(db, "test-agent")).toBe(2);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -713,7 +709,6 @@ describe("deleteAllAgentMemories", () => {
     deleteAllAgentMemories(db, "agent-a");
     expect(getAgentMemoryCount(db, "agent-b")).toBe(1);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -809,7 +804,6 @@ describe("pruneAgentMemories", () => {
     expect(deleted).toBe(2);
     expect(getAgentMemoryCount(db, "test-agent")).toBe(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -837,9 +831,7 @@ describe("getTasksByAgent", () => {
       updatedAt: ts,
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     const tasks = getTasksByAgent(db, "test-agent");
@@ -861,9 +853,7 @@ describe("getTasksByAgent", () => {
       updatedAt: ts,
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     expect(getTasksByAgent(db, "test-agent")).toHaveLength(0);

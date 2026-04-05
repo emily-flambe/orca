@@ -196,64 +196,7 @@ describe("NDJSON stream parsing", () => {
     expect(result.outputSummary).toBe("x".repeat(500));
   });
 
-  test("REVIEW_RESULT marker beyond 500 chars gets prepended to outputSummary", async () => {
-    // Put REVIEW_RESULT:APPROVED after position 500 so it won't be in the truncated part
-    const prefix = "y".repeat(510);
-    const resultText = prefix + " REVIEW_RESULT:APPROVED";
-    const script = join(tmpDir, "review-marker.js");
-    writeFileSync(
-      script,
-      makeScript([
-        `process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:${JSON.stringify(resultText)}}) + "\\n");`,
-      ]),
-    );
-
-    const id = nextInvocationId();
-    const handle = spawnSession({
-      agentPrompt: "test",
-      worktreePath: tmpDir,
-      maxTurns: 5,
-      invocationId: id,
-      projectRoot: tmpDir,
-      claudePath: process.execPath,
-      claudeArgs: [script],
-    });
-
-    const result = await handle.done;
-    expect(result.outputSummary).toContain("REVIEW_RESULT:APPROVED");
-    // Marker should appear at the start (prepended)
-    expect(result.outputSummary.startsWith("REVIEW_RESULT:APPROVED")).toBe(
-      true,
-    );
-  });
-
-  test("REVIEW_RESULT marker within first 500 chars is NOT prepended again", async () => {
-    const resultText = "REVIEW_RESULT:APPROVED short result";
-    const script = join(tmpDir, "review-inline.js");
-    writeFileSync(
-      script,
-      makeScript([
-        `process.stdout.write(JSON.stringify({type:"result",subtype:"success",total_cost_usd:0,num_turns:1,result:${JSON.stringify(resultText)}}) + "\\n");`,
-      ]),
-    );
-
-    const id = nextInvocationId();
-    const handle = spawnSession({
-      agentPrompt: "test",
-      worktreePath: tmpDir,
-      maxTurns: 5,
-      invocationId: id,
-      projectRoot: tmpDir,
-      claudePath: process.execPath,
-      claudeArgs: [script],
-    });
-
-    const result = await handle.done;
-    // Should appear exactly once, not duplicated
-    const count = (result.outputSummary.match(/REVIEW_RESULT:APPROVED/g) ?? [])
-      .length;
-    expect(count).toBe(1);
-  });
+  // REVIEW_RESULT marker tests removed in EMI-504 (review phase removal)
 
   test("PR URL beyond 500 chars gets prepended to outputSummary", async () => {
     const prefix = "z".repeat(510);

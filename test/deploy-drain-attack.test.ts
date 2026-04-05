@@ -12,8 +12,7 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 // ---------------------------------------------------------------------------
 
 vi.mock("node:child_process", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("node:child_process")>();
+  const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
     execFileSync: vi.fn(),
@@ -349,9 +348,9 @@ describe("reconciler re-dispatch-ready-tasks gap during drain", () => {
 
     const strandedTask = {
       linearIssueId: "TEST-99",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       retryCount: 0,
-      staleSessionRetryCount: 0,
       updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10 min old
       repoPath: "/repo",
       priority: 0,
@@ -362,9 +361,8 @@ describe("reconciler re-dispatch-ready-tasks gap during drain", () => {
 
     vi.mocked(getDispatchableTasks).mockReturnValue([strandedTask] as never);
     vi.mocked(getRunningInvocations).mockReturnValue([]);
-    const { incrementStaleSessionRetryCount } = await import(
-      "../src/db/queries.js"
-    );
+    const { incrementStaleSessionRetryCount } =
+      await import("../src/db/queries.js");
     vi.mocked(incrementStaleSessionRetryCount).mockReturnValue(1);
 
     const mockConfig = {

@@ -352,7 +352,8 @@ describe("orca status", () => {
       { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
       { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
       {
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
         lifecycleStage: "active",
         currentPhase: "implement",
       },
@@ -367,8 +368,16 @@ describe("orca status", () => {
   test("prints failed task count", async () => {
     mockGetRunningInvocations.mockReturnValue([]);
     mockGetAllTasks.mockReturnValue([
-      { lifecycleStage: "failed", lifecycleStage: "failed", currentPhase: null },
-      { lifecycleStage: "failed", lifecycleStage: "failed", currentPhase: null },
+      {
+        lifecycleStage: "failed",
+        lifecycleStage: "failed",
+        currentPhase: null,
+      },
+      {
+        lifecycleStage: "failed",
+        lifecycleStage: "failed",
+        currentPhase: null,
+      },
       { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
     ]);
 

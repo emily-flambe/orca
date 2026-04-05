@@ -46,13 +46,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -325,7 +321,8 @@ describe("evaluateParentStatuses", () => {
     seedTask(db, {
       linearIssueId: "PARENT",
       isParent: 1,
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedTask(db, {
       linearIssueId: "CHILD-A",
@@ -352,11 +349,16 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("parent transitions to running when any child is active", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
     seedTask(db, {
       linearIssueId: "CHILD-A",
       parentIdentifier: "PARENT",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedTask(db, {
       linearIssueId: "CHILD-B",
@@ -379,7 +381,8 @@ describe("evaluateParentStatuses", () => {
     seedTask(db, {
       linearIssueId: "PARENT",
       isParent: 1,
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedTask(db, {
       linearIssueId: "CHILD-A",
@@ -389,7 +392,8 @@ describe("evaluateParentStatuses", () => {
     seedTask(db, {
       linearIssueId: "CHILD-B",
       parentIdentifier: "PARENT",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
     });
 
     const client = mockClient();
@@ -401,7 +405,11 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("parent with no children is skipped", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
 
     const client = mockClient();
     await evaluateParentStatuses(db, client, stateMap);
@@ -412,18 +420,28 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("evaluates only specified parentIds when provided", async () => {
-    seedTask(db, { linearIssueId: "P-1", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "P-1",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
     seedTask(db, {
       linearIssueId: "C-1",
       parentIdentifier: "P-1",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
-    seedTask(db, { linearIssueId: "P-2", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "P-2",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
     seedTask(db, {
       linearIssueId: "C-2",
       parentIdentifier: "P-2",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
 
     const client = mockClient();
@@ -436,7 +454,11 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("parent already done is not updated again", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, lifecycleStage: "done" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      lifecycleStage: "done",
+    });
     seedTask(db, {
       linearIssueId: "CHILD-A",
       parentIdentifier: "PARENT",
@@ -450,11 +472,16 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("child in_review counts as active for parent", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
     seedTask(db, {
       linearIssueId: "CHILD-A",
       parentIdentifier: "PARENT",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
     });
 
     const client = mockClient();
@@ -464,11 +491,16 @@ describe("evaluateParentStatuses", () => {
   });
 
   test("child deploying counts as active for parent", async () => {
-    seedTask(db, { linearIssueId: "PARENT", isParent: 1, lifecycleStage: "ready" });
+    seedTask(db, {
+      linearIssueId: "PARENT",
+      isParent: 1,
+      lifecycleStage: "ready",
+    });
     seedTask(db, {
       linearIssueId: "CHILD-A",
       parentIdentifier: "PARENT",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const client = mockClient();

@@ -39,7 +39,6 @@ function seedTask(
   db: OrcaDb,
   overrides: {
     linearIssueId?: string;
-    
   } = {},
 ): string {
   const id = overrides.linearIssueId ?? `TEST-${Date.now().toString(36)}`;
@@ -90,7 +89,9 @@ function runReconciliationLoop(
   createCommentMock: ReturnType<typeof vi.fn>,
 ): number {
   const activeLinearStates = new Set(["In Progress", "In Review"]);
-  const failedTasks = getAllTasks(db).filter((t) => t.lifecycleStage === "failed");
+  const failedTasks = getAllTasks(db).filter(
+    (t) => t.lifecycleStage === "failed",
+  );
   const syncedIssueMap = new Map(
     syncedIssues.map((issue) => [issue.identifier, issue]),
   );
@@ -217,7 +218,11 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("non-failed tasks are not reconciled even if Linear shows active state", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-6", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, {
+      linearIssueId: "PROJ-6",
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     seedTask(db, { linearIssueId: "PROJ-7", lifecycleStage: "done" });
     seedTask(db, { linearIssueId: "PROJ-8", lifecycleStage: "ready" });
 

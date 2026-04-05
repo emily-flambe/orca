@@ -13,9 +13,6 @@ import {
   updateTaskPrBranch,
   updateTaskFixReason,
   incrementMergeAttemptCount,
-  incrementStaleSessionRetryCount,
-  resetStaleSessionRetryCount,
-  incrementReviewCycleCount,
   updateTaskCiInfo,
   updateTaskDeployInfo,
   getTask,
@@ -70,7 +67,6 @@ function seedTask(
     priority: number;
     retryCount: number;
     prBranchName: string | null;
-    reviewCycleCount: number;
     isParent: number;
     parentIdentifier: string | null;
     mergeCommitSha: string | null;
@@ -79,7 +75,6 @@ function seedTask(
     ciStartedAt: string | null;
     fixReason: string | null;
     mergeAttemptCount: number;
-    staleSessionRetryCount: number;
     doneAt: string | null;
     projectName: string | null;
     createdAt: string;
@@ -97,7 +92,6 @@ function seedTask(
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     prBranchName: overrides.prBranchName ?? null,
-    reviewCycleCount: overrides.reviewCycleCount ?? 0,
     isParent: overrides.isParent ?? 0,
     parentIdentifier: overrides.parentIdentifier ?? null,
     mergeCommitSha: overrides.mergeCommitSha ?? null,
@@ -106,7 +100,6 @@ function seedTask(
     ciStartedAt: overrides.ciStartedAt ?? null,
     fixReason: overrides.fixReason ?? null,
     mergeAttemptCount: overrides.mergeAttemptCount ?? 0,
-    staleSessionRetryCount: overrides.staleSessionRetryCount ?? 0,
     doneAt: overrides.doneAt ?? null,
     projectName: overrides.projectName ?? null,
     createdAt: overrides.createdAt ?? ts,
@@ -129,7 +122,7 @@ function seedInvocation(
     numTurns: number | null;
     outputSummary: string | null;
     logPath: string | null;
-    phase: "implement" | "review" | null;
+    phase: "implement" | null;
     model: string | null;
   }> = {},
 ): number {
@@ -170,7 +163,6 @@ describe("insertTask / getTask", () => {
       priority: 2,
       retryCount: 1,
       prBranchName: "feat/it-1",
-      reviewCycleCount: 1,
       isParent: 0,
       parentIdentifier: null,
       mergeCommitSha: "abc123",
@@ -179,7 +171,6 @@ describe("insertTask / getTask", () => {
       ciStartedAt: ts,
       fixReason: "broke something",
       mergeAttemptCount: 1,
-      staleSessionRetryCount: 0,
       doneAt: null,
       projectName: "my-project",
       createdAt: ts,
@@ -196,7 +187,6 @@ describe("insertTask / getTask", () => {
     expect(task!.priority).toBe(2);
     expect(task!.retryCount).toBe(1);
     expect(task!.prBranchName).toBe("feat/it-1");
-    expect(task!.reviewCycleCount).toBe(1);
     expect(task!.isParent).toBe(0);
     expect(task!.mergeCommitSha).toBe("abc123");
     expect(task!.prNumber).toBe(42);
@@ -235,7 +225,10 @@ describe("updateTaskStatus", () => {
   });
 
   test("sets doneAt when status becomes done", () => {
-    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     const before = Date.now();
     updateTaskStatus(db, id, "done");
     const after = Date.now();
@@ -273,7 +266,11 @@ describe("incrementRetryCount", () => {
   });
 
   test("increments retryCount by 1 and resets status to ready", () => {
-    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement", retryCount: 2 });
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "implement",
+      retryCount: 2,
+    });
     incrementRetryCount(db, id);
     const task = getTask(db, id)!;
     expect(task.retryCount).toBe(3);
@@ -282,7 +279,11 @@ describe("incrementRetryCount", () => {
   });
 
   test("supports custom reset status", () => {
-    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement", retryCount: 0 });
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "implement",
+      retryCount: 0,
+    });
     incrementRetryCount(db, id, "failed");
     const task = getTask(db, id)!;
     expect(task.lifecycleStage).toBe("failed");
@@ -304,10 +305,10 @@ describe("getDispatchableTasks", () => {
 
   test("returns only tasks with matching statuses", () => {
     seedTask(db, { lifecycleStage: "ready" });
-    seedTask(db, { lifecycleStage: "active", currentPhase: "review" });
+    seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
     seedTask(db, { lifecycleStage: "done" });
 
-    const dispatchable = getDispatchableTasks(db, ["ready", "in_review"]);
+    const dispatchable = getDispatchableTasks(db, ["ready", "running"]);
     expect(dispatchable).toHaveLength(2);
     expect(
       dispatchable.every((t) => ["ready", "active"].includes(t.lifecycleStage)),
@@ -381,58 +382,8 @@ describe("incrementMergeAttemptCount", () => {
   });
 });
 
-describe("incrementStaleSessionRetryCount", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("increments count and returns new value", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 0 });
-    const result = incrementStaleSessionRetryCount(db, id);
-    expect(result).toBe(1);
-    expect(getTask(db, id)!.staleSessionRetryCount).toBe(1);
-  });
-
-  test("returns correct count after multiple increments", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 2 });
-    const result = incrementStaleSessionRetryCount(db, id);
-    expect(result).toBe(3);
-  });
-});
-
-describe("resetStaleSessionRetryCount", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("resets count to 0 from a non-zero value", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 3 });
-    resetStaleSessionRetryCount(db, id);
-    expect(getTask(db, id)!.staleSessionRetryCount).toBe(0);
-  });
-
-  test("reset followed by increment gives count of 1", () => {
-    const id = seedTask(db, { staleSessionRetryCount: 5 });
-    resetStaleSessionRetryCount(db, id);
-    const result = incrementStaleSessionRetryCount(db, id);
-    expect(result).toBe(1);
-  });
-});
-
-describe("incrementReviewCycleCount", () => {
-  let db: OrcaDb;
-  beforeEach(() => {
-    db = freshDb();
-  });
-
-  test("increments reviewCycleCount", () => {
-    const id = seedTask(db, { reviewCycleCount: 1 });
-    incrementReviewCycleCount(db, id);
-    expect(getTask(db, id)!.reviewCycleCount).toBe(2);
-  });
-});
+// incrementStaleSessionRetryCount, resetStaleSessionRetryCount, incrementReviewCycleCount
+// removed in EMI-504 (review phase removal)
 
 describe("updateTaskCiInfo", () => {
   let db: OrcaDb;
@@ -529,7 +480,10 @@ describe("updateTaskFields", () => {
   });
 
   test("sets doneAt when lifecycleStage is updated to done", () => {
-    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     updateTaskFields(db, id, { lifecycleStage: "done" });
     const task = getTask(db, id)!;
     expect(task.doneAt).not.toBeNull();
@@ -688,16 +642,6 @@ describe("getLastCompletedImplementInvocation", () => {
       status: "completed",
       phase: "implement",
       sessionId: null,
-    });
-    expect(getLastCompletedImplementInvocation(db, t)).toBeUndefined();
-  });
-
-  test("ignores review phase invocations", () => {
-    const t = seedTask(db);
-    seedInvocation(db, t, {
-      status: "completed",
-      phase: "review",
-      sessionId: "review-session",
     });
     expect(getLastCompletedImplementInvocation(db, t)).toBeUndefined();
   });
@@ -976,7 +920,10 @@ describe("getRecentActivity", () => {
   });
 
   test("shows queued when latest invocation failed and task is running (being re-dispatched)", () => {
-    const t = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
+    const t = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);
@@ -1003,7 +950,7 @@ describe("getRecentActivity", () => {
     const t = seedTask(db);
     seedInvocation(db, t, {
       status: "completed",
-      phase: "review",
+      phase: "implement",
       costUsd: 1.23,
     });
 
@@ -1011,7 +958,7 @@ describe("getRecentActivity", () => {
     expect(entry).toBeDefined();
     expect(entry!.linearIssueId).toBe(t);
     expect(entry!.status).toBe("completed");
-    expect(entry!.phase).toBe("review");
+    expect(entry!.phase).toBe("implement");
     expect(entry!.costUsd).toBeCloseTo(1.23);
     expect(typeof entry!.id).toBe("number");
     expect(typeof entry!.startedAt).toBe("string");

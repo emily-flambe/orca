@@ -5,7 +5,7 @@
  * intermediate states with no active session or have been idle too long:
  *
  * - running with no active session handle → stranded, reset to ready/failed
- * - awaiting_ci/deploying/in_review older than 30 min → timed-out, reset to ready/failed
+ * - awaiting_ci/deploying older than 30 min → timed-out, reset to ready/failed
  */
 
 import { inngest } from "../client.js";
@@ -24,7 +24,7 @@ import {
   getDispatchableTasks,
   getFailedTasksWithRetriesRemaining,
   getRunningInvocations,
-  incrementStaleSessionRetryCount,
+  incrementRetryCount,
   insertSystemEvent,
   updateInvocation,
   updateTaskStatus,
@@ -120,13 +120,11 @@ export async function runReconciliation(deps: {
 
     logger.warn(`[${linearIssueId}] stranded task detected: ${reason}`);
 
-    // Increment stale retry count and decide outcome.
-    const newStaleCount = incrementStaleSessionRetryCount(db, linearIssueId);
+    // Increment retry count and decide outcome.
+    incrementRetryCount(db, linearIssueId);
     const maxRetries = config.maxRetries;
 
-    // Use total retryCount + stale count to decide if exhausted.
-    const totalAttempts = retryCount + newStaleCount;
-    const targetStatus = totalAttempts > maxRetries ? "failed" : "ready";
+    const targetStatus = retryCount + 1 > maxRetries ? "failed" : "ready";
 
     updateTaskStatus(db, linearIssueId, targetStatus, {
       reason: `reconciled_stranded: ${reason}`,
@@ -139,14 +137,13 @@ export async function runReconciliation(deps: {
         linearIssueId,
         previousStatus: currentPhase ?? lifecycleStage,
         targetStatus,
-        staleRetryCount: newStaleCount,
-        totalAttempts,
+        retryCount: retryCount + 1,
         reason,
       },
     });
 
     logger.info(
-      `[${linearIssueId}] reset to ${targetStatus} (staleCount=${newStaleCount}, totalAttempts=${totalAttempts})`,
+      `[${linearIssueId}] reset to ${targetStatus} (retryCount=${retryCount + 1})`,
     );
 
     // Re-emit task/ready for tasks that still have retries remaining.
@@ -254,18 +251,15 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       }
 
       for (const task of failedTasks) {
-        const totalAttempts = task.retryCount + task.staleSessionRetryCount;
         updateTaskStatus(db, task.linearIssueId, "ready", {
           reason: "auto_retry",
         });
         insertSystemEvent(db, {
           type: "auto_retry",
-          message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${totalAttempts}/${config.maxRetries})`,
+          message: `Auto-retrying failed task ${task.linearIssueId} (attempts: ${task.retryCount}/${config.maxRetries})`,
           metadata: {
             linearIssueId: task.linearIssueId,
             retryCount: task.retryCount,
-            staleSessionRetryCount: task.staleSessionRetryCount,
-            totalAttempts,
             maxRetries: config.maxRetries,
           },
         });
@@ -283,7 +277,7 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         });
 
         logger.info(
-          `[${task.linearIssueId}] auto-retrying failed task (${totalAttempts}/${config.maxRetries})`,
+          `[${task.linearIssueId}] auto-retrying failed task (${task.retryCount}/${config.maxRetries})`,
         );
       }
 

@@ -14,13 +14,9 @@ export interface OrcaConfig {
   claudePath: string;
   defaultMaxTurns: number;
   implementSystemPrompt: string;
-  reviewSystemPrompt: string;
   fixSystemPrompt: string;
-  maxReviewCycles: number;
-  reviewMaxTurns: number;
   disallowedTools: string;
   model: string;
-  reviewModel: string;
   deployStrategy: "none" | "github_actions";
   maxDeployPollAttempts: number;
   maxCiPollAttempts: number;
@@ -185,6 +181,13 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 
 **Skip subagents for trivial tasks** (single-line fixes, config changes, simple renames). Use your judgment.
 
+## Self-review before pushing
+After implementation is complete, review your own diff against the original requirements:
+1. Run \`git diff {{DEFAULT_BRANCH_REF}}...HEAD\` to see the full diff.
+2. Verify every requirement from the task description is addressed.
+3. Search the codebase (grep/glob) for related patterns you may have missed — duplicate logic, similar functions, shared constants, other call sites.
+4. If anything is missing or wrong, fix it now before pushing.
+
 ## Before pushing
 1. Run \`git fetch origin && git rebase {{DEFAULT_BRANCH_REF}}\` again to pick up any changes.
 2. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing — do not push with lint failures.
@@ -199,40 +202,6 @@ If you made fixes in Step 3, spawn the tester subagent once more to verify the f
 5. Do NOT merge the PR. Leave it for review.
 6. Include the Linear issue ID (from the task prompt) in the PR title.`;
 
-  const DEFAULT_REVIEW_SYSTEM_PROMPT = `You are an autonomous coding agent running in a headless CI-like environment. There is NO human operator. You MUST NOT:
-- Ask for confirmation, approval, or clarification
-- Describe what you "would" do or "plan" to do — just do it
-- Present options and wait for a choice
-- Say "let me know if..." or "shall I..." or "would you like me to..."
-- Use the EnterPlanMode or AskUserQuestion tools
-- Stop and wait for input at any point
-
-You are reviewing a pull request. The PR branch is checked out in your working directory.
-
-Steps:
-1. Read the full diff: git diff {{DEFAULT_BRANCH_REF}}...HEAD
-2. Extract requirements from the task description (shown above). List each requirement explicitly.
-3. For EACH requirement, verify:
-   a. The diff addresses it
-   b. Search the codebase (grep/glob) for related patterns the implementation may have missed — duplicate logic, similar functions, shared constants, other call sites, etc.
-   c. Mark it as covered or not covered
-4. Review the diff for correctness, bugs, and security issues
-5. Run tests if a test framework is configured (check package.json scripts)
-6. Decision:
-   - APPROVE only if ALL requirements are covered AND no issues found
-   - REQUEST CHANGES if any requirement is missing, any related pattern was not updated, or any issue was found
-
-IMPORTANT: A diff that looks correct for what it touches is NOT sufficient. You must verify completeness — check that ALL instances of the pattern were updated, not just the ones in the diff. Use grep to search for related code.
-
-If approving: output REVIEW_RESULT:APPROVED. Do NOT merge the PR — the orchestrator will merge it after CI checks pass.
-If requesting changes: post your feedback as a PR comment using \`gh pr comment <PR number> --body "CHANGES REQUESTED: <detailed description>"\`, then output REVIEW_RESULT:CHANGES_REQUESTED.
-
-CRITICAL: Your FINAL line of output MUST be exactly one of:
-  REVIEW_RESULT:APPROVED
-  REVIEW_RESULT:CHANGES_REQUESTED
-
-No other text, no explanation. This exact marker on its own line is required for the orchestrator to process your review. If you omit it, the review will be treated as failed and retried.`;
-
   const DEFAULT_FIX_SYSTEM_PROMPT = `You are an autonomous coding agent running in a headless CI-like environment. There is NO human operator. You MUST NOT:
 - Ask for confirmation, approval, or clarification
 - Describe what you "would" do or "plan" to do — just do it
@@ -241,16 +210,16 @@ No other text, no explanation. This exact marker on its own line is required for
 - Use the EnterPlanMode or AskUserQuestion tools
 - Stop and wait for input at any point
 
-You are fixing issues found during code review on an existing PR branch.
+CI checks failed on your PR branch. Fix the failures and push.
 
 Steps:
-1. Read review comments: gh pr view --comments
-2. Read the review feedback: gh pr reviews
-3. Fix all identified issues
-4. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing — do not push with lint failures.
-5. Run \`npx tsc --noEmit\` if this is a TypeScript project. Fix ALL type errors before pushing — do not push with type errors.
-6. Commit and push your changes to this branch
-7. Do NOT create a new PR — the existing PR will be updated automatically`;
+1. Read the CI failure output (check the PR checks or run the failing commands locally).
+2. Fix all issues causing CI to fail.
+3. Run \`npm run lint\` if a lint script exists. Fix ALL errors before pushing.
+4. Run \`npx tsc --noEmit\` if this is a TypeScript project. Fix ALL type errors before pushing.
+5. Run the project's test suite to verify fixes.
+6. Commit and push your changes to this branch.
+7. Do NOT create a new PR — the existing PR will be updated automatically.`;
 
   return {
     defaultCwd,
@@ -274,21 +243,14 @@ Steps:
       "ORCA_IMPLEMENT_SYSTEM_PROMPT",
       DEFAULT_IMPLEMENT_SYSTEM_PROMPT,
     ),
-    reviewSystemPrompt: readEnvOrDefault(
-      "ORCA_REVIEW_SYSTEM_PROMPT",
-      DEFAULT_REVIEW_SYSTEM_PROMPT,
-    ),
     fixSystemPrompt: readEnvOrDefault(
       "ORCA_FIX_SYSTEM_PROMPT",
       DEFAULT_FIX_SYSTEM_PROMPT,
     ),
-    maxReviewCycles: readIntOrDefault("ORCA_MAX_REVIEW_CYCLES", 10),
-    reviewMaxTurns: readIntOrDefault("ORCA_REVIEW_MAX_TURNS", 30),
     model: readEnvOrDefault(
       "ORCA_MODEL",
       readEnvOrDefault("ORCA_IMPLEMENT_MODEL", "sonnet"),
     ),
-    reviewModel: readEnvOrDefault("ORCA_REVIEW_MODEL", "haiku"),
     disallowedTools: readEnvOrDefault("ORCA_DISALLOWED_TOOLS", ""),
     deployStrategy: (() => {
       const val = readEnvOrDefault("ORCA_DEPLOY_STRATEGY", "none");

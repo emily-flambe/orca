@@ -17,8 +17,6 @@ function taskFilterKey(task: Task): string {
     switch (task.currentPhase) {
       case "implement":
         return "running";
-      case "review":
-        return "in_review";
       case "fix":
         return "changes_requested";
       case "ci":

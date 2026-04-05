@@ -20,18 +20,11 @@
 //  15. addTimestamps: multi-segment split on embedded newlines in JSON mode
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createLogger, initFileLogger } from "../src/logger.js";
-import {
-  runWithLogContext,
-  getLogContext,
-} from "../src/logger-context.js";
+import { runWithLogContext, getLogContext } from "../src/logger-context.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,9 +105,12 @@ describe("runWithLogContext: correlation IDs in JSON output", () => {
     withJsonMode(() => {
       const log = createLogger("test");
       const entries = captureJsonLog(() => {
-        runWithLogContext({ taskId: "task-abc", invocationId: "inv-123" }, () => {
-          log.info("inside context");
-        });
+        runWithLogContext(
+          { taskId: "task-abc", invocationId: "inv-123" },
+          () => {
+            log.info("inside context");
+          },
+        );
       });
 
       expect(entries.length).toBe(1);
@@ -148,7 +144,6 @@ describe("runWithLogContext: correlation IDs in JSON output", () => {
       expect(innerEntries[0]!.invocationId).toBe("inv-456");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -176,15 +171,21 @@ describe("nested runWithLogContext scoping", () => {
       let innerEntry: Record<string, unknown> | undefined;
       let restoredEntry: Record<string, unknown> | undefined;
 
-      runWithLogContext({ taskId: "outer-task", invocationId: "outer-inv" }, () => {
-        [outerEntry] = captureJsonLog(() => log.info("outer scope"));
+      runWithLogContext(
+        { taskId: "outer-task", invocationId: "outer-inv" },
+        () => {
+          [outerEntry] = captureJsonLog(() => log.info("outer scope"));
 
-        runWithLogContext({ taskId: "inner-task", invocationId: "inner-inv" }, () => {
-          [innerEntry] = captureJsonLog(() => log.info("inner scope"));
-        });
+          runWithLogContext(
+            { taskId: "inner-task", invocationId: "inner-inv" },
+            () => {
+              [innerEntry] = captureJsonLog(() => log.info("inner scope"));
+            },
+          );
 
-        [restoredEntry] = captureJsonLog(() => log.info("back in outer"));
-      });
+          [restoredEntry] = captureJsonLog(() => log.info("back in outer"));
+        },
+      );
 
       // Outer scope: outer IDs
       expect(outerEntry!.taskId).toBe("outer-task");
@@ -265,7 +266,12 @@ describe("addTimestamps: JSON lines skipped in file logger", () => {
     const logPath = join(tmpDir, "orca.log");
     initFileLogger({ logPath, maxSizeBytes: 1_000_000 });
 
-    const jsonLine = JSON.stringify({ timestamp: "t", level: "info", module: "m", message: "json" });
+    const jsonLine = JSON.stringify({
+      timestamp: "t",
+      level: "info",
+      module: "m",
+      message: "json",
+    });
     // Write both in one call to hit the same addTimestamps invocation
     process.stdout.write(`${jsonLine}\n[INFO] [orca/test] text line\n`);
 
@@ -364,7 +370,6 @@ describe("LOG_FORMAT read at call-time", () => {
     const entry = JSON.parse(captured[0]!) as Record<string, unknown>;
     expect(entry.level).toBe("info");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -509,9 +514,12 @@ describe("child logger with AsyncLocalStorage context", () => {
       const child = log.child({ component: "sub-component" });
 
       const entries = captureJsonLog(() => {
-        runWithLogContext({ taskId: "als-task", invocationId: "als-inv" }, () => {
-          child.info("child in context");
-        });
+        runWithLogContext(
+          { taskId: "als-task", invocationId: "als-inv" },
+          () => {
+            child.info("child in context");
+          },
+        );
       });
 
       expect(entries.length).toBe(1);
@@ -522,7 +530,6 @@ describe("child logger with AsyncLocalStorage context", () => {
       expect(entries[0]!.invocationId).toBe("als-inv");
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -570,7 +577,6 @@ describe("partial LogContext fields", () => {
       expect(entries[0]!.invocationId).toBeUndefined();
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------

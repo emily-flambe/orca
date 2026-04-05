@@ -550,8 +550,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     updateTaskStatus(db, taskId, "ready", { reason: "aborted_by_user" });
     updateTaskFields(db, taskId, {
       retryCount: 0,
-      reviewCycleCount: 0,
-      staleSessionRetryCount: 0,
     });
 
     emitTaskUpdated(getTask(db, taskId)!);
@@ -730,9 +728,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     let sessionKilled = false;
     if (
       task.lifecycleStage === "active" &&
-      (task.currentPhase === "implement" ||
-        task.currentPhase === "review" ||
-        task.currentPhase === "fix")
+      (task.currentPhase === "implement" || task.currentPhase === "fix")
     ) {
       const runningInvocations = getRunningInvocations(db);
       for (const [invId, handle] of activeHandles) {
@@ -775,8 +771,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         lifecycleStage: newStatus as LifecycleStage,
         currentPhase: null,
         retryCount: 0,
-        reviewCycleCount: 0,
-        staleSessionRetryCount: 0,
       });
     }
 
@@ -843,8 +837,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     updateTaskStatus(db, taskId, "ready", { reason: "manual_retry" });
     updateTaskFields(db, taskId, {
       retryCount: 0,
-      reviewCycleCount: 0,
-      staleSessionRetryCount: 0,
     });
 
     emitTaskUpdated(getTask(db, taskId)!);
@@ -964,7 +956,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       concurrencyCap: config.concurrencyCap,
       agentConcurrencyCap: config.agentConcurrencyCap,
       model: config.model,
-      reviewModel: config.reviewModel,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
       drainingForSeconds,
@@ -1083,9 +1074,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const runningCount = allTasksForMetrics.filter(
       (t) => t.lifecycleStage === "active" && t.currentPhase === "implement",
     ).length;
-    const inReviewCount = allTasksForMetrics.filter(
-      (t) => t.lifecycleStage === "active" && t.currentPhase === "review",
-    ).length;
+    const inReviewCount = 0; // review phase removed
 
     // Recent events for timeline
     const recentEvents = getRecentSystemEvents(db, 50);
@@ -1196,7 +1185,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     const MODEL_SHORTCUTS = new Set(["opus", "sonnet", "haiku"]);
-    for (const field of ["model", "reviewModel"] as const) {
+    for (const field of ["model"] as const) {
       if (field in body) {
         const val = body[field];
         if (typeof val !== "string" || val.length === 0) {
@@ -1239,7 +1228,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       agentConcurrencyCap: config.agentConcurrencyCap,
       tokenBudgetLimit: config.budgetMaxTokens,
       model: config.model,
-      reviewModel: config.reviewModel,
     });
   });
 
@@ -1821,9 +1809,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       updatedAt: now,
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
+
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     incrementCronRunCount(db, id, computeNextRunAt(schedule.schedule));
@@ -2133,9 +2120,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       updatedAt: now,
       priority: 0,
       retryCount: 0,
-      reviewCycleCount: 0,
+
       mergeAttemptCount: 0,
-      staleSessionRetryCount: 0,
       isParent: 0,
     });
     incrementAgentRunCount(

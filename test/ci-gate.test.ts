@@ -40,7 +40,6 @@ function seedTask(
     prNumber: number;
     deployStartedAt: string;
     ciStartedAt: string;
-    reviewCycleCount: number;
   }> = {},
 ): string {
   const id = overrides.linearIssueId ?? `TEST-${Date.now().toString(36)}`;
@@ -58,7 +57,6 @@ function seedTask(
     prNumber: overrides.prNumber ?? null,
     deployStartedAt: overrides.deployStartedAt ?? null,
     ciStartedAt: overrides.ciStartedAt ?? null,
-    reviewCycleCount: overrides.reviewCycleCount ?? 0,
     createdAt: ts,
     updatedAt: ts,
   });
@@ -76,13 +74,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -117,7 +111,8 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
   test("inserting task with 'awaiting_ci' status succeeds", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CI-SCHEMA-1",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -136,7 +131,8 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "CI-SCHEMA-3",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
       ciStartedAt: ts,
     });
     const task = getTask(db, taskId);
@@ -159,7 +155,8 @@ describe("Queries - updateTaskCiInfo", () => {
   test("sets ciStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-1",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     const ts = now();
@@ -173,7 +170,8 @@ describe("Queries - updateTaskCiInfo", () => {
   test("updates updatedAt timestamp", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-2",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     const before = getTask(db, taskId)!;
@@ -188,7 +186,8 @@ describe("Queries - updateTaskCiInfo", () => {
   test("can set ciStartedAt to null", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-3",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
       ciStartedAt: now(),
     });
 
@@ -238,7 +237,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'In Review' -> no-op (status stays awaiting_ci)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-1",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "In Review", "started");
@@ -252,7 +252,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Done' -> done (human override)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-2",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Done", "completed");
@@ -267,7 +268,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Todo' -> ready (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-3",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
@@ -282,7 +284,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Backlog' -> backlog (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-4",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Backlog", "backlog");
@@ -297,7 +300,8 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'In Progress' -> no-op (upsert protects internal state)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-5",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "In Progress", "started");
@@ -401,7 +405,8 @@ describe("Parent status rollup - awaiting_ci is active", () => {
       linearIssueId: "CHILD-ACI-2",
       agentPrompt: "child2",
       repoPath: "/tmp/test",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
       priority: 0,
       retryCount: 0,
       parentIdentifier: "PARENT-ACI",
@@ -443,7 +448,8 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
   test("existing awaiting_ci task receiving 'In Review' webhook stays awaiting_ci", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-1",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
       prNumber: 42,
       ciStartedAt: now(),
     });
@@ -481,7 +487,8 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
   test("existing awaiting_ci task receiving 'Done' webhook transitions to done", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-2",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     const mockClient = {
@@ -517,7 +524,8 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
   test("existing awaiting_ci task receiving 'Todo' webhook transitions to ready", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-3",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     const mockClient = {
@@ -565,10 +573,14 @@ describe("Edge cases - awaiting_ci", () => {
   test("updateTaskFields can set lifecycleStage to awaiting_ci", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-2",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
     });
 
-    updateTaskFields(db, taskId, { lifecycleStage: "active", currentPhase: "ci" });
+    updateTaskFields(db, taskId, {
+      lifecycleStage: "active",
+      currentPhase: "ci",
+    });
 
     const task = getTask(db, taskId)!;
     expect(task.lifecycleStage).toBe("active");
@@ -578,7 +590,8 @@ describe("Edge cases - awaiting_ci", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-FULL",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
       prNumber: 42,
       prBranchName: "orca/EDGE-ACI-FULL/1",
       ciStartedAt: ts,
@@ -594,7 +607,8 @@ describe("Edge cases - awaiting_ci", () => {
   test("awaiting_ci task with null prNumber and null ciStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-NULL",
-      lifecycleStage: "active", currentPhase: "ci",
+      lifecycleStage: "active",
+      currentPhase: "ci",
     });
 
     const task = getTask(db, taskId)!;

@@ -103,14 +103,11 @@ function routeGitAsync(routes: GitCommandRouter) {
       const key = args.join(" ");
       for (const [pattern, result] of Object.entries(routes)) {
         if (key.includes(pattern)) {
-          if (result instanceof Error)
-            return Promise.reject(result);
+          if (result instanceof Error) return Promise.reject(result);
           return Promise.resolve({ stdout: result, stderr: "" });
         }
       }
-      return Promise.reject(
-        new Error(`unmocked git command: ${key}`),
-      );
+      return Promise.reject(new Error(`unmocked git command: ${key}`));
     },
   );
 }
@@ -122,8 +119,7 @@ function routeGitAsync(routes: GitCommandRouter) {
 describe("getDefaultBranch", () => {
   test("returns branch name from symbolic-ref when origin/HEAD is set", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/main",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main",
     });
 
     expect(getDefaultBranch("/repo")).toBe("main");
@@ -131,8 +127,7 @@ describe("getDefaultBranch", () => {
 
   test("extracts 'master' from symbolic-ref when origin/HEAD points to master", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/master",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/master",
     });
 
     expect(getDefaultBranch("/repo")).toBe("master");
@@ -140,8 +135,7 @@ describe("getDefaultBranch", () => {
 
   test("extracts unusual branch names like 'develop' from symbolic-ref", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/develop",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/develop",
     });
 
     expect(getDefaultBranch("/repo")).toBe("develop");
@@ -149,8 +143,7 @@ describe("getDefaultBranch", () => {
 
   test("extracts unusual branch names like 'trunk' from symbolic-ref", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/trunk",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/trunk",
     });
 
     expect(getDefaultBranch("/repo")).toBe("trunk");
@@ -158,7 +151,9 @@ describe("getDefaultBranch", () => {
 
   test("falls back to 'main' when symbolic-ref fails but origin/main exists", () => {
     routeGitSync({
-      "symbolic-ref": new Error("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref"),
+      "symbolic-ref": new Error(
+        "fatal: ref refs/remotes/origin/HEAD is not a symbolic ref",
+      ),
       "rev-parse --verify origin/main": "abc123",
     });
 
@@ -209,8 +204,7 @@ describe("getDefaultBranch", () => {
 
   test("handles branch names with slashes like 'release/v2'", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/release/v2",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/release/v2",
     });
 
     // The regex (.+) is greedy, should capture "release/v2"
@@ -228,8 +222,7 @@ describe("getDefaultBranch", () => {
 
   test("passes repoPath as cwd to git commands", () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/main",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main",
     });
 
     getDefaultBranch("/some/specific/repo");
@@ -259,8 +252,7 @@ describe("getDefaultBranch", () => {
 describe("getDefaultBranchAsync", () => {
   test("returns branch name from symbolic-ref when origin/HEAD is set", async () => {
     routeGitAsync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/main",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/main",
     });
 
     expect(await getDefaultBranchAsync("/repo")).toBe("main");
@@ -268,8 +260,7 @@ describe("getDefaultBranchAsync", () => {
 
   test("extracts 'master' from symbolic-ref", async () => {
     routeGitAsync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/master",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/master",
     });
 
     expect(await getDefaultBranchAsync("/repo")).toBe("master");
@@ -277,8 +268,7 @@ describe("getDefaultBranchAsync", () => {
 
   test("extracts unusual branch name 'develop'", async () => {
     routeGitAsync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/develop",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/develop",
     });
 
     expect(await getDefaultBranchAsync("/repo")).toBe("develop");
@@ -324,8 +314,7 @@ describe("getDefaultBranchAsync", () => {
 
   test("handles branch names with slashes", async () => {
     routeGitAsync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/release/v2",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/release/v2",
     });
 
     expect(await getDefaultBranchAsync("/repo")).toBe("release/v2");
@@ -359,10 +348,7 @@ describe("alreadyDonePatterns hardcoded branch names", () => {
    */
   test("patterns only match 'main' variants, not 'master' or other branch names", async () => {
     const fs = await import("node:fs");
-    const source = fs.readFileSync(
-      "src/inngest/workflow-utils.ts",
-      "utf-8",
-    );
+    const source = fs.readFileSync("src/inngest/workflow-utils.ts", "utf-8");
 
     // Extract the array literal from source
     const arrayMatch = source.match(
@@ -382,18 +368,14 @@ describe("alreadyDonePatterns hardcoded branch names", () => {
     // the pattern "already on main" because "on origin/main" != "on main".
     // Only the backtick variant matches.
     const plainMainOutput = "already on origin/main";
-    const matchesPlainMain = patterns.some((p) =>
-      plainMainOutput.includes(p),
-    );
+    const matchesPlainMain = patterns.some((p) => plainMainOutput.includes(p));
     // This documents a pre-existing gap: plain "already on origin/main"
     // is NOT caught by patterns. Only backtick format matches.
     expect(matchesPlainMain).toBe(false);
 
     // Backtick format DOES match via "already on `origin/main`" pattern
     const backtickMainOutput = "already on `origin/main`";
-    expect(
-      patterns.some((p) => backtickMainOutput.includes(p)),
-    ).toBe(true);
+    expect(patterns.some((p) => backtickMainOutput.includes(p))).toBe(true);
 
     // master variants are now covered by the patterns
     const masterOutput = "the code is already on `origin/master`";
@@ -420,19 +402,14 @@ describe("worktreeHasNoChanges dynamic branch", () => {
     // Read the source to verify the pattern, since dynamically importing
     // workflow-utils pulls in a complex dependency graph.
     const fs = await import("node:fs");
-    const source = fs.readFileSync(
-      "src/inngest/workflow-utils.ts",
-      "utf-8",
-    );
+    const source = fs.readFileSync("src/inngest/workflow-utils.ts", "utf-8");
 
     // worktreeHasNoChanges should call getDefaultBranch, not hardcode "main"
     expect(source).toContain("getDefaultBranch");
     // The diff command should use the dynamic branch
     expect(source).toContain("origin/${defaultBranch}...HEAD");
     // Should NOT have hardcoded origin/main in the diff
-    expect(source).not.toMatch(
-      /git\(\["diff",\s*"origin\/main/,
-    );
+    expect(source).not.toMatch(/git\(\["diff",\s*"origin\/main/);
   });
 });
 
@@ -464,17 +441,7 @@ describe("system prompt {{DEFAULT_BRANCH_REF}} placeholder", () => {
     // Should NOT have hardcoded origin/main in the template
     expect(implementSection).not.toContain("origin/main");
 
-    // Verify review prompt has the placeholder
-    const reviewStart = configSource.indexOf(
-      "DEFAULT_REVIEW_SYSTEM_PROMPT",
-    );
-    expect(reviewStart).toBeGreaterThan(-1);
-    const reviewSection = configSource.slice(
-      reviewStart,
-      configSource.indexOf("`;", reviewStart) + 2,
-    );
-    expect(reviewSection).toContain("{{DEFAULT_BRANCH_REF}}");
-    expect(reviewSection).not.toContain("origin/main");
+    // Review prompt removed in EMI-504
 
     // Fix prompt shouldn't have hardcoded origin/main either
     const fixStart = configSource.indexOf("DEFAULT_FIX_SYSTEM_PROMPT");
@@ -497,9 +464,9 @@ describe("system prompt {{DEFAULT_BRANCH_REF}} placeholder", () => {
     // In the TS source, the regex is /\{\{DEFAULT_BRANCH_REF\}\}/g
     // which is a regex literal matching {{DEFAULT_BRANCH_REF}}.
     const replacements = lifecycleSource.match(/DEFAULT_BRANCH_REF/g);
-    // Should appear at least 3 times: implement, review, fix phase replacements
+    // Should appear at least 1 time: implement and fix phase replacements (review removed)
     expect(replacements).not.toBeNull();
-    expect(replacements!.length).toBeGreaterThanOrEqual(3);
+    expect(replacements!.length).toBeGreaterThanOrEqual(1);
 
     // Verify getDefaultBranch is called before the replacement
     const getDefaultBranchCalls = lifecycleSource.match(
@@ -586,12 +553,10 @@ describe("getDefaultBranch with DLL_INIT errors", () => {
 describe("sync/async consistency", () => {
   test("both return same result for symbolic-ref with develop branch", async () => {
     routeGitSync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/develop",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/develop",
     });
     routeGitAsync({
-      "symbolic-ref refs/remotes/origin/HEAD":
-        "refs/remotes/origin/develop",
+      "symbolic-ref refs/remotes/origin/HEAD": "refs/remotes/origin/develop",
     });
 
     const syncResult = getDefaultBranch("/repo");

@@ -106,7 +106,7 @@ server.registerTool(
       currentPhase: task.currentPhase,
       priority: task.priority,
       retryCount: task.retryCount,
-      reviewCycleCount: task.reviewCycleCount,
+      // reviewCycleCount removed in EMI-504
       prBranchName: task.prBranchName,
       prNumber: task.prNumber,
       repoPath: task.repoPath,
@@ -451,7 +451,6 @@ server.registerTool(
       concurrencyCap,
       agentConcurrencyCap,
       model: process.env.ORCA_MODEL ?? "sonnet",
-      reviewModel: process.env.ORCA_REVIEW_MODEL ?? "haiku",
     };
 
     return {

@@ -285,7 +285,6 @@ describe("getMergeCommitSha", () => {
     const result = await promise;
     expect(result).toBeNull();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -446,7 +445,6 @@ describe("getPrCheckStatus", () => {
     // Should have retried (maxAttempts = 2)
     expect(execFileMock).toHaveBeenCalledTimes(2);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -525,7 +523,6 @@ describe("getPrCheckStatusSync", () => {
     const result = getPrCheckStatusSync(1, "/tmp/repo");
     expect(result).toBe("error");
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -572,7 +569,6 @@ describe("getPrMergeState", () => {
       mergeStateStatus: "UNKNOWN",
     });
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -656,7 +652,6 @@ describe("updatePrBranch", () => {
     const result = await updatePrBranch(1, "/tmp/repo");
     expect(result).toBe(false);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -707,7 +702,6 @@ describe("listOpenPrBranches", () => {
     const result = listOpenPrBranches("/tmp/repo");
     expect(result.size).toBe(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -815,7 +809,6 @@ describe("getWorkflowRunStatus", () => {
     const result = await getWorkflowRunStatus("abc123", "/tmp/repo");
     expect(result).toBe("no_runs");
   });
-
 });
 
 // ---------------------------------------------------------------------------

@@ -40,9 +40,9 @@ vi.mock("../src/inngest/client.js", () => ({
 const mockDb = {} as never;
 
 const mockConfig = {
-  maxReviewCycles: 3,
   maxCiPollAttempts: 240,
   deployStrategy: "none" as const,
+  maxRetries: 3,
 };
 
 const mockLinearClient = {
@@ -71,7 +71,6 @@ vi.mock("../src/db/queries.js", () => ({
   updateTaskFixReason: vi.fn(),
   incrementMergeAttemptCount: vi.fn(),
   resetMergeAttemptCount: vi.fn(),
-  incrementReviewCycleCount: vi.fn(),
   // include all others from task-lifecycle to avoid import errors
   claimTaskForDispatch: vi.fn(),
   insertInvocation: vi.fn(),
@@ -132,7 +131,7 @@ vi.mock("node:fs", () => ({
 import {
   getTask,
   updateTaskStatus,
-  incrementReviewCycleCount,
+  incrementRetryCount,
 } from "../src/db/queries.js";
 import { writeBackStatus } from "../src/linear/sync.js";
 import {
@@ -151,7 +150,7 @@ import "../src/inngest/workflows/ci-merge.js";
 
 const mockGetTask = vi.mocked(getTask);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
-const mockIncrementReviewCycleCount = vi.mocked(incrementReviewCycleCount);
+const mockIncrementRetryCount = vi.mocked(incrementRetryCount);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
 const mockGetPrCheckStatus = vi.mocked(getPrCheckStatus);
 const mockGetPrMergeState = vi.mocked(getPrMergeState);
@@ -183,14 +182,15 @@ function makeAwaitingCiEvent(overrides: Record<string, unknown> = {}) {
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     linearIssueId: "TEST-1",
-    lifecycleStage: "active", currentPhase: "ci",
+    lifecycleStage: "active",
+    currentPhase: "ci",
     lifecycleStage: "active",
     currentPhase: "ci",
     repoPath: "/repo",
     prNumber: 42,
     prBranchName: "orca/TEST-1-inv-1",
-    reviewCycleCount: 0,
     mergeAttemptCount: 0,
+    retryCount: 0,
     ...overrides,
   };
 }
@@ -378,8 +378,7 @@ describe("ci-merge workflow", () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check
       .mockReturnValueOnce(makeTask()) // inside check-ci step
-      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
-      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+      .mockReturnValueOnce(makeTask()); // inside ci-flake-check step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
     mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
@@ -396,19 +395,16 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "changes_requested",
-      { reason: "ci_failed_changes_requested" },
-    );
-    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
-      mockDb,
-      "TEST-1",
+      { reason: "ci_failed_fix_needed" },
     );
   });
 
-  test("CI failure → failed permanently (if cycles exhausted)", async () => {
+  test("CI failure → failed permanently (if retries exhausted)", async () => {
+    const exhaustedTask = makeTask({ retryCount: 3 }); // at maxRetries
     mockGetTask
-      .mockReturnValueOnce(makeTask()) // outer loop check (outside step)
-      .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
-      .mockReturnValueOnce(makeTask({ reviewCycleCount: 3 })); // inside ci-failure step
+      .mockReturnValueOnce(exhaustedTask) // outer loop check (outside step)
+      .mockReturnValueOnce(exhaustedTask) // inside ci-flake-check step
+      .mockReturnValueOnce(exhaustedTask); // inside ci-failure step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
     mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
@@ -425,9 +421,8 @@ describe("ci-merge workflow", () => {
       mockDb,
       "TEST-1",
       "failed",
-      expect.objectContaining({ reason: "ci_failed_cycles_exhausted" }),
+      expect.objectContaining({ reason: "ci_failed_retries_exhausted" }),
     );
-    expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
   });
 
   test("merge attempt behind → updates PR branch then merges successfully", async () => {
@@ -461,7 +456,6 @@ describe("ci-merge workflow", () => {
   test("merge attempt conflicting → changes_requested when cycles remain", async () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check
-      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })) // mergeAndFinalize outer getTask
       .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
 
     mockGetPrCheckStatus.mockResolvedValue("success");
@@ -515,7 +509,7 @@ describe("ci-merge workflow", () => {
     });
 
     // Flake: review cycle count should NOT have been incremented
-    expect(mockIncrementReviewCycleCount).not.toHaveBeenCalled();
+    expect(mockIncrementRetryCount).not.toHaveBeenCalled();
     // Flake sleep should have been called
     expect(step.sleep).toHaveBeenCalledWith("ci-flake-wait-1", "30s");
     // Eventually merges successfully
@@ -526,7 +520,7 @@ describe("ci-merge workflow", () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check
       .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
-      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+      .mockReturnValueOnce(makeTask()); // inside ci-failure step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
     mockGetFailingCheckNames.mockResolvedValue(["CI / test"]);
@@ -539,9 +533,14 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "ci_failure" });
-    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
+    // retryCount check happens in ci-failure step; incrementRetryCount is no longer
+    // called here — retries are tracked via retryCount which increments in the
+    // task-lifecycle workflow when the fix session completes
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
+      "changes_requested",
+      { reason: "ci_failed_fix_needed" },
     );
     // Flake sleep should NOT have been called
     expect(step.sleep).not.toHaveBeenCalledWith(
@@ -554,7 +553,7 @@ describe("ci-merge workflow", () => {
     mockGetTask
       .mockReturnValueOnce(makeTask()) // outer loop check
       .mockReturnValueOnce(makeTask()) // inside ci-flake-check step
-      .mockReturnValueOnce(makeTask({ reviewCycleCount: 0 })); // inside ci-failure step
+      .mockReturnValueOnce(makeTask()); // inside ci-failure step
 
     mockGetPrCheckStatus.mockResolvedValue("failure");
     mockGetFailingCheckNames.mockResolvedValue([]);
@@ -567,9 +566,11 @@ describe("ci-merge workflow", () => {
     });
 
     expect(result).toMatchObject({ status: "ci_failure" });
-    expect(mockIncrementReviewCycleCount).toHaveBeenCalledWith(
+    expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
       "TEST-1",
+      "changes_requested",
+      { reason: "ci_failed_fix_needed" },
     );
   });
 

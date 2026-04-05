@@ -118,13 +118,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -196,7 +192,8 @@ describe("Cleanup - branch safety filters", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-1",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedRunningInvocation(db, taskId, {
       branchName: "orca/T-1-inv-1",
@@ -228,7 +225,8 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-2",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
       prBranchName: "orca/T-2-inv-1",
     });
 
@@ -642,7 +640,8 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-DEPLOY",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       prBranchName: "orca/T-DEPLOY-inv-1",
     });
 
@@ -671,7 +670,8 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-DISPATCH",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       prBranchName: "orca/T-DISPATCH-inv-1",
     });
 
@@ -700,7 +700,8 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-CHANGES",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "fix",
+      lifecycleStage: "active",
+      currentPhase: "fix",
       prBranchName: "orca/T-CHANGES-inv-1",
     });
 
@@ -764,7 +765,8 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-ACTIVE",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
       prBranchName: "orca/T-ACTIVE-inv-1",
     });
     // Done task -- its branch is eligible
@@ -917,7 +919,8 @@ describe("cleanupOldInvocationLogs", () => {
   test("preserves log for running invocation regardless of age", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-LOG-4",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1407,7 +1410,8 @@ describe("Cleanup - worktree path matching edge cases", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-RUNNING-WT",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     seedRunningInvocation(db, taskId, {
       branchName: "orca/T-RUNNING-WT-inv-1",
@@ -1612,7 +1616,8 @@ describe("Cleanup - protection set construction from DB", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-NULL-INV-BR",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
     });
     // Running invocation without branchName set
     seedRunningInvocation(db, taskId, {});
@@ -2001,7 +2006,8 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-RUNNING",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       prBranchName: "orca/T-RUNNING-inv-1",
     });
     seedRunningInvocation(db, taskId, {
@@ -2013,7 +2019,8 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     seedTask(db, {
       linearIssueId: "T-REVIEW",
       repoPath: "/tmp/fake-repo",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
       prBranchName: "orca/T-REVIEW-inv-1",
     });
 

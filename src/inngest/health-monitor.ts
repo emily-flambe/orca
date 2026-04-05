@@ -134,8 +134,7 @@ function reEmitDispatchableEvents(): void {
     dispatchableTasks = getAllTasks(storedDb).filter(
       (t) =>
         t.lifecycleStage === "ready" ||
-        (t.lifecycleStage === "active" &&
-          (t.currentPhase === "review" || t.currentPhase === "fix")),
+        (t.lifecycleStage === "active" && t.currentPhase === "fix"),
     );
   } catch (err) {
     logger.warn(`Failed to query dispatchable tasks: ${err}`);

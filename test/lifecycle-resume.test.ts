@@ -160,14 +160,10 @@ const mockConfig = {
   budgetMaxTokens: 10_000_000,
   budgetWindowHours: 4,
   maxRetries: 3,
-  maxReviewCycles: 3,
   model: "claude-sonnet-4-5",
-  reviewModel: "claude-haiku-4-5",
   defaultMaxTurns: 200,
-  reviewMaxTurns: 50,
   claudePath: "claude",
   implementSystemPrompt: "",
-  reviewSystemPrompt: "",
   fixSystemPrompt: "",
   disallowedTools: "",
   maxDeployPollAttempts: 60,
@@ -188,8 +184,6 @@ const STATUS_TO_LIFECYCLE: Record<
   backlog: { lifecycleStage: "backlog", currentPhase: null },
   ready: { lifecycleStage: "ready", currentPhase: null },
   running: { lifecycleStage: "active", currentPhase: "implement" },
-  in_review: { lifecycleStage: "active", currentPhase: "review" },
-  changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
   awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
   deploying: { lifecycleStage: "active", currentPhase: "deploy" },
   done: { lifecycleStage: "done", currentPhase: null },
@@ -212,7 +206,6 @@ function makeTask(overrides: Record<string, unknown> = {}) {
     prBranchName: null,
     prNumber: null,
     retryCount: 0,
-    reviewCycleCount: 0,
     fixReason: null,
     mergeAttemptCount: 0,
     ...overrides,
@@ -467,72 +460,4 @@ describe("EMI-342: isResumeNotFound in task-lifecycle (implement phase)", () => 
   });
 });
 
-describe("EMI-342: isResumeNotFound in task-lifecycle (fix phase)", () => {
-  // -------------------------------------------------------------------------
-  // When isResumeNotFound fires in the fix phase, the workflow should clear
-  // the stale session ID and continue the review loop (retry fresh) without
-  // exiting as fix_failed and without consuming a retry slot.
-  // -------------------------------------------------------------------------
-
-  test("fix isResumeNotFound: clears session IDs and continues the review loop (not fix_failed)", async () => {
-    const task = makeTask({ prNumber: 42, prBranchName: "orca/TEST-1-inv-1" });
-    mockGetTask.mockReturnValue(task);
-    mockClaimTaskForDispatch.mockReturnValue(true);
-    mockInsertInvocation
-      .mockReturnValueOnce(1)
-      .mockReturnValueOnce(2)
-      .mockReturnValueOnce(3);
-    mockGetInvocation
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after implement
-      .mockReturnValueOnce({ outputSummary: "" }) // Gate 2
-      .mockReturnValueOnce({ status: "running" }) // finalizeInvocation after review 0
-      .mockReturnValueOnce({
-        outputSummary: "REVIEW_RESULT:CHANGES_REQUESTED",
-      }) // review 0 result
-      .mockReturnValueOnce({ status: "running" }); // finalizeInvocation after fix 0
-    mockFindPrForBranch.mockReturnValue({
-      exists: true,
-      number: 42,
-      url: "https://github.com/org/repo/pull/42",
-      headBranch: "orca/TEST-1-inv-1",
-      merged: false,
-    });
-
-    const implementEvent = makeSessionCompletedEvent({ invocationId: 1 });
-    const reviewEvent = makeSessionCompletedEvent({
-      invocationId: 2,
-      phase: "review",
-    });
-    const fixFailedEvent = makeSessionCompletedEvent({
-      invocationId: 3,
-      exitCode: 1,
-      isMaxTurns: false,
-      isResumeNotFound: true,
-    });
-
-    const step = createStep(
-      new Map([
-        ["await-implement", implementEvent],
-        ["await-review-0", reviewEvent],
-        ["await-fix-0", fixFailedEvent],
-        // No events for cycle 1 — the loop will time out there, which is fine
-        // for this test. We just need to verify the loop continued.
-      ]),
-    );
-
-    const result = await capturedHandler({ event: makeTaskReadyEvent(), step });
-
-    // clearSessionIds MUST be called to prevent the next iteration from reusing
-    // the stale session ID
-    expect(mockClearSessionIds).toHaveBeenCalledWith(mockDb, "TEST-1");
-
-    // The workflow should NOT exit as fix_failed — it continues the loop
-    expect(result).not.toMatchObject({ outcome: "fix_failed" });
-
-    // task/ready is NOT re-sent — the loop continues internally
-    const allSendCalls = mockInngestSend.mock.calls.map(
-      (c) => (c[0] as { name: string }).name,
-    );
-    expect(allSendCalls).not.toContain("task/ready");
-  });
-});
+// EMI-342 fix-phase isResumeNotFound test removed in EMI-504 (review phase removal)

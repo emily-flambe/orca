@@ -744,11 +744,6 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
         let outputSummary: string;
         if (subtype === "success") {
           const resultText = typeof msg.result === "string" ? msg.result : "";
-          // Extract key markers before truncation — the scheduler parses them
-          // from outputSummary and they can appear at the end of long outputs.
-          const markerMatch = resultText.match(
-            /REVIEW_RESULT:(APPROVED|CHANGES_REQUESTED)/,
-          );
           // Extract PR URL before truncation so Gate 2 fallback can find it.
           const prUrlMatch = resultText.match(
             /https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/pull\/\d+/,
@@ -757,9 +752,6 @@ export function spawnSession(options: SpawnSessionOptions): SessionHandle {
             ? resultText.slice(0, 500)
             : "completed successfully";
           outputSummary = truncated;
-          if (markerMatch && !outputSummary.includes(markerMatch[0])) {
-            outputSummary = `${markerMatch[0]}\n\n${outputSummary}`;
-          }
           if (prUrlMatch && !outputSummary.includes(prUrlMatch[0])) {
             outputSummary = `${prUrlMatch[0]}\n\n${outputSummary}`;
           }

@@ -556,7 +556,11 @@ describe("createWorktree — branch locked by another worktree", () => {
         throw new Error("fatal: not a valid ref");
       }
       // git branch -D inv-0: fails — checked out in another worktree
-      if (args[0] === "branch" && args[1] === "-D" && args[2] === lockedBranch) {
+      if (
+        args[0] === "branch" &&
+        args[1] === "-D" &&
+        args[2] === lockedBranch
+      ) {
         throw new Error(
           `error: cannot delete branch '${lockedBranch}' used by worktree at '/some/path'`,
         );

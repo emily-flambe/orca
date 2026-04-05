@@ -74,13 +74,9 @@ function testConfig(overrides: Partial<OrcaConfig> = {}): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -137,7 +133,8 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     // This would throw if the old CHECK constraint was still present
     const taskId = seedTask(db, {
       linearIssueId: "SCHEMA-4",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
@@ -171,7 +168,8 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "SCHEMA-FULL",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "abc123def456",
       prNumber: 42,
       deployStartedAt: ts,
@@ -199,7 +197,8 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("sets mergeCommitSha, prNumber, and deployStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-1",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const ts = now();
@@ -219,7 +218,8 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("updates updatedAt timestamp", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-2",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const before = getTask(db, taskId)!;
@@ -241,7 +241,8 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("partial update: only mergeCommitSha", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-3",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     updateTaskDeployInfo(db, taskId, {
@@ -257,7 +258,8 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("partial update: only prNumber", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-4",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     updateTaskDeployInfo(db, taskId, {
@@ -272,7 +274,8 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("can set fields to null explicitly", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-5",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "had-sha",
       prNumber: 10,
       deployStartedAt: now(),
@@ -382,7 +385,8 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'In Review' -> no-op (status stays deploying)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-1",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "In Review", "started");
@@ -396,7 +400,8 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Todo' -> ready (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-2",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
@@ -411,7 +416,8 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Done' -> done (human override)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-3",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Done", "completed");
@@ -426,7 +432,8 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Canceled' -> failed", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-4",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Canceled", "canceled");
@@ -444,7 +451,8 @@ describe("Conflict resolution - deploying status", () => {
     // The resolveConflict function should fall through without changing state.
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-5",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "In Progress", "started");
@@ -467,7 +475,8 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Backlog' -> reset to backlog", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-6",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     // "Backlog" maps to "backlog" — moving to Backlog is a user override that
@@ -511,7 +520,8 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     // Seed a deploying task
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-1",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "abc123",
       prNumber: 42,
       deployStartedAt: now(),
@@ -557,7 +567,8 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
   test("existing deploying task receiving 'Todo' webhook transitions to ready", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-2",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -594,7 +605,8 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
   test("existing deploying task receiving 'Done' webhook transitions to done", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-3",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -630,7 +642,8 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
   test("existing deploying task receiving 'Canceled' webhook transitions to failed", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-4",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -732,21 +745,21 @@ describe("Write-back - deploying transition is no-op", () => {
     );
   });
 
-  test("writeBackStatus('in_review') calls API (contrast test)", async () => {
+  test("writeBackStatus('running') calls API (contrast test)", async () => {
     const mockClient = {
       updateIssueState: vi.fn().mockResolvedValue(true),
     } as any;
 
     const stateMap = new Map([
-      ["In Review", { id: "state-review", type: "started" }],
+      ["In Progress", { id: "state-started", type: "started" }],
     ]);
 
-    await writeBackStatus(mockClient, "TASK-WB-4", "in_review", stateMap);
+    await writeBackStatus(mockClient, "TASK-WB-4", "running", stateMap);
 
     expect(mockClient.updateIssueState).toHaveBeenCalledOnce();
     expect(mockClient.updateIssueState).toHaveBeenCalledWith(
       "TASK-WB-4",
-      "state-review",
+      "state-started",
     );
   });
 });
@@ -765,7 +778,8 @@ describe("Edge cases", () => {
   test("updateTaskDeployInfo with empty object only updates updatedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-2",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "original-sha",
       prNumber: 10,
     });
@@ -782,7 +796,8 @@ describe("Edge cases", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "FULL-DEPLOY",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "abc123456789",
       prNumber: 999,
       deployStartedAt: ts,
@@ -800,10 +815,14 @@ describe("Edge cases", () => {
   test("updateTaskFields can set lifecycleStage to deploying", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-UTF",
-      lifecycleStage: "active", currentPhase: "review",
+      lifecycleStage: "active",
+      currentPhase: "review",
     });
 
-    updateTaskFields(db, taskId, { lifecycleStage: "active", currentPhase: "deploy" });
+    updateTaskFields(db, taskId, {
+      lifecycleStage: "active",
+      currentPhase: "deploy",
+    });
 
     const task = getTask(db, taskId)!;
     expect(task.lifecycleStage).toBe("active");
@@ -815,7 +834,8 @@ describe("Edge cases", () => {
     // by marking the task as done with a warning (no SHA to monitor).
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-NULL",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
     });
 
     const task = getTask(db, taskId)!;
@@ -828,7 +848,8 @@ describe("Edge cases", () => {
     // PR number 0 is technically invalid but should not crash
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-PR0",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       prNumber: 0,
     });
 
@@ -839,7 +860,8 @@ describe("Edge cases", () => {
   test("deploying task with empty string mergeCommitSha", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-EMPTY-SHA",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "",
     });
 
@@ -881,7 +903,8 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
     // status will change to "running" which may not be desirable.
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-IP-1",
-      lifecycleStage: "active", currentPhase: "deploy",
+      lifecycleStage: "active",
+      currentPhase: "deploy",
       mergeCommitSha: "sha-abc",
       prNumber: 42,
     });

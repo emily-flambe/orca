@@ -48,13 +48,9 @@ function makeConfig(overrides?: Partial<OrcaConfig>): OrcaConfig {
     claudePath: "claude",
     defaultMaxTurns: 20,
     implementSystemPrompt: "",
-    reviewSystemPrompt: "",
     fixSystemPrompt: "",
-    maxReviewCycles: 3,
-    reviewMaxTurns: 30,
     disallowedTools: "",
     model: "sonnet",
-    reviewModel: "haiku",
     deployStrategy: "none",
     maxDeployPollAttempts: 60,
     maxCiPollAttempts: 240,
@@ -85,8 +81,7 @@ function deriveLifecycle(status: string): {
     backlog: { lifecycleStage: "backlog", currentPhase: null },
     ready: { lifecycleStage: "ready", currentPhase: null },
     running: { lifecycleStage: "active", currentPhase: "implement" },
-    in_review: { lifecycleStage: "active", currentPhase: "review" },
-    changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
+    fix: { lifecycleStage: "active", currentPhase: "fix" },
     awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
     deploying: { lifecycleStage: "active", currentPhase: "deploy" },
     done: { lifecycleStage: "done", currentPhase: null },
@@ -190,7 +185,8 @@ describe("GET /api/tasks", () => {
       linearIssueId: "FULL-TASK",
       agentPrompt: "Implement feature X",
       repoPath: "/home/user/project",
-      lifecycleStage: "active", currentPhase: "implement",
+      lifecycleStage: "active",
+      currentPhase: "implement",
       priority: 1,
       retryCount: 2,
       createdAt: "2026-02-15T10:30:00.000Z",
@@ -295,7 +291,8 @@ describe("GET /api/status", () => {
       db,
       makeTask({
         linearIssueId: "RUNNING-1",
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
     insertInvocation(db, {
@@ -423,7 +420,11 @@ describe("GET /api/events (SSE)", () => {
     const decoder = new TextDecoder();
 
     // Emit a task:updated event after a short delay to give the stream time to set up
-    const eventPayload = { linearIssueId: "SSE-TEST", lifecycleStage: "active", currentPhase: "implement" };
+    const eventPayload = {
+      linearIssueId: "SSE-TEST",
+      lifecycleStage: "active",
+      currentPhase: "implement",
+    };
     setTimeout(() => {
       orcaEvents.emit("task:updated", eventPayload);
     }, 50);
@@ -551,7 +552,6 @@ describe("POST /api/tasks/:id/status", () => {
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
-    expect(task!.reviewCycleCount).toBe(0);
   });
 
   it("ready -> done: succeeds", async () => {
@@ -590,7 +590,6 @@ describe("POST /api/tasks/:id/status", () => {
     expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
-    expect(task!.reviewCycleCount).toBe(0);
   });
 
   it("failed -> ready: succeeds (re-queue via status endpoint)", async () => {
@@ -769,7 +768,7 @@ describe("POST /api/tasks/:id/status", () => {
   // Counter resets
   // -----------------------------------------------------------------------
 
-  it("resets retryCount and reviewCycleCount when moving to ready", async () => {
+  it("resets retryCount when moving to ready", async () => {
     insertTask(
       db,
       makeTask({
@@ -779,24 +778,18 @@ describe("POST /api/tasks/:id/status", () => {
       }),
     );
 
-    // Set reviewCycleCount using updateTaskFields
-    const { updateTaskFields } = await import("../src/db/queries.js");
-    updateTaskFields(db, "T-COUNTERS-1", { reviewCycleCount: 3 });
-
     // Verify precondition
     const before = getTask(db, "T-COUNTERS-1");
     expect(before!.retryCount).toBe(5);
-    expect(before!.reviewCycleCount).toBe(3);
 
     const res = await postStatus("T-COUNTERS-1", { status: "ready" });
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-COUNTERS-1");
     expect(task!.retryCount).toBe(0);
-    expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("resets retryCount and reviewCycleCount when moving to backlog", async () => {
+  it("resets retryCount when moving to backlog", async () => {
     insertTask(
       db,
       makeTask({
@@ -806,15 +799,11 @@ describe("POST /api/tasks/:id/status", () => {
       }),
     );
 
-    const { updateTaskFields } = await import("../src/db/queries.js");
-    updateTaskFields(db, "T-COUNTERS-2", { reviewCycleCount: 4 });
-
     const res = await postStatus("T-COUNTERS-2", { status: "backlog" });
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-COUNTERS-2");
     expect(task!.retryCount).toBe(0);
-    expect(task!.reviewCycleCount).toBe(0);
   });
 
   it("does NOT reset counters when moving to done (uses updateTaskStatus)", async () => {
@@ -833,59 +822,6 @@ describe("POST /api/tasks/:id/status", () => {
     const task = getTask(db, "T-COUNTERS-3");
     // updateTaskStatus does NOT reset retryCount, so it should remain 3
     expect(task!.retryCount).toBe(3);
-  });
-
-  it("resets staleSessionRetryCount when moving to ready", async () => {
-    insertTask(
-      db,
-      makeTask({
-        linearIssueId: "T-STALE-1",
-        lifecycleStage: "failed",
-        retryCount: 1,
-      }),
-    );
-
-    const {
-      updateTaskFields: _updateTaskFields,
-      incrementStaleSessionRetryCount,
-    } = await import("../src/db/queries.js");
-    incrementStaleSessionRetryCount(db, "T-STALE-1");
-    incrementStaleSessionRetryCount(db, "T-STALE-1");
-    incrementStaleSessionRetryCount(db, "T-STALE-1");
-
-    const before = getTask(db, "T-STALE-1");
-    expect(before!.staleSessionRetryCount).toBe(3);
-
-    const res = await postStatus("T-STALE-1", { status: "ready" });
-    expect(res.status).toBe(200);
-
-    const task = getTask(db, "T-STALE-1");
-    expect(task!.staleSessionRetryCount).toBe(0);
-  });
-
-  it("resets staleSessionRetryCount when moving to backlog", async () => {
-    insertTask(
-      db,
-      makeTask({
-        linearIssueId: "T-STALE-2",
-        lifecycleStage: "failed",
-        retryCount: 2,
-      }),
-    );
-
-    const { incrementStaleSessionRetryCount } =
-      await import("../src/db/queries.js");
-    incrementStaleSessionRetryCount(db, "T-STALE-2");
-    incrementStaleSessionRetryCount(db, "T-STALE-2");
-
-    const before = getTask(db, "T-STALE-2");
-    expect(before!.staleSessionRetryCount).toBe(2);
-
-    const res = await postStatus("T-STALE-2", { status: "backlog" });
-    expect(res.status).toBe(200);
-
-    const task = getTask(db, "T-STALE-2");
-    expect(task!.staleSessionRetryCount).toBe(0);
   });
 
   // -----------------------------------------------------------------------
@@ -977,7 +913,8 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-RUNNING",
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
     // Insert a running invocation
@@ -999,7 +936,8 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-DISPATCHED",
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
 
@@ -1010,19 +948,20 @@ describe("POST /api/tasks/:id/status", () => {
     expect(task!.lifecycleStage).toBe("backlog");
   });
 
-  it("in_review -> ready: succeeds", async () => {
+  it("active/implement -> ready: succeeds", async () => {
     insertTask(
       db,
       makeTask({
-        linearIssueId: "T-REVIEW",
-        lifecycleStage: "active", currentPhase: "review",
+        linearIssueId: "T-ACTIVE",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
 
-    const res = await postStatus("T-REVIEW", { status: "ready" });
+    const res = await postStatus("T-ACTIVE", { status: "ready" });
     expect(res.status).toBe(200);
 
-    const task = getTask(db, "T-REVIEW");
+    const task = getTask(db, "T-ACTIVE");
     expect(task!.lifecycleStage).toBe("ready");
   });
 
@@ -1372,7 +1311,8 @@ describe("POST /api/invocations/:id/abort", () => {
       db,
       makeTask({
         linearIssueId: "ABORT-TASK-2",
-        lifecycleStage: "active", currentPhase: "implement",
+        lifecycleStage: "active",
+        currentPhase: "implement",
       }),
     );
     insertInvocation(db, {
@@ -1401,37 +1341,7 @@ describe("POST /api/invocations/:id/abort", () => {
     expect(task!.lifecycleStage).toBe("ready");
   });
 
-  it("resets staleSessionRetryCount when aborting", async () => {
-    insertTask(
-      db,
-      makeTask({
-        linearIssueId: "ABORT-TASK-3",
-        lifecycleStage: "active", currentPhase: "implement",
-      }),
-    );
-    insertInvocation(db, {
-      linearIssueId: "ABORT-TASK-3",
-      startedAt: now(),
-      status: "running",
-    });
-
-    const { getInvocationsByTask, getTask, incrementStaleSessionRetryCount } =
-      await import("../src/db/queries.js");
-    incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
-    incrementStaleSessionRetryCount(db, "ABORT-TASK-3");
-
-    const before = getTask(db, "ABORT-TASK-3");
-    expect(before!.staleSessionRetryCount).toBe(2);
-
-    const invocations = getInvocationsByTask(db, "ABORT-TASK-3");
-    const id = invocations[0].id;
-
-    const res = await postAbort(id);
-    expect(res.status).toBe(200);
-
-    const task = getTask(db, "ABORT-TASK-3");
-    expect(task!.staleSessionRetryCount).toBe(0);
-  });
+  // staleSessionRetryCount test removed in EMI-504
 });
 
 // ---------------------------------------------------------------------------
@@ -1489,8 +1399,7 @@ describe("POST /api/tasks/:id/retry", () => {
         retryCount: 3,
       }),
     );
-    const { getTask, updateTaskFields } = await import("../src/db/queries.js");
-    updateTaskFields(db, "RETRY-TASK-2", { reviewCycleCount: 2 });
+    const { getTask } = await import("../src/db/queries.js");
 
     const res = await postRetry("RETRY-TASK-2");
     expect(res.status).toBe(200);
@@ -1500,33 +1409,9 @@ describe("POST /api/tasks/:id/retry", () => {
     const task = getTask(db, "RETRY-TASK-2");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.retryCount).toBe(0);
-    expect(task!.reviewCycleCount).toBe(0);
   });
 
-  it("resets staleSessionRetryCount when retrying a failed task", async () => {
-    insertTask(
-      db,
-      makeTask({
-        linearIssueId: "RETRY-TASK-3",
-        lifecycleStage: "failed",
-      }),
-    );
-
-    const { getTask, incrementStaleSessionRetryCount } =
-      await import("../src/db/queries.js");
-    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
-    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
-    incrementStaleSessionRetryCount(db, "RETRY-TASK-3");
-
-    const before = getTask(db, "RETRY-TASK-3");
-    expect(before!.staleSessionRetryCount).toBe(3);
-
-    const res = await postRetry("RETRY-TASK-3");
-    expect(res.status).toBe(200);
-
-    const task = getTask(db, "RETRY-TASK-3");
-    expect(task!.staleSessionRetryCount).toBe(0);
-  });
+  // staleSessionRetryCount test removed in EMI-504
 });
 
 // ---------------------------------------------------------------------------
