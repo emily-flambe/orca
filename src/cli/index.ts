@@ -1,5 +1,9 @@
 import { Command } from "commander";
-import { type TaskStatus } from "../shared/types.js";
+import {
+  statusLabel,
+  type LifecycleStage,
+  type CurrentPhase,
+} from "../shared/types.js";
 import {
   loadConfig,
   parseRepoPath,
@@ -81,7 +85,7 @@ program
         linearIssueId: taskId,
         agentPrompt: opts.prompt,
         repoPath: opts.repo,
-        orcaStatus: "ready",
+        lifecycleStage: "ready",
         priority,
         retryCount: 0,
         createdAt: now,
@@ -222,7 +226,7 @@ program
 
     // Reconcile failed tasks whose Linear status is still active.
     // On crash/restart, fire-and-forget write-backs may have been lost.
-    // Find any task with orcaStatus === "failed" that Linear still shows as
+    // Find any task with lifecycleStage === "failed" that Linear still shows as
     // "In Progress" or "In Review" and write back "Canceled" with a comment.
     const activeLinearStates = new Set(["In Progress", "In Review"]);
     const failedTasks = getAllTasks(db).filter(
@@ -429,7 +433,7 @@ program
                 linearIssueId: taskId,
                 reason: "orphaned_by_crash",
                 retryCount: task?.retryCount ?? 0,
-                previousStatus: (task?.orcaStatus ?? "running") as TaskStatus,
+                previousStatus: task?.lifecycleStage ?? "active",
               },
             })
             .catch((err: unknown) =>
@@ -607,7 +611,7 @@ program
                 ? "interrupted_by_deploy"
                 : "interrupted_by_shutdown",
               retryCount: task?.retryCount ?? 0,
-              previousStatus: (task?.orcaStatus ?? "running") as TaskStatus,
+              previousStatus: task?.lifecycleStage ?? "active",
             },
           };
         });
@@ -700,8 +704,10 @@ program
 
     // Header
     console.log(`\n=== ${linearId} ===`);
-    console.log(`Status:     ${task.orcaStatus}`);
-    console.log(`Stage:      ${task.lifecycleStage ?? "(not set)"}`);
+    console.log(
+      `Status:     ${statusLabel(task.lifecycleStage as LifecycleStage, task.currentPhase as CurrentPhase | null)}`,
+    );
+    console.log(`Stage:      ${task.lifecycleStage}`);
     console.log(`Phase:      ${task.currentPhase ?? "(none)"}`);
     console.log(`Priority:   ${task.priority}`);
     console.log(`Retries:    ${task.retryCount}/${config.maxRetries}`);

@@ -418,7 +418,7 @@ function ClaudeTaskRow({ task }: { task: TaskWithInvocations }) {
     canceled: "bg-gray-800 text-gray-500 border-gray-700",
   };
   const statusCls =
-    taskStatusColors[task.lifecycleStage ?? task.orcaStatus] ??
+    taskStatusColors[task.lifecycleStage] ??
     "bg-gray-800 text-gray-400 border-gray-700";
 
   const durationMs =

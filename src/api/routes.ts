@@ -80,7 +80,11 @@ import {
 } from "../deploy.js";
 
 import type { InngestClient } from "../inngest/client.js";
-import type { TaskStatus } from "../shared/types.js";
+import {
+  statusLabel,
+  type LifecycleStage,
+  type CurrentPhase,
+} from "../shared/types.js";
 import { createLogger } from "../logger.js";
 
 const logger = createLogger("api");
@@ -527,8 +531,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     const now = new Date().toISOString();
     const taskId = invocation.linearIssueId;
-    const oldStatus = (getTask(db, taskId)?.orcaStatus ??
-      "running") as TaskStatus;
+    const taskForAbort = getTask(db, taskId);
+    const oldStatus = taskForAbort
+      ? statusLabel(
+          taskForAbort.lifecycleStage,
+          taskForAbort.currentPhase as CurrentPhase | null,
+        )
+      : "running";
 
     // Mark invocation as failed
     updateInvocation(db, id, {
@@ -707,11 +716,15 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       return c.json({ error: "task not found" }, 404);
     }
 
-    if (task.orcaStatus === newStatus) {
+    const currentLabel = statusLabel(
+      task.lifecycleStage,
+      task.currentPhase as CurrentPhase | null,
+    );
+    if (task.lifecycleStage === newStatus) {
       return c.json({ error: `task is already "${newStatus}"` }, 409);
     }
 
-    const oldStatus = task.orcaStatus;
+    const oldStatus = currentLabel;
 
     // Kill running session if task is active
     let sessionKilled = false;
@@ -754,10 +767,13 @@ export function createApiRoutes(deps: ApiDeps): Hono {
 
     // Update DB
     if (newStatus === "done") {
-      updateTaskStatus(db, taskId, "done", { reason: "manual_status_update" });
+      updateTaskStatus(db, taskId, "done", null, {
+        reason: "manual_status_update",
+      });
     } else {
       updateTaskFields(db, taskId, {
-        orcaStatus: newStatus,
+        lifecycleStage: newStatus as LifecycleStage,
+        currentPhase: null,
         retryCount: 0,
         reviewCycleCount: 0,
         staleSessionRetryCount: 0,
@@ -790,7 +806,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
               linearIssueId: taskId,
               reason: `Status changed to ${newStatus} via API`,
               retryCount: updatedTask.retryCount,
-              previousStatus: oldStatus as TaskStatus,
+              previousStatus: oldStatus,
             },
           })
           .catch((err: unknown) =>
@@ -817,7 +833,10 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     }
 
     if (task.lifecycleStage !== "failed") {
-      return c.json({ error: `task is "${task.orcaStatus}", not failed` }, 409);
+      return c.json(
+        { error: `task is "${task.lifecycleStage}", not failed` },
+        409,
+      );
     }
 
     // Reset to ready with fresh retry/review counters
@@ -1074,8 +1093,11 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     // Legacy fields (backward-compat with dashboard)
     const tasksByStatus: Record<string, number> = {};
     for (const task of allTasksForMetrics) {
-      tasksByStatus[task.orcaStatus] =
-        (tasksByStatus[task.orcaStatus] ?? 0) + 1;
+      const label = statusLabel(
+        task.lifecycleStage,
+        task.currentPhase as CurrentPhase | null,
+      );
+      tasksByStatus[label] = (tasksByStatus[label] ?? 0) + 1;
     }
     const invocationStats = getInvocationStats(db);
     const recentErrors = getRecentErrors(db, 20);
@@ -1792,7 +1814,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       linearIssueId: taskId,
       agentPrompt: schedule.prompt,
       repoPath: schedule.repoPath ?? "",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       taskType: schedule.type === "claude" ? "cron_claude" : "cron_shell",
       cronScheduleId: schedule.id,
       createdAt: now,
@@ -2104,7 +2126,7 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       linearIssueId: taskId,
       agentPrompt: agent.systemPrompt,
       repoPath: agent.repoPath || config.defaultCwd || "",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       taskType: "agent",
       agentId: agent.id,
       createdAt: now,

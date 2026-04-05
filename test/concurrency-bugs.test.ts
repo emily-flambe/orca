@@ -227,14 +227,13 @@ const STATUS_TO_LIFECYCLE: Record<
 };
 
 function makeTask(overrides: Record<string, unknown> = {}) {
-  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
-  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+  const statusStr = (overrides.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusStr] ?? {
     lifecycleStage: null,
     currentPhase: null,
   };
   return {
     linearIssueId: "TEST-1",
-    orcaStatus,
     lifecycleStage: derived.lifecycleStage,
     currentPhase: derived.currentPhase,
     agentPrompt: "Fix the bug",
@@ -549,7 +548,7 @@ describe("TOCTOU race between claim-task and start-implement", () => {
     // is still 0 from this task's perspective - the invocation is created in
     // start-implement AFTER the second assertSessionCapacity call.
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -613,7 +612,7 @@ describe("TOCTOU race between claim-task and start-implement", () => {
 
     // We can prove this by showing that countActiveSessions does NOT count the
     // just-claimed task (since no invocation exists yet for it).
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -675,7 +674,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
     // With cap=1 and 1 active session, cron should be blocked but not crash
     mockCountActiveSessions.mockReturnValue(1);
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
 
     const step = createStep();
@@ -698,7 +697,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
   test("cron task proceeds when under capacity", async () => {
     mockCountActiveSessions.mockReturnValue(0);
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -738,7 +737,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
       .mockReturnValueOnce(0) // claim-task: under cap, proceed
       .mockReturnValueOnce(1); // start-implement: at cap, blocked
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -767,7 +766,7 @@ describe("claim-task capacity rejection", () => {
   test("capacity exceeded in claim-task: claimTaskForDispatch is never called", async () => {
     mockCountActiveSessions.mockReturnValue(1); // at cap (cap=1)
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
 
     const step = createStep();
@@ -799,7 +798,7 @@ describe("claim-task capacity rejection", () => {
       .mockReturnValueOnce(0) // claim-task
       .mockReturnValueOnce(1); // start-implement
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1018,7 +1017,7 @@ describe("resource leaks on capacity rejection", () => {
       .mockReturnValueOnce(0) // claim-task: passes
       .mockReturnValueOnce(1); // start-implement: fails
 
-    const task = makeTask({ orcaStatus: "ready" });
+    const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
     mockClaimTaskForDispatch.mockReturnValue(true);
 

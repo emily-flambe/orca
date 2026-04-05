@@ -57,8 +57,7 @@ export interface StuckTaskAlert {
 export function processSnapshot(
   currentTasks: Array<{
     linearIssueId: string;
-    orcaStatus: string;
-    lifecycleStage: string | null;
+    lifecycleStage: string;
     currentPhase: string | null;
     retryCount: number;
   }>,
@@ -140,8 +139,7 @@ export async function detectAndAlertStuckTasks(
   deps: SchedulerDeps,
   currentTasks: Array<{
     linearIssueId: string;
-    orcaStatus: string;
-    lifecycleStage: string | null;
+    lifecycleStage: string;
     currentPhase: string | null;
     retryCount: number;
   }>,

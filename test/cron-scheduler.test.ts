@@ -13,7 +13,6 @@ import {
   getDueCronSchedules,
   deleteOldCronTasks,
 } from "../src/db/queries.js";
-import type { TaskStatus } from "../src/db/schema.js";
 import { computeNextRunAt } from "../src/cron/index.js";
 
 // ---------------------------------------------------------------------------
@@ -131,7 +130,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: TaskStatus;
+    lifecycleStage: string;
     taskType: string;
     cronScheduleId: number | null;
     createdAt: string;
@@ -145,7 +144,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do the thing",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: (overrides.orcaStatus ?? "ready") as TaskStatus,
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
     priority: 0,
     retryCount: 0,
     prBranchName: null,
@@ -268,14 +267,14 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000); // 8 days ago
     const taskId = seedTask(db, {
       linearIssueId: "CRON-1-1",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
     });
 
     // Verify task exists and is running
-    expect(getTask(db, taskId)?.orcaStatus).toBe("running");
+    expect(getTask(db, taskId)?.lifecycleStage).toBe("active");
 
     // Cut off at 7 days ago
     const cutoff = pastIso(7 * 24 * 60 * 60 * 1000);
@@ -294,13 +293,13 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000);
     const taskId = seedTask(db, {
       linearIssueId: "CRON-2-1",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
     });
 
-    expect(getTask(db, taskId)?.orcaStatus).toBe("running");
+    expect(getTask(db, taskId)?.lifecycleStage).toBe("active");
 
     const cutoff = pastIso(7 * 24 * 60 * 60 * 1000);
     const deleted = deleteOldCronTasks(db, cutoff);
@@ -316,7 +315,7 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000);
     const taskId = seedTask(db, {
       linearIssueId: "CRON-3-1",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: oldDate,
@@ -338,7 +337,7 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const recentDate = pastIso(60 * 60 * 1000); // 1 hour ago
     const taskId = seedTask(db, {
       linearIssueId: "CRON-4-1",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
       createdAt: recentDate,
@@ -348,7 +347,7 @@ describe("BUG 2 — deleteOldCronTasks: deletes active/running cron tasks", () =
     const deleted = deleteOldCronTasks(db, cutoff);
 
     expect(deleted).toBe(0);
-    expect(getTask(db, taskId)?.orcaStatus).toBe("running");
+    expect(getTask(db, taskId)?.lifecycleStage).toBe("active");
   });
 });
 
@@ -382,7 +381,7 @@ describe("BUG 3 — cron_shell timeout does not trigger retry", () => {
     const oldStarted = pastIso(5 * 60 * 1000); // started 5 min ago (past 1-min timeout)
     seedTask(db, {
       linearIssueId: taskId,
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
     });
@@ -403,7 +402,7 @@ describe("BUG 3 — cron_shell timeout does not trigger retry", () => {
     // We can verify the current state and document the expected vs actual behavior.
     const taskBefore = getTask(db, taskId);
     expect(taskBefore?.retryCount).toBe(0);
-    expect(taskBefore?.orcaStatus).toBe("running");
+    expect(taskBefore?.lifecycleStage).toBe("active");
 
     // Document: after timeout handling, retry_count should increment for consistency
     // with regular task timeouts. This assertion documents the DESIRED behavior.
@@ -652,7 +651,7 @@ describe("BUG 6 — schedule stuck after UNIQUE constraint error on task insert"
     const taskId = `CRON-${scheduleId}-1`;
     seedTask(db, {
       linearIssueId: taskId,
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_shell",
       cronScheduleId: scheduleId,
     });
@@ -685,7 +684,7 @@ describe("deleteOldCronTasks — only affects cron tasks", () => {
     const oldDate = pastIso(8 * 24 * 60 * 60 * 1000);
     const linearTaskId = seedTask(db, {
       linearIssueId: "LINEAR-123",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "linear",
       cronScheduleId: null,
       createdAt: oldDate,

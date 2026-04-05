@@ -55,7 +55,7 @@ export const agentDispatchWorkflow = inngest.createFunction(
             linearIssueId: taskId,
             agentPrompt: agent.systemPrompt,
             repoPath: agent.repoPath || config.defaultCwd || "",
-            orcaStatus: "ready",
+            lifecycleStage: "ready",
             taskType: "agent",
             agentId: agent.id,
             createdAt: now,

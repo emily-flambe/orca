@@ -183,7 +183,7 @@ function makeAwaitingCiEvent(overrides: Record<string, unknown> = {}) {
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     linearIssueId: "TEST-1",
-    orcaStatus: "awaiting_ci",
+    lifecycleStage: "active", currentPhase: "ci",
     lifecycleStage: "active",
     currentPhase: "ci",
     repoPath: "/repo",
@@ -246,7 +246,7 @@ describe("ci-merge workflow", () => {
   test("task status changed from awaiting_ci → returns aborted", async () => {
     mockGetTask.mockReturnValue(
       makeTask({
-        orcaStatus: "done",
+        lifecycleStage: "done",
         lifecycleStage: "done",
         currentPhase: null,
       }),

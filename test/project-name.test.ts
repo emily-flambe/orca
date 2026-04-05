@@ -84,7 +84,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: string;
+    lifecycleStage: string;
     priority: number;
     retryCount: number;
     parentIdentifier: string | null;
@@ -98,7 +98,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: (overrides.orcaStatus ?? "ready") as any,
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     parentIdentifier: overrides.parentIdentifier ?? null,
@@ -155,7 +155,7 @@ describe("DB schema - project_name column", () => {
       linearIssueId: "PN-1",
       agentPrompt: "test",
       repoPath: "/tmp/repo",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 0,
       retryCount: 0,
       projectName: "Alpha Project",
@@ -330,7 +330,7 @@ describe("Webhook - projectName preservation", () => {
     seedTask(db, {
       linearIssueId: "PN-WH-EXISTING",
       projectName: "Preserved Project",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
 
     // Webhook update (no project name in payload)
@@ -534,7 +534,7 @@ describe("Conditional projectName update in upsertTask", () => {
     seedTask(db, {
       linearIssueId: "PN-COND-1",
       projectName: "Old Project",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
 
     // Sync with issue that has no projectName (undefined due to missing field)
@@ -564,7 +564,7 @@ describe("Conditional projectName update in upsertTask", () => {
     seedTask(db, {
       linearIssueId: "PN-CLEAR-1",
       projectName: "Should Be Cleared",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
 
     // Sync with null projectName (issue removed from project)

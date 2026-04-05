@@ -31,7 +31,8 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: TaskStatus;
+    lifecycleStage: string;
+    currentPhase: string | null;
     priority: number;
     retryCount: number;
     prBranchName: string;
@@ -46,7 +47,8 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
+    currentPhase: (overrides.currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     prBranchName: overrides.prBranchName ?? null,
@@ -135,11 +137,11 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     // This would throw if the old CHECK constraint was still present
     const taskId = seedTask(db, {
       linearIssueId: "SCHEMA-4",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("deploying");
+    expect(task!.lifecycleStage).toBe("active");
   });
 
   test("all TASK_STATUSES can be inserted without CHECK constraint violation", () => {
@@ -157,11 +159,11 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     for (const status of statuses) {
       const taskId = seedTask(db, {
         linearIssueId: `STATUS-${status}`,
-        orcaStatus: status,
+        lifecycleStage: status,
       });
       const task = getTask(db, taskId);
       expect(task).toBeDefined();
-      expect(task!.orcaStatus).toBe(status);
+      expect(task!.lifecycleStage).toBe(status);
     }
   });
 
@@ -169,7 +171,7 @@ describe("Database migration - new columns and no CHECK constraint", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "SCHEMA-FULL",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "abc123def456",
       prNumber: 42,
       deployStartedAt: ts,
@@ -197,7 +199,7 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("sets mergeCommitSha, prNumber, and deployStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-1",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const ts = now();
@@ -217,7 +219,7 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("updates updatedAt timestamp", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-2",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const before = getTask(db, taskId)!;
@@ -239,7 +241,7 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("partial update: only mergeCommitSha", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-3",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     updateTaskDeployInfo(db, taskId, {
@@ -255,7 +257,7 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("partial update: only prNumber", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-4",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     updateTaskDeployInfo(db, taskId, {
@@ -270,7 +272,7 @@ describe("Queries - updateTaskDeployInfo", () => {
   test("can set fields to null explicitly", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UDI-5",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "had-sha",
       prNumber: 10,
       deployStartedAt: now(),
@@ -380,14 +382,13 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'In Review' -> no-op (status stays deploying)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-1",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "In Review", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("deploying");
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("deploy");
   });
@@ -395,14 +396,14 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Todo' -> ready (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-2",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
   });
@@ -410,14 +411,14 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Done' -> done (human override)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-3",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
     expect(task!.lifecycleStage).toBe("done");
     expect(task!.currentPhase).toBeNull();
   });
@@ -425,14 +426,14 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Canceled' -> failed", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-4",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "Canceled", "canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("failed");
+    expect(task!.lifecycleStage).toBe("failed");
     expect(task!.lifecycleStage).toBe("failed");
     expect(task!.currentPhase).toBeNull();
   });
@@ -443,7 +444,7 @@ describe("Conflict resolution - deploying status", () => {
     // The resolveConflict function should fall through without changing state.
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-5",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     resolveConflict(db, taskId, "In Progress", "started");
@@ -453,7 +454,7 @@ describe("Conflict resolution - deploying status", () => {
     // deploying should remain unchanged since there's no conflict rule for
     // deploying + "In Progress". BUT the upsert after resolveConflict would
     // overwrite it. Here we're only testing resolveConflict in isolation.
-    expect(task!.orcaStatus).toBe("deploying");
+    expect(task!.lifecycleStage).toBe("active");
   });
 
   test("non-existent task -> no-op (no crash)", () => {
@@ -466,7 +467,7 @@ describe("Conflict resolution - deploying status", () => {
   test("deploying + 'Backlog' -> reset to backlog", () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-CONFLICT-6",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     // "Backlog" maps to "backlog" — moving to Backlog is a user override that
@@ -475,7 +476,7 @@ describe("Conflict resolution - deploying status", () => {
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
   });
 });
 
@@ -510,7 +511,7 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     // Seed a deploying task
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-1",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "abc123",
       prNumber: 42,
       deployStartedAt: now(),
@@ -550,13 +551,13 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     // The deploying status should be preserved
-    expect(task!.orcaStatus).toBe("deploying");
+    expect(task!.lifecycleStage).toBe("active");
   });
 
   test("existing deploying task receiving 'Todo' webhook transitions to ready", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-2",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -587,13 +588,13 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
     // resolveConflict: deploying + Todo -> ready
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
   });
 
   test("existing deploying task receiving 'Done' webhook transitions to done", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-3",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -623,13 +624,13 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
   });
 
   test("existing deploying task receiving 'Canceled' webhook transitions to failed", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-WH-4",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const mockClient = {
@@ -659,7 +660,7 @@ describe("Webhook protection - deploying status not overwritten by In Review", (
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("failed");
+    expect(task!.lifecycleStage).toBe("failed");
   });
 });
 
@@ -764,7 +765,7 @@ describe("Edge cases", () => {
   test("updateTaskDeployInfo with empty object only updates updatedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-2",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "original-sha",
       prNumber: 10,
     });
@@ -781,7 +782,7 @@ describe("Edge cases", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "FULL-DEPLOY",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "abc123456789",
       prNumber: 999,
       deployStartedAt: ts,
@@ -789,23 +790,23 @@ describe("Edge cases", () => {
     });
 
     const task = getTask(db, taskId)!;
-    expect(task.orcaStatus).toBe("deploying");
+    expect(task.lifecycleStage).toBe("active");
     expect(task.mergeCommitSha).toBe("abc123456789");
     expect(task.prNumber).toBe(999);
     expect(task.deployStartedAt).toBe(ts);
     expect(task.prBranchName).toBe("orca/FULL-DEPLOY/1");
   });
 
-  test("updateTaskFields can set orcaStatus to deploying", () => {
+  test("updateTaskFields can set lifecycleStage to deploying", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-UTF",
-      orcaStatus: "in_review",
+      lifecycleStage: "active", currentPhase: "review",
     });
 
-    updateTaskFields(db, taskId, { orcaStatus: "deploying" });
+    updateTaskFields(db, taskId, { lifecycleStage: "active", currentPhase: "deploy" });
 
     const task = getTask(db, taskId)!;
-    expect(task.orcaStatus).toBe("deploying");
+    expect(task.lifecycleStage).toBe("active");
   });
 
   test("deploying task with null deployStartedAt and null mergeCommitSha", () => {
@@ -814,20 +815,20 @@ describe("Edge cases", () => {
     // by marking the task as done with a warning (no SHA to monitor).
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-NULL",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
     });
 
     const task = getTask(db, taskId)!;
     expect(task.mergeCommitSha).toBeNull();
     expect(task.deployStartedAt).toBeNull();
-    expect(task.orcaStatus).toBe("deploying");
+    expect(task.lifecycleStage).toBe("active");
   });
 
   test("deploying task with prNumber 0", () => {
     // PR number 0 is technically invalid but should not crash
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-PR0",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       prNumber: 0,
     });
 
@@ -838,7 +839,7 @@ describe("Edge cases", () => {
   test("deploying task with empty string mergeCommitSha", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-EMPTY-SHA",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "",
     });
 
@@ -880,7 +881,7 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
     // status will change to "running" which may not be desirable.
     const taskId = seedTask(db, {
       linearIssueId: "DEPLOY-IP-1",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       mergeCommitSha: "sha-abc",
       prNumber: 42,
     });
@@ -913,7 +914,7 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
     const task = getTask(db, taskId)!;
     // upsertTask protects deploying against all non-intentional overrides.
     // Only ready/done/failed (from Todo/Done/Canceled) are allowed through.
-    expect(task.orcaStatus).toBe("deploying");
+    expect(task.lifecycleStage).toBe("active");
   });
 });
 

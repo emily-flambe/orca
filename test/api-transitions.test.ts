@@ -82,13 +82,12 @@ function deriveLifecycle(status: string): {
 }
 
 function makeTask(overrides?: Record<string, unknown>) {
-  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
-  const lifecycle = deriveLifecycle(orcaStatus);
+  const statusStr = (overrides?.lifecycleStage as string) ?? "ready";
+  const lifecycle = deriveLifecycle(statusStr);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: orcaStatus as "ready",
     lifecycleStage: lifecycle.lifecycleStage,
     currentPhase: lifecycle.currentPhase,
     priority: 2,
@@ -127,7 +126,7 @@ describe("GET /api/tasks/:id/transitions", () => {
   it("returns transitions in insertion order", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "TRANS-2", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "TRANS-2", lifecycleStage: "ready" }),
     );
     updateTaskStatus(db, "TRANS-2", "running");
     updateTaskStatus(db, "TRANS-2", "in_review");
@@ -152,7 +151,7 @@ describe("GET /api/tasks/:id/transitions", () => {
   it("records reason on transitions", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "TRANS-3", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "TRANS-3", lifecycleStage: "ready" }),
     );
     updateTaskStatus(db, "TRANS-3", "failed", {
       reason: "session_failed_db_fallback",

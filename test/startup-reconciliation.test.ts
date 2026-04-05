@@ -39,7 +39,7 @@ function seedTask(
   db: OrcaDb,
   overrides: {
     linearIssueId?: string;
-    orcaStatus?: "ready" | "running" | "failed" | "done" | "in_review";
+    
   } = {},
 ): string {
   const id = overrides.linearIssueId ?? `TEST-${Date.now().toString(36)}`;
@@ -48,7 +48,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: "do something",
     repoPath: "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: overrides.lifecycleStage ?? "ready",
     priority: 0,
     retryCount: 0,
     createdAt: ts,
@@ -90,7 +90,7 @@ function runReconciliationLoop(
   createCommentMock: ReturnType<typeof vi.fn>,
 ): number {
   const activeLinearStates = new Set(["In Progress", "In Review"]);
-  const failedTasks = getAllTasks(db).filter((t) => t.orcaStatus === "failed");
+  const failedTasks = getAllTasks(db).filter((t) => t.lifecycleStage === "failed");
   const syncedIssueMap = new Map(
     syncedIssues.map((issue) => [issue.identifier, issue]),
   );
@@ -121,7 +121,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("failed task with Linear 'In Progress' IS reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-1", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-1", lifecycleStage: "failed" });
 
     const syncedIssues = [makeLinearIssue("PROJ-1", "uuid-1", "In Progress")];
     const writeBackMock = vi.fn().mockResolvedValue(undefined);
@@ -141,7 +141,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("failed task with Linear 'In Review' IS reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-2", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-2", lifecycleStage: "failed" });
 
     const syncedIssues = [makeLinearIssue("PROJ-2", "uuid-2", "In Review")];
     const writeBackMock = vi.fn().mockResolvedValue(undefined);
@@ -160,7 +160,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("failed task with Linear 'Canceled' is NOT reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-3", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-3", lifecycleStage: "failed" });
 
     const syncedIssues = [makeLinearIssue("PROJ-3", "uuid-3", "Canceled")];
     const writeBackMock = vi.fn();
@@ -179,7 +179,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("failed task with Linear 'Done' is NOT reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-4", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-4", lifecycleStage: "failed" });
 
     const syncedIssues = [makeLinearIssue("PROJ-4", "uuid-4", "Done")];
     const writeBackMock = vi.fn();
@@ -198,7 +198,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("failed task with Linear 'Todo' is NOT reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-5", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-5", lifecycleStage: "failed" });
 
     const syncedIssues = [makeLinearIssue("PROJ-5", "uuid-5", "Todo")];
     const writeBackMock = vi.fn();
@@ -217,9 +217,9 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("non-failed tasks are not reconciled even if Linear shows active state", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-6", orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "PROJ-7", orcaStatus: "done" });
-    seedTask(db, { linearIssueId: "PROJ-8", orcaStatus: "ready" });
+    seedTask(db, { linearIssueId: "PROJ-6", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, { linearIssueId: "PROJ-7", lifecycleStage: "done" });
+    seedTask(db, { linearIssueId: "PROJ-8", lifecycleStage: "ready" });
 
     const syncedIssues = [
       makeLinearIssue("PROJ-6", "uuid-6", "In Progress"),
@@ -242,7 +242,7 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("task not in any synced project is silently skipped", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "ORCA-xyz123", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "ORCA-xyz123", lifecycleStage: "failed" });
 
     // syncedIssues contains a different task, not ORCA-xyz123
     const syncedIssues = [makeLinearIssue("PROJ-1", "uuid-1", "In Progress")];
@@ -262,8 +262,8 @@ describe("Reconciliation: filtering by Linear state", () => {
 
   test("when syncedIssues is empty, all failed tasks are skipped", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-10", orcaStatus: "failed" });
-    seedTask(db, { linearIssueId: "PROJ-11", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-10", lifecycleStage: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-11", lifecycleStage: "failed" });
 
     const writeBackMock = vi.fn();
     const createCommentMock = vi.fn();
@@ -293,10 +293,10 @@ describe("Reconciliation: multiple tasks", () => {
 
   test("only the tasks with active Linear states are reconciled", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-20", orcaStatus: "failed" });
-    seedTask(db, { linearIssueId: "PROJ-21", orcaStatus: "failed" });
-    seedTask(db, { linearIssueId: "PROJ-22", orcaStatus: "failed" });
-    seedTask(db, { linearIssueId: "PROJ-23", orcaStatus: "failed" }); // already Canceled
+    seedTask(db, { linearIssueId: "PROJ-20", lifecycleStage: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-21", lifecycleStage: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-22", lifecycleStage: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-23", lifecycleStage: "failed" }); // already Canceled
 
     const syncedIssues = [
       makeLinearIssue("PROJ-20", "uuid-20", "In Progress"),
@@ -327,7 +327,7 @@ describe("Reconciliation: multiple tasks", () => {
 
   test("createComment is called with identifier (not UUID), consistent with rest of codebase", () => {
     const db = freshDb();
-    seedTask(db, { linearIssueId: "PROJ-30", orcaStatus: "failed" });
+    seedTask(db, { linearIssueId: "PROJ-30", lifecycleStage: "failed" });
 
     const IDENTIFIER = "PROJ-30";
     const UUID = "uuid-abc-30";

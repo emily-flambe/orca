@@ -85,7 +85,7 @@ export const cronTaskLifecycle = inngest.createFunction(
           const task = getTask(db, taskId);
           if (!task) return { claimed: false, reason: "task not found" };
 
-          const claimed = claimTaskForDispatch(db, taskId, ["ready"]);
+          const claimed = claimTaskForDispatch(db, taskId);
           if (!claimed) {
             return {
               claimed: false,

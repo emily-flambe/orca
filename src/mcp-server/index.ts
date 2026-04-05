@@ -102,7 +102,6 @@ server.registerTool(
     const result = {
       taskId: task.linearIssueId,
       agentPrompt: task.agentPrompt,
-      orcaStatus: task.orcaStatus,
       lifecycleStage: task.lifecycleStage,
       currentPhase: task.currentPhase,
       priority: task.priority,
@@ -267,7 +266,6 @@ server.registerTool(
     const result = {
       taskId: parent.linearIssueId,
       agentPrompt: parent.agentPrompt,
-      orcaStatus: parent.orcaStatus,
       lifecycleStage: parent.lifecycleStage,
       currentPhase: parent.currentPhase,
       projectName: parent.projectName,
@@ -323,7 +321,6 @@ server.registerTool(
     const result = siblings.map((t) => ({
       taskId: t.linearIssueId,
       agentPrompt: t.agentPrompt,
-      orcaStatus: t.orcaStatus,
       lifecycleStage: t.lifecycleStage,
       currentPhase: t.currentPhase,
       retryCount: t.retryCount,
@@ -377,7 +374,7 @@ server.registerTool(
   ({ status }) => {
     const allTasks = getAllTasks(db);
     const filtered = status
-      ? allTasks.filter((t) => t.orcaStatus === status)
+      ? allTasks.filter((t) => t.lifecycleStage === status)
       : allTasks;
 
     const result = filtered.map((t) => ({
@@ -386,7 +383,6 @@ server.registerTool(
         t.agentPrompt && t.agentPrompt.length > 120
           ? t.agentPrompt.slice(0, 120)
           : t.agentPrompt,
-      orcaStatus: t.orcaStatus,
       lifecycleStage: t.lifecycleStage,
       currentPhase: t.currentPhase,
       priority: t.priority,

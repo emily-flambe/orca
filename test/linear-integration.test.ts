@@ -34,7 +34,8 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: "ready" | "running" | "done" | "failed";
+    lifecycleStage: string;
+    currentPhase: string | null;
     priority: number;
     retryCount: number;
   }> = {},
@@ -45,7 +46,8 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
+    currentPhase: (overrides.currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     createdAt: ts,
@@ -539,7 +541,7 @@ describe("10.3 - Conflict resolution", () => {
     vi.useFakeTimers();
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
 
     // Advance time past the 2-min stale-echo guard window
@@ -549,7 +551,7 @@ describe("10.3 - Conflict resolution", () => {
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
     vi.useRealTimers();
@@ -558,7 +560,7 @@ describe("10.3 - Conflict resolution", () => {
   test("running task recently dispatched, Linear says Todo -> suppressed as stale echo", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1b",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
 
     // updatedAt is "now" (from seedTask), so within the 2-min guard window
@@ -566,7 +568,6 @@ describe("10.3 - Conflict resolution", () => {
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("running"); // NOT killed
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("implement");
   });
@@ -574,14 +575,13 @@ describe("10.3 - Conflict resolution", () => {
   test("running task recently claimed, Linear says Todo -> suppressed as stale echo", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-1c",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("running"); // NOT reset to ready
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("implement");
   });
@@ -589,14 +589,14 @@ describe("10.3 - Conflict resolution", () => {
   test("ready task, Linear says Done -> task becomes done", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-2",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
 
     resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
     expect(task!.lifecycleStage).toBe("done");
     expect(task!.currentPhase).toBeNull();
   });
@@ -604,14 +604,14 @@ describe("10.3 - Conflict resolution", () => {
   test("done task, Linear says Todo -> task becomes ready", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-3",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
   });
@@ -619,14 +619,14 @@ describe("10.3 - Conflict resolution", () => {
   test("any task, Linear says Canceled -> task becomes failed", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-4",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
 
     resolveConflict(db, taskId, "Canceled", "canceled");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("failed");
+    expect(task!.lifecycleStage).toBe("failed");
     expect(task!.lifecycleStage).toBe("failed");
     expect(task!.currentPhase).toBeNull();
   });
@@ -634,7 +634,7 @@ describe("10.3 - Conflict resolution", () => {
   test("no conflict when states match -> no change", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CONFLICT-5",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
 
     // Linear says "Todo" which maps to "ready" -- no conflict
@@ -642,7 +642,7 @@ describe("10.3 - Conflict resolution", () => {
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
   });
 });
 

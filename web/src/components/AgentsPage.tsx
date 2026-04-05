@@ -352,7 +352,7 @@ function TaskLogRow({ task }: { task: Task }) {
     canceled: "bg-gray-800 text-gray-500 border-gray-700",
   };
   const statusCls =
-    statusColors[task.lifecycleStage ?? task.orcaStatus] ??
+    statusColors[task.lifecycleStage] ??
     "bg-gray-800 text-gray-400 border-gray-700";
 
   function handleToggle() {

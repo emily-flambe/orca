@@ -12,20 +12,6 @@ export const TASK_TYPES = [
 ] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
-export const TASK_STATUSES = [
-  "backlog",
-  "ready",
-  "running",
-  "done",
-  "failed",
-  "canceled",
-  "in_review",
-  "changes_requested",
-  "deploying",
-  "awaiting_ci",
-] as const;
-export type TaskStatus = (typeof TASK_STATUSES)[number];
-
 export const LIFECYCLE_STAGES = [
   "backlog",
   "ready",
@@ -44,6 +30,74 @@ export const CURRENT_PHASES = [
   "deploy",
 ] as const;
 export type CurrentPhase = (typeof CURRENT_PHASES)[number];
+
+/**
+ * Derive a human-readable status label from lifecycle_stage + current_phase.
+ * Used for display in API responses, UI, and Linear write-back mapping.
+ */
+export function statusLabel(
+  stage: LifecycleStage,
+  phase: CurrentPhase | null,
+): string {
+  if (stage === "active" && phase) {
+    switch (phase) {
+      case "implement":
+        return "running";
+      case "review":
+        return "in_review";
+      case "fix":
+        return "changes_requested";
+      case "ci":
+        return "awaiting_ci";
+      case "deploy":
+        return "deploying";
+    }
+  }
+  return stage;
+}
+
+/**
+ * Convert a legacy status label (e.g. "running", "in_review") back to
+ * { stage, phase }. Inverse of statusLabel(). If the label is already a
+ * valid LifecycleStage, phase defaults to null.
+ */
+export function labelToStagePhase(label: string): {
+  stage: LifecycleStage;
+  phase: CurrentPhase | null;
+} {
+  switch (label) {
+    case "running":
+      return { stage: "active", phase: "implement" };
+    case "in_review":
+      return { stage: "active", phase: "review" };
+    case "changes_requested":
+      return { stage: "active", phase: "fix" };
+    case "awaiting_ci":
+      return { stage: "active", phase: "ci" };
+    case "deploying":
+      return { stage: "active", phase: "deploy" };
+    default:
+      return { stage: label as LifecycleStage, phase: null };
+  }
+}
+
+/**
+ * Legacy TaskStatus — derived from lifecycle_stage + current_phase.
+ * Kept for backwards compatibility with API responses and Linear write-back.
+ */
+export const TASK_STATUSES = [
+  "backlog",
+  "ready",
+  "running",
+  "done",
+  "failed",
+  "canceled",
+  "in_review",
+  "changes_requested",
+  "deploying",
+  "awaiting_ci",
+] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const INVOCATION_STATUSES = [
   "running",
@@ -64,8 +118,7 @@ export interface Task {
   linearIssueId: string;
   agentPrompt: string;
   repoPath: string;
-  orcaStatus: TaskStatus;
-  lifecycleStage: LifecycleStage | null;
+  lifecycleStage: LifecycleStage;
   currentPhase: CurrentPhase | null;
   priority: number;
   retryCount: number;

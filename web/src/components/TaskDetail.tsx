@@ -181,25 +181,25 @@ export default function TaskDetail({
                 }
               }}
             >
-              {MANUAL_STATUSES.filter((s) => s.value !== detail.orcaStatus).map(
-                (s) => (
-                  <button
-                    key={s.value}
-                    role="menuitem"
-                    tabIndex={-1}
-                    onClick={() => {
-                      setShowStatusMenu(false);
-                      updateTaskStatus(detail.linearIssueId, s.value)
-                        .then(() => fetchTaskDetail(taskId))
-                        .then((d) => setDetail(d))
-                        .catch(console.error);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
-                  >
-                    {s.label}
-                  </button>
-                ),
-              )}
+              {MANUAL_STATUSES.filter(
+                (s) => s.value !== detail.lifecycleStage,
+              ).map((s) => (
+                <button
+                  key={s.value}
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={() => {
+                    setShowStatusMenu(false);
+                    updateTaskStatus(detail.linearIssueId, s.value)
+                      .then(() => fetchTaskDetail(taskId))
+                      .then((d) => setDetail(d))
+                      .catch(console.error);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${s.bg}`}
+                >
+                  {s.label}
+                </button>
+              ))}
             </div>
           )}
         </div>

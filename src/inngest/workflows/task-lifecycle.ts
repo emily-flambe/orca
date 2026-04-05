@@ -494,11 +494,7 @@ export const taskLifecycle = inngest.createFunction(
           const task = getTask(db, taskId);
           if (!task) return { claimed: false, reason: "task not found" };
 
-          const claimed = claimTaskForDispatch(db, taskId, [
-            "ready",
-            "in_review",
-            "changes_requested",
-          ]);
+          const claimed = claimTaskForDispatch(db, taskId);
           if (!claimed) {
             return {
               claimed: false,
@@ -550,7 +546,7 @@ export const taskLifecycle = inngest.createFunction(
             message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
             metadata: {
               taskId,
-              previousStatus: freshTask?.orcaStatus ?? "deleted",
+              previousStatus: freshTask?.lifecycleStage ?? "deleted",
               lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
               currentPhase: freshTask?.currentPhase ?? null,
               phase: "implement",
@@ -1394,7 +1390,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
               metadata: {
                 taskId,
-                previousStatus: freshTask?.orcaStatus ?? "deleted",
+                previousStatus: freshTask?.lifecycleStage ?? "deleted",
                 lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
                 currentPhase: freshTask?.currentPhase ?? null,
                 phase: "review",
@@ -1799,7 +1795,7 @@ export const taskLifecycle = inngest.createFunction(
               message: `Aborted stale workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
               metadata: {
                 taskId,
-                previousStatus: freshTask?.orcaStatus ?? "deleted",
+                previousStatus: freshTask?.lifecycleStage ?? "deleted",
                 lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
                 currentPhase: freshTask?.currentPhase ?? null,
                 phase: "fix",

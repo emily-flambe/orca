@@ -29,7 +29,7 @@ function taskFilterKey(task: Task): string {
         return "running";
     }
   }
-  return task.lifecycleStage ?? task.orcaStatus;
+  return task.lifecycleStage;
 }
 
 /** Auto-hide done tasks after 15 minutes. */
@@ -788,7 +788,7 @@ export default function TaskList({
                       }}
                     >
                       {MANUAL_STATUSES.filter(
-                        (s) => s.value !== task.orcaStatus,
+                        (s) => s.value !== task.lifecycleStage,
                       ).map((s) => (
                         <button
                           key={s.value}

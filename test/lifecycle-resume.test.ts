@@ -198,14 +198,13 @@ const STATUS_TO_LIFECYCLE: Record<
 };
 
 function makeTask(overrides: Record<string, unknown> = {}) {
-  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
-  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+  const statusStr = (overrides.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusStr] ?? {
     lifecycleStage: null,
     currentPhase: null,
   };
   return {
     linearIssueId: "TEST-1",
-    orcaStatus,
     lifecycleStage: derived.lifecycleStage,
     currentPhase: derived.currentPhase,
     agentPrompt: "Fix the bug",

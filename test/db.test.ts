@@ -40,7 +40,6 @@ import {
   getDailyStats,
   getRecentActivity,
 } from "../src/db/queries.js";
-import type { TaskStatus } from "../src/db/schema.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +65,8 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: TaskStatus;
+    lifecycleStage: string;
+    currentPhase: string | null;
     priority: number;
     retryCount: number;
     prBranchName: string | null;
@@ -92,7 +92,8 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "implement the feature",
     repoPath: overrides.repoPath ?? "/tmp/repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
+    currentPhase: (overrides.currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     prBranchName: overrides.prBranchName ?? null,
@@ -165,7 +166,7 @@ describe("insertTask / getTask", () => {
       linearIssueId: "IT-1",
       agentPrompt: "do work",
       repoPath: "/repos/foo",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 2,
       retryCount: 1,
       prBranchName: "feat/it-1",
@@ -190,7 +191,6 @@ describe("insertTask / getTask", () => {
     expect(task!.linearIssueId).toBe("IT-1");
     expect(task!.agentPrompt).toBe("do work");
     expect(task!.repoPath).toBe("/repos/foo");
-    expect(task!.orcaStatus).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
     expect(task!.priority).toBe(2);
@@ -226,22 +226,20 @@ describe("updateTaskStatus", () => {
     db = freshDb();
   });
 
-  test("updates orcaStatus", () => {
-    const id = seedTask(db, { orcaStatus: "ready" });
+  test("updates lifecycleStage", () => {
+    const id = seedTask(db, { lifecycleStage: "ready" });
     updateTaskStatus(db, id, "running");
     const task = getTask(db, id)!;
-    expect(task.orcaStatus).toBe("running");
     expect(task.lifecycleStage).toBe("active");
     expect(task.currentPhase).toBe("implement");
   });
 
   test("sets doneAt when status becomes done", () => {
-    const id = seedTask(db, { orcaStatus: "running" });
+    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
     const before = Date.now();
     updateTaskStatus(db, id, "done");
     const after = Date.now();
     const task = getTask(db, id)!;
-    expect(task.orcaStatus).toBe("done");
     expect(task.lifecycleStage).toBe("done");
     expect(task.currentPhase).toBeNull();
     expect(task.doneAt).not.toBeNull();
@@ -251,7 +249,7 @@ describe("updateTaskStatus", () => {
   });
 
   test("clears doneAt when status leaves done", () => {
-    const id = seedTask(db, { orcaStatus: "done", doneAt: now() });
+    const id = seedTask(db, { lifecycleStage: "done", doneAt: now() });
     updateTaskStatus(db, id, "ready");
     expect(getTask(db, id)!.doneAt).toBeNull();
   });
@@ -259,7 +257,7 @@ describe("updateTaskStatus", () => {
   test("updates updatedAt timestamp", () => {
     const ts = "2020-01-01T00:00:00.000Z";
     const id = seedTask(db, {
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       createdAt: ts,
       updatedAt: ts,
     });
@@ -275,26 +273,24 @@ describe("incrementRetryCount", () => {
   });
 
   test("increments retryCount by 1 and resets status to ready", () => {
-    const id = seedTask(db, { orcaStatus: "running", retryCount: 2 });
+    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement", retryCount: 2 });
     incrementRetryCount(db, id);
     const task = getTask(db, id)!;
     expect(task.retryCount).toBe(3);
-    expect(task.orcaStatus).toBe("ready");
     expect(task.lifecycleStage).toBe("ready");
     expect(task.currentPhase).toBeNull();
   });
 
   test("supports custom reset status", () => {
-    const id = seedTask(db, { orcaStatus: "running", retryCount: 0 });
+    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement", retryCount: 0 });
     incrementRetryCount(db, id, "failed");
     const task = getTask(db, id)!;
-    expect(task.orcaStatus).toBe("failed");
     expect(task.lifecycleStage).toBe("failed");
     expect(task.currentPhase).toBeNull();
   });
 
   test("clears doneAt", () => {
-    const id = seedTask(db, { orcaStatus: "done", doneAt: now() });
+    const id = seedTask(db, { lifecycleStage: "done", doneAt: now() });
     incrementRetryCount(db, id);
     expect(getTask(db, id)!.doneAt).toBeNull();
   });
@@ -307,14 +303,14 @@ describe("getDispatchableTasks", () => {
   });
 
   test("returns only tasks with matching statuses", () => {
-    seedTask(db, { orcaStatus: "ready" });
-    seedTask(db, { orcaStatus: "in_review" });
-    seedTask(db, { orcaStatus: "done" });
+    seedTask(db, { lifecycleStage: "ready" });
+    seedTask(db, { lifecycleStage: "active", currentPhase: "review" });
+    seedTask(db, { lifecycleStage: "done" });
 
     const dispatchable = getDispatchableTasks(db, ["ready", "in_review"]);
     expect(dispatchable).toHaveLength(2);
     expect(
-      dispatchable.every((t) => ["ready", "in_review"].includes(t.orcaStatus)),
+      dispatchable.every((t) => ["ready", "active"].includes(t.lifecycleStage)),
     ).toBe(true);
   });
 
@@ -324,19 +320,19 @@ describe("getDispatchableTasks", () => {
     const ts3 = "2024-01-01T02:00:00.000Z";
     seedTask(db, {
       linearIssueId: "D-3",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 1,
       createdAt: ts1,
     });
     seedTask(db, {
       linearIssueId: "D-1",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 0,
       createdAt: ts2,
     });
     seedTask(db, {
       linearIssueId: "D-2",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 0,
       createdAt: ts3,
     });
@@ -525,26 +521,25 @@ describe("updateTaskFields", () => {
   });
 
   test("partially updates task fields", () => {
-    const id = seedTask(db, { priority: 0, orcaStatus: "ready" });
+    const id = seedTask(db, { priority: 0, lifecycleStage: "ready" });
     updateTaskFields(db, id, { priority: 3 });
     const task = getTask(db, id)!;
     expect(task.priority).toBe(3);
-    expect(task.orcaStatus).toBe("ready"); // unchanged
-    expect(task.lifecycleStage).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready"); // unchanged
   });
 
-  test("sets doneAt when orcaStatus is updated to done", () => {
-    const id = seedTask(db, { orcaStatus: "running" });
-    updateTaskFields(db, id, { orcaStatus: "done" });
+  test("sets doneAt when lifecycleStage is updated to done", () => {
+    const id = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
+    updateTaskFields(db, id, { lifecycleStage: "done" });
     const task = getTask(db, id)!;
     expect(task.doneAt).not.toBeNull();
     expect(task.lifecycleStage).toBe("done");
     expect(task.currentPhase).toBeNull();
   });
 
-  test("clears doneAt when orcaStatus leaves done", () => {
-    const id = seedTask(db, { orcaStatus: "done", doneAt: now() });
-    updateTaskFields(db, id, { orcaStatus: "failed" });
+  test("clears doneAt when lifecycleStage leaves done", () => {
+    const id = seedTask(db, { lifecycleStage: "done", doneAt: now() });
+    updateTaskFields(db, id, { lifecycleStage: "failed" });
     const task = getTask(db, id)!;
     expect(task.doneAt).toBeNull();
     expect(task.lifecycleStage).toBe("failed");
@@ -973,7 +968,7 @@ describe("getRecentActivity", () => {
   });
 
   test("shows queued when latest invocation failed and task is re-queued (ready)", () => {
-    const t = seedTask(db, { orcaStatus: "ready" });
+    const t = seedTask(db, { lifecycleStage: "ready" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);
@@ -981,7 +976,7 @@ describe("getRecentActivity", () => {
   });
 
   test("shows queued when latest invocation failed and task is running (being re-dispatched)", () => {
-    const t = seedTask(db, { orcaStatus: "running" });
+    const t = seedTask(db, { lifecycleStage: "active", currentPhase: "implement" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);
@@ -989,7 +984,7 @@ describe("getRecentActivity", () => {
   });
 
   test("shows failed when task is permanently failed", () => {
-    const t = seedTask(db, { orcaStatus: "failed" });
+    const t = seedTask(db, { lifecycleStage: "failed" });
     seedInvocation(db, t, { status: "failed" });
 
     const [entry] = getRecentActivity(db);

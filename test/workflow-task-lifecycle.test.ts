@@ -215,14 +215,13 @@ const STATUS_TO_LIFECYCLE: Record<
 };
 
 function makeTask(overrides: Record<string, unknown> = {}) {
-  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
-  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+  const statusStr = (overrides.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusStr] ?? {
     lifecycleStage: null,
     currentPhase: null,
   };
   return {
     linearIssueId: "TEST-1",
-    orcaStatus,
     lifecycleStage: derived.lifecycleStage,
     currentPhase: derived.currentPhase,
     agentPrompt: "Fix the bug",
@@ -370,7 +369,7 @@ describe("task-lifecycle workflow", () => {
   });
 
   test("claim fails (task not in dispatchable state) → returns not_claimed", async () => {
-    mockGetTask.mockReturnValue(makeTask({ orcaStatus: "done" }));
+    mockGetTask.mockReturnValue(makeTask({ lifecycleStage: "done" }));
     mockClaimTaskForDispatch.mockReturnValue(false);
 
     const step = createStep();
@@ -1033,9 +1032,9 @@ describe("task-lifecycle workflow", () => {
 describe("Guard A — stale workflow abort", () => {
   test("canceled task → workflow aborts with aborted_stale", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim (emitTaskUpdated)
-      .mockReturnValueOnce(makeTask({ orcaStatus: "canceled" })); // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim (emitTaskUpdated)
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "canceled" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
     const step = createStep();
@@ -1053,9 +1052,9 @@ describe("Guard A — stale workflow abort", () => {
 
   test("done task → workflow aborts", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "done" })); // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "done" })); // guard-a-implement
     mockClaimTaskForDispatch.mockReturnValue(true);
 
     const step = createStep();
@@ -1073,8 +1072,8 @@ describe("Guard A — stale workflow abort", () => {
 
   test("deleted task (null) → workflow aborts", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
       .mockReturnValueOnce(null); // guard-a-implement: task deleted
     mockClaimTaskForDispatch.mockReturnValue(true);
 
@@ -1094,10 +1093,10 @@ describe("Guard A — stale workflow abort", () => {
   test("active task → workflow proceeds normally (spawnSession called)", async () => {
     // Guard A returns non-terminal status, so workflow continues to start-implement
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: getTask after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
-      .mockReturnValue(makeTask({ orcaStatus: "running" })); // all subsequent calls
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: getTask after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
+      .mockReturnValue(makeTask({ lifecycleStage: "active", currentPhase: "implement" })); // all subsequent calls
     mockClaimTaskForDispatch.mockReturnValue(true);
     mockInsertInvocation.mockReturnValue(1);
 
@@ -1116,12 +1115,12 @@ describe("Guard A — stale workflow abort", () => {
 describe("Guard B — orphaned green PR recovery", () => {
   test("failed implement with green PR → rescued to awaiting_ci", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          orcaStatus: "running",
+          lifecycleStage: "active", currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1169,12 +1168,12 @@ describe("Guard B — orphaned green PR recovery", () => {
 
   test("failed implement with failing PR → falls through to normal failure", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          orcaStatus: "running",
+          lifecycleStage: "active", currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1214,12 +1213,12 @@ describe("Guard B — orphaned green PR recovery", () => {
 
   test("failed implement with no PR → falls through to normal failure", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          orcaStatus: "running",
+          lifecycleStage: "active", currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),
@@ -1252,12 +1251,12 @@ describe("Guard B — orphaned green PR recovery", () => {
 
   test("gh CLI error → try/catch catches, falls through to normal failure", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "ready" })) // claim-task: first getTask
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // claim-task: after claim
-      .mockReturnValueOnce(makeTask({ orcaStatus: "running" })) // guard-a-implement
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "ready" })) // claim-task: first getTask
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // claim-task: after claim
+      .mockReturnValueOnce(makeTask({ lifecycleStage: "active", currentPhase: "implement" })) // guard-a-implement
       .mockReturnValue(
         makeTask({
-          orcaStatus: "running",
+          lifecycleStage: "active", currentPhase: "implement",
           prBranchName: "orca/TEST-1-inv-1",
           retryCount: 0,
         }),

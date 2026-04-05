@@ -47,7 +47,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: string;
+    lifecycleStage: string;
     priority: number;
     retryCount: number;
     reviewCycleCount: number;
@@ -73,7 +73,8 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "implement the feature",
     repoPath: overrides.repoPath ?? "/tmp/repo",
-    orcaStatus: (overrides.orcaStatus ?? "ready") as any,
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
+    currentPhase: ((overrides as any).currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     reviewCycleCount: overrides.reviewCycleCount ?? 0,
@@ -135,7 +136,7 @@ describe("get_task query logic", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EMI-100",
       agentPrompt: "add feature",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       priority: 2,
       retryCount: 1,
       reviewCycleCount: 0,
@@ -150,7 +151,6 @@ describe("get_task query logic", () => {
     expect(task).toBeDefined();
     expect(task!.linearIssueId).toBe("EMI-100");
     expect(task!.agentPrompt).toBe("add feature");
-    expect(task!.orcaStatus).toBe("running");
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("implement");
     expect(task!.priority).toBe(2);
@@ -365,7 +365,7 @@ describe("get_parent_issue query logic", () => {
     seedTask(db, {
       linearIssueId: "EMI-10",
       agentPrompt: "parent epic",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       projectName: "alpha-project",
       isParent: 1,
     });
@@ -381,7 +381,7 @@ describe("get_parent_issue query logic", () => {
     expect(parent).toBeDefined();
     expect(parent!.linearIssueId).toBe("EMI-10");
     expect(parent!.agentPrompt).toBe("parent epic");
-    expect(parent!.orcaStatus).toBe("done");
+    expect(parent!.lifecycleStage).toBe("done");
     expect(parent!.projectName).toBe("alpha-project");
     expect(parent!.isParent).toBe(1);
   });
@@ -404,7 +404,7 @@ describe("get_parent_issue query logic", () => {
     seedTask(db, {
       linearIssueId: "PARENT-X",
       agentPrompt: "overall plan",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       projectName: "beta",
       isParent: 1,
       createdAt: ts,
@@ -418,7 +418,7 @@ describe("get_parent_issue query logic", () => {
     // Verify the fields the tool returns in its result object
     expect(parent!.linearIssueId).toBe("PARENT-X");
     expect(parent!.agentPrompt).toBe("overall plan");
-    expect(parent!.orcaStatus).toBe("ready");
+    expect(parent!.lifecycleStage).toBe("ready");
     expect(parent!.projectName).toBe("beta");
     expect(parent!.isParent).toBe(1);
     expect(parent!.createdAt).toBe(ts);
@@ -446,17 +446,17 @@ describe("get_sibling_tasks query logic", () => {
     seedTask(db, {
       linearIssueId: "CHILD-A",
       parentIdentifier: "PARENT-S",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
     });
     seedTask(db, {
       linearIssueId: "CHILD-B",
       parentIdentifier: "PARENT-S",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
     seedTask(db, {
       linearIssueId: "CHILD-C",
       parentIdentifier: "PARENT-S",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const task = getTask(db, "CHILD-A");
@@ -570,7 +570,7 @@ describe("get_sibling_tasks query logic", () => {
     seedTask(db, {
       linearIssueId: "SHAPE-A",
       parentIdentifier: "PARENT-SHAPE",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       retryCount: 2,
       prBranchName: "orca/SHAPE-A",
       projectName: "shape-proj",
@@ -591,7 +591,7 @@ describe("get_sibling_tasks query logic", () => {
     // Verify fields the tool maps in its result
     expect(sib.linearIssueId).toBe("SHAPE-A");
     expect(sib.agentPrompt).toBeDefined();
-    expect(sib.orcaStatus).toBe("done");
+    expect(sib.lifecycleStage).toBe("done");
     expect(sib.retryCount).toBe(2);
     expect(sib.prBranchName).toBe("orca/SHAPE-A");
     expect(sib.projectName).toBe("shape-proj");
@@ -627,31 +627,31 @@ describe("list_tasks query logic", () => {
   });
 
   test("returns all tasks when no status filter", () => {
-    seedTask(db, { linearIssueId: "LT-1", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "LT-2", orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "LT-3", orcaStatus: "done" });
+    seedTask(db, { linearIssueId: "LT-1", lifecycleStage: "ready" });
+    seedTask(db, { linearIssueId: "LT-2", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, { linearIssueId: "LT-3", lifecycleStage: "done" });
 
     const allTasks = getAllTasks(db);
     expect(allTasks).toHaveLength(3);
   });
 
   test("status filter returns only matching tasks", () => {
-    seedTask(db, { linearIssueId: "LT-4", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "LT-5", orcaStatus: "running" });
-    seedTask(db, { linearIssueId: "LT-6", orcaStatus: "ready" });
+    seedTask(db, { linearIssueId: "LT-4", lifecycleStage: "ready" });
+    seedTask(db, { linearIssueId: "LT-5", lifecycleStage: "active", currentPhase: "implement" });
+    seedTask(db, { linearIssueId: "LT-6", lifecycleStage: "ready" });
 
     const allTasks = getAllTasks(db);
-    const filtered = allTasks.filter((t) => t.orcaStatus === "ready");
+    const filtered = allTasks.filter((t) => t.lifecycleStage === "ready");
     expect(filtered).toHaveLength(2);
-    expect(filtered.every((t) => t.orcaStatus === "ready")).toBe(true);
+    expect(filtered.every((t) => t.lifecycleStage === "ready")).toBe(true);
   });
 
   test("status filter returns empty array when no matches", () => {
-    seedTask(db, { linearIssueId: "LT-7", orcaStatus: "ready" });
-    seedTask(db, { linearIssueId: "LT-8", orcaStatus: "running" });
+    seedTask(db, { linearIssueId: "LT-7", lifecycleStage: "ready" });
+    seedTask(db, { linearIssueId: "LT-8", lifecycleStage: "active", currentPhase: "implement" });
 
     const allTasks = getAllTasks(db);
-    const filtered = allTasks.filter((t) => t.orcaStatus === "done");
+    const filtered = allTasks.filter((t) => t.lifecycleStage === "done");
     expect(filtered).toHaveLength(0);
   });
 

@@ -26,6 +26,7 @@ vi.mock("../src/events.js", () => ({
 
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import { insertTask, getTask } from "../src/db/queries.js";
+import { labelToStagePhase } from "../src/shared/types.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { LinearIssue } from "../src/linear/client.js";
 
@@ -44,14 +45,16 @@ function now(): string {
 function seedTask(
   db: OrcaDb,
   linearIssueId: string,
-  orcaStatus: string = "ready",
+  statusOrStage: string = "ready",
 ): void {
   const ts = now();
+  const resolved = labelToStagePhase(statusOrStage);
   insertTask(db, {
     linearIssueId,
     agentPrompt: "do something",
     repoPath: "/tmp/fake-repo",
-    orcaStatus: orcaStatus as any,
+    lifecycleStage: resolved.stage,
+    currentPhase: resolved.phase,
     priority: 0,
     retryCount: 0,
     createdAt: ts,
@@ -329,6 +332,6 @@ describe("fullSync — Inngest event emission", () => {
     ).resolves.toBeDefined();
 
     // Task should still be inserted correctly
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("ready");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("ready");
   });
 });

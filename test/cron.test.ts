@@ -634,7 +634,7 @@ describe("DELETE /api/cron/:id", () => {
       linearIssueId: taskId,
       agentPrompt: "do something",
       repoPath: "/tmp",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       taskType: "cron_shell",
       cronScheduleId: id,
       createdAt: now(),
@@ -729,7 +729,7 @@ describe("POST /api/cron/:id/trigger", () => {
 
     const tasks = getTasksByCronSchedule(db, id);
     expect(tasks).toHaveLength(1);
-    expect(tasks[0].orcaStatus).toBe("ready");
+    expect(tasks[0].lifecycleStage).toBe("ready");
   });
 
   it("increments runCount after trigger", async () => {
@@ -905,7 +905,7 @@ describe("GET /api/cron/:id/tasks", () => {
       linearIssueId: taskId,
       agentPrompt: "do something",
       repoPath: "/tmp",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_claude",
       cronScheduleId: id,
       createdAt: "2026-01-01T10:00:00.000Z",
@@ -945,7 +945,7 @@ describe("GET /api/cron/:id/tasks", () => {
       linearIssueId: taskId1,
       agentPrompt: "old task",
       repoPath: "/tmp",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_claude",
       cronScheduleId: id,
       createdAt: "2026-01-01T08:00:00.000Z",
@@ -961,7 +961,7 @@ describe("GET /api/cron/:id/tasks", () => {
       linearIssueId: taskId2,
       agentPrompt: "new task",
       repoPath: "/tmp",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "cron_claude",
       cronScheduleId: id,
       createdAt: "2026-01-02T10:00:00.000Z",
@@ -990,7 +990,7 @@ describe("GET /api/cron/:id/tasks", () => {
       linearIssueId: taskId,
       agentPrompt: "echo hello",
       repoPath: "",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_shell",
       cronScheduleId: id,
       createdAt: now(),
@@ -1017,7 +1017,7 @@ describe("GET /api/cron/:id/tasks", () => {
       linearIssueId: `cron-${id1}-task`,
       agentPrompt: "task for sched 1",
       repoPath: "/tmp",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "cron_claude",
       cronScheduleId: id1,
       createdAt: now(),
