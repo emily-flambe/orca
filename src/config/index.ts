@@ -42,7 +42,6 @@ export interface OrcaConfig {
   externalTunnel: boolean;
 
   logLevel: string;
-  worktreePoolSize: number;
 }
 
 function exitWithError(message: string): never {
@@ -319,8 +318,6 @@ Steps:
     githubMcpPat: readEnv("GITHUB_MCP_PAT") ?? readEnv("GITHUB_TOKEN"),
     cloudflaredPath: readEnvOrDefault("ORCA_CLOUDFLARED_PATH", "cloudflared"),
     externalTunnel: readBoolOrDefault("ORCA_EXTERNAL_TUNNEL", false),
-
-    worktreePoolSize: readIntOrDefault("ORCA_WORKTREE_POOL_SIZE", 0),
 
     logLevel: (() => {
       const val = readEnvOrDefault("LOG_LEVEL", "info").toLowerCase();

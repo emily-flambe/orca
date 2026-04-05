@@ -29,15 +29,9 @@ import { createPoller, type PollerHandle } from "../linear/poller.js";
 import { inngest } from "../inngest/client.js";
 import { serve as serveInngest } from "inngest/hono";
 import { functions as inngestFunctions } from "../inngest/functions.js";
-import {
-  setSchedulerDeps,
-  markReady,
-  getSchedulerDeps,
-  isReady,
-} from "../inngest/deps.js";
+import { setSchedulerDeps, markReady } from "../inngest/deps.js";
 import { createApiRoutes } from "../api/routes.js";
 import { removeWorktree } from "../worktree/index.js";
-import { createWorktreePool } from "../worktree/pool.js";
 import { probeDllHealth } from "../git.js";
 import { initFileLogger, createLogger } from "../logger.js";
 import { initAlertSystem } from "../scheduler/alerts.js";
@@ -385,23 +379,6 @@ program
       setSchedulerDeps({ db, config, graph, client, stateMap });
       logger.info("task lifecycle deps initialized");
 
-      // Start worktree pool if configured
-      if (config.worktreePoolSize > 0) {
-        const pool = createWorktreePool(config.worktreePoolSize);
-        const repoPaths = [
-          ...new Set([
-            ...config.projectRepoMap.values(),
-            ...(config.defaultCwd ? [config.defaultCwd] : []),
-          ]),
-        ];
-        pool.start(repoPaths);
-        const deps = getSchedulerDeps();
-        setSchedulerDeps({ ...deps, worktreePool: pool });
-        logger.info(
-          `worktree pool started (size=${config.worktreePoolSize}, repos=${repoPaths.length})`,
-        );
-      }
-
       // Verify Inngest server is reachable before self-registration.
       const inngestBaseUrl =
         process.env.INNGEST_BASE_URL || "http://localhost:8288";
@@ -561,16 +538,6 @@ program
 
       // Stop cloudflared tunnel
       if (tunnel) tunnel.stop();
-
-      // Stop worktree pool (best-effort)
-      if (isReady()) {
-        const poolDeps = getSchedulerDeps().worktreePool;
-        if (poolDeps) {
-          await poolDeps.stop().catch((err) => {
-            logger.warn(`pool stop failed: ${err}`);
-          });
-        }
-      }
 
       // 1. Gracefully kill all active Claude sessions
       const killPromises: Promise<void>[] = [];
