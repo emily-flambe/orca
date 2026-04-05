@@ -66,6 +66,8 @@ import {
   closeSupersededPrs,
   getPrCheckStatus,
 } from "../../github/index.js";
+import { runCiGateAndMerge } from "../shared/ci-merge.js";
+import { runDeployMonitor } from "../shared/deploy-monitor.js";
 import { activeHandles } from "../../session-handles.js";
 import { isDraining } from "../../deploy.js";
 import { inngest } from "../client.js";
@@ -1000,17 +1002,12 @@ export const taskLifecycle = inngest.createFunction(
                       log(
                         `Guard B: rescued task ${taskId} — PR #${prInfo.number} has passing CI`,
                       );
-                      await inngest.send({
-                        name: "task/awaiting-ci",
-                        data: {
-                          linearIssueId: taskId,
-                          repoPath: guardBTask.repoPath,
-                          prNumber: prInfo.number,
-                          prBranchName: guardBTask.prBranchName!,
-                          ciStartedAt: new Date().toISOString(),
-                        },
-                      });
-                      return { outcome: "rescued_pr" };
+                      return {
+                        outcome: "rescued_pr" as Gate2Outcome,
+                        prBranch: guardBTask.prBranchName!,
+                        prNumber: prInfo.number,
+                        ciStartedAt: new Date().toISOString(),
+                      };
                     }
                   }
                 } catch (err) {
@@ -1338,8 +1335,7 @@ export const taskLifecycle = inngest.createFunction(
     if (
       gate2.outcome === "timed_out" ||
       gate2.outcome === "permanent_fail" ||
-      gate2.outcome === "done" ||
-      gate2.outcome === "rescued_pr"
+      gate2.outcome === "done"
     ) {
       return { outcome: gate2.outcome };
     }
@@ -1366,26 +1362,42 @@ export const taskLifecycle = inngest.createFunction(
     }
 
     // -------------------------------------------------------------------------
-    // Step 6: Emit task/awaiting-ci to trigger CI gate workflow
+    // Step 6: Inline CI gate + merge (replaces task/awaiting-ci event emission)
     // -------------------------------------------------------------------------
 
-    {
-      const { db: awaitingDb, config: awaitingConfig } = getSchedulerDeps();
-      await inngest.send({
-        name: "task/awaiting-ci",
-        data: {
-          linearIssueId: taskId,
-          prNumber: (gate2.prNumber ?? 0) as number,
-          prBranchName: (gate2.prBranch ?? "") as string,
-          repoPath:
-            getTask(awaitingDb, taskId)?.repoPath ??
-            awaitingConfig.defaultCwd ??
-            "",
-          ciStartedAt: gate2.ciStartedAt ?? new Date().toISOString(),
-        },
-      });
+    const ciResult = await runCiGateAndMerge(
+      step,
+      taskId,
+      (gate2.prNumber ?? 0) as number,
+      (gate2.prBranch ?? "") as string,
+      gate2.ciStartedAt ?? new Date().toISOString(),
+    );
+
+    if (ciResult.status === "merged") {
+      if (ciResult.nextStatus === "deploying" && ciResult.deployInfo) {
+        // ---------------------------------------------------------------
+        // Step 7: Inline deploy monitor (replaces task/deploying event)
+        // ---------------------------------------------------------------
+        const deployResult = await runDeployMonitor(
+          step,
+          taskId,
+          ciResult.deployInfo.mergeCommitSha ?? "",
+          ciResult.deployInfo.deployStartedAt,
+        );
+        return { outcome: deployResult.status };
+      }
+      return { outcome: "done" };
     }
 
-    return { outcome: "awaiting_ci" };
+    if (
+      ciResult.status === "ci_failure" ||
+      ciResult.status === "changes_requested"
+    ) {
+      // CI gate already transitioned the task and re-dispatched via task/ready
+      return { outcome: ciResult.status };
+    }
+
+    // "failed" or "aborted"
+    return { outcome: ciResult.status };
   },
 );

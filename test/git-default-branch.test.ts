@@ -481,7 +481,7 @@ describe("system prompt {{DEFAULT_BRANCH_REF}} placeholder", () => {
   test("ci-merge uses getDefaultBranch for rebase log messages", async () => {
     const fs = await import("node:fs");
     const ciMergeSource = fs.readFileSync(
-      "src/inngest/workflows/ci-merge.ts",
+      "src/inngest/shared/ci-merge.ts",
       "utf-8",
     );
 
