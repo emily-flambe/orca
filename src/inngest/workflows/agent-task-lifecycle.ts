@@ -65,10 +65,7 @@ import {
   transitionToFinalState,
 } from "../workflow-utils.js";
 import { writeBackStatus } from "../../linear/sync.js";
-import {
-  findPrForBranch,
-  closeSupersededPrs,
-} from "../../github/index.js";
+import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
 
