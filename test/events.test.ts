@@ -41,8 +41,8 @@ const STATUS_TO_LIFECYCLE: Record<
 };
 
 function makeTask(overrides: Partial<Task> = {}): Task {
-  const orcaStatus = (overrides.orcaStatus as string) ?? "ready";
-  const derived = STATUS_TO_LIFECYCLE[orcaStatus] ?? {
+  const statusStr = (overrides.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusStr] ?? {
     lifecycleStage: null,
     currentPhase: null,
   };
@@ -50,7 +50,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     linearIssueId: "TEST-1",
     agentPrompt: "Test task",
     repoPath: "/repo",
-    orcaStatus: "ready",
+    lifecycleStage: "ready",
     lifecycleStage: derived.lifecycleStage as Task["lifecycleStage"],
     currentPhase: derived.currentPhase as Task["currentPhase"],
     priority: 3,

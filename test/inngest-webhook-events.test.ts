@@ -46,6 +46,7 @@ vi.mock("../src/events.js", () => ({
 
 import { createDb, type OrcaDb } from "../src/db/index.js";
 import { insertTask, getTask } from "../src/db/queries.js";
+import { labelToStagePhase } from "../src/shared/types.js";
 import type { OrcaConfig } from "../src/config/index.js";
 import type { WebhookEvent } from "../src/linear/sync.js";
 
@@ -64,15 +65,17 @@ function now(): string {
 function seedTask(
   db: OrcaDb,
   linearIssueId: string,
-  orcaStatus: string = "ready",
+  statusOrStage: string = "ready",
   retryCount: number = 0,
 ): void {
   const ts = now();
+  const resolved = labelToStagePhase(statusOrStage);
   insertTask(db, {
     linearIssueId,
     agentPrompt: "do something",
     repoPath: "/tmp/fake-repo",
-    orcaStatus: orcaStatus as any,
+    lifecycleStage: resolved.stage,
+    currentPhase: resolved.phase,
     priority: 0,
     retryCount,
     createdAt: ts,
@@ -365,7 +368,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     // Echo consumed — processWebhookEvent returns early, no Inngest events
     expect(inngest.send).not.toHaveBeenCalled();
     // DB status should remain unchanged
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("running");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("active");
   });
 
   it("AC4: does NOT emit task/cancelled when cancelled event is an echo", async () => {
@@ -626,7 +629,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     // "remove" returns early — no state block entered
     expect(inngest.send).not.toHaveBeenCalled();
     // DB should be untouched
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("running");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("active");
   });
 
   // ---------------------------------------------------------------------------
@@ -666,7 +669,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     // event.data.state is undefined → if (event.data.state) block is not entered
     expect(inngest.send).not.toHaveBeenCalled();
     // DB should be untouched
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("running");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("active");
   });
 
   // ---------------------------------------------------------------------------
@@ -702,7 +705,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     );
 
     // Task should be failed after cancel
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("failed");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("failed");
   });
 
   it("AC3: conflict resolution resets to ready when Linear moves task to Todo from running", async () => {
@@ -722,7 +725,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     );
 
     // Conflict resolution: running → Linear unstarted → reset to ready
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("ready");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("ready");
   });
 
   // ---------------------------------------------------------------------------
@@ -747,7 +750,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
     ).resolves.toBeUndefined();
 
     // DB should still be updated
-    expect(getTask(db, "PROJ-1")?.orcaStatus).toBe("ready");
+    expect(getTask(db, "PROJ-1")?.lifecycleStage).toBe("ready");
   });
 
   // ---------------------------------------------------------------------------
@@ -840,7 +843,7 @@ describe("processWebhookEvent — Inngest event emission", () => {
       inngest as any,
     );
 
-    // Only task/cancelled fires; task/ready must NOT fire (finalTask.orcaStatus is "failed")
+    // Only task/cancelled fires; task/ready must NOT fire (finalTask.lifecycleStage is "failed")
     const calls = inngest.send.mock.calls;
     const readyCalls = calls.filter((c: any[]) => c[0].name === "task/ready");
     expect(readyCalls).toHaveLength(0);

@@ -10,10 +10,9 @@ export const DEFAULT_SNAPSHOT_FILE = path.join(
   "task-monitor-snapshot.ndjson",
 );
 
-interface MonitorTask {
+export interface MonitorTask {
   linearIssueId: string;
-  orcaStatus: string;
-  lifecycleStage: string | null;
+  lifecycleStage: string;
   currentPhase: string | null;
   retryCount: number;
   updatedAt: string;
@@ -49,8 +48,7 @@ export async function writeMonitorSnapshot(
   const lines = tasks.map((task) => {
     const entry: Record<string, unknown> = {
       id: task.linearIssueId,
-      status: task.orcaStatus,
-      lifecycleStage: task.lifecycleStage,
+      status: task.lifecycleStage,
       currentPhase: task.currentPhase,
       retryCount: task.retryCount,
       updatedAt: task.updatedAt,

@@ -9,7 +9,6 @@ import {
   insertInvocation,
   updateInvocation,
 } from "../src/db/queries.js";
-import type { TaskStatus } from "../src/db/schema.js";
 import type { OrcaConfig } from "../src/config/index.js";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +62,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: TaskStatus;
+    lifecycleStage: string;
     priority: number;
     retryCount: number;
     prBranchName: string | null;
@@ -75,7 +74,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: overrides.lifecycleStage ?? "ready",
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     prBranchName: overrides.prBranchName ?? null,
@@ -197,7 +196,7 @@ describe("Cleanup - branch safety filters", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-1",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
     seedRunningInvocation(db, taskId, {
       branchName: "orca/T-1-inv-1",
@@ -229,7 +228,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-2",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "in_review",
+      lifecycleStage: "active", currentPhase: "review",
       prBranchName: "orca/T-2-inv-1",
     });
 
@@ -256,7 +255,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-3",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString(); // 2 hours ago
@@ -285,7 +284,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-4",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     // Branch committed 5 minutes ago (younger than 60min default)
@@ -315,7 +314,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-5",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     // Branch committed 2 hours ago (older than 60min default)
@@ -344,7 +343,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-6",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "failed",
+      lifecycleStage: "failed",
       prBranchName: "orca/T-6-inv-1",
     });
 
@@ -373,7 +372,7 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-7",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     // for-each-ref only returns orca/* branches
@@ -398,12 +397,12 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-8a",
       repoPath: "/tmp/repo-a",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     seedTask(db, {
       linearIssueId: "T-8b",
       repoPath: "/tmp/repo-b",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -434,12 +433,12 @@ describe("Cleanup - branch safety filters", () => {
     seedTask(db, {
       linearIssueId: "T-9a",
       repoPath: "/tmp/repo-fail",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     seedTask(db, {
       linearIssueId: "T-9b",
       repoPath: "/tmp/repo-ok",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -520,7 +519,7 @@ describe("Cleanup - null age deletes branch (BUG: fail-open on unknown age)", ()
     seedTask(db, {
       linearIssueId: "T-NULL-AGE",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     gitMock.mockImplementation((args: string[]) => {
@@ -550,7 +549,7 @@ describe("Cleanup - null age deletes branch (BUG: fail-open on unknown age)", ()
     seedTask(db, {
       linearIssueId: "T-EMPTY-LOG",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     gitMock.mockImplementation((args: string[]) => {
@@ -577,7 +576,7 @@ describe("Cleanup - null age deletes branch (BUG: fail-open on unknown age)", ()
     seedTask(db, {
       linearIssueId: "T-BAD-DATE",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     gitMock.mockImplementation((args: string[]) => {
@@ -643,7 +642,7 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-DEPLOY",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "deploying",
+      lifecycleStage: "active", currentPhase: "deploy",
       prBranchName: "orca/T-DEPLOY-inv-1",
     });
 
@@ -672,7 +671,7 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-DISPATCH",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       prBranchName: "orca/T-DISPATCH-inv-1",
     });
 
@@ -701,7 +700,7 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-CHANGES",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "changes_requested",
+      lifecycleStage: "active", currentPhase: "fix",
       prBranchName: "orca/T-CHANGES-inv-1",
     });
 
@@ -733,7 +732,7 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-EXISTS",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -765,14 +764,14 @@ describe("Cleanup - task status edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-ACTIVE",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "in_review",
+      lifecycleStage: "active", currentPhase: "review",
       prBranchName: "orca/T-ACTIVE-inv-1",
     });
     // Done task -- its branch is eligible
     seedTask(db, {
       linearIssueId: "T-DONE",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       prBranchName: "orca/T-DONE-inv-1",
     });
 
@@ -848,7 +847,7 @@ describe("cleanupOldInvocationLogs", () => {
   test("deletes old log for completed invocation", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-LOG-1",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -871,7 +870,7 @@ describe("cleanupOldInvocationLogs", () => {
   test("deletes old log for failed invocation", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-LOG-2",
-      orcaStatus: "failed",
+      lifecycleStage: "failed",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -894,7 +893,7 @@ describe("cleanupOldInvocationLogs", () => {
   test("preserves recent log for completed invocation (within retention window)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-LOG-3",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -918,7 +917,7 @@ describe("cleanupOldInvocationLogs", () => {
   test("preserves log for running invocation regardless of age", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-LOG-4",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1062,7 +1061,7 @@ describe("Cleanup - config edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-BOUNDARY",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     // Exactly 60 minutes ago (= default maxAge)
@@ -1135,7 +1134,7 @@ describe("Cleanup - listOpenPrBranches failure is fail-open (potential safety is
     seedTask(db, {
       linearIssueId: "T-PR-FAIL",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1206,17 +1205,17 @@ describe("Cleanup - duplicate repo paths deduplication", () => {
     seedTask(db, {
       linearIssueId: "T-DUP-1",
       repoPath: "/tmp/same-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     seedTask(db, {
       linearIssueId: "T-DUP-2",
       repoPath: "/tmp/same-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     seedTask(db, {
       linearIssueId: "T-DUP-3",
       repoPath: "/tmp/same-repo",
-      orcaStatus: "failed",
+      lifecycleStage: "failed",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1281,7 +1280,7 @@ describe("Cleanup - branch delete failure resilience", () => {
     seedTask(db, {
       linearIssueId: "T-MULTI",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1314,7 +1313,7 @@ describe("Cleanup - branch delete failure resilience", () => {
     seedTask(db, {
       linearIssueId: "T-WT-FAIL",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1384,7 +1383,7 @@ describe("Cleanup - worktree path matching edge cases", () => {
     seedTask(db, {
       linearIssueId: "T-MAIN",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     gitMock.mockImplementation((args: string[]) => {
@@ -1408,7 +1407,7 @@ describe("Cleanup - worktree path matching edge cases", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-RUNNING-WT",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
     seedRunningInvocation(db, taskId, {
       branchName: "orca/T-RUNNING-WT-inv-1",
@@ -1471,7 +1470,7 @@ describe("Cleanup - multiple branches in for-each-ref output", () => {
     seedTask(db, {
       linearIssueId: "T-EMPTY-LINES",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1506,7 +1505,7 @@ describe("Cleanup - multiple branches in for-each-ref output", () => {
     seedTask(db, {
       linearIssueId: "T-AGES",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -1582,7 +1581,7 @@ describe("Cleanup - protection set construction from DB", () => {
     seedTask(db, {
       linearIssueId: "T-NULL-BR",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       prBranchName: null,
     });
 
@@ -1613,7 +1612,7 @@ describe("Cleanup - protection set construction from DB", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-NULL-INV-BR",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
     });
     // Running invocation without branchName set
     seedRunningInvocation(db, taskId, {});
@@ -1696,7 +1695,7 @@ describe("BUG: timed_out invocation logs are never deleted (missing terminal sta
   test("old log for timed_out invocation should be deleted (BUG: currently skipped)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-TIMEOUT-1",
-      orcaStatus: "failed",
+      lifecycleStage: "failed",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1732,7 +1731,7 @@ describe("BUG: timed_out invocation logs are never deleted (missing terminal sta
     // The code reaches the TERMINAL_STATUSES check and incorrectly skips.
     const taskId = seedTask(db, {
       linearIssueId: "T-TIMEOUT-2",
-      orcaStatus: "failed",
+      lifecycleStage: "failed",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1807,7 +1806,7 @@ describe("BUG: parseInt partial parse — filename '123abc.ndjson' is not treate
     // Seed a real invocation with ID that parseInt would extract (1)
     const taskId = seedTask(db, {
       linearIssueId: "T-PARSE-1",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1846,7 +1845,7 @@ describe("BUG: parseInt partial parse — filename '123abc.ndjson' is not treate
   test("filename '1.backup.ndjson' must use 2x conservative window", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-PARSE-2",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
     const invId = insertInvocation(db, {
       linearIssueId: taskId,
@@ -1925,7 +1924,7 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     seedTask(db, {
       linearIssueId: "T-ORDER",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const callOrder: string[] = [];
@@ -1961,7 +1960,7 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     seedTask(db, {
       linearIssueId: "T-ORPHAN-FLOW",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();
@@ -2002,7 +2001,7 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     const taskId = seedTask(db, {
       linearIssueId: "T-RUNNING",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       prBranchName: "orca/T-RUNNING-inv-1",
     });
     seedRunningInvocation(db, taskId, {
@@ -2014,7 +2013,7 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     seedTask(db, {
       linearIssueId: "T-REVIEW",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "in_review",
+      lifecycleStage: "active", currentPhase: "review",
       prBranchName: "orca/T-REVIEW-inv-1",
     });
 
@@ -2045,7 +2044,7 @@ describe("Cleanup - closeOrphanedPrs integration", () => {
     seedTask(db, {
       linearIssueId: "T-CLOSE-FAIL",
       repoPath: "/tmp/fake-repo",
-      orcaStatus: "done",
+      lifecycleStage: "done",
     });
 
     const oldDate = new Date(Date.now() - 120 * 60 * 1000).toISOString();

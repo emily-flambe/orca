@@ -180,7 +180,7 @@ export const agentTaskLifecycle = inngest.createFunction(
           const task = getTask(db, taskId);
           if (!task) return { claimed: false, reason: "task not found" };
 
-          const claimed = claimTaskForDispatch(db, taskId, ["ready"]);
+          const claimed = claimTaskForDispatch(db, taskId);
           if (!claimed) {
             return {
               claimed: false,
@@ -713,7 +713,7 @@ export const agentTaskLifecycle = inngest.createFunction(
                 message: `Aborted stale agent workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
                 metadata: {
                   taskId,
-                  previousStatus: freshTask?.orcaStatus ?? "deleted",
+                  previousStatus: freshTask?.lifecycleStage ?? "deleted",
                   lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
                   currentPhase: freshTask?.currentPhase ?? null,
                   phase: "review",
@@ -1115,7 +1115,7 @@ export const agentTaskLifecycle = inngest.createFunction(
                 message: `Aborted stale agent workflow for ${taskId} (stage: ${freshTask?.lifecycleStage ?? "deleted"})`,
                 metadata: {
                   taskId,
-                  previousStatus: freshTask?.orcaStatus ?? "deleted",
+                  previousStatus: freshTask?.lifecycleStage ?? "deleted",
                   lifecycleStage: freshTask?.lifecycleStage ?? "deleted",
                   currentPhase: freshTask?.currentPhase ?? null,
                   phase: "fix",

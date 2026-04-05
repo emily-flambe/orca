@@ -10,7 +10,7 @@ import { updateTaskStatus, getTask } from "../db/queries.js";
 import { emitTaskUpdated } from "../events.js";
 import { writeBackStatus } from "../linear/sync.js";
 import type { OrcaDb } from "../db/index.js";
-import type { TaskStatus } from "../shared/types.js";
+import type { LifecycleStage } from "../shared/types.js";
 import type { LinearClient, WorkflowStateMap } from "../linear/client.js";
 import { createLogger } from "../logger.js";
 
@@ -114,16 +114,17 @@ export async function worktreeHasNoChanges(
 
 /**
  * Update task status in DB and emit SSE event in one call.
+ * Accepts a legacy status label (e.g. "running", "in_review") for convenience.
  * The task must exist — if not found post-update, emitTaskUpdated is skipped.
  */
 export function updateAndEmit(
   db: OrcaDb,
   taskId: string,
-  status: TaskStatus,
+  statusLabel: string,
   reason?: string,
   options?: { failureReason?: string; failedPhase?: string },
 ): void {
-  updateTaskStatus(db, taskId, status, {
+  updateTaskStatus(db, taskId, statusLabel as LifecycleStage, {
     ...(reason ? { reason } : {}),
     ...(options?.failureReason
       ? {

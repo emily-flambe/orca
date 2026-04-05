@@ -259,7 +259,7 @@ describe("orca add", () => {
     expect(task.agentPrompt).toBe("do the thing");
     expect(task.repoPath).toBe("/path/to/repo");
     expect(task.priority).toBe(2);
-    expect(task.orcaStatus).toBe("ready");
+    expect(task.lifecycleStage).toBe("ready");
     expect(task.retryCount).toBe(0);
     expect(task.createdAt).toBeTruthy();
     expect(task.updatedAt).toBeTruthy();
@@ -349,10 +349,10 @@ describe("orca status", () => {
   test("prints queued task count", async () => {
     mockGetRunningInvocations.mockReturnValue([]);
     mockGetAllTasks.mockReturnValue([
-      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
-      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
+      { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
+      { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
       {
-        orcaStatus: "running",
+        lifecycleStage: "active", currentPhase: "implement",
         lifecycleStage: "active",
         currentPhase: "implement",
       },
@@ -367,9 +367,9 @@ describe("orca status", () => {
   test("prints failed task count", async () => {
     mockGetRunningInvocations.mockReturnValue([]);
     mockGetAllTasks.mockReturnValue([
-      { orcaStatus: "failed", lifecycleStage: "failed", currentPhase: null },
-      { orcaStatus: "failed", lifecycleStage: "failed", currentPhase: null },
-      { orcaStatus: "ready", lifecycleStage: "ready", currentPhase: null },
+      { lifecycleStage: "failed", lifecycleStage: "failed", currentPhase: null },
+      { lifecycleStage: "failed", lifecycleStage: "failed", currentPhase: null },
+      { lifecycleStage: "ready", lifecycleStage: "ready", currentPhase: null },
     ]);
 
     await runCli(["status"]);

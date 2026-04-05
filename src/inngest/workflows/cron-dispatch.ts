@@ -185,7 +185,7 @@ export const cronDispatchWorkflow = inngest.createFunction(
               linearIssueId: taskId,
               agentPrompt: interpolatePrompt(schedule.prompt),
               repoPath: schedule.repoPath ?? "",
-              orcaStatus: "ready",
+              lifecycleStage: "ready",
               taskType: "cron_claude",
               cronScheduleId: schedule.id,
               createdAt: now,

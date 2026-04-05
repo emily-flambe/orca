@@ -31,7 +31,8 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: TaskStatus;
+    lifecycleStage: string;
+    currentPhase: string | null;
     priority: number;
     retryCount: number;
     prBranchName: string;
@@ -48,7 +49,8 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: overrides.orcaStatus ?? "ready",
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
+    currentPhase: (overrides.currentPhase ?? null) as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     prBranchName: overrides.prBranchName ?? null,
@@ -115,11 +117,10 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
   test("inserting task with 'awaiting_ci' status succeeds", () => {
     const taskId = seedTask(db, {
       linearIssueId: "CI-SCHEMA-1",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("awaiting_ci");
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("ci");
   });
@@ -135,7 +136,7 @@ describe("Schema - awaiting_ci status and ci_started_at column", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "CI-SCHEMA-3",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
       ciStartedAt: ts,
     });
     const task = getTask(db, taskId);
@@ -158,7 +159,7 @@ describe("Queries - updateTaskCiInfo", () => {
   test("sets ciStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-1",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     const ts = now();
@@ -172,7 +173,7 @@ describe("Queries - updateTaskCiInfo", () => {
   test("updates updatedAt timestamp", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-2",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     const before = getTask(db, taskId)!;
@@ -187,7 +188,7 @@ describe("Queries - updateTaskCiInfo", () => {
   test("can set ciStartedAt to null", () => {
     const taskId = seedTask(db, {
       linearIssueId: "UCI-3",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
       ciStartedAt: now(),
     });
 
@@ -237,14 +238,13 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'In Review' -> no-op (status stays awaiting_ci)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-1",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "In Review", "started");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("awaiting_ci");
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("ci");
   });
@@ -252,14 +252,14 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Done' -> done (human override)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-2",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Done", "completed");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
     expect(task!.lifecycleStage).toBe("done");
     expect(task!.currentPhase).toBeNull();
   });
@@ -267,14 +267,14 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Todo' -> ready (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-3",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Todo", "unstarted");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
   });
@@ -282,14 +282,14 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'Backlog' -> backlog (user reset)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-4",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "Backlog", "backlog");
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.currentPhase).toBeNull();
   });
@@ -297,7 +297,7 @@ describe("Conflict resolution - awaiting_ci status", () => {
   test("awaiting_ci + 'In Progress' -> no-op (upsert protects internal state)", () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-CONF-5",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     resolveConflict(db, taskId, "In Progress", "started");
@@ -305,7 +305,6 @@ describe("Conflict resolution - awaiting_ci status", () => {
     // No explicit conflict rule for awaiting_ci + "In Progress" — falls through
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("awaiting_ci");
     expect(task!.lifecycleStage).toBe("active");
     expect(task!.currentPhase).toBe("ci");
   });
@@ -377,7 +376,7 @@ describe("Parent status rollup - awaiting_ci is active", () => {
       linearIssueId: "PARENT-ACI",
       agentPrompt: "parent",
       repoPath: "/tmp/test",
-      orcaStatus: "ready",
+      lifecycleStage: "ready",
       priority: 0,
       retryCount: 0,
       isParent: 1,
@@ -390,7 +389,7 @@ describe("Parent status rollup - awaiting_ci is active", () => {
       linearIssueId: "CHILD-ACI-1",
       agentPrompt: "child1",
       repoPath: "/tmp/test",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       priority: 0,
       retryCount: 0,
       parentIdentifier: "PARENT-ACI",
@@ -402,7 +401,7 @@ describe("Parent status rollup - awaiting_ci is active", () => {
       linearIssueId: "CHILD-ACI-2",
       agentPrompt: "child2",
       repoPath: "/tmp/test",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
       priority: 0,
       retryCount: 0,
       parentIdentifier: "PARENT-ACI",
@@ -412,7 +411,7 @@ describe("Parent status rollup - awaiting_ci is active", () => {
 
     // The parent should NOT be all done (child2 is awaiting_ci)
     const parent = getTask(db, "PARENT-ACI")!;
-    expect(parent.orcaStatus).toBe("ready"); // still ready, not done
+    expect(parent.lifecycleStage).toBe("ready"); // still ready, not done
   });
 });
 
@@ -444,7 +443,7 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
   test("existing awaiting_ci task receiving 'In Review' webhook stays awaiting_ci", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-1",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
       prNumber: 42,
       ciStartedAt: now(),
     });
@@ -476,13 +475,13 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("awaiting_ci");
+    expect(task!.lifecycleStage).toBe("active");
   });
 
   test("existing awaiting_ci task receiving 'Done' webhook transitions to done", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-2",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     const mockClient = {
@@ -512,13 +511,13 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
   });
 
   test("existing awaiting_ci task receiving 'Todo' webhook transitions to ready", async () => {
     const taskId = seedTask(db, {
       linearIssueId: "ACI-WH-3",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     const mockClient = {
@@ -548,7 +547,7 @@ describe("Webhook protection - awaiting_ci status not overwritten by In Review",
 
     const task = getTask(db, taskId);
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
   });
 });
 
@@ -563,30 +562,30 @@ describe("Edge cases - awaiting_ci", () => {
     db = freshDb();
   });
 
-  test("updateTaskFields can set orcaStatus to awaiting_ci", () => {
+  test("updateTaskFields can set lifecycleStage to awaiting_ci", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-2",
-      orcaStatus: "in_review",
+      lifecycleStage: "active", currentPhase: "review",
     });
 
-    updateTaskFields(db, taskId, { orcaStatus: "awaiting_ci" });
+    updateTaskFields(db, taskId, { lifecycleStage: "active", currentPhase: "ci" });
 
     const task = getTask(db, taskId)!;
-    expect(task.orcaStatus).toBe("awaiting_ci");
+    expect(task.lifecycleStage).toBe("active");
   });
 
   test("awaiting_ci task with all CI fields populated", () => {
     const ts = now();
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-FULL",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
       prNumber: 42,
       prBranchName: "orca/EDGE-ACI-FULL/1",
       ciStartedAt: ts,
     });
 
     const task = getTask(db, taskId)!;
-    expect(task.orcaStatus).toBe("awaiting_ci");
+    expect(task.lifecycleStage).toBe("active");
     expect(task.prNumber).toBe(42);
     expect(task.prBranchName).toBe("orca/EDGE-ACI-FULL/1");
     expect(task.ciStartedAt).toBe(ts);
@@ -595,7 +594,7 @@ describe("Edge cases - awaiting_ci", () => {
   test("awaiting_ci task with null prNumber and null ciStartedAt", () => {
     const taskId = seedTask(db, {
       linearIssueId: "EDGE-ACI-NULL",
-      orcaStatus: "awaiting_ci",
+      lifecycleStage: "active", currentPhase: "ci",
     });
 
     const task = getTask(db, taskId)!;
@@ -619,11 +618,11 @@ describe("Edge cases - awaiting_ci", () => {
     for (const status of statuses) {
       const taskId = seedTask(db, {
         linearIssueId: `ALL-STATUS-${status}`,
-        orcaStatus: status,
+        lifecycleStage: status,
       });
       const task = getTask(db, taskId);
       expect(task).toBeDefined();
-      expect(task!.orcaStatus).toBe(status);
+      expect(task!.lifecycleStage).toBe(status);
     }
   });
 });

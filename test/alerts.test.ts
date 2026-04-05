@@ -49,7 +49,7 @@ function seedTask(db: OrcaDb, id?: string): string {
     linearIssueId: taskId,
     agentPrompt: "implement the feature",
     repoPath: "/tmp/fake-repo",
-    orcaStatus: "failed",
+    lifecycleStage: "failed",
     priority: 0,
     retryCount: 3,
     prBranchName: null,

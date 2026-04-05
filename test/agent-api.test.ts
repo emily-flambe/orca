@@ -349,7 +349,7 @@ describe("GET /api/agents/:id", () => {
       linearIssueId: "agent-test-agent-old",
       agentPrompt: "old task",
       repoPath: "/tmp",
-      orcaStatus: "done",
+      lifecycleStage: "done",
       taskType: "agent",
       agentId: "test-agent",
       createdAt: "2026-01-01T08:00:00.000Z",
@@ -365,7 +365,7 @@ describe("GET /api/agents/:id", () => {
       linearIssueId: "agent-test-agent-new",
       agentPrompt: "new task",
       repoPath: "/tmp",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       taskType: "agent",
       agentId: "test-agent",
       createdAt: "2026-01-02T10:00:00.000Z",
@@ -569,7 +569,7 @@ describe("POST /api/agents/:id/trigger", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0].taskType).toBe("agent");
     expect(tasks[0].agentId).toBe("test-agent");
-    expect(tasks[0].orcaStatus).toBe("ready");
+    expect(tasks[0].lifecycleStage).toBe("ready");
   });
 
   it("uses systemPrompt as agentPrompt on task", async () => {

@@ -7,7 +7,8 @@ import type { OrcaDb } from "../db/index.js";
 import type { OrcaConfig } from "../config/index.js";
 import type { LinearClient, LinearIssue, WorkflowStateMap } from "./client.js";
 import type { DependencyGraph } from "./graph.js";
-import type { TaskStatus } from "../db/schema.js";
+import { statusLabel } from "../db/schema.js";
+import type { LifecycleStage, CurrentPhase } from "../db/schema.js";
 import type { InngestClient } from "../inngest/client.js";
 import {
   getTask,
@@ -170,19 +171,21 @@ function log(message: string): void {
 // 4.2 State mapping
 // ---------------------------------------------------------------------------
 
-function mapLinearStateToOrcaStatus(
+function mapLinearStateToLifecycle(
   stateName: string,
   stateType: string,
-): TaskStatus | null {
+): { stage: LifecycleStage; phase: CurrentPhase | null } | null {
   switch (stateType) {
     case "backlog":
-      return "backlog";
+      return { stage: "backlog", phase: null };
     case "unstarted":
-      return "ready";
+      return { stage: "ready", phase: null };
     case "started":
-      return /review/i.test(stateName) ? "in_review" : "running";
+      return /review/i.test(stateName)
+        ? { stage: "active", phase: "review" }
+        : { stage: "active", phase: "implement" };
     case "completed":
-      return "done";
+      return { stage: "done", phase: null };
     case "canceled":
       return null;
     default:
@@ -235,7 +238,7 @@ function upsertTask(
   if (issue.state.type === "canceled") {
     const existing = getTask(db, issue.identifier);
     if (existing) {
-      updateTaskStatus(db, issue.identifier, "failed", {
+      updateTaskStatus(db, issue.identifier, "failed", null, {
         reason: "linear_canceled",
         failureReason: "Task canceled in Linear",
         failedPhase: existing.currentPhase ?? "implement",
@@ -246,13 +249,10 @@ function upsertTask(
     return false;
   }
 
-  const orcaStatus = mapLinearStateToOrcaStatus(
-    issue.state.name,
-    issue.state.type,
-  );
+  const mapped = mapLinearStateToLifecycle(issue.state.name, issue.state.type);
 
-  // Skip backlog and unknown states
-  if (orcaStatus === null) return false;
+  // Skip unknown states
+  if (mapped === null) return false;
 
   // Resolve repo path: per-project map → defaultCwd fallback → skip
   const repoPath =
@@ -275,10 +275,10 @@ function upsertTask(
     // mean Orca previously dispatched this task but the DB was wiped or
     // this is a fresh instance. Since no agent is actually running, map
     // these to "ready" so the scheduler can re-dispatch them.
-    const insertStatus =
-      orcaStatus === "running" || orcaStatus === "in_review"
-        ? "ready"
-        : orcaStatus;
+    const insertStage: LifecycleStage =
+      mapped.stage === "active" ? "ready" : mapped.stage;
+    const insertPhase: CurrentPhase | null =
+      mapped.stage === "active" ? null : mapped.phase;
     const now = new Date().toISOString();
     // Check for agent routing label (e.g., "agent:trivia-content")
     const routedAgentId = resolveAgentFromLabels(db, issue.labels ?? []);
@@ -287,10 +287,11 @@ function upsertTask(
       linearIssueId: issue.identifier,
       agentPrompt,
       repoPath,
-      orcaStatus: insertStatus,
+      lifecycleStage: insertStage,
+      currentPhase: insertPhase,
       priority: issue.priority,
       retryCount: 0,
-      doneAt: insertStatus === "done" ? now : null,
+      doneAt: insertStage === "done" ? now : null,
       parentIdentifier,
       isParent,
       projectName: issue.projectName,
@@ -305,29 +306,32 @@ function upsertTask(
         `auto-routed ${issue.identifier} to agent ${routedAgentId} via label`,
       );
     }
-    return insertStatus === "ready";
+    return insertStage === "ready";
   } else {
     // Determine whether Linear's state should override Orca's local status.
     //
     // User-initiated overrides (Todo, Done, Canceled) always win — these are
     // intentional actions in Linear that Orca must respect.
     //
-    // Intermediate states ("In Progress" → running, "In Review" → in_review)
+    // Intermediate states ("In Progress" → active/implement, "In Review" → active/review)
     // should NOT overwrite Orca's internal state during sync, because they are
-    // typically echoes of Orca's own write-backs. Without this guard, a task
-    // that Orca set to "ready" (via retry) or "failed" gets clobbered back to
-    // "running" by fullSync seeing the stale "In Progress" in Linear.
+    // typically echoes of Orca's own write-backs.
     const isUserOverride =
-      orcaStatus === "backlog" ||
-      orcaStatus === "ready" ||
-      orcaStatus === "done" ||
-      orcaStatus === "failed";
-    const effectiveStatus = isUserOverride ? orcaStatus : existing.orcaStatus;
+      mapped.stage === "backlog" ||
+      mapped.stage === "ready" ||
+      mapped.stage === "done" ||
+      mapped.stage === "failed";
+    const effectiveStage = isUserOverride
+      ? mapped.stage
+      : existing.lifecycleStage;
+    const effectivePhase = isUserOverride
+      ? mapped.phase
+      : existing.currentPhase;
 
     // When Linear "Todo" overrides a non-ready state, reset retry/review counts
     // so the task gets a completely fresh start.
     const resetCounters =
-      orcaStatus === "ready" && existing.lifecycleStage !== "ready";
+      mapped.stage === "ready" && existing.lifecycleStage !== "ready";
 
     // Check for agent routing label — only when labels were fetched (non-empty)
     const labels = issue.labels ?? [];
@@ -340,7 +344,8 @@ function upsertTask(
       agentPrompt,
       repoPath,
       priority: issue.priority,
-      orcaStatus: effectiveStatus,
+      lifecycleStage: effectiveStage,
+      currentPhase: effectivePhase,
       parentIdentifier,
       isParent,
       ...(issue.projectName ? { projectName: issue.projectName } : {}),
@@ -366,7 +371,7 @@ function upsertTask(
           : `cleared agent routing for ${issue.identifier} (label removed)`,
       );
     }
-    return effectiveStatus === "ready" && existing.lifecycleStage !== "ready";
+    return effectiveStage === "ready" && existing.lifecycleStage !== "ready";
   }
 }
 
@@ -400,7 +405,7 @@ export async function evaluateParentStatuses(
     const anyActive = children.some((c) => c.lifecycleStage === "active");
 
     if (allDone && parent.lifecycleStage !== "done") {
-      updateTaskStatus(db, parent.linearIssueId, "done", {
+      updateTaskStatus(db, parent.linearIssueId, "done", null, {
         reason: "all_children_done",
       });
       writeBackStatus(client, parent.linearIssueId, "done", stateMap).catch(
@@ -410,7 +415,7 @@ export async function evaluateParentStatuses(
       );
       log(`parent ${parent.linearIssueId} → done (all children done)`);
     } else if (anyActive && parent.lifecycleStage === "ready") {
-      updateTaskStatus(db, parent.linearIssueId, "running", {
+      updateTaskStatus(db, parent.linearIssueId, "active", "implement", {
         reason: "child_activity_detected",
       });
       writeBackStatus(client, parent.linearIssueId, "running", stateMap).catch(
@@ -418,7 +423,7 @@ export async function evaluateParentStatuses(
           log(`write-back failed for parent ${parent.linearIssueId}: ${err}`);
         },
       );
-      log(`parent ${parent.linearIssueId} → running (child activity detected)`);
+      log(`parent ${parent.linearIssueId} → active (child activity detected)`);
     }
   }
 }
@@ -619,7 +624,10 @@ export async function processWebhookEvent(
               linearIssueId: event.data.identifier,
               reason: "cancelled in Linear",
               retryCount: previousTask.retryCount,
-              previousStatus: previousTask.orcaStatus,
+              previousStatus: statusLabel(
+                previousTask.lifecycleStage as LifecycleStage,
+                previousTask.currentPhase as CurrentPhase | null,
+              ),
             },
           })
           .catch((err: unknown) => {
@@ -683,7 +691,7 @@ export function resolveConflict(
     if (task.lifecycleStage === "active") {
       killRunningSession(db, taskId);
     }
-    updateTaskStatus(db, taskId, "failed", {
+    updateTaskStatus(db, taskId, "failed", null, {
       reason: "linear_canceled",
       failureReason: "Task canceled in Linear",
       failedPhase: task.currentPhase ?? "implement",
@@ -693,14 +701,18 @@ export function resolveConflict(
     return;
   }
 
-  const expectedOrcaStatus = mapLinearStateToOrcaStatus(
+  const expectedLifecycle = mapLinearStateToLifecycle(
     linearStateName,
     linearStateType,
   );
-  if (expectedOrcaStatus === null) return;
+  if (expectedLifecycle === null) return;
 
   // If statuses match, no conflict
-  if (task.orcaStatus === expectedOrcaStatus) return;
+  if (
+    task.lifecycleStage === expectedLifecycle.stage &&
+    task.currentPhase === expectedLifecycle.phase
+  )
+    return;
 
   // Any state → Linear Backlog: reset to backlog.
   if (linearStateType === "backlog") {
@@ -708,7 +720,8 @@ export function resolveConflict(
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, {
-      orcaStatus: "backlog",
+      lifecycleStage: "backlog" as LifecycleStage,
+      currentPhase: null,
       retryCount: 0,
       reviewCycleCount: 0,
       mergeAttemptCount: 0,
@@ -741,7 +754,8 @@ export function resolveConflict(
       killRunningSession(db, taskId);
     }
     updateTaskFields(db, taskId, {
-      orcaStatus: "ready",
+      lifecycleStage: "ready" as LifecycleStage,
+      currentPhase: null,
       retryCount: 0,
       reviewCycleCount: 0,
       mergeAttemptCount: 0,
@@ -755,7 +769,9 @@ export function resolveConflict(
 
   // Conflict case 2: Orca ready, Linear Done → set done
   if (task.lifecycleStage === "ready" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
+    updateTaskStatus(db, taskId, "done", null, {
+      reason: "linear_done_override",
+    });
     log(`conflict resolved: task ${taskId} set to done (Linear Done)`);
     return;
   }
@@ -766,7 +782,9 @@ export function resolveConflict(
     task.currentPhase === "review" &&
     linearStateType === "completed"
   ) {
-    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
+    updateTaskStatus(db, taskId, "done", null, {
+      reason: "linear_done_override",
+    });
     log(
       `conflict resolved: task ${taskId} set to done from in_review (Linear Done — human override)`,
     );
@@ -793,7 +811,9 @@ export function resolveConflict(
 
   // Conflict case 10: deploying, Linear Done → mark done (human override, skip monitoring)
   if (task.currentPhase === "deploy" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
+    updateTaskStatus(db, taskId, "done", null, {
+      reason: "linear_done_override",
+    });
     log(
       `conflict resolved: task ${taskId} set to done from deploying (Linear Done — human override)`,
     );
@@ -802,7 +822,9 @@ export function resolveConflict(
 
   // Conflict case 10b: awaiting_ci, Linear Done → mark done (human override, skip CI gate)
   if (task.currentPhase === "ci" && linearStateType === "completed") {
-    updateTaskStatus(db, taskId, "done", { reason: "linear_done_override" });
+    updateTaskStatus(db, taskId, "done", null, {
+      reason: "linear_done_override",
+    });
     log(
       `conflict resolved: task ${taskId} set to done from awaiting_ci (Linear Done — human override)`,
     );

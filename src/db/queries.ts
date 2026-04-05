@@ -27,37 +27,12 @@ import {
   agents,
   agentMemories,
   hookEvents,
-  type TaskStatus,
   type LifecycleStage,
   type CurrentPhase,
+  statusLabel,
+  labelToStagePhase,
 } from "./schema.js";
 import type { OrcaDb } from "./index.js";
-
-// ---------------------------------------------------------------------------
-// orcaStatus -> lifecycleStage/currentPhase mapping (dual-write helper)
-// ---------------------------------------------------------------------------
-const STATUS_TO_LIFECYCLE: Record<
-  TaskStatus,
-  { stage: LifecycleStage; phase: CurrentPhase | null }
-> = {
-  backlog: { stage: "backlog", phase: null },
-  ready: { stage: "ready", phase: null },
-  running: { stage: "active", phase: "implement" },
-  in_review: { stage: "active", phase: "review" },
-  changes_requested: { stage: "active", phase: "fix" },
-  awaiting_ci: { stage: "active", phase: "ci" },
-  deploying: { stage: "active", phase: "deploy" },
-  done: { stage: "done", phase: null },
-  failed: { stage: "failed", phase: null },
-  canceled: { stage: "canceled", phase: null },
-};
-
-function lifecycleFromStatus(status: TaskStatus): {
-  stage: LifecycleStage;
-  phase: CurrentPhase | null;
-} {
-  return STATUS_TO_LIFECYCLE[status];
-}
 
 // ---------------------------------------------------------------------------
 // Task types
@@ -71,42 +46,85 @@ export type Task = typeof tasks.$inferSelect;
 
 /** Insert a new task. Caller must supply all required fields. */
 export function insertTask(db: OrcaDb, task: NewTask): void {
-  // Dual-write: derive lifecycleStage/currentPhase from orcaStatus if not set
-  const values = { ...task };
-  if (values.orcaStatus && !values.lifecycleStage) {
-    const { stage, phase } = lifecycleFromStatus(values.orcaStatus);
-    values.lifecycleStage = stage;
-    values.currentPhase = phase;
-  }
-  db.insert(tasks).values(values).run();
+  db.insert(tasks).values(task).run();
 }
 
-/** Update a task's orca_status and set updated_at to now. */
+/** Update a task's lifecycle_stage and current_phase, and set updated_at to now. */
 export function updateTaskStatus(
   db: OrcaDb,
   taskId: string,
-  status: TaskStatus,
-  options?: {
+  stageOrLabel: LifecycleStage | string,
+  phaseOrOptions?:
+    | CurrentPhase
+    | null
+    | {
+        reason?: string;
+        invocationId?: number;
+        failureReason?: string;
+        failedPhase?: string;
+      },
+  maybeOptions?: {
     reason?: string;
     invocationId?: number;
     failureReason?: string;
     failedPhase?: string;
   },
 ): void {
+  // Resolve legacy status labels (e.g. "running" → active/implement)
+  const resolved = labelToStagePhase(stageOrLabel);
+
+  // Support two call signatures:
+  //   updateTaskStatus(db, id, stage, phase, options?)
+  //   updateTaskStatus(db, id, stage, options?)  — phase defaults to null
+  let phase: CurrentPhase | null = resolved.phase;
+  let options:
+    | {
+        reason?: string;
+        invocationId?: number;
+        failureReason?: string;
+        failedPhase?: string;
+      }
+    | undefined;
+  const stage = resolved.stage;
+
+  if (
+    typeof phaseOrOptions === "string" ||
+    phaseOrOptions === null ||
+    phaseOrOptions === undefined
+  ) {
+    // If an explicit phase was provided, use it (overrides the resolved one)
+    if (phaseOrOptions !== undefined) {
+      phase = phaseOrOptions;
+    }
+    options = maybeOptions;
+  } else {
+    // phaseOrOptions is actually the options object
+    options = phaseOrOptions;
+  }
+
   const current = db
-    .select({ orcaStatus: tasks.orcaStatus })
+    .select({
+      lifecycleStage: tasks.lifecycleStage,
+      currentPhase: tasks.currentPhase,
+    })
     .from(tasks)
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
-  const { stage, phase } = lifecycleFromStatus(status);
+  const fromLabel = current
+    ? statusLabel(
+        current.lifecycleStage as LifecycleStage,
+        current.currentPhase as CurrentPhase | null,
+      )
+    : null;
+  const toLabel = statusLabel(stage, phase);
+
   db.update(tasks)
     .set({
-      orcaStatus: status,
       lifecycleStage: stage,
       currentPhase: phase,
-      doneAt: status === "done" ? new Date().toISOString() : null,
-      ...(status === "failed" && options?.failureReason
+      doneAt: stage === "done" ? new Date().toISOString() : null,
+      ...(stage === "failed" && options?.failureReason
         ? {
             lastFailureReason: options.failureReason.slice(0, 500),
             lastFailedPhase: options.failedPhase ?? null,
@@ -120,8 +138,8 @@ export function updateTaskStatus(
 
   insertTaskStateTransition(db, {
     linearIssueId: taskId,
-    fromStatus: current?.orcaStatus ?? null,
-    toStatus: status,
+    fromStatus: fromLabel,
+    toStatus: toLabel,
     reason: options?.reason,
     invocationId: options?.invocationId,
   });
@@ -129,42 +147,44 @@ export function updateTaskStatus(
 
 /**
  * Atomically claim a task for dispatch using compare-and-swap.
- * Only updates the status to "running" if the task is currently in one of
- * the provided `fromStatuses`. Returns true if exactly one row was updated.
+ * Only claims if lifecycle_stage is 'ready'. Returns true if exactly one row was updated.
  */
 export function claimTaskForDispatch(
   db: OrcaDb,
   taskId: string,
-  fromStatuses: TaskStatus[],
   options?: { reason?: string; invocationId?: number },
 ): boolean {
   const current = db
-    .select({ orcaStatus: tasks.orcaStatus })
+    .select({
+      lifecycleStage: tasks.lifecycleStage,
+      currentPhase: tasks.currentPhase,
+    })
     .from(tasks)
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
-  const runningLifecycle = lifecycleFromStatus("running");
   const result = db
     .update(tasks)
     .set({
-      orcaStatus: "running" as TaskStatus,
-      lifecycleStage: runningLifecycle.stage,
-      currentPhase: runningLifecycle.phase,
+      lifecycleStage: "active",
+      currentPhase: "implement",
       updatedAt: new Date().toISOString(),
     })
     .where(
-      and(
-        eq(tasks.linearIssueId, taskId),
-        inArray(tasks.orcaStatus, fromStatuses),
-      ),
+      and(eq(tasks.linearIssueId, taskId), eq(tasks.lifecycleStage, "ready")),
     )
     .run();
 
   if (result.changes === 1) {
+    const fromLabel = current
+      ? statusLabel(
+          current.lifecycleStage as LifecycleStage,
+          current.currentPhase as CurrentPhase | null,
+        )
+      : null;
     insertTaskStateTransition(db, {
       linearIssueId: taskId,
-      fromStatus: current?.orcaStatus ?? null,
+      fromStatus: fromLabel,
       toStatus: "running",
       reason: options?.reason ?? "claimed for dispatch",
       invocationId: options?.invocationId,
@@ -174,50 +194,110 @@ export function claimTaskForDispatch(
   return result.changes === 1;
 }
 
-/** Increment retry_count by 1 and reset status to the given value (default "ready"). */
+/** Increment retry_count by 1 and reset status to ready. */
 export function incrementRetryCount(
   db: OrcaDb,
   taskId: string,
-  resetStatus: TaskStatus = "ready",
-  options?: { reason?: string; invocationId?: number },
+  resetStatusOrOptions?: string | { reason?: string; invocationId?: number },
+  maybeOptions?: { reason?: string; invocationId?: number },
 ): void {
+  // Support two call signatures:
+  //   incrementRetryCount(db, id, resetStatus?, options?)
+  //   incrementRetryCount(db, id, options?)
+  let resetStatus = "ready";
+  let options: { reason?: string; invocationId?: number } | undefined;
+
+  if (typeof resetStatusOrOptions === "string") {
+    resetStatus = resetStatusOrOptions;
+    options = maybeOptions;
+  } else {
+    options = resetStatusOrOptions;
+  }
+
+  const resolved = labelToStagePhase(resetStatus);
+
   const current = db
-    .select({ orcaStatus: tasks.orcaStatus })
+    .select({
+      lifecycleStage: tasks.lifecycleStage,
+      currentPhase: tasks.currentPhase,
+    })
     .from(tasks)
     .where(eq(tasks.linearIssueId, taskId))
     .get();
 
-  const { stage, phase } = lifecycleFromStatus(resetStatus);
   db.update(tasks)
     .set({
       retryCount: sql`${tasks.retryCount} + 1`,
-      orcaStatus: resetStatus,
-      lifecycleStage: stage,
-      currentPhase: phase,
+      lifecycleStage: resolved.stage,
+      currentPhase: resolved.phase,
       doneAt: null,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(tasks.linearIssueId, taskId))
     .run();
 
+  const fromLabel = current
+    ? statusLabel(
+        current.lifecycleStage as LifecycleStage,
+        current.currentPhase as CurrentPhase | null,
+      )
+    : null;
   insertTaskStateTransition(db, {
     linearIssueId: taskId,
-    fromStatus: current?.orcaStatus ?? null,
-    toStatus: resetStatus,
+    fromStatus: fromLabel,
+    toStatus: statusLabel(resolved.stage, resolved.phase),
     reason: options?.reason ?? "retry",
     invocationId: options?.invocationId,
   });
 }
 
-/** Get tasks matching any of the given statuses, ordered by priority ASC then created_at ASC. */
+/**
+ * Get tasks matching any of the given status labels, ordered by priority ASC then created_at ASC.
+ * Status labels are the legacy TaskStatus values (e.g. "running", "in_review", "awaiting_ci").
+ * They are mapped to lifecycle_stage/current_phase filters.
+ */
 export function getDispatchableTasks(
   db: OrcaDb,
-  statuses: TaskStatus[],
+  statusLabels: string[],
 ): Task[] {
+  // Build conditions from status labels
+  const conditions = statusLabels.map((label) => {
+    switch (label) {
+      case "running":
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "implement"),
+        );
+      case "in_review":
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "review"),
+        );
+      case "changes_requested":
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "fix"),
+        );
+      case "awaiting_ci":
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "ci"),
+        );
+      case "deploying":
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "deploy"),
+        );
+      default:
+        // Simple stage match: backlog, ready, done, failed, canceled
+        return eq(tasks.lifecycleStage, label as LifecycleStage);
+    }
+  });
+  if (conditions.length === 0) return [];
   return db
     .select()
     .from(tasks)
-    .where(inArray(tasks.orcaStatus, statuses))
+    .where(conditions.length === 1 ? conditions[0]! : or(...conditions))
     .orderBy(asc(tasks.priority), asc(tasks.createdAt))
     .all();
 }
@@ -386,19 +466,19 @@ export function updateTaskFields(
     updatedAt: new Date().toISOString(),
   };
 
-  // Automatically manage doneAt when orcaStatus or lifecycleStage is being updated
-  if ("orcaStatus" in updates || "lifecycleStage" in updates) {
+  // Automatically manage doneAt and currentPhase when lifecycleStage is being updated
+  if ("lifecycleStage" in updates) {
     setValues.doneAt =
-      updates.orcaStatus === "done" || updates.lifecycleStage === "done"
-        ? new Date().toISOString()
-        : null;
-  }
-
-  // Dual-write: when orcaStatus changes, also update lifecycleStage/currentPhase
-  if ("orcaStatus" in updates && updates.orcaStatus) {
-    const { stage, phase } = lifecycleFromStatus(updates.orcaStatus);
-    setValues.lifecycleStage = stage;
-    setValues.currentPhase = phase;
+      updates.lifecycleStage === "done" ? new Date().toISOString() : null;
+    // Clear currentPhase for terminal states unless explicitly set
+    if (
+      !("currentPhase" in updates) &&
+      ["done", "failed", "canceled", "ready", "backlog"].includes(
+        updates.lifecycleStage as string,
+      )
+    ) {
+      setValues.currentPhase = null;
+    }
   }
 
   db.update(tasks)

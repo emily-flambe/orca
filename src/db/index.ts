@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   linear_issue_id TEXT PRIMARY KEY,
   agent_prompt TEXT NOT NULL,
   repo_path TEXT NOT NULL,
-  orca_status TEXT NOT NULL,
+  lifecycle_stage TEXT NOT NULL DEFAULT 'ready',
+  current_phase TEXT,
   priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
   retry_count INTEGER NOT NULL DEFAULT 0,
   pr_branch_name TEXT,
@@ -25,6 +26,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   project_name TEXT,
   task_type TEXT NOT NULL DEFAULT 'linear',
   cron_schedule_id INTEGER,
+  agent_id TEXT,
+  last_failure_reason TEXT,
+  last_failed_phase TEXT,
+  last_failed_at TEXT,
+  pr_url TEXT,
+  pr_state TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`;
@@ -442,9 +450,8 @@ function migrateSchema(sqlite: DatabaseType): void {
   //   Indexes on frequently queried columns to avoid full table scans.
   //   CREATE INDEX IF NOT EXISTS is idempotent — no sentinel needed.
   // ---------------------------------------------------------------------------
-  sqlite.exec(
-    "CREATE INDEX IF NOT EXISTS idx_tasks_orca_status ON tasks(orca_status)",
-  );
+  // idx_tasks_orca_status skipped — orca_status column is removed by migration 26.
+  // idx_tasks_lifecycle_stage is created in migration 25 and recreated in migration 26.
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_invocations_status ON invocations(status)",
   );
@@ -603,6 +610,120 @@ function migrateSchema(sqlite: DatabaseType): void {
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "agents", "linear_label")) {
     sqlite.exec("ALTER TABLE agents ADD COLUMN linear_label TEXT");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 26 (remove orca_status column):
+  //   - Ensures lifecycle_stage is populated (should be from migration 25 backfill)
+  //   - Recreates the tasks table without orca_status
+  //   Sentinel: orca_status column still exists on tasks table.
+  // ---------------------------------------------------------------------------
+  if (hasColumn(sqlite, "tasks", "orca_status")) {
+    sqlite.pragma("foreign_keys = OFF");
+
+    sqlite.exec("BEGIN TRANSACTION");
+    try {
+      // Ensure lifecycle_stage is populated for any rows that might have NULL
+      sqlite.exec(`
+        UPDATE tasks SET lifecycle_stage = CASE orca_status
+          WHEN 'backlog' THEN 'backlog'
+          WHEN 'ready' THEN 'ready'
+          WHEN 'running' THEN 'active'
+          WHEN 'in_review' THEN 'active'
+          WHEN 'changes_requested' THEN 'active'
+          WHEN 'awaiting_ci' THEN 'active'
+          WHEN 'deploying' THEN 'active'
+          WHEN 'done' THEN 'done'
+          WHEN 'failed' THEN 'failed'
+          WHEN 'canceled' THEN 'canceled'
+          ELSE 'ready'
+        END WHERE lifecycle_stage IS NULL
+      `);
+      sqlite.exec(`
+        UPDATE tasks SET current_phase = CASE orca_status
+          WHEN 'running' THEN 'implement'
+          WHEN 'in_review' THEN 'review'
+          WHEN 'changes_requested' THEN 'fix'
+          WHEN 'awaiting_ci' THEN 'ci'
+          WHEN 'deploying' THEN 'deploy'
+          ELSE NULL
+        END WHERE lifecycle_stage = 'active' AND current_phase IS NULL
+      `);
+
+      sqlite.exec(`
+        CREATE TABLE tasks_new (
+          linear_issue_id TEXT PRIMARY KEY,
+          agent_prompt TEXT NOT NULL,
+          repo_path TEXT NOT NULL,
+          lifecycle_stage TEXT NOT NULL DEFAULT 'ready',
+          current_phase TEXT,
+          priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          pr_branch_name TEXT,
+          review_cycle_count INTEGER NOT NULL DEFAULT 0,
+          merge_commit_sha TEXT,
+          pr_number INTEGER,
+          deploy_started_at TEXT,
+          ci_started_at TEXT,
+          fix_reason TEXT,
+          merge_attempt_count INTEGER NOT NULL DEFAULT 0,
+          stale_session_retry_count INTEGER NOT NULL DEFAULT 0,
+          done_at TEXT,
+          parent_identifier TEXT,
+          is_parent INTEGER NOT NULL DEFAULT 0,
+          project_name TEXT,
+          task_type TEXT NOT NULL DEFAULT 'linear',
+          cron_schedule_id INTEGER,
+          agent_id TEXT,
+          last_failure_reason TEXT,
+          last_failed_phase TEXT,
+          last_failed_at TEXT,
+          pr_url TEXT,
+          pr_state TEXT,
+          hidden INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      sqlite.exec(`
+        INSERT INTO tasks_new (
+          linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
+          priority, retry_count, pr_branch_name, review_cycle_count,
+          merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
+          fix_reason, merge_attempt_count, stale_session_retry_count,
+          done_at, parent_identifier, is_parent, project_name,
+          task_type, cron_schedule_id, agent_id,
+          last_failure_reason, last_failed_phase, last_failed_at,
+          pr_url, pr_state, hidden, created_at, updated_at
+        )
+        SELECT
+          linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
+          priority, retry_count, pr_branch_name, review_cycle_count,
+          merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
+          fix_reason, merge_attempt_count, stale_session_retry_count,
+          done_at, parent_identifier, is_parent, project_name,
+          task_type, cron_schedule_id, agent_id,
+          last_failure_reason, last_failed_phase, last_failed_at,
+          pr_url, pr_state, hidden, created_at, updated_at
+        FROM tasks
+      `);
+
+      sqlite.exec("DROP TABLE tasks");
+      sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
+
+      // Recreate indexes
+      sqlite.exec(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_lifecycle_stage ON tasks(lifecycle_stage)",
+      );
+
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+
+    sqlite.pragma("foreign_keys = ON");
   }
 }
 

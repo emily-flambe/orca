@@ -33,7 +33,7 @@ import type { OrcaConfig } from "../src/config/index.js";
 function activeTask(linearIssueId: string, phase: string, retryCount = 0) {
   return {
     linearIssueId,
-    orcaStatus: phase, // kept for backward compat (not used by processSnapshot)
+    
     lifecycleStage: "active" as const,
     currentPhase: phase,
     retryCount,
@@ -47,7 +47,7 @@ function terminalTask(
 ) {
   return {
     linearIssueId,
-    orcaStatus: stage,
+    
     lifecycleStage: stage,
     currentPhase: null,
     retryCount,

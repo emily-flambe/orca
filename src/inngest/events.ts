@@ -1,5 +1,4 @@
 import { EventSchemas } from "inngest";
-import { type TaskStatus } from "../shared/types.js";
 
 // Event payload types for Orca's Inngest events.
 // Event names follow the `noun/verb` convention used by Inngest.
@@ -20,7 +19,7 @@ export type OrcaEvents = {
       linearIssueId: string;
       reason: string;
       retryCount: number;
-      previousStatus: TaskStatus;
+      previousStatus: string;
     };
   };
   "session/completed": {

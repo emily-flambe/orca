@@ -166,7 +166,7 @@ describe("writeMonitorSnapshot drainingForSeconds metadata", () => {
     const tasks = [
       {
         linearIssueId: "TEST-1",
-        orcaStatus: "ready",
+        lifecycleStage: "ready",
         lifecycleStage: "ready",
         currentPhase: null,
         retryCount: 0,

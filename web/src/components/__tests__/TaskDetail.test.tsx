@@ -75,15 +75,21 @@ const STATUS_TO_LIFECYCLE: Record<
 };
 
 function makeTaskWithInvocations(
-  overrides: Partial<TaskWithInvocations> = {},
+  overrides: Partial<TaskWithInvocations> & { orcaStatus?: string } = {},
 ): TaskWithInvocations {
+  // Allow legacy orcaStatus shorthand in tests
+  const { orcaStatus: legacyStatus, ...rest } = overrides;
+  const statusHint = legacyStatus ?? (rest.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusHint] ?? {
+    stage: statusHint,
+    phase: null,
+  };
   const base: TaskWithInvocations = {
     linearIssueId: "TEST-1",
     agentPrompt: "Implement the feature",
     repoPath: "/repo",
-    orcaStatus: "ready",
-    lifecycleStage: "ready",
-    currentPhase: null,
+    lifecycleStage: derived.stage as TaskWithInvocations["lifecycleStage"],
+    currentPhase: derived.phase as TaskWithInvocations["currentPhase"],
     priority: 3,
     retryCount: 0,
     prBranchName: null,
@@ -108,17 +114,7 @@ function makeTaskWithInvocations(
     hidden: 0,
     invocations: [],
   };
-  const merged = { ...base, ...overrides };
-  if (overrides.orcaStatus && !overrides.lifecycleStage) {
-    const derived = STATUS_TO_LIFECYCLE[overrides.orcaStatus as string];
-    if (derived) {
-      merged.lifecycleStage =
-        derived.stage as TaskWithInvocations["lifecycleStage"];
-      merged.currentPhase =
-        derived.phase as TaskWithInvocations["currentPhase"];
-    }
-  }
-  return merged;
+  return { ...base, ...rest };
 }
 
 // ---------------------------------------------------------------------------

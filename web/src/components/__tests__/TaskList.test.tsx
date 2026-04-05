@@ -26,14 +26,22 @@ const STATUS_TO_LIFECYCLE: Record<
   canceled: { stage: "canceled", phase: null },
 };
 
-function makeTask(overrides: Partial<Task> = {}): Task {
+function makeTask(
+  overrides: Partial<Task> & { orcaStatus?: string } = {},
+): Task {
+  // Allow legacy orcaStatus shorthand in tests
+  const { orcaStatus: legacyStatus, ...rest } = overrides;
+  const statusHint = legacyStatus ?? (rest.lifecycleStage as string) ?? "ready";
+  const derived = STATUS_TO_LIFECYCLE[statusHint] ?? {
+    stage: statusHint,
+    phase: null,
+  };
   const base: Task = {
     linearIssueId: "ENG-1",
     agentPrompt: "Test task prompt",
     repoPath: "/repo",
-    orcaStatus: "ready",
-    lifecycleStage: "ready",
-    currentPhase: null,
+    lifecycleStage: derived.stage as Task["lifecycleStage"],
+    currentPhase: derived.phase as Task["currentPhase"],
     priority: 3,
     retryCount: 0,
     prBranchName: null,
@@ -57,15 +65,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  const merged = { ...base, ...overrides };
-  if (overrides.orcaStatus && !overrides.lifecycleStage) {
-    const derived = STATUS_TO_LIFECYCLE[overrides.orcaStatus as string];
-    if (derived) {
-      merged.lifecycleStage = derived.stage as Task["lifecycleStage"];
-      merged.currentPhase = derived.phase as Task["currentPhase"];
-    }
-  }
-  return merged;
+  return { ...base, ...rest };
 }
 
 const defaultProps = {

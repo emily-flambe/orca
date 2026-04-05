@@ -107,7 +107,7 @@ function seedTask(
     linearIssueId: string;
     agentPrompt: string;
     repoPath: string;
-    orcaStatus: string;
+    lifecycleStage: string;
     priority: number;
     retryCount: number;
     parentIdentifier: string | null;
@@ -123,7 +123,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: overrides.agentPrompt ?? "do something",
     repoPath: overrides.repoPath ?? "/tmp/fake-repo",
-    orcaStatus: (overrides.orcaStatus ?? "ready") as any,
+    lifecycleStage: (overrides.lifecycleStage ?? "ready") as any,
     priority: overrides.priority ?? 0,
     retryCount: overrides.retryCount ?? 0,
     parentIdentifier: overrides.parentIdentifier ?? null,
@@ -797,7 +797,7 @@ describe("Agent routing edge cases", () => {
 
     const task = getTask(db, "EDGE-2");
     expect(task).toBeDefined();
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.agentId).toBe("backlog-agent");
     expect(task!.taskType).toBe("agent");
   });
@@ -846,7 +846,7 @@ describe("Agent routing edge cases", () => {
     const task = getTask(db, "EDGE-4");
     expect(task).toBeDefined();
     // Intermediate states map to ready on insert
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     // Agent should still be assigned
     expect(task!.agentId).toBe("progress-agent");
     expect(task!.taskType).toBe("agent");

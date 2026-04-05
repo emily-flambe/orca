@@ -349,7 +349,7 @@ describe("reconciler re-dispatch-ready-tasks gap during drain", () => {
 
     const strandedTask = {
       linearIssueId: "TEST-99",
-      orcaStatus: "running",
+      lifecycleStage: "active", currentPhase: "implement",
       retryCount: 0,
       staleSessionRetryCount: 0,
       updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10 min old

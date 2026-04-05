@@ -52,7 +52,7 @@ function seedTask(
     linearIssueId: id,
     agentPrompt: "do something",
     repoPath: "/tmp/fake-repo",
-    orcaStatus: status,
+    lifecycleStage: status,
     priority: 0,
     retryCount: 0,
     createdAt: ts,
@@ -95,7 +95,7 @@ function runStartupRecovery(db: OrcaDb): {
   let recovered = 0;
   for (const t of allTasks) {
     if (
-      t.orcaStatus === "running" &&
+      t.lifecycleStage === "running" &&
       !runningInvIssueIds.has(t.linearIssueId)
     ) {
       updateTaskStatus(db, t.linearIssueId, "ready");

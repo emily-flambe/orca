@@ -14,11 +14,12 @@ export {
   type InvocationStatus,
   AGENT_MEMORY_TYPES,
   type AgentMemoryType,
+  statusLabel,
+  labelToStagePhase,
 } from "../shared/types.js";
 import {
   CRON_TYPES,
   AGENT_MEMORY_TYPES,
-  TASK_STATUSES,
   LIFECYCLE_STAGES,
   CURRENT_PHASES,
   INVOCATION_STATUSES,
@@ -28,8 +29,7 @@ export const tasks = sqliteTable("tasks", {
   linearIssueId: text("linear_issue_id").primaryKey(),
   agentPrompt: text("agent_prompt").notNull(),
   repoPath: text("repo_path").notNull(),
-  orcaStatus: text("orca_status", { enum: TASK_STATUSES }).notNull(),
-  lifecycleStage: text("lifecycle_stage", { enum: LIFECYCLE_STAGES }),
+  lifecycleStage: text("lifecycle_stage", { enum: LIFECYCLE_STAGES }).notNull(),
   currentPhase: text("current_phase", { enum: CURRENT_PHASES }),
   priority: integer("priority").notNull().default(0),
   retryCount: integer("retry_count").notNull().default(0),

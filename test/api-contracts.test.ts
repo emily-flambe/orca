@@ -101,13 +101,12 @@ function deriveLifecycle(status: string): {
 }
 
 function makeTask(overrides?: Record<string, unknown>) {
-  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
-  const lifecycle = deriveLifecycle(orcaStatus);
+  const statusStr = (overrides?.lifecycleStage as string) ?? "ready";
+  const lifecycle = deriveLifecycle(statusStr);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: orcaStatus as "ready",
     lifecycleStage: lifecycle.lifecycleStage,
     currentPhase: lifecycle.currentPhase,
     priority: 2,
@@ -174,7 +173,7 @@ describe("GET /api/tasks — contract", () => {
     expect(typeof item.linearIssueId).toBe("string");
     expect(typeof item.agentPrompt).toBe("string");
     expect(typeof item.repoPath).toBe("string");
-    expect(typeof item.orcaStatus).toBe("string");
+    expect(typeof item.lifecycleStage).toBe("string");
     expect(typeof item.lifecycleStage).toBe("string");
     // currentPhase is null for ready status
     expect(item.currentPhase).toBeNull();
@@ -237,7 +236,7 @@ describe("GET /api/invocations/running — contract", () => {
   it("200: running invocation has agentPrompt field", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "RUN-1", orcaStatus: "running" as const }),
+      makeTask({ linearIssueId: "RUN-1", lifecycleStage: "active", currentPhase: "implement" }),
     );
     insertInvocation(db, {
       linearIssueId: "RUN-1",
@@ -369,7 +368,7 @@ describe("POST /api/invocations/:id/abort — contract", () => {
       db,
       makeTask({
         linearIssueId: "ABORT-RUN-1",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
     const invId = insertInvocation(db, {
@@ -402,7 +401,7 @@ describe("POST /api/tasks/:id/status — contract", () => {
   it("200: valid status change — returns { ok: true }", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "STATUS-1", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "STATUS-1", lifecycleStage: "ready" }),
     );
     const res = await app.request("/api/tasks/STATUS-1/status", {
       method: "POST",
@@ -439,7 +438,7 @@ describe("POST /api/tasks/:id/status — contract", () => {
   it("409: task already has the requested status — returns { error: string }", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "STATUS-SAME", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "STATUS-SAME", lifecycleStage: "ready" }),
     );
     const res = await app.request("/api/tasks/STATUS-SAME/status", {
       method: "POST",
@@ -468,7 +467,7 @@ describe("POST /api/tasks/:id/retry — contract", () => {
   it("200: failed task — returns { ok: true }", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "RETRY-1", orcaStatus: "failed" as const }),
+      makeTask({ linearIssueId: "RETRY-1", lifecycleStage: "failed" }),
     );
     const res = await app.request("/api/tasks/RETRY-1/retry", {
       method: "POST",
@@ -490,7 +489,7 @@ describe("POST /api/tasks/:id/retry — contract", () => {
   it("409: task not failed — returns { error: string }", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "RETRY-READY", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "RETRY-READY", lifecycleStage: "ready" }),
     );
     const res = await app.request("/api/tasks/RETRY-READY/retry", {
       method: "POST",

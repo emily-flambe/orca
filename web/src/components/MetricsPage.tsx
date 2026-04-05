@@ -398,7 +398,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   failed: { bg: "bg-red-500", text: "text-red-400" },
 };
 
-/** Remap orcaStatus-keyed backend data to lifecycle phase keys */
+/** Remap status-label-keyed backend data to lifecycle phase keys */
 function remapTasksByStatus(
   raw: Record<string, number>,
 ): Record<string, number> {

@@ -97,13 +97,12 @@ function deriveLifecycle(status: string): {
 }
 
 function makeTask(overrides?: Record<string, unknown>) {
-  const orcaStatus = (overrides?.orcaStatus as string) ?? "ready";
-  const lifecycle = deriveLifecycle(orcaStatus);
+  const statusStr = (overrides?.lifecycleStage as string) ?? "ready";
+  const lifecycle = deriveLifecycle(statusStr);
   return {
     linearIssueId: "TEST-1",
     agentPrompt: "Fix the bug",
     repoPath: "/tmp/repo",
-    orcaStatus: orcaStatus as "ready",
     lifecycleStage: lifecycle.lifecycleStage,
     currentPhase: lifecycle.currentPhase,
     priority: 2,
@@ -191,7 +190,7 @@ describe("GET /api/tasks", () => {
       linearIssueId: "FULL-TASK",
       agentPrompt: "Implement feature X",
       repoPath: "/home/user/project",
-      orcaStatus: "running" as const,
+      lifecycleStage: "active", currentPhase: "implement",
       priority: 1,
       retryCount: 2,
       createdAt: "2026-02-15T10:30:00.000Z",
@@ -207,7 +206,7 @@ describe("GET /api/tasks", () => {
     expect(returned.linearIssueId).toBe("FULL-TASK");
     expect(returned.agentPrompt).toBe("Implement feature X");
     expect(returned.repoPath).toBe("/home/user/project");
-    expect(returned.orcaStatus).toBe("running");
+    expect(returned.lifecycleStage).toBe("active");
     expect(returned.priority).toBe(1);
     expect(returned.retryCount).toBe(2);
     expect(returned.createdAt).toBe("2026-02-15T10:30:00.000Z");
@@ -288,7 +287,7 @@ describe("GET /api/status", () => {
       db,
       makeTask({
         linearIssueId: "READY-1",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
     // Insert a running task with a running invocation
@@ -296,7 +295,7 @@ describe("GET /api/status", () => {
       db,
       makeTask({
         linearIssueId: "RUNNING-1",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
     insertInvocation(db, {
@@ -309,7 +308,7 @@ describe("GET /api/status", () => {
       db,
       makeTask({
         linearIssueId: "DONE-1",
-        orcaStatus: "done" as const,
+        lifecycleStage: "done",
       }),
     );
 
@@ -424,7 +423,7 @@ describe("GET /api/events (SSE)", () => {
     const decoder = new TextDecoder();
 
     // Emit a task:updated event after a short delay to give the stream time to set up
-    const eventPayload = { linearIssueId: "SSE-TEST", orcaStatus: "running" };
+    const eventPayload = { linearIssueId: "SSE-TEST", lifecycleStage: "active", currentPhase: "implement" };
     setTimeout(() => {
       orcaEvents.emit("task:updated", eventPayload);
     }, 50);
@@ -537,7 +536,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-1",
-        orcaStatus: "backlog" as const,
+        lifecycleStage: "backlog",
         retryCount: 3,
       }),
     );
@@ -548,7 +547,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(body.ok).toBe(true);
 
     const task = getTask(db, "T-1");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
@@ -560,7 +559,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-2",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
 
@@ -568,7 +567,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-2");
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
     expect(task!.lifecycleStage).toBe("done");
     expect(task!.currentPhase).toBeNull();
   });
@@ -578,7 +577,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-3",
-        orcaStatus: "done" as const,
+        lifecycleStage: "done",
         retryCount: 2,
       }),
     );
@@ -587,7 +586,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-3");
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.currentPhase).toBeNull();
     expect(task!.retryCount).toBe(0);
@@ -599,7 +598,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-4",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
         retryCount: 5,
       }),
     );
@@ -608,7 +607,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-4");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.lifecycleStage).toBe("ready");
     expect(task!.retryCount).toBe(0);
   });
@@ -618,7 +617,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-5",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
       }),
     );
 
@@ -626,7 +625,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-5");
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.lifecycleStage).toBe("backlog");
     expect(task!.currentPhase).toBeNull();
   });
@@ -636,7 +635,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-6",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
 
@@ -644,7 +643,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-6");
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
   });
 
   // -----------------------------------------------------------------------
@@ -693,7 +692,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-SAME",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
 
@@ -708,7 +707,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-DONE-SAME",
-        orcaStatus: "done" as const,
+        lifecycleStage: "done",
       }),
     );
 
@@ -721,7 +720,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-BL-SAME",
-        orcaStatus: "backlog" as const,
+        lifecycleStage: "backlog",
       }),
     );
 
@@ -775,7 +774,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-COUNTERS-1",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
         retryCount: 5,
       }),
     );
@@ -802,7 +801,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-COUNTERS-2",
-        orcaStatus: "done" as const,
+        lifecycleStage: "done",
         retryCount: 2,
       }),
     );
@@ -823,7 +822,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-COUNTERS-3",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
         retryCount: 3,
       }),
     );
@@ -841,7 +840,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-STALE-1",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
         retryCount: 1,
       }),
     );
@@ -869,7 +868,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-STALE-2",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
         retryCount: 2,
       }),
     );
@@ -898,7 +897,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-DONEAT",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
 
@@ -913,7 +912,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-DONEAT-CLEAR",
-        orcaStatus: "done" as const,
+        lifecycleStage: "done",
       }),
     );
     // Set doneAt
@@ -938,7 +937,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-EVENT",
-        orcaStatus: "backlog" as const,
+        lifecycleStage: "backlog",
       }),
     );
 
@@ -948,7 +947,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(taskUpdatedSpy).toHaveBeenCalledTimes(1);
     const emittedTask = taskUpdatedSpy.mock.calls[0][0];
     expect(emittedTask.linearIssueId).toBe("T-EVENT");
-    expect(emittedTask.orcaStatus).toBe("ready");
+    expect(emittedTask.lifecycleStage).toBe("ready");
   });
 
   it("does NOT emit task:updated on error (404)", async () => {
@@ -961,7 +960,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-NO-EVENT",
-        orcaStatus: "ready" as const,
+        lifecycleStage: "ready",
       }),
     );
 
@@ -978,7 +977,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-RUNNING",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
     // Insert a running invocation
@@ -992,7 +991,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-RUNNING");
-    expect(task!.orcaStatus).toBe("done");
+    expect(task!.lifecycleStage).toBe("done");
   });
 
   it("running -> backlog: succeeds", async () => {
@@ -1000,7 +999,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-DISPATCHED",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
 
@@ -1008,7 +1007,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-DISPATCHED");
-    expect(task!.orcaStatus).toBe("backlog");
+    expect(task!.lifecycleStage).toBe("backlog");
   });
 
   it("in_review -> ready: succeeds", async () => {
@@ -1016,7 +1015,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-REVIEW",
-        orcaStatus: "in_review" as const,
+        lifecycleStage: "active", currentPhase: "review",
       }),
     );
 
@@ -1024,7 +1023,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-REVIEW");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
   });
 
   // -----------------------------------------------------------------------
@@ -1036,7 +1035,7 @@ describe("POST /api/tasks/:id/status", () => {
       db,
       makeTask({
         linearIssueId: "T-EXTRA",
-        orcaStatus: "backlog" as const,
+        lifecycleStage: "backlog",
       }),
     );
 
@@ -1048,7 +1047,7 @@ describe("POST /api/tasks/:id/status", () => {
     expect(res.status).toBe(200);
 
     const task = getTask(db, "T-EXTRA");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     // Priority should NOT have changed
     expect(task!.priority).toBe(2);
   });
@@ -1077,7 +1076,7 @@ describe("POST /api/tasks/:id/status", () => {
     const res = await postStatus("T-FAILED-TARGET", { status: "failed" });
     expect(res.status).toBe(200);
     const task = getTask(db, "T-FAILED-TARGET");
-    expect(task!.orcaStatus).toBe("failed");
+    expect(task!.lifecycleStage).toBe("failed");
   });
 
   it("rejects status='running' (not an allowed target)", async () => {
@@ -1373,7 +1372,7 @@ describe("POST /api/invocations/:id/abort", () => {
       db,
       makeTask({
         linearIssueId: "ABORT-TASK-2",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
     insertInvocation(db, {
@@ -1399,7 +1398,7 @@ describe("POST /api/invocations/:id/abort", () => {
 
     // Task should be reset to ready
     const task = getTask(db, "ABORT-TASK-2");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
   });
 
   it("resets staleSessionRetryCount when aborting", async () => {
@@ -1407,7 +1406,7 @@ describe("POST /api/invocations/:id/abort", () => {
       db,
       makeTask({
         linearIssueId: "ABORT-TASK-3",
-        orcaStatus: "running" as const,
+        lifecycleStage: "active", currentPhase: "implement",
       }),
     );
     insertInvocation(db, {
@@ -1473,7 +1472,7 @@ describe("POST /api/tasks/:id/retry", () => {
   it("returns 409 when task is not failed", async () => {
     insertTask(
       db,
-      makeTask({ linearIssueId: "RETRY-TASK-1", orcaStatus: "ready" as const }),
+      makeTask({ linearIssueId: "RETRY-TASK-1", lifecycleStage: "ready" }),
     );
     const res = await postRetry("RETRY-TASK-1");
     expect(res.status).toBe(409);
@@ -1486,7 +1485,7 @@ describe("POST /api/tasks/:id/retry", () => {
       db,
       makeTask({
         linearIssueId: "RETRY-TASK-2",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
         retryCount: 3,
       }),
     );
@@ -1499,7 +1498,7 @@ describe("POST /api/tasks/:id/retry", () => {
     expect(body.ok).toBe(true);
 
     const task = getTask(db, "RETRY-TASK-2");
-    expect(task!.orcaStatus).toBe("ready");
+    expect(task!.lifecycleStage).toBe("ready");
     expect(task!.retryCount).toBe(0);
     expect(task!.reviewCycleCount).toBe(0);
   });
@@ -1509,7 +1508,7 @@ describe("POST /api/tasks/:id/retry", () => {
       db,
       makeTask({
         linearIssueId: "RETRY-TASK-3",
-        orcaStatus: "failed" as const,
+        lifecycleStage: "failed",
       }),
     );
 
