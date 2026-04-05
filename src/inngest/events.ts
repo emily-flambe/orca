@@ -41,24 +41,6 @@ export type OrcaEvents = {
       isRateLimited: boolean;
     };
   };
-  "task/awaiting-ci": {
-    data: {
-      linearIssueId: string;
-      prNumber: number;
-      prBranchName: string;
-      repoPath: string;
-      ciStartedAt: string;
-    };
-  };
-  "task/deploying": {
-    data: {
-      linearIssueId: string;
-      mergeCommitSha: string;
-      repoPath: string;
-      prNumber: number;
-      deployStartedAt: string;
-    };
-  };
 };
 
 export const schemas = new EventSchemas().fromRecord<OrcaEvents>();

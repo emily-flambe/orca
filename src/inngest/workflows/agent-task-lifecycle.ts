@@ -52,6 +52,8 @@ import {
 } from "../workflow-utils.js";
 import { writeBackStatus } from "../../linear/sync.js";
 import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
+import { runCiGateAndMerge } from "../shared/ci-merge.js";
+import { runDeployMonitor } from "../shared/deploy-monitor.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
 
@@ -680,26 +682,38 @@ export const agentTaskLifecycle = inngest.createFunction(
       }
 
       // -------------------------------------------------------------------
-      // Emit task/awaiting-ci to trigger CI gate workflow
+      // Inline CI gate + merge (replaces task/awaiting-ci event emission)
       // -------------------------------------------------------------------
-      {
-        const { db: awaitingDb, config: awaitingConfig } = getSchedulerDeps();
-        await inngest.send({
-          name: "task/awaiting-ci",
-          data: {
-            linearIssueId: taskId,
-            prNumber: (gate2.prNumber ?? 0) as number,
-            prBranchName: (gate2.prBranch ?? "") as string,
-            repoPath:
-              getTask(awaitingDb, taskId)?.repoPath ??
-              awaitingConfig.defaultCwd ??
-              "",
-            ciStartedAt: gate2.ciStartedAt ?? new Date().toISOString(),
-          },
-        });
+      const ciResult = await runCiGateAndMerge(
+        step,
+        taskId,
+        (gate2.prNumber ?? 0) as number,
+        (gate2.prBranch ?? "") as string,
+        gate2.ciStartedAt ?? new Date().toISOString(),
+      );
+
+      if (ciResult.status === "merged") {
+        if (ciResult.nextStatus === "deploying" && ciResult.deployInfo) {
+          const deployResult = await runDeployMonitor(
+            step,
+            taskId,
+            ciResult.deployInfo.mergeCommitSha ?? "",
+            ciResult.deployInfo.deployStartedAt,
+          );
+          return { outcome: deployResult.status };
+        }
+        return { outcome: "done" };
       }
 
-      return { outcome: "awaiting_ci" };
+      if (
+        ciResult.status === "ci_failure" ||
+        ciResult.status === "changes_requested"
+      ) {
+        return { outcome: ciResult.status };
+      }
+
+      // "failed" or "aborted"
+      return { outcome: ciResult.status };
     }); // end runWithLogContext({ taskId })
   },
 );

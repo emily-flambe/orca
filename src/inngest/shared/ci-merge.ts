@@ -1,4 +1,13 @@
-import { inngest } from "../client.js";
+/**
+ * Shared CI gate + merge logic, callable as inline steps within any lifecycle
+ * workflow. Extracted from the standalone ci-merge workflow (EMI-505).
+ *
+ * Usage: await runCiGateAndMerge(step, taskId, prNumber, prBranchName, ciStartedAt)
+ *
+ * The function uses step.run() and step.sleep() internally so each poll
+ * iteration is a durable Inngest step.
+ */
+
 import { getSchedulerDeps } from "../deps.js";
 import { getDefaultBranch } from "../../git.js";
 import { createLogger } from "../../logger.js";
@@ -28,6 +37,11 @@ import {
   isCiFlakeOnMain,
 } from "../../github/index.js";
 import { sendPermanentFailureAlert } from "../../scheduler/alerts.js";
+import { inngest } from "../client.js";
+import type { GetStepTools } from "inngest";
+import type { InngestClient } from "../client.js";
+
+type Step = GetStepTools<InngestClient>;
 
 const logger = createLogger("ci-gate");
 
@@ -35,320 +49,297 @@ function log(message: string): void {
   logger.info(message);
 }
 
-export const ciMergeWorkflow = inngest.createFunction(
-  {
-    id: "ci-gate-merge",
-    retries: 0,
-    timeouts: { finish: "2h" },
-    cancelOn: [
-      {
-        event: "task/cancelled",
-        if: "async.data.linearIssueId == event.data.linearIssueId",
-      },
-    ],
-  },
-  { event: "task/awaiting-ci" },
-  async ({ event, step }) => {
-    const { linearIssueId, prNumber, prBranchName, ciStartedAt } = event.data;
+export type CiMergeResult =
+  | {
+      status: "merged";
+      nextStatus: "deploying" | "done";
+      deployInfo?: DeployInfo;
+    }
+  | { status: "aborted"; reason: string }
+  | { status: "failed"; reason: string }
+  | { status: "ci_failure" }
+  | { status: "changes_requested" };
 
-    let merged = false;
-    let attempts = 0;
-    const maxPollAttempts = getSchedulerDeps().config.maxCiPollAttempts;
+interface DeployInfo {
+  mergeCommitSha: string | null;
+  prNumber: number | null;
+  deployStartedAt: string;
+}
 
-    while (!merged && attempts < maxPollAttempts) {
-      attempts++;
+/**
+ * Run the CI gate polling loop and merge logic as inline steps.
+ *
+ * Returns the result of the CI gate + merge process. The caller is responsible
+ * for acting on the result (e.g. calling runDeployMonitor, re-dispatching on
+ * changes_requested, etc.).
+ */
+export async function runCiGateAndMerge(
+  step: Step,
+  taskId: string,
+  prNumber: number,
+  prBranchName: string,
+  ciStartedAt: string,
+): Promise<CiMergeResult> {
+  let merged = false;
+  let attempts = 0;
+  const maxPollAttempts = getSchedulerDeps().config.maxCiPollAttempts;
 
-      const deps = getSchedulerDeps();
-      const task = getTask(deps.db, linearIssueId);
-      if (!task) {
-        log(`task ${linearIssueId} not found in DB — aborting`);
-        return { status: "aborted", reason: "task_not_found" };
-      }
+  while (!merged && attempts < maxPollAttempts) {
+    attempts++;
 
-      // If task is no longer in CI phase (e.g. user cancelled), stop polling
-      if (task.currentPhase !== "ci") {
-        log(
-          `task ${linearIssueId} status changed (stage=${task.lifecycleStage}, phase=${task.currentPhase}) — stopping CI poll`,
-        );
-        return { status: "aborted", reason: "status_changed" };
-      }
-
-      // Timeout check
-      if (hasPollingTimedOut(ciStartedAt, deps.config.maxCiPollAttempts)) {
-        await step.run(`ci-timeout`, async () => {
-          const { db, config, client, stateMap } = getSchedulerDeps();
-          updateAndEmit(db, linearIssueId, "failed", "ci_timeout", {
-            failureReason: `CI timed out after ${config.maxCiPollAttempts} minutes`,
-            failedPhase: "ci",
-          });
-          await transitionToFinalState(
-            { client, stateMap },
-            linearIssueId,
-            "failed_permanent",
-            `CI timed out after ${config.maxCiPollAttempts}min — task failed`,
-          );
-          log(
-            `task ${linearIssueId} CI timed out after ${config.maxCiPollAttempts}min`,
-          );
-        });
-        return { status: "failed", reason: "ci_timeout" };
-      }
-
-      // Poll PR check status
-      const ciStatus = await step.run(
-        `check-ci-${attempts}`,
-        async (): Promise<{
-          status: "pending" | "success" | "failure" | "no_checks" | "error";
-        }> => {
-          const result = await getPrCheckStatus(prNumber, task.repoPath);
-          return { status: result };
-        },
-      );
-
-      if (ciStatus.status === "error") {
-        // Transient gh CLI error — log and fall through to sleep/poll again
-        log(
-          `task ${linearIssueId} CI check returned error — will retry next poll`,
-        );
-      } else if (
-        ciStatus.status === "success" ||
-        ciStatus.status === "no_checks"
-      ) {
-        // CI passed or no checks configured — attempt merge
-        const mergeOutcome = await step.run(
-          `merge-and-finalize-${attempts}`,
-          async (): Promise<
-            | {
-                done: true;
-                nextStatus: "deploying" | "done";
-                deployInfo?: {
-                  mergeCommitSha: string | null;
-                  prNumber: number | null;
-                  deployStartedAt: string;
-                };
-              }
-            | { done: false; action: "retry" | "changes_requested" | "failed" }
-          > => {
-            return await mergeAndFinalizeStep(linearIssueId, prBranchName);
-          },
-        );
-
-        if (mergeOutcome.done) {
-          // Emit task/deploying event if transitioning to deploy monitoring
-          if (
-            mergeOutcome.nextStatus === "deploying" &&
-            mergeOutcome.deployInfo
-          ) {
-            await inngest.send({
-              name: "task/deploying",
-              data: {
-                linearIssueId,
-                mergeCommitSha:
-                  mergeOutcome.deployInfo.mergeCommitSha ?? "unknown",
-                repoPath: getSchedulerDeps().db
-                  ? (getTask(getSchedulerDeps().db, linearIssueId)?.repoPath ??
-                    "")
-                  : "",
-                prNumber: mergeOutcome.deployInfo.prNumber ?? 0,
-                deployStartedAt: mergeOutcome.deployInfo.deployStartedAt,
-              },
-            });
-          }
-
-          merged = true;
-          return {
-            status: "merged",
-            nextStatus: mergeOutcome.nextStatus,
-          };
-        }
-
-        if (
-          mergeOutcome.action === "changes_requested" ||
-          mergeOutcome.action === "failed"
-        ) {
-          // Task was transitioned out of awaiting_ci — stop polling
-          if (mergeOutcome.action === "changes_requested") {
-            const freshTask = getTask(getSchedulerDeps().db, linearIssueId);
-            if (freshTask) {
-              await inngest.send({
-                name: "task/ready",
-                data: {
-                  linearIssueId,
-                  repoPath: freshTask.repoPath,
-                  priority: freshTask.priority,
-                  projectName: freshTask.projectName ?? null,
-                  taskType: freshTask.taskType,
-                  createdAt: freshTask.createdAt,
-                },
-              });
-            }
-          }
-          return { status: mergeOutcome.action };
-        }
-
-        // action === "retry" — fall through to sleep and poll again
-      } else if (ciStatus.status === "failure") {
-        // CI failed — check if this is a flake (same failures on main)
-        const flakeCheck = await step.run(
-          `ci-flake-check-${attempts}`,
-          async (): Promise<{ isFlake: boolean }> => {
-            const { db } = getSchedulerDeps();
-            const freshTask = getTask(db, linearIssueId);
-            if (!freshTask) return { isFlake: false };
-            const failingNames = await getFailingCheckNames(
-              prNumber,
-              freshTask.repoPath,
-            );
-            const flake = await isCiFlakeOnMain(
-              failingNames,
-              freshTask.repoPath,
-            );
-            if (flake) {
-              log(
-                `task ${linearIssueId} CI failure matches main branch failures — flake detected, re-polling without burning retry (failing: ${failingNames.join(", ")})`,
-              );
-            } else {
-              log(
-                `task ${linearIssueId} CI failure is unique to PR branch — treating as real failure`,
-              );
-            }
-            return { isFlake: flake };
-          },
-        );
-
-        if (flakeCheck.isFlake) {
-          // Flake — comment on Linear, sleep, and re-poll without burning retry
-          const { client } = getSchedulerDeps();
-          await client
-            .createComment(
-              linearIssueId,
-              `CI checks failed on PR #${prNumber} but the same failures exist on main — likely a flake. Re-queuing without counting against retry budget.`,
-            )
-            .catch((err) => {
-              log(
-                `comment failed on CI flake for task ${linearIssueId}: ${err}`,
-              );
-            });
-          await step.sleep(`ci-flake-wait-${attempts}`, "30s");
-        } else {
-          // Real failure — handle review cycle or fail permanently
-          const ciFailureResult = await step.run(
-            `ci-failure-${attempts}`,
-            async (): Promise<{
-              action: "re-dispatch" | "failed" | "none";
-              repoPath?: string;
-            }> => {
-              const { db, config, client, stateMap } = getSchedulerDeps();
-              const freshTask = getTask(db, linearIssueId);
-              if (!freshTask) return { action: "none" };
-
-              if (freshTask.retryCount < config.maxRetries) {
-                updateAndEmit(
-                  db,
-                  linearIssueId,
-                  "changes_requested",
-                  "ci_failed_fix_needed",
-                );
-                await transitionToFinalState(
-                  { client, stateMap },
-                  linearIssueId,
-                  "running",
-                  `CI failed on PR #${prNumber} — dispatching fix (retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
-                );
-                log(
-                  `task ${linearIssueId} CI failed → fix phase ` +
-                    `(retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
-                );
-                return {
-                  action: "re-dispatch",
-                  repoPath: freshTask.repoPath,
-                };
-              } else {
-                // Retries exhausted — mark as failed
-                updateAndEmit(
-                  db,
-                  linearIssueId,
-                  "failed",
-                  "ci_failed_retries_exhausted",
-                  {
-                    failureReason: `CI failed and retry limit (${config.maxRetries}) exhausted`,
-                    failedPhase: "ci",
-                  },
-                );
-                await transitionToFinalState(
-                  { client, stateMap },
-                  linearIssueId,
-                  "failed_permanent",
-                  `CI failed and retries exhausted (${config.maxRetries}) — task failed permanently`,
-                );
-                log(
-                  `task ${linearIssueId} CI failed, retries exhausted → failed`,
-                );
-                return { action: "failed" };
-              }
-            },
-          );
-
-          if (
-            ciFailureResult.action === "re-dispatch" &&
-            ciFailureResult.repoPath
-          ) {
-            const redispatchTask = getTask(
-              getSchedulerDeps().db,
-              linearIssueId,
-            );
-            if (redispatchTask) {
-              await inngest.send({
-                name: "task/ready",
-                data: {
-                  linearIssueId,
-                  repoPath: redispatchTask.repoPath,
-                  priority: redispatchTask.priority,
-                  projectName: redispatchTask.projectName ?? null,
-                  taskType: redispatchTask.taskType,
-                  createdAt: redispatchTask.createdAt,
-                },
-              });
-            }
-          }
-          return { status: "ci_failure" };
-        } // end else (not a flake)
-      }
-
-      // "pending" — sleep and poll again
-      if (!merged) {
-        await step.sleep(`ci-poll-wait-${attempts}`, "30s");
-      }
+    const deps = getSchedulerDeps();
+    const task = getTask(deps.db, taskId);
+    if (!task) {
+      log(`task ${taskId} not found in DB — aborting`);
+      return { status: "aborted", reason: "task_not_found" };
     }
 
-    if (!merged) {
-      await step.run("ci-poll-exhausted", async () => {
-        const deps = getSchedulerDeps();
-        const { db, client, stateMap } = deps;
-        updateAndEmit(db, linearIssueId, "failed", "ci_poll_exhausted", {
-          failureReason: `CI status never resolved after ${maxPollAttempts} poll attempts`,
+    // If task is no longer in CI phase (e.g. user cancelled), stop polling
+    if (task.currentPhase !== "ci") {
+      log(
+        `task ${taskId} status changed (stage=${task.lifecycleStage}, phase=${task.currentPhase}) — stopping CI poll`,
+      );
+      return { status: "aborted", reason: "status_changed" };
+    }
+
+    // Timeout check
+    if (hasPollingTimedOut(ciStartedAt, deps.config.maxCiPollAttempts)) {
+      await step.run(`ci-timeout`, async () => {
+        const { db, config, client, stateMap } = getSchedulerDeps();
+        updateAndEmit(db, taskId, "failed", "ci_timeout", {
+          failureReason: `CI timed out after ${config.maxCiPollAttempts} minutes`,
           failedPhase: "ci",
         });
         await transitionToFinalState(
           { client, stateMap },
-          linearIssueId,
+          taskId,
           "failed_permanent",
+          `CI timed out after ${config.maxCiPollAttempts}min — task failed`,
         );
-        sendPermanentFailureAlert(
-          deps,
-          linearIssueId,
-          `CI checks never resolved after ${maxPollAttempts} poll attempts`,
-        );
-        log(
-          `task ${linearIssueId} CI poll exhausted ${maxPollAttempts} attempts`,
-        );
+        log(`task ${taskId} CI timed out after ${config.maxCiPollAttempts}min`);
       });
-      return { status: "failed", reason: "poll_exhausted" };
+      return { status: "failed", reason: "ci_timeout" };
     }
 
-    return { status: "merged" };
-  },
-);
+    // Poll PR check status
+    const ciStatus = await step.run(
+      `check-ci-${attempts}`,
+      async (): Promise<{
+        status: "pending" | "success" | "failure" | "no_checks" | "error";
+      }> => {
+        const result = await getPrCheckStatus(prNumber, task.repoPath);
+        return { status: result };
+      },
+    );
+
+    if (ciStatus.status === "error") {
+      // Transient gh CLI error — log and fall through to sleep/poll again
+      log(`task ${taskId} CI check returned error — will retry next poll`);
+    } else if (
+      ciStatus.status === "success" ||
+      ciStatus.status === "no_checks"
+    ) {
+      // CI passed or no checks configured — attempt merge
+      const mergeOutcome = await step.run(
+        `merge-and-finalize-${attempts}`,
+        async (): Promise<
+          | {
+              done: true;
+              nextStatus: "deploying" | "done";
+              deployInfo?: DeployInfo;
+            }
+          | { done: false; action: "retry" | "changes_requested" | "failed" }
+        > => {
+          return await mergeAndFinalizeStep(taskId, prBranchName);
+        },
+      );
+
+      if (mergeOutcome.done) {
+        merged = true;
+        return {
+          status: "merged",
+          nextStatus: mergeOutcome.nextStatus,
+          deployInfo: mergeOutcome.deployInfo,
+        };
+      }
+
+      if (
+        mergeOutcome.action === "changes_requested" ||
+        mergeOutcome.action === "failed"
+      ) {
+        // Task was transitioned out of awaiting_ci — stop polling
+        if (mergeOutcome.action === "changes_requested") {
+          const freshTask = getTask(getSchedulerDeps().db, taskId);
+          if (freshTask) {
+            await inngest.send({
+              name: "task/ready",
+              data: {
+                linearIssueId: taskId,
+                repoPath: freshTask.repoPath,
+                priority: freshTask.priority,
+                projectName: freshTask.projectName ?? null,
+                taskType: freshTask.taskType,
+                createdAt: freshTask.createdAt,
+              },
+            });
+          }
+        }
+        return {
+          status: mergeOutcome.action as "changes_requested" | "failed",
+          reason: mergeOutcome.action,
+        };
+      }
+
+      // action === "retry" — fall through to sleep and poll again
+    } else if (ciStatus.status === "failure") {
+      // CI failed — check if this is a flake (same failures on main)
+      const flakeCheck = await step.run(
+        `ci-flake-check-${attempts}`,
+        async (): Promise<{ isFlake: boolean }> => {
+          const { db } = getSchedulerDeps();
+          const freshTask = getTask(db, taskId);
+          if (!freshTask) return { isFlake: false };
+          const failingNames = await getFailingCheckNames(
+            prNumber,
+            freshTask.repoPath,
+          );
+          const flake = await isCiFlakeOnMain(failingNames, freshTask.repoPath);
+          if (flake) {
+            log(
+              `task ${taskId} CI failure matches main branch failures — flake detected, re-polling without burning retry (failing: ${failingNames.join(", ")})`,
+            );
+          } else {
+            log(
+              `task ${taskId} CI failure is unique to PR branch — treating as real failure`,
+            );
+          }
+          return { isFlake: flake };
+        },
+      );
+
+      if (flakeCheck.isFlake) {
+        // Flake — comment on Linear, sleep, and re-poll without burning retry
+        const { client } = getSchedulerDeps();
+        await client
+          .createComment(
+            taskId,
+            `CI checks failed on PR #${prNumber} but the same failures exist on main — likely a flake. Re-queuing without counting against retry budget.`,
+          )
+          .catch((err) => {
+            log(`comment failed on CI flake for task ${taskId}: ${err}`);
+          });
+        await step.sleep(`ci-flake-wait-${attempts}`, "30s");
+      } else {
+        // Real failure — handle review cycle or fail permanently
+        const ciFailureResult = await step.run(
+          `ci-failure-${attempts}`,
+          async (): Promise<{
+            action: "re-dispatch" | "failed" | "none";
+            repoPath?: string;
+          }> => {
+            const { db, config, client, stateMap } = getSchedulerDeps();
+            const freshTask = getTask(db, taskId);
+            if (!freshTask) return { action: "none" };
+
+            if (freshTask.retryCount < config.maxRetries) {
+              updateAndEmit(
+                db,
+                taskId,
+                "changes_requested",
+                "ci_failed_fix_needed",
+              );
+              await transitionToFinalState(
+                { client, stateMap },
+                taskId,
+                "running",
+                `CI failed on PR #${prNumber} — dispatching fix (retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
+              );
+              log(
+                `task ${taskId} CI failed → fix phase ` +
+                  `(retry ${freshTask.retryCount + 1}/${config.maxRetries})`,
+              );
+              return {
+                action: "re-dispatch",
+                repoPath: freshTask.repoPath,
+              };
+            } else {
+              // Retries exhausted — mark as failed
+              updateAndEmit(
+                db,
+                taskId,
+                "failed",
+                "ci_failed_retries_exhausted",
+                {
+                  failureReason: `CI failed and retry limit (${config.maxRetries}) exhausted`,
+                  failedPhase: "ci",
+                },
+              );
+              await transitionToFinalState(
+                { client, stateMap },
+                taskId,
+                "failed_permanent",
+                `CI failed and retries exhausted (${config.maxRetries}) — task failed permanently`,
+              );
+              log(`task ${taskId} CI failed, retries exhausted → failed`);
+              return { action: "failed" };
+            }
+          },
+        );
+
+        if (
+          ciFailureResult.action === "re-dispatch" &&
+          ciFailureResult.repoPath
+        ) {
+          const redispatchTask = getTask(getSchedulerDeps().db, taskId);
+          if (redispatchTask) {
+            await inngest.send({
+              name: "task/ready",
+              data: {
+                linearIssueId: taskId,
+                repoPath: redispatchTask.repoPath,
+                priority: redispatchTask.priority,
+                projectName: redispatchTask.projectName ?? null,
+                taskType: redispatchTask.taskType,
+                createdAt: redispatchTask.createdAt,
+              },
+            });
+          }
+        }
+        return { status: "ci_failure" };
+      } // end else (not a flake)
+    }
+
+    // "pending" — sleep and poll again
+    if (!merged) {
+      await step.sleep(`ci-poll-wait-${attempts}`, "30s");
+    }
+  }
+
+  if (!merged) {
+    await step.run("ci-poll-exhausted", async () => {
+      const deps = getSchedulerDeps();
+      const { db, client, stateMap } = deps;
+      updateAndEmit(db, taskId, "failed", "ci_poll_exhausted", {
+        failureReason: `CI status never resolved after ${maxPollAttempts} poll attempts`,
+        failedPhase: "ci",
+      });
+      await transitionToFinalState(
+        { client, stateMap },
+        taskId,
+        "failed_permanent",
+      );
+      sendPermanentFailureAlert(
+        deps,
+        taskId,
+        `CI checks never resolved after ${maxPollAttempts} poll attempts`,
+      );
+      log(`task ${taskId} CI poll exhausted ${maxPollAttempts} attempts`);
+    });
+    return { status: "failed", reason: "poll_exhausted" };
+  }
+
+  return { status: "merged", nextStatus: "done" };
+}
 
 /**
  * Replicate the mergeAndFinalize logic from the scheduler.
@@ -361,11 +352,7 @@ async function mergeAndFinalizeStep(
   | {
       done: true;
       nextStatus: "deploying" | "done";
-      deployInfo?: {
-        mergeCommitSha: string | null;
-        prNumber: number | null;
-        deployStartedAt: string;
-      };
+      deployInfo?: DeployInfo;
     }
   | { done: false; action: "retry" | "changes_requested" | "failed" }
 > {

@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// Integration tests for deploy-monitor Inngest workflow
+// Integration tests for shared deploy-monitor logic (runDeployMonitor)
 //
-// Strategy: mock inngest client to capture the handler, then mock getSchedulerDeps
-// and GitHub calls to test the workflow's polling logic.
+// Strategy: mock getSchedulerDeps and GitHub calls, then call runDeployMonitor
+// directly with a mock step object.
 // ---------------------------------------------------------------------------
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
@@ -11,28 +11,9 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-// Must be `var` (not `let`) so it's hoisted and accessible when vi.mock runs
-// eslint-disable-next-line no-var
-var capturedDeployMonitorHandler: (ctx: {
-  event: unknown;
-  step: unknown;
-}) => Promise<unknown>;
-// eslint-disable-next-line no-var
-var capturedDeployMonitorConfig: { cancelOn?: unknown[]; id?: string };
-
 vi.mock("../src/inngest/client.js", () => ({
   inngest: {
-    createFunction: vi.fn(
-      (
-        config: { cancelOn?: unknown[]; id?: string },
-        _trigger: unknown,
-        handler: (ctx: { event: unknown; step: unknown }) => Promise<unknown>,
-      ) => {
-        capturedDeployMonitorHandler = handler;
-        capturedDeployMonitorConfig = config;
-        return { id: config.id ?? "deploy-monitor" };
-      },
-    ),
+    createFunction: vi.fn(() => ({ id: "unused" })),
     send: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -122,9 +103,7 @@ import { getTask, updateTaskStatus } from "../src/db/queries.js";
 import { writeBackStatus } from "../src/linear/sync.js";
 import { getWorkflowRunStatus } from "../src/github/index.js";
 import { sendPermanentFailureAlert } from "../src/scheduler/alerts.js";
-
-// Import the workflow module to trigger createFunction capture
-import "../src/inngest/workflows/deploy-monitor.js";
+import { runDeployMonitor } from "../src/inngest/shared/deploy-monitor.js";
 
 const mockGetTask = vi.mocked(getTask);
 const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
@@ -136,25 +115,9 @@ const mockSendPermanentFailureAlert = vi.mocked(sendPermanentFailureAlert);
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDeployingEvent(overrides: Record<string, unknown> = {}) {
-  return {
-    name: "task/deploying" as const,
-    data: {
-      linearIssueId: "TEST-1",
-      mergeCommitSha: "abc123",
-      repoPath: "/repo",
-      prNumber: 42,
-      deployStartedAt: new Date().toISOString(),
-      ...overrides,
-    },
-  };
-}
-
 function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     linearIssueId: "TEST-1",
-    lifecycleStage: "active",
-    currentPhase: "deploy",
     lifecycleStage: "active",
     currentPhase: "deploy",
     repoPath: "/repo",
@@ -165,7 +128,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createDeployMonitorStep() {
+function createStep() {
   return {
     run: vi.fn(async (_id: string, fn: () => unknown) => fn()),
     sleep: vi.fn(async () => {}),
@@ -190,15 +153,17 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("deploy-monitor workflow", () => {
+describe("runDeployMonitor (shared deploy monitor logic)", () => {
   test("task not found → returns aborted", async () => {
     mockGetTask.mockReturnValue(null);
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "aborted",
@@ -210,16 +175,17 @@ describe("deploy-monitor workflow", () => {
     mockGetTask.mockReturnValue(
       makeTask({
         lifecycleStage: "done",
-        lifecycleStage: "done",
         currentPhase: null,
       }),
     );
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "aborted",
@@ -230,20 +196,18 @@ describe("deploy-monitor workflow", () => {
   test("deploy timeout → fails permanently with deploy_timeout reason", async () => {
     mockGetTask.mockReturnValue(makeTask());
 
-    // Use maxDeployPollAttempts=1 so the loop runs once and the timeout check fires
     (mockSchedulerDeps as Record<string, unknown>).config = {
       ...mockConfig,
       maxDeployPollAttempts: 1,
     };
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({
-        // deployStartedAt far in the past — exceeds deployTimeoutMin=30
-        deployStartedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-      }),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "failed",
@@ -266,11 +230,13 @@ describe("deploy-monitor workflow", () => {
   test("no merge commit SHA → transitions to done immediately", async () => {
     mockGetTask.mockReturnValue(makeTask());
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ mergeCommitSha: "" }),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({ status: "done", reason: "no_sha" });
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
@@ -283,17 +249,19 @@ describe("deploy-monitor workflow", () => {
 
   test("deploy success → updates task to done, writes back to Linear", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask()) // outer loop check
-      .mockReturnValueOnce(makeTask()) // inside check-deploy step
-      .mockReturnValue(makeTask()); // subsequent calls (emitTaskUpdated etc)
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValue(makeTask());
 
     mockGetWorkflowRunStatus.mockResolvedValue("success");
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({ status: "done" });
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
@@ -312,17 +280,19 @@ describe("deploy-monitor workflow", () => {
 
   test("deploy failure → updates task to failed, writes back to Linear", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask()) // outer loop check
-      .mockReturnValueOnce(makeTask()) // inside check-deploy step
-      .mockReturnValue(makeTask()); // subsequent calls
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValue(makeTask());
 
     mockGetWorkflowRunStatus.mockResolvedValue("failure");
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "failed",
@@ -344,55 +314,59 @@ describe("deploy-monitor workflow", () => {
 
   test("deploy pending → polls again (sleeps between polls)", async () => {
     mockGetTask
-      .mockReturnValueOnce(makeTask()) // loop iteration 1
-      .mockReturnValueOnce(makeTask()) // inside check-deploy step
-      .mockReturnValueOnce(null); // loop iteration 2 → abort
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValueOnce(null);
 
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(step.sleep).toHaveBeenCalledWith("deploy-poll-wait-1", "30s");
   });
 
   test("no merge commit SHA → marks task done without polling", async () => {
-    mockGetTask
-      .mockReturnValueOnce(makeTask()) // outer loop check
-      .mockReturnValue(makeTask()); // subsequent calls
+    mockGetTask.mockReturnValueOnce(makeTask()).mockReturnValue(makeTask());
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ mergeCommitSha: undefined }),
-      step,
-    });
+    const step = createStep();
+    // runDeployMonitor treats falsy mergeCommitSha as "no SHA"
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({ status: "done", reason: "no_sha" });
     expect(mockGetWorkflowRunStatus).not.toHaveBeenCalled();
   });
 
   test("poll exhaustion → updates task to failed, writes back to Linear, fires alert", async () => {
-    // Override maxDeployPollAttempts to 1 so the loop exits after one pending poll
     (mockSchedulerDeps as Record<string, unknown>).config = {
       ...mockConfig,
       maxDeployPollAttempts: 1,
     };
 
     mockGetTask
-      .mockReturnValueOnce(makeTask()) // outer loop iteration 1 check
-      .mockReturnValueOnce(makeTask()) // inside check-deploy step
-      .mockReturnValue(makeTask()); // poll-exhausted step calls (updateTaskStatus, emitTaskUpdated)
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValueOnce(makeTask())
+      .mockReturnValue(makeTask());
 
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent(),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "failed",
@@ -418,20 +392,16 @@ describe("deploy-monitor workflow", () => {
   });
 
   test("poll exhaustion (60 pending attempts) → task failed with poll_exhausted reason", async () => {
-    // Always return a valid deploying task so the loop runs all 60 iterations.
-    // step.sleep is mocked to resolve immediately.
     mockGetTask.mockReturnValue(makeTask());
-    // Deploy always pending — never resolves
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    const result = await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({
-        // Set deployStartedAt to recent time so the timeout (deployTimeoutMin=30min) doesn't trigger
-        deployStartedAt: new Date().toISOString(),
-      }),
-      step,
-    });
+    const step = createStep();
+    const result = await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(result).toMatchObject({
       status: "failed",
@@ -443,11 +413,13 @@ describe("deploy-monitor workflow", () => {
     mockGetTask.mockReturnValue(makeTask());
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ deployStartedAt: new Date().toISOString() }),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(mockUpdateTaskStatus).toHaveBeenCalledWith(
       mockDb,
@@ -461,11 +433,13 @@ describe("deploy-monitor workflow", () => {
     mockGetTask.mockReturnValue(makeTask());
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ deployStartedAt: new Date().toISOString() }),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(mockWriteBackStatus).toHaveBeenCalledWith(
       mockLinearClient,
@@ -479,11 +453,13 @@ describe("deploy-monitor workflow", () => {
     mockGetTask.mockReturnValue(makeTask());
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ deployStartedAt: new Date().toISOString() }),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(mockSendPermanentFailureAlert).toHaveBeenCalledWith(
       expect.objectContaining({ db: mockDb }),
@@ -496,11 +472,13 @@ describe("deploy-monitor workflow", () => {
     mockGetTask.mockReturnValue(makeTask());
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ deployStartedAt: new Date().toISOString() }),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     expect(step.run).toHaveBeenCalledWith(
       "deploy-poll-exhausted",
@@ -510,16 +488,16 @@ describe("deploy-monitor workflow", () => {
   });
 
   test("poll exhaustion → no duplicate explicit createComment call (alert handles it)", async () => {
-    // sendPermanentFailureAlert handles the Linear comment + webhook.
-    // No extra explicit createComment call should occur from the exhaustion step.
     mockGetTask.mockReturnValue(makeTask());
     mockGetWorkflowRunStatus.mockResolvedValue("pending");
 
-    const step = createDeployMonitorStep();
-    await capturedDeployMonitorHandler({
-      event: makeDeployingEvent({ deployStartedAt: new Date().toISOString() }),
-      step,
-    });
+    const step = createStep();
+    await runDeployMonitor(
+      step as never,
+      "TEST-1",
+      "abc123",
+      new Date().toISOString(),
+    );
 
     const exhaustionComments = mockLinearClient.createComment.mock.calls.filter(
       ([_id, msg]: [string, string]) =>
@@ -527,13 +505,5 @@ describe("deploy-monitor workflow", () => {
     );
     expect(exhaustionComments.length).toBe(0);
     expect(mockSendPermanentFailureAlert).toHaveBeenCalledTimes(1);
-  });
-
-  test("deploy-monitor workflow is configured to cancel on task/cancelled event", () => {
-    expect(capturedDeployMonitorConfig?.cancelOn).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ event: "task/cancelled" }),
-      ]),
-    );
   });
 });
