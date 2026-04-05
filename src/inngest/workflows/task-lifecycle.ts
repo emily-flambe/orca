@@ -69,8 +69,6 @@ import {
   findPrForBranch,
   closeSupersededPrs,
   getPrCheckStatus,
-  enrichPrDescription,
-  resolveGhBinary,
 } from "../../github/index.js";
 import { activeHandles } from "../../session-handles.js";
 import { isDraining } from "../../deploy.js";
@@ -1373,33 +1371,6 @@ export const taskLifecycle = inngest.createFunction(
         });
       }
       return { outcome: "retry" };
-    }
-
-    // -------------------------------------------------------------------------
-    // Step 5b: Enrich PR description with AI-generated content (haiku)
-    // -------------------------------------------------------------------------
-    if (gate2.outcome === "in_review" && gate2.prNumber != null) {
-      await step.run("enrich-pr-description", async () => {
-        const { db: enrichDb, config: enrichConfig } = getSchedulerDeps();
-        const enrichTask = getTask(enrichDb, taskId);
-        if (!enrichTask) return;
-        try {
-          await enrichPrDescription({
-            prNumber: gate2.prNumber!,
-            taskId,
-            agentPrompt: enrichTask.agentPrompt,
-            repoPath: enrichTask.repoPath,
-            claudePath: enrichConfig.claudePath,
-            model: enrichConfig.reviewModel, // haiku
-            ghPath: resolveGhBinary(),
-          });
-        } catch (err) {
-          // Non-fatal — log and continue to review
-          log(
-            `task ${taskId}: PR description enrichment failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      });
     }
 
     // -------------------------------------------------------------------------

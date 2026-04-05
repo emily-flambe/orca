@@ -68,8 +68,6 @@ import { writeBackStatus } from "../../linear/sync.js";
 import {
   findPrForBranch,
   closeSupersededPrs,
-  enrichPrDescription,
-  resolveGhBinary,
 } from "../../github/index.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
@@ -693,32 +691,6 @@ export const agentTaskLifecycle = inngest.createFunction(
           });
         }
         return { outcome: "retry" };
-      }
-
-      // -------------------------------------------------------------------
-      // Enrich PR description
-      // -------------------------------------------------------------------
-      if (gate2.outcome === "in_review" && gate2.prNumber != null) {
-        await step.run("enrich-pr-description", async () => {
-          const { db: enrichDb, config: enrichConfig } = getSchedulerDeps();
-          const enrichTask = getTask(enrichDb, taskId);
-          if (!enrichTask) return;
-          try {
-            await enrichPrDescription({
-              prNumber: gate2.prNumber!,
-              taskId,
-              agentPrompt: enrichTask.agentPrompt,
-              repoPath: enrichTask.repoPath,
-              claudePath: enrichConfig.claudePath,
-              model: enrichConfig.reviewModel,
-              ghPath: resolveGhBinary(),
-            });
-          } catch (err) {
-            log(
-              `agent task ${taskId}: PR description enrichment failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        });
       }
 
       // -------------------------------------------------------------------
