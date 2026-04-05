@@ -451,7 +451,6 @@ server.registerTool(
       concurrencyCap,
       agentConcurrencyCap,
       model: process.env.ORCA_MODEL ?? "sonnet",
-      reviewModel: process.env.ORCA_REVIEW_MODEL ?? "haiku",
     };
 
     return {
