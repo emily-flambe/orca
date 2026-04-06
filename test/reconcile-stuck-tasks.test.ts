@@ -235,7 +235,7 @@ describe("runReconciliation — running (handle-based detection)", () => {
 
 // ---------------------------------------------------------------------------
 
-// in_review reconciliation tests removed in EMI-504 (review phase removal)
+// Review reconciliation tests removed in EMI-504 (review phase removal)
 
 describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
   beforeEach(() => {

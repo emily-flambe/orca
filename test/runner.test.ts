@@ -196,7 +196,7 @@ describe("NDJSON stream parsing", () => {
     expect(result.outputSummary).toBe("x".repeat(500));
   });
 
-  // REVIEW_RESULT marker tests removed in EMI-504 (review phase removal)
+  // Review marker tests removed in EMI-504 (review phase removal)
 
   test("PR URL beyond 500 chars gets prepended to outputSummary", async () => {
     const prefix = "z".repeat(510);

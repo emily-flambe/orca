@@ -695,8 +695,8 @@ describe("Cleanup - task status edge cases", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 
-  // "changes_requested" is active -- branches should be protected
-  test("branches from changes_requested tasks are NOT deleted", () => {
+  // active/fix tasks are still in progress -- branches should be protected
+  test("branches from active/fix tasks are NOT deleted", () => {
     seedTask(db, {
       linearIssueId: "T-CHANGES",
       repoPath: "/tmp/fake-repo",

@@ -8,17 +8,10 @@ function makeStatus(overrides: Partial<OrcaStatus> = {}): OrcaStatus {
     activeSessions: 0,
     activeTaskIds: [],
     queuedTasks: 0,
-    budgetWindowHours: 24,
-    tokensInWindow: 0,
-    tokenBudgetLimit: 1000000,
-    inputTokensInWindow: 0,
-    outputTokensInWindow: 0,
     concurrencyCap: 4,
     model: "claude-3-5-sonnet",
-    reviewModel: "claude-3-5-sonnet",
     draining: false,
     drainSessionCount: 0,
-    tokensPerMinute: null,
     ...overrides,
   };
 }

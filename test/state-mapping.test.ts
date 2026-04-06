@@ -265,12 +265,6 @@ describe("mapLinearStateToOrcaStatus — standard workflow regression", () => {
     expect(getTask(db, "REG-3")!.lifecycleStage).toBe("ready");
   });
 
-  it('In Review (type=started) → "in_review" (matches in_review task → no change)', () => {
-    seedTask(db, "REG-4", "in_review");
-    resolveConflict(db, "REG-4", "In Review", "started");
-    expect(getTask(db, "REG-4")!.lifecycleStage).toBe("active");
-  });
-
   it('Done (type=completed) → "done" (ready task becomes done)', () => {
     seedTask(db, "REG-5", "ready");
     resolveConflict(db, "REG-5", "Done", "completed");

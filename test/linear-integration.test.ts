@@ -1236,8 +1236,6 @@ describe("EMI-236 - writeBackStatus type-based lookup", () => {
     expect(body.variables.stateId).toBe("s-progress");
   });
 
-  // in_review test removed in EMI-504 (review phase removal)
-
   test("done → prefers exact 'Done' over 'Done Pending Deployment'", async () => {
     const { client, writeBackStatus } = await getWriteBack();
     mockSuccess();
