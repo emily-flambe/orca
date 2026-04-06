@@ -62,7 +62,6 @@ export async function runReconciliation(deps: {
     "running",
     "awaiting_ci",
     "deploying",
-    "in_review",
     "changes_requested",
   ]);
 
@@ -230,7 +229,6 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
       const deps = getSchedulerDeps();
       const tasks = getDispatchableTasks(deps.db, [
         "running",
-        "in_review",
         "awaiting_ci",
         "changes_requested",
         "deploying",

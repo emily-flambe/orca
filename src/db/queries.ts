@@ -278,6 +278,12 @@ export function getDispatchableTasks(
           eq(tasks.lifecycleStage, "active"),
           eq(tasks.currentPhase, "deploy"),
         );
+      case "changes_requested":
+        // Legacy label — maps to active/fix in the new schema
+        return and(
+          eq(tasks.lifecycleStage, "active"),
+          eq(tasks.currentPhase, "fix"),
+        );
       default:
         // Simple stage match: backlog, ready, done, failed, canceled
         return eq(tasks.lifecycleStage, label as LifecycleStage);

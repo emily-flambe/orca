@@ -297,6 +297,47 @@ describe("runReconciliation — awaiting_ci / deploying (time-based)", () => {
     expect(getTask(db, id)?.lifecycleStage).toBe("ready");
   });
 
+  test("active/fix task older than threshold is reset to ready", async () => {
+    // Regression: getDispatchableTasks("changes_requested") previously fell
+    // to the default case and queried lifecycleStage='changes_requested',
+    // which never matches anything. Tasks stuck in active/fix after a merge
+    // conflict would be invisible to the reconciler and strand forever.
+    const db = freshDb();
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "fix",
+      updatedAt: ago(70),
+    });
+    const handles = new Map<number, unknown>();
+
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
+
+    expect(getTask(db, id)?.lifecycleStage).toBe("ready");
+  });
+
+  test("active/fix task newer than threshold is NOT reset", async () => {
+    const db = freshDb();
+    const id = seedTask(db, {
+      lifecycleStage: "active",
+      currentPhase: "fix",
+      updatedAt: ago(25),
+    });
+    const handles = new Map<number, unknown>();
+
+    await runReconciliation({
+      db,
+      config: makeConfig(),
+      activeHandles: handles,
+    });
+
+    expect(getTask(db, id)?.lifecycleStage).toBe("active");
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
   test("awaiting_ci with exhausted retries is marked failed", async () => {
     const db = freshDb();
     const id = seedTask(db, {
