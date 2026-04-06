@@ -102,6 +102,28 @@ export async function runCiGateAndMerge(
       return { status: "aborted", reason: "status_changed" };
     }
 
+    // If the PR was closed without merging, fail the task immediately.
+    // A closed PR can't be merged — polling CI is pointless.
+    if (task.prState === "closed") {
+      await step.run(`pr-closed-${attempts}`, async () => {
+        const { db, client, stateMap } = getSchedulerDeps();
+        updateAndEmit(db, taskId, "failed", "pr_closed_not_merged", {
+          failureReason: `PR #${prNumber} was closed without being merged`,
+          failedPhase: "ci",
+        });
+        await transitionToFinalState(
+          { client, stateMap },
+          taskId,
+          "failed_permanent",
+          `PR #${prNumber} was closed without being merged — task failed permanently`,
+        );
+        log(
+          `task ${taskId} PR #${prNumber} is closed (not merged) — failing task`,
+        );
+      });
+      return { status: "failed", reason: "pr_closed" };
+    }
+
     // Timeout check
     if (hasPollingTimedOut(ciStartedAt, deps.config.maxCiPollAttempts)) {
       await step.run(`ci-timeout`, async () => {

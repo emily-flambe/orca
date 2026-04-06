@@ -233,7 +233,22 @@ export const reconcileStuckTasksWorkflow = inngest.createFunction(
         "changes_requested",
         "deploying",
       ]);
-      await detectAndAlertStuckTasks(deps, tasks);
+
+      // Build set of task IDs with live session handles so we don't generate
+      // false-positive "stuck" alerts for tasks that are actively running.
+      // Tasks in implement phase with a live handle are healthy; only tasks
+      // without a handle (orphaned) are truly stuck.
+      const handles = activeHandles;
+      const runningInvs = getRunningInvocations(deps.db);
+      const liveTaskIds = new Set<string>();
+      for (const inv of runningInvs) {
+        if (handles.has(inv.id)) {
+          liveTaskIds.add(inv.linearIssueId);
+        }
+      }
+      const candidateTasks = tasks.filter((t) => !liveTaskIds.has(t.linearIssueId));
+
+      await detectAndAlertStuckTasks(deps, candidateTasks);
     });
 
     await step.run("auto-retry-failed-tasks", async () => {

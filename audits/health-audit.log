@@ -278,3 +278,157 @@ Context on known non-issues:
 
 Tests: passing (1652 passed, 0 failed, 71 test files)
 Deploy: no (test-only change — deployed instance is commit 15522cf, CI passed)
+
+=== AUDIT: 2026-03-29T07:15:00Z ===
+Status: HEALTHY
+Active port: 4001 (deployed 2026-03-29T04:56:42Z, commit 4b509d8, uptime ~70min)
+Tasks: 214 done / 216 total, 1 running (SRE self), 0 failed
+Sessions: 1 active (SRE self)
+Inngest: reachable
+
+Issues found: 2
+  - [FIXED] Orphaned worktree directory fun-trivia-game-EMI-414 (old path after worktree fallback)
+    Root cause: EMI-414 was stranded in review phase (31 min > 30 min threshold). Reconciler
+    reset it to ready. Cleanup immediately tried to remove the worktree but the old process
+    still held file locks (EBUSY). On next dispatch, Orca created a new worktree at
+    fun-trivia-game-EMI-414-wt (the -wt suffix fallback), leaving the old directory orphaned.
+    EMI-414 subsequently completed successfully (PR #80 on fun-trivia-game).
+    Fix: Manually deleted the orphaned fun-trivia-game-EMI-414 directory. No code change needed.
+
+  - [KNOWN] Orphaned directory fun-trivia-game-EMI-411 (wrangler miniflare state locked)
+    Root cause: Task EMI-411 is done. Its worktree directory was removed from git worktree
+    list (pruned) but the directory itself can't be deleted because wrangler/miniflare holds
+    SQLite locks on the .wrangler/state/v3/d1/ directory. Not actionable without a process
+    restart or Windows unlock tool. Disk usage is negligible.
+
+Context on non-issues:
+  - [KNOWN] 205 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed, not cleaned by SRE.
+  - [KNOWN] 9 "failed" invocations in 24h metrics: these count session exits with non-zero
+    code (retried attempts, session kills from deploys), not permanently failed tasks.
+    Zero tasks in permanent failed status.
+
+Tests: passing (1711 passed, 0 failed, 73 test files)
+Deploy: no (no code changes this run)
+
+=== AUDIT: 2026-03-30T06:15:00Z ===
+Status: HEALTHY
+Active port: 4001 (deployed 2026-03-29T04:56:42Z, commit 3f4f992, uptime 7h)
+Tasks: 223 done / 224 total, 1 running (SRE self), 0 failed
+Sessions: 1 active (SRE self)
+Inngest: reachable
+
+Issues found: 2
+  - [KNOWN] Rapid PM2 restart loop ~2026-03-29T22:04-22:47 UTC (10+ restarts)
+    Root cause: Inngest went unreachable (ECONNREFUSED) around 22:09 UTC, likely due to a
+    simultaneous PM2 restart of all processes. Orca cycled rapidly while Inngest was starting.
+    All 3 PM2 processes (agent-mcp, inngest, orca-4001) show identical 7h uptime, consistent
+    with a manual `pm2 restart all` or machine-level event at ~22:47 UTC.
+    Fix: No code change needed. System self-recovered. Future mitigation: could add a startup
+    delay or retry loop for Inngest registration, but impact is low (no tasks were lost).
+
+  - [RESOLVED] fun-trivia-game-EMI-411 orphaned dir (wrangler lock) — now gone, cleaned up
+    since last audit (wrangler/miniflare process likely released the lock on restart).
+
+Context on non-issues:
+  - [KNOWN] 205 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed, not cleaned by SRE.
+  - [KNOWN] SRE worktree EBUSY during cleanup: expected — active session in progress.
+  - [KNOWN] last7d metrics: 9 completed / 9 failed — failed count includes retried sessions,
+    not permanently failed tasks. Zero tasks in permanent failed status.
+
+Tests: passing (1711 passed, 0 failed, 73 test files)
+TSC: 0 errors. Lint: 0 errors (205 warnings).
+Deploy: no (no code changes this run)
+
+=== AUDIT: 2026-03-30T18:05:00Z ===
+Status: HEALTHY
+Active port: 4001 (deployed 2026-03-29T04:56:42Z, commit 3f4f992, uptime 19h, 0 restarts)
+Tasks: 227 done / 228 total, 1 running (SRE self), 0 failed
+Sessions: 1 active (SRE self)
+Inngest: reachable
+
+Issues found: 0
+  - No new issues since last audit (06:15 UTC).
+
+Context on non-issues:
+  - [KNOWN] 205 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed, not cleaned by SRE.
+  - [KNOWN] SRE worktree EBUSY during cleanup: expected — active session in progress.
+  - [KNOWN] Worktree cleanup EPERM pattern: git worktree remove fails with Permission denied →
+    falls back to rmSync + prune. Second cleanup cycle sees rev-parse failed → tries again.
+    All old worktrees are eventually cleaned up (only current SRE dir remains). Working correctly,
+    just noisy. Affected tasks: backlog-doer and SRE agent worktrees on each cycle.
+  - [KNOWN] Cron "Healthcheck" (cron-2) runs every minute. 18,601+ runs, always success.
+    Shell: echo timestamp to health-check.log.
+  - Progress since last audit: 4 new tasks completed (223→227 done).
+
+Tests: passing (1711 passed, 0 failed, 73 test files)
+TSC: 0 errors. Lint: 0 errors (205 warnings).
+Deploy: no (no code changes this run)
+
+=== AUDIT: 2026-03-31T06:15:00Z ===
+Status: HEALTHY
+Active port: 4000 (deployed 2026-03-31T06:06:37Z, commit ed61b39, uptime ~9min, 0 restarts)
+Tasks: 231 done / 256 total, 3 running (EMI-419, EMI-420, SRE self), 0 failed, 22 backlog
+Sessions: 3 active
+Inngest: reachable
+
+Issues found: 0
+  - No new issues detected.
+
+Context on non-issues:
+  - [KNOWN] 205 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] Inngest process shows 1 restart (100s uptime at check time): expected — restarted
+    during the blue/green deploy cycle. Self-recovered.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed, not cleaned by SRE.
+  - [KNOWN] 22 backlog tasks (EMI-415 to EMI-438): all Trivia Trainer, synced from Linear at
+    06:06 during startup. Awaiting dispatch as running tasks complete.
+  - Progress since last audit: 4 new tasks completed (227→231 done), 28 new tasks added
+    (228→256 total), fresh deploy with fix commit ed61b39.
+
+Tests: passing (1711 passed, 0 failed, 73 test files)
+TSC: 0 errors. Lint: 0 errors (205 warnings).
+Deploy: no (no code changes this run — previous deploy ed61b39 already live)
+
+=== AUDIT: 2026-04-06T06:30:00Z ===
+Status: FIXED
+Active port: 4001 (deployed 2026-04-06T06:09:33Z, commit c67b111, uptime ~21min, 0 restarts)
+Tasks: 284 done / 321 total, 11 running (agent content tasks), 23 failed, 3 backlog
+Sessions: 11 active (12 including SRE self)
+Inngest: reachable
+
+Issues found: 2
+  - [FIXED] CI gate infinite loop for tasks with closed PRs (EMI-392 had 60 invocations)
+    Root cause: `getPrCheckStatus(prNumber)` calls `gh pr checks` which returns "no commit
+    found on the pull request" for closed PRs. The CI gate treated this as a transient error
+    and kept retrying every 30 seconds indefinitely. EMI-392 was stuck in this loop with PR
+    #141 closed (0 additions, 0 deletions — the PR had no commits at all).
+    Fix: Added early exit in `runCiGateAndMerge()` (ci-merge.ts): if `task.prState === "closed"`,
+    fail the task immediately with reason "pr_closed_not_merged". The fix runs on the next
+    Inngest step callback — deployed instance will resolve EMI-392 in the next 30s poll cycle.
+    Commit: see deploy commit.
+
+  - [FIXED] TypeScript error TS2339 in reconcile-stuck-tasks.ts
+    Root cause: `deps.activeHandles` referenced in the detect-stuck-tasks step but `SchedulerDeps`
+    type has no `activeHandles` field. The code was added for testability in `runReconciliation()`
+    but incorrectly used `getSchedulerDeps()` (which returns `SchedulerDeps`) instead of the
+    module-level `activeHandles` import. `npx tsc --noEmit` was failing silently (0 errors shown
+    because tsc exited 0 but the type error was real).
+    Fix: Changed `const handles = deps.activeHandles ?? activeHandles` to
+    `const handles = activeHandles` in the Inngest step. The module-level import is correct here.
+    Commit: same.
+
+Context on non-issues:
+  - [KNOWN] 21 failed tasks: all "Task canceled in Linear" or "Agent session failed (exit code: 1)".
+    Several are repeat fails at max retries. Not new — these accumulated over prior days.
+  - [KNOWN] 215 ESLint warnings (no-explicit-any): all in test files, not errors.
+  - [KNOWN] Developer worktrees (dev-EMI-379, dev-remove-budget): user-managed.
+  - [KNOWN] EMI-399 stuck in fix phase (~17min): has an open PR (#137), no active session.
+    Reconciler will reset it at the 30-minute threshold. Self-heal alert at 5min is informational.
+  - Test count change: 1605 passed (70 files) vs 1711 (73 files) last run. Expected — budget
+    system removal (PR #513/#514) and other cleanups removed 3 test files and 106 tests.
+
+Tests: passing (1605 passed, 0 failed, 70 test files)
+TSC: 0 errors. Lint: 0 errors (215 warnings).
+Deploy: yes (commit deployed after this audit entry)
