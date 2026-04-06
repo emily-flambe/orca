@@ -1,9 +1,10 @@
 /**
- * Agent task lifecycle — handles agent tasks independently from the main
- * task-lifecycle and cron-task-lifecycle. Agent tasks respect the global
- * concurrency cap. Memories are injected via --append-system-prompt.
+ * Agent task lifecycle — handles agent tasks and cron_claude tasks
+ * independently from the main task-lifecycle. Both task types respect the
+ * agent concurrency cap. Memories are injected via --append-system-prompt
+ * for agent tasks; cron_claude tasks get prompt interpolation instead.
  *
- * For synthetic agent tasks (agent-*, cron-*):
+ * For synthetic agent/cron tasks (agent-*, cron-*):
  *   Steps: claim → load memories → spawn implement → wait → finalize → cleanup
  *
  * For label-routed Linear tickets:
@@ -54,6 +55,7 @@ import { writeBackStatus } from "../../linear/sync.js";
 import { findPrForBranch, closeSupersededPrs } from "../../github/index.js";
 import { runCiGateAndMerge } from "../shared/ci-merge.js";
 import { runDeployMonitor } from "../shared/deploy-monitor.js";
+import { interpolateCronPrompt } from "./scheduled-dispatch.js";
 
 const logger = createLogger("inngest/agent-lifecycle");
 
@@ -130,7 +132,7 @@ export const agentTaskLifecycle = inngest.createFunction(
   },
   {
     event: "task/ready" as const,
-    if: "event.data.taskType == 'agent'",
+    if: "event.data.taskType == 'agent' || event.data.taskType == 'cron_claude'",
   },
   async ({ event, step }) => {
     const taskId = event.data.linearIssueId;
@@ -295,8 +297,15 @@ export const agentTaskLifecycle = inngest.createFunction(
               )
             : baseMcpServers;
 
+          // Re-interpolate at spawn time for cron tasks so the agent always
+          // uses the current active port, even after a blue/green deploy.
+          const agentPrompt =
+            task.taskType === "cron_claude"
+              ? interpolateCronPrompt(task.agentPrompt ?? "")
+              : (task.agentPrompt ?? "");
+
           const handle = spawnSession({
-            agentPrompt: task.agentPrompt ?? "",
+            agentPrompt,
             worktreePath,
             maxTurns,
             invocationId,
