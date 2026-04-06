@@ -79,17 +79,6 @@ export const invocations = sqliteTable("invocations", {
   model: text("model"),
 });
 
-export const budgetEvents = sqliteTable("budget_events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  invocationId: integer("invocation_id")
-    .notNull()
-    .references(() => invocations.id),
-  costUsd: real("cost_usd").notNull(),
-  inputTokens: integer("input_tokens").notNull().default(0),
-  outputTokens: integer("output_tokens").notNull().default(0),
-  recordedAt: text("recorded_at").notNull(),
-});
-
 export const systemEvents = sqliteTable("system_events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   type: text("type", {

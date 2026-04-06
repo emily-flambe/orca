@@ -84,20 +84,17 @@ export function toggleTaskHidden(
 export function updateConfig(config: {
   concurrencyCap?: number;
   agentConcurrencyCap?: number;
-  tokenBudgetLimit?: number;
   model?: string;
 }): Promise<{
   ok: boolean;
   concurrencyCap: number;
   agentConcurrencyCap: number;
-  tokenBudgetLimit: number;
   model: string;
 }> {
   return fetchJson<{
     ok: boolean;
     concurrencyCap: number;
     agentConcurrencyCap: number;
-    tokenBudgetLimit: number;
     model: string;
   }>("/config", {
     method: "POST",
@@ -171,9 +168,6 @@ export interface MetricsData {
     ready: number;
     running: number;
     inReview: number;
-  };
-  budget: {
-    windowHours: number;
   };
   recentEvents: SystemEvent[];
   // Legacy fields

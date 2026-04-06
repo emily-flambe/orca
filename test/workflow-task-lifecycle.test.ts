@@ -46,7 +46,7 @@ vi.mock("../src/db/queries.js", () => ({
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
   sumTokensInWindow: vi.fn().mockReturnValue(0),
-  budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
+  windowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
   incrementReviewCycleCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),
@@ -173,7 +173,6 @@ const mockCreateWorktree = vi.mocked(createWorktree);
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
-  budgetWindowHours: 4,
   maxRetries: 3,
   model: "claude-sonnet-4-5",
   defaultMaxTurns: 200,

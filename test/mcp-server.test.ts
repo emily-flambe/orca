@@ -18,7 +18,6 @@ import {
   getAllTasks,
   getRunningInvocations,
   getTaskStateTransitions,
-  budgetWindowStart,
   updateAgentMemory,
   deleteAgentMemory,
   insertAgentMemory,
@@ -713,37 +712,6 @@ describe("list_tasks query logic", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tool: get_orca_status — env-var edge cases (new tool)
-// ---------------------------------------------------------------------------
-
-describe("get_orca_status: budgetWindowStart with bad env var", () => {
-  test("budgetWindowStart with valid hours returns a parseable ISO string", () => {
-    const result = budgetWindowStart(4);
-    expect(() => new Date(result)).not.toThrow();
-    expect(new Date(result).toISOString()).toBe(result);
-  });
-
-  // BUG: parseInt("abc", 10) === NaN.
-  // budgetWindowStart(NaN) computes new Date(NaN).toISOString() which throws
-  // RangeError: Invalid time value.
-  // The tool does: parseInt(process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4", 10)
-  // but never validates that the result is a valid number before passing it to
-  // budgetWindowStart(). This is an unhandled crash path.
-  test("budgetWindowStart(NaN) throws RangeError — proving get_orca_status crashes on invalid env var", () => {
-    // This test documents the crash: calling budgetWindowStart with NaN throws.
-    expect(() => budgetWindowStart(NaN)).toThrow(RangeError);
-  });
-
-  test("sumTokensInWindow with a NaN-derived windowStart crashes", () => {
-    // NaN propagates: budgetWindowStart(NaN) throws before we even get here,
-    // but if it didn't, "Invalid Date" as a string would cause incorrect results.
-    // Prove the root cause: parseInt of a non-numeric string is NaN.
-    const parsed = parseInt("not-a-number", 10);
-    expect(isNaN(parsed)).toBe(true);
-    // And that NaN * anything is NaN, meaning Date(NaN) is invalid:
-    expect(isNaN(Date.now() - parsed * 60 * 60 * 1000)).toBe(true);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Tool: list_running_invocations — query logic (new tool)

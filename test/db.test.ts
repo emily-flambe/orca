@@ -30,7 +30,7 @@ import {
   getLastCompletedImplementInvocation,
   getLastMaxTurnsInvocation,
   getRunningInvocations,
-  budgetWindowStart,
+  windowStart,
   // Metrics queries
   getInvocationStats,
   getRecentErrors,
@@ -714,13 +714,13 @@ describe("getLastMaxTurnsInvocation", () => {
 // Budget queries
 // ---------------------------------------------------------------------------
 
-describe("budgetWindowStart", () => {
+describe("windowStart", () => {
   test("returns ISO timestamp approximately N hours ago", () => {
     const before = Date.now();
-    const windowStart = budgetWindowStart(1);
+    const ws = windowStart(1);
     const after = Date.now();
 
-    const windowMs = new Date(windowStart).getTime();
+    const windowMs = new Date(ws).getTime();
     const oneHour = 60 * 60 * 1000;
     expect(windowMs).toBeGreaterThanOrEqual(before - oneHour - 10);
     expect(windowMs).toBeLessThanOrEqual(after - oneHour + 10);

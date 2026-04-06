@@ -6,7 +6,7 @@
 // so the workflow is resilient to server restarts and crashes.
 //
 // Trigger: task/ready
-// Steps:  token budget check → spawn implement → wait → Gate 2
+// Steps:  claim → spawn implement → wait → Gate 2
 //         → transition to awaiting_ci
 // ---------------------------------------------------------------------------
 
@@ -23,8 +23,6 @@ import {
   updateTaskStatus,
   insertInvocation,
   updateInvocation,
-  sumTokensInWindow,
-  budgetWindowStart,
   incrementRetryCount,
   updateTaskPrBranch,
   updateTaskPrState,
@@ -49,7 +47,6 @@ import {
 } from "../../events.js";
 import {
   sendAlert,
-  sendAlertThrottled,
   sendPermanentFailureAlert,
 } from "../../scheduler/alerts.js";
 import { getSchedulerDeps } from "../deps.js";
@@ -410,65 +407,7 @@ export const taskLifecycle = inngest.createFunction(
     log(`workflow started for task ${taskId}`);
 
     // -------------------------------------------------------------------------
-    // Step 1: Token budget check — fail fast if token budget is exhausted
-    // -------------------------------------------------------------------------
-
-    const budgetCheck = await step.run(
-      "check-budget",
-      (): { ok: boolean; reason?: string } => {
-        const { db, config } = getSchedulerDeps();
-        const windowStart = budgetWindowStart(config.budgetWindowHours);
-        const usedTokens = sumTokensInWindow(db, windowStart);
-        if (usedTokens >= config.budgetMaxTokens) {
-          return {
-            ok: false,
-            reason: `token budget exhausted: ${usedTokens.toLocaleString()} >= ${config.budgetMaxTokens.toLocaleString()} tokens in ${config.budgetWindowHours}h window`,
-          };
-        }
-        return { ok: true };
-      },
-    );
-
-    if (!budgetCheck.ok) {
-      log(
-        `task ${taskId}: ${budgetCheck.reason ?? "token budget exceeded"} — alerting and requeueing`,
-      );
-
-      // Send alert inside step.run so it's memoized on replay
-      await step.run("send-budget-alert", () => {
-        const alertDeps = getSchedulerDeps();
-        sendAlertThrottled(
-          alertDeps,
-          "budget_exhausted",
-          {
-            severity: "warning",
-            title: "Token Budget Exhausted",
-            message: budgetCheck.reason ?? "Token budget limit reached",
-            taskId,
-            fields: [
-              { title: "Task ID", value: taskId, short: true },
-              {
-                title: "Reason",
-                value: budgetCheck.reason ?? "unknown",
-                short: false,
-              },
-            ],
-          },
-          3_600_000, // 1-hour cooldown
-        );
-      });
-
-      await step.sleep("budget-backoff", 60_000);
-
-      await step.run("requeue-budget-exceeded", () => {
-        const { db } = getSchedulerDeps();
-        updateAndEmit(db, taskId, "ready", "budget_exceeded");
-      });
-      return { outcome: "budget_exceeded", reason: budgetCheck.reason };
-    }
-
-    // -------------------------------------------------------------------------
-    // Step 2: Claim task (atomic CAS: ready/in_review/changes_requested → running)
+    // Step 1: Claim task (atomic CAS: ready → running)
     // -------------------------------------------------------------------------
 
     const claimResult = await step.run(

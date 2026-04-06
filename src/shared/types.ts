@@ -223,17 +223,10 @@ export interface OrcaStatus {
   activeSessions: number;
   activeTaskIds: string[];
   queuedTasks: number;
-  budgetWindowHours: number;
-  tokensInWindow: number;
-  tokenBudgetLimit: number;
   concurrencyCap: number;
   agentConcurrencyCap: number;
   model: string;
   draining: boolean;
   drainSessionCount: number;
   drainingForSeconds: number | null;
-  // Session metrics
-  tokensPerMinute: number | null;
-  inputTokensInWindow: number;
-  outputTokensInWindow: number;
 }
