@@ -17,8 +17,6 @@ const STATUS_TO_LIFECYCLE: Record<
   backlog: { stage: "backlog", phase: null },
   ready: { stage: "ready", phase: null },
   running: { stage: "active", phase: "implement" },
-  in_review: { stage: "active", phase: "review" },
-  changes_requested: { stage: "active", phase: "fix" },
   awaiting_ci: { stage: "active", phase: "ci" },
   deploying: { stage: "active", phase: "deploy" },
   done: { stage: "done", phase: null },
@@ -82,9 +80,8 @@ describe("TaskList", () => {
     const tasks = [
       makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready" }),
       makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
-      makeTask({ linearIssueId: "ENG-3", orcaStatus: "in_review" }),
-      makeTask({ linearIssueId: "ENG-4", orcaStatus: "awaiting_ci" }),
-      makeTask({ linearIssueId: "ENG-5", orcaStatus: "failed" }),
+      makeTask({ linearIssueId: "ENG-3", orcaStatus: "awaiting_ci" }),
+      makeTask({ linearIssueId: "ENG-4", orcaStatus: "failed" }),
     ];
     render(<TaskList {...defaultProps} tasks={tasks} />);
 
@@ -92,7 +89,6 @@ describe("TaskList", () => {
     expect(screen.getByText("ENG-2")).toBeInTheDocument();
     expect(screen.getByText("ENG-3")).toBeInTheDocument();
     expect(screen.getByText("ENG-4")).toBeInTheDocument();
-    expect(screen.getByText("ENG-5")).toBeInTheDocument();
   });
 
   it("filters out tasks with backlog status by default", () => {
@@ -203,12 +199,12 @@ describe("TaskList", () => {
       const tasks = [
         makeTask({ linearIssueId: "ENG-1", orcaStatus: "ready" }),
         makeTask({ linearIssueId: "ENG-2", orcaStatus: "running" }),
-        makeTask({ linearIssueId: "ENG-3", orcaStatus: "in_review" }),
+        makeTask({ linearIssueId: "ENG-3", orcaStatus: "awaiting_ci" }),
       ];
       render(<TaskList {...defaultProps} tasks={tasks} />);
 
       const ids = getTaskIds();
-      // running (0) < in_review (1) < ready (5) in STATUS_ORDER
+      // running (0) < awaiting_ci (3) < ready (5) in STATUS_ORDER
       expect(ids.indexOf("ENG-2")).toBeLessThan(ids.indexOf("ENG-3"));
       expect(ids.indexOf("ENG-3")).toBeLessThan(ids.indexOf("ENG-1"));
     });

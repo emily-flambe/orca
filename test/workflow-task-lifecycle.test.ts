@@ -200,8 +200,6 @@ const STATUS_TO_LIFECYCLE: Record<
   backlog: { lifecycleStage: "backlog", currentPhase: null },
   ready: { lifecycleStage: "ready", currentPhase: null },
   running: { lifecycleStage: "active", currentPhase: "implement" },
-  in_review: { lifecycleStage: "active", currentPhase: "review" },
-  changes_requested: { lifecycleStage: "active", currentPhase: "fix" },
   awaiting_ci: { lifecycleStage: "active", currentPhase: "ci" },
   deploying: { lifecycleStage: "active", currentPhase: "deploy" },
   done: { lifecycleStage: "done", currentPhase: null },

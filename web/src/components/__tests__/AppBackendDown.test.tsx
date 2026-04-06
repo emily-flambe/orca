@@ -48,17 +48,10 @@ const baseStatus = {
   activeSessions: 0,
   activeTaskIds: [],
   queuedTasks: 0,
-  budgetWindowHours: 24,
-  tokensInWindow: 0,
-  tokenBudgetLimit: 1000000,
-  inputTokensInWindow: 0,
-  outputTokensInWindow: 0,
   concurrencyCap: 1,
   model: "sonnet",
-  reviewModel: "haiku",
   draining: false,
   drainSessionCount: 0,
-  tokensPerMinute: null,
 };
 
 function renderApp() {

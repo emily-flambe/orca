@@ -904,7 +904,7 @@ describe("POST /api/tasks/:id/status", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Edge case: moving from active states (running/in_review)
+  // Edge case: moving from active states (running)
   // -----------------------------------------------------------------------
 
   it("running -> done: succeeds (kills session logic does not crash without active handles)", async () => {

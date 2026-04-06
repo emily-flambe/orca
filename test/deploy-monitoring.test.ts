@@ -148,8 +148,6 @@ describe("Database migration - new columns and no CHECK constraint", () => {
       "running",
       "done",
       "failed",
-      "in_review",
-      "changes_requested",
       "deploying",
     ];
 
@@ -898,7 +896,7 @@ describe("Webhook flow - deploying + In Progress interaction", () => {
 
   test("deploying task receiving 'In Progress' webhook: upsert overwrites to 'running'", async () => {
     // This test documents a potential issue: there is no upsert protection
-    // for deploying + "In Progress" (only deploying + "in_review" is protected).
+    // for deploying + "In Progress" beyond the default conflict rules.
     // If someone moves a deploying task to "In Progress" in Linear, the task
     // status will change to "running" which may not be desirable.
     const taskId = seedTask(db, {

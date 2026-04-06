@@ -830,7 +830,7 @@ describe("Agent routing edge cases", () => {
 
     seedAgent(db, { id: "progress-agent", linearLabel: "Progress" });
 
-    // On INSERT, intermediate states (running/in_review) get remapped to "ready"
+    // On INSERT, intermediate states (running) get remapped to "ready"
     const issue = makeIssue({
       identifier: "EDGE-4",
       labels: ["Progress"],

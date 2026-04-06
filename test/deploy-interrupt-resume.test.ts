@@ -335,8 +335,8 @@ describe("clearSessionIds blanket clears deploy-interrupted invocations", () => 
 // drain happened, it will be lost and the task will restart from scratch.
 //
 // This is a design limitation, but it is worth documenting: the deploy
-// interruption ONLY benefits implement-phase sessions, not review sessions.
-// Tasks in "in_review" or "changes_requested" that were running during drain
+// interruption ONLY benefits implement-phase sessions, not fix sessions.
+// Tasks in active fix phase that were running during drain
 // will have their sessions killed and worktrees removed, forcing a full restart.
 // ---------------------------------------------------------------------------
 

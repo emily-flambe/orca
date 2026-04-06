@@ -253,7 +253,7 @@ describe("computeNextRunAt: cron expression semantics", () => {
 // BUG 2: deleteOldCronTasks deletes running/active tasks
 //
 // The query deletes ALL cron tasks older than the cutoff date, regardless
-// of orca_status. A running cron task that was created just before the
+// of lifecycle_stage. A running cron task that was created just before the
 // retention cutoff will be purged mid-execution, orphaning the process
 // and leaving the scheduler with a handle pointing to a non-existent task.
 // ---------------------------------------------------------------------------

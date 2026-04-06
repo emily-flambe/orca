@@ -623,8 +623,6 @@ describe("Edge cases - awaiting_ci", () => {
       "running",
       "done",
       "failed",
-      "in_review",
-      "changes_requested",
       "deploying",
       "awaiting_ci",
     ];

@@ -471,25 +471,6 @@ describe("evaluateParentStatuses", () => {
     expect(client.updateIssueState).not.toHaveBeenCalled();
   });
 
-  test("child in_review counts as active for parent", async () => {
-    seedTask(db, {
-      linearIssueId: "PARENT",
-      isParent: 1,
-      lifecycleStage: "ready",
-    });
-    seedTask(db, {
-      linearIssueId: "CHILD-A",
-      parentIdentifier: "PARENT",
-      lifecycleStage: "active",
-      currentPhase: "review",
-    });
-
-    const client = mockClient();
-    await evaluateParentStatuses(db, client, stateMap);
-
-    expect(getTask(db, "PARENT")!.lifecycleStage).toBe("active");
-  });
-
   test("child deploying counts as active for parent", async () => {
     seedTask(db, {
       linearIssueId: "PARENT",
