@@ -6,29 +6,22 @@ Orca's orchestration is handled by Inngest durable workflows (`src/inngest/`). T
 
 Tasks are dispatched via Inngest events, not polling:
 
-- `task/ready` → triggers **task-lifecycle** workflow (implement → Gate 2 → review → fix loop)
-- `task/awaiting-ci` → triggers **ci-gate-merge** workflow (poll PR checks, merge on success)
-- `task/deploying` → triggers **deploy-monitor** workflow (poll GitHub Actions)
+- `task/ready` → triggers **task-lifecycle** workflow (implement → Gate 2 → CI poll → merge → optional deploy)
 - `session/completed` → picked up by `step.waitForEvent()` in task-lifecycle
 
-Events are defined in `src/inngest/events.ts`. All four workflows are registered in `src/inngest/functions.ts`.
+Events are defined in `src/inngest/events.ts`. Workflows are registered in `src/inngest/functions.ts`.
 
 ## Workflow Chain
 
 ```
 task/ready → task-lifecycle
-  ├── step: token budget check
+  ├── step: claim task
   ├── step: spawn session (implement)
   ├── waitForEvent: session/completed (exitCode indicates success/failure)
   ├── step: Gate 2 (verify PR)
-  ├── step: spawn session (review)
-  ├── waitForEvent: session/completed (exitCode indicates success/failure)
-  ├── step: parse review result
-  ├── (if changes_requested) loop back to fix → review
-  └── emit task/awaiting-ci → ci-gate-merge
-        ├── step: poll mergeStateStatus
-        ├── step: merge PR
-        └── (if deploy) emit task/deploying → deploy-monitor
+  ├── step: poll CI (mergeStateStatus)
+  ├── step: merge PR
+  └── (if self-deploy) step: spawn deploy.sh
 ```
 
 ## Cleanup Cron
@@ -52,10 +45,9 @@ Claude sessions run 10-45 minutes. Inngest steps must not block that long.
 3. When the session ends (success or failure), `bridgeSessionCompletion` calls `inngest.send()` with a single `session/completed` event — the `exitCode` field indicates success (`0`) or failure (non-zero)
 4. The workflow picks up the result via `step.waitForEvent()` with a timeout
 
-## Concurrency & Budget
+## Concurrency
 
 - **Concurrency**: Inngest's built-in `concurrency` config enforces `ORCA_CONCURRENCY_CAP`
-- **Token budget**: First step in task-lifecycle checks rolling token usage against `ORCA_BUDGET_MAX_TOKENS`
 
 ## Gate 2 (Post-Implementation Verification)
 
@@ -64,7 +56,7 @@ After an implement phase completes successfully, Gate 2 determines what happened
 1. Search for PR by branch name: `gh pr list --head <orca-branch> --repo <expected-repo>`
 2. If not found, extract PR URL from agent's output summary and validate repo matches
 3. If still not found, check if worktree has no changes vs origin/main (work already on main)
-4. Based on result: transition to `in_review` (PR found), `done` (no changes needed), or `failed` (retry)
+4. Based on result: transition to `awaiting_ci` (PR found), `done` (no changes needed), or `failed` (retry)
 
 ## Agent Spawning
 
@@ -72,7 +64,7 @@ After an implement phase completes successfully, Gate 2 determines what happened
 - On Windows, resolves `.cmd` shim to direct `node cli.js` invocation (avoids DEP0190)
 - Each session runs in an isolated git worktree (`<repo>-<taskId>`)
 - Always blocks `EnterPlanMode` and `AskUserQuestion` tools
-- Three model configs: implement (sonnet), review (haiku), fix (sonnet)
+- Two model configs: implement (sonnet), fix (sonnet)
 - Logs to `logs/<invocationId>.ndjson`
 - Supports `--resume` for max-turns continuation
 

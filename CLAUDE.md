@@ -1,6 +1,6 @@
 # Orca
 
-AI agent scheduler that pulls tasks from Linear, dispatches them as Claude Code CLI sessions in isolated git worktrees, manages a multi-phase lifecycle (implement → review → fix → merge → deploy), and serves a real-time web dashboard.
+AI agent scheduler that pulls tasks from Linear, dispatches them as Claude Code CLI sessions in isolated git worktrees, manages a multi-phase lifecycle (implement → CI → merge → deploy), and serves a real-time web dashboard.
 
 ## Tech Stack
 
@@ -33,13 +33,13 @@ cd web && npm run build  # Build frontend (vite)
 | `src/inngest/` | Inngest durable workflows: task lifecycle, CI merge, deploy monitor, cleanup cron |
 | `src/runner/` | Spawns/kills Claude Code CLI. NDJSON stream parsing, rate limit detection |
 | `src/session-handles.ts` | In-memory session handle registry for active Claude processes |
-| `src/db/` | Schema (`tasks`, `invocations`, `budget_events`), queries, inline sentinel migrations |
+| `src/db/` | Schema (`tasks`, `invocations`), queries, inline sentinel migrations |
 | `src/api/` | Hono routes: tasks CRUD, invocation logs, SSE, metrics, deploy drain/unpause |
 | `src/linear/` | GraphQL client, HMAC webhook, full sync, state write-back, conflict resolution, polling fallback |
 | `src/github/` | `gh` CLI wrapper: PR find/merge/close, CI status, workflow runs |
 | `src/worktree/` | Git worktree create/remove (Windows-aware) |
 | `src/cleanup/` | Stale `orca/*` branch, orphaned worktree/PR cleanup |
-| `src/config/` | Env var loading + built-in system prompts (implement, review, fix) |
+| `src/config/` | Env var loading + built-in system prompts (implement, fix) |
 | `src/tunnel/` | Cloudflared tunnel management |
 | `src/mcp-server/` | Orca-state MCP server — exposes task metadata, invocation history to agents |
 | `web/` | React dashboard (Vite + Tailwind) |
@@ -50,24 +50,18 @@ Full state machine with diagrams: `docs/ticket-lifecycle.md`
 
 ```
 backlog → ready → running [implement]
-  → in_review → running [review]
-    → approved → awaiting_ci → merge → deploying → done
-    → changes_requested → running [fix] → back to in_review
+  → awaiting_ci → merge → deploying → done
   → failed (retries up to ORCA_MAX_RETRIES, then permanent failure)
 ```
 
 Orchestrated by Inngest durable workflows (replaced the legacy 10s tick-loop scheduler):
 
-- **task-lifecycle**: `task/ready` event triggers implement → Gate 2 → review → fix loop
-- **ci-gate-merge**: `task/awaiting-ci` event triggers CI polling + merge
-- **deploy-monitor**: `task/deploying` event triggers deploy status polling
+- **task-lifecycle**: `task/ready` event triggers implement → Gate 2 → CI → merge
 - **cleanup cron**: runs every 5 min (stale branches, worktrees, orphaned PRs)
 
 **Gate 2** (post-implement): verifies PR via `gh pr list --head <branch>`, URL extraction fallback, then worktree diff. No PR = failure + retry.
 
-**Review**: separate agent (haiku) reads diff, verifies requirements, runs tests. Must output `REVIEW_RESULT:APPROVED` or `REVIEW_RESULT:CHANGES_REQUESTED`.
-
-**CI gate**: polls `mergeStateStatus`. Merges via GitHub API when `CLEAN`.
+**CI gate**: polls `mergeStateStatus`. Merges via GitHub API when `CLEAN`. Inlined into the task-lifecycle workflow.
 
 **Self-deploy**: when task repo matches orca's `process.cwd()`, spawns `scripts/deploy.sh` detached.
 
@@ -145,15 +139,13 @@ All Orca Inngest functions use `retries: 0`. A thrown error in any step permanen
 
 ### DB changes must emit corresponding Inngest events
 
-Never update `orca_status` in the DB without emitting the matching Inngest event. The DB and Inngest event queue must stay in sync:
+Never update `lifecycle_stage`/`current_phase` in the DB without emitting the matching Inngest event. The DB and Inngest event queue must stay in sync:
 
 | DB status change | Required Inngest event |
 |-----------------|----------------------|
 | → `ready` | `task/ready` |
-| → `awaiting_ci` | `task/awaiting-ci` |
-| → `deploying` | `task/deploying` |
 
-If you reset a task to `ready` via direct DB query (debugging, manual fix, etc.), you MUST also emit `task/ready` or the task will sit orphaned until the reconciler's 5-minute re-dispatch cycle picks it up.
+If you reset a task to `ready` via direct DB query (debugging, manual fix, etc.), you MUST also emit `task/ready` or the task will sit orphaned until the reconciler's 5-minute re-dispatch cycle picks it up. CI gate and deploy are now inlined steps in the task-lifecycle workflow, so they don't need separate events.
 
 ### Tests pass ≠ system works
 
