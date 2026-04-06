@@ -192,16 +192,13 @@ export const scheduledDispatchWorkflow = inngest.createFunction(
             });
             try {
               const cwd = schedule.repoPath || process.cwd();
-              const stdout = execSync(
-                interpolateCronPrompt(schedule.prompt),
-                {
-                  cwd,
-                  timeout: 60_000,
-                  stdio: "pipe",
-                  encoding: "utf8",
-                  shell: process.platform === "win32" ? "bash" : "/bin/sh",
-                },
-              );
+              const stdout = execSync(interpolateCronPrompt(schedule.prompt), {
+                cwd,
+                timeout: 60_000,
+                stdio: "pipe",
+                encoding: "utf8",
+                shell: process.platform === "win32" ? "bash" : "/bin/sh",
+              });
               const durationMs = Date.now() - startMs;
               const output =
                 typeof stdout === "string" ? stdout.slice(0, 10_000) : null;
