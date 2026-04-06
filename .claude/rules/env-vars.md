@@ -29,16 +29,12 @@ All config is in `.env` (see `.env.example`). Key variables:
 | `ORCA_AGENT_CONCURRENCY_CAP` | `12` | Max concurrent agent task sessions |
 | `ORCA_SESSION_TIMEOUT_MIN` | `45` | Hard timeout per session (minutes) |
 | `ORCA_MAX_RETRIES` | `3` | Retry attempts before permanent failure |
-| `ORCA_BUDGET_WINDOW_HOURS` | `4` | Rolling budget window (hours) |
-| `ORCA_BUDGET_MAX_TOKENS` | `1000000000` | Max cumulative tokens per budget window |
-| `ORCA_MAX_REVIEW_CYCLES` | `10` | Max review-fix loops before human intervention |
 
 ## Models
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ORCA_MODEL` | `sonnet` | Model for implement and fix phases (alias: `ORCA_IMPLEMENT_MODEL`) |
-| `ORCA_REVIEW_MODEL` | `haiku` | Model for review phase |
 
 ## Claude Code Agent
 
@@ -46,9 +42,7 @@ All config is in `.env` (see `.env.example`). Key variables:
 |----------|---------|-------------|
 | `ORCA_CLAUDE_PATH` | `claude` | Path to claude CLI binary |
 | `ORCA_DEFAULT_MAX_TURNS` | `50` | Default max turns per session |
-| `ORCA_REVIEW_MAX_TURNS` | `30` | Max turns for review agent sessions |
 | `ORCA_IMPLEMENT_SYSTEM_PROMPT` | (built-in) | System prompt for implementation agents |
-| `ORCA_REVIEW_SYSTEM_PROMPT` | (built-in) | System prompt for review agents |
 | `ORCA_FIX_SYSTEM_PROMPT` | (built-in) | System prompt for fix agents |
 | `ORCA_DISALLOWED_TOOLS` | — | Comma-separated list of tools to block in agent sessions |
 
