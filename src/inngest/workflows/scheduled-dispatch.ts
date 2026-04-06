@@ -25,6 +25,7 @@ import {
   insertCronRun,
   completeCronRun,
   getActiveCronTaskByScheduleId,
+  getActiveAgentTask,
 } from "../../db/queries.js";
 import { computeNextRunAt } from "../../cron/index.js";
 import { createLogger } from "../../logger.js";
@@ -107,6 +108,18 @@ export const scheduledDispatchWorkflow = inngest.createFunction(
       for (const agent of dueAgents) {
         await step.run(`dispatch-agent-${agent.id}`, async () => {
           const { db, config } = getSchedulerDeps();
+
+          // Skip if a previous run of this agent is still active (prevents
+          // concurrent executions after a blue/green deploy re-emits ready events
+          // for already-pending agent tasks at the same time as the cron fires)
+          const activeTask = getActiveAgentTask(db, agent.id);
+          if (activeTask) {
+            logger.info(
+              `[agent-${agent.id}] skipping dispatch — previous run still active: ${activeTask.linearIssueId} (stage=${activeTask.lifecycleStage}, phase=${activeTask.currentPhase ?? "n/a"})`,
+            );
+            return;
+          }
+
           const now = new Date().toISOString();
           const taskId = `agent-${agent.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 

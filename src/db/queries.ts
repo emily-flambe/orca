@@ -1073,6 +1073,25 @@ export function deleteOldCronRuns(db: OrcaDb, beforeDate: string): number {
   return result.changes;
 }
 
+/** Find an active (non-terminal) task for an agent, if any. */
+export function getActiveAgentTask(
+  db: OrcaDb,
+  agentId: string,
+): Task | undefined {
+  const terminalStages: LifecycleStage[] = ["done", "failed", "canceled"];
+  return db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.agentId, agentId),
+        notInArray(tasks.lifecycleStage, terminalStages),
+      ),
+    )
+    .limit(1)
+    .all()[0];
+}
+
 /** Find an active (non-terminal) task for a cron schedule, if any. */
 export function getActiveCronTaskByScheduleId(
   db: OrcaDb,
