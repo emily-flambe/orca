@@ -622,36 +622,30 @@ export function clearSessionIds(db: OrcaDb, taskId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Budget queries
+// Token usage queries (from invocations table)
 // ---------------------------------------------------------------------------
 
-/** Returns an ISO timestamp for the start of a budget window `hours` hours ago. */
-export function budgetWindowStart(hours: number): string {
+/** Returns an ISO timestamp for N hours ago. */
+export function windowStart(hours: number): string {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
-/**
- * Sum (input_tokens + output_tokens) from invocations where started_at >= windowStart.
- * Returns 0 if no invocations match.
- */
-export function sumTokensInWindow(db: OrcaDb, windowStart: string): number {
+/** Sum (input_tokens + output_tokens) from invocations where started_at >= since. */
+export function sumTokensInWindow(db: OrcaDb, since: string): number {
   const result = db
     .select({
       total: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
     .from(invocations)
-    .where(gte(invocations.startedAt, windowStart))
+    .where(gte(invocations.startedAt, since))
     .get();
   return result?.total ? Number(result.total) : 0;
 }
 
-/**
- * Sum input_tokens and output_tokens separately from invocations where started_at >= windowStart.
- * Returns { input: 0, output: 0 } if no invocations match.
- */
+/** Sum input and output tokens separately from invocations since a given time. */
 export function sumTokensSplitInWindow(
   db: OrcaDb,
-  windowStart: string,
+  since: string,
 ): { input: number; output: number } {
   const result = db
     .select({
@@ -659,7 +653,7 @@ export function sumTokensSplitInWindow(
       output: sql<number>`coalesce(sum(coalesce(${invocations.outputTokens}, 0)), 0)`,
     })
     .from(invocations)
-    .where(gte(invocations.startedAt, windowStart))
+    .where(gte(invocations.startedAt, since))
     .get();
   return {
     input: result?.input ? Number(result.input) : 0,
@@ -667,22 +661,35 @@ export function sumTokensSplitInWindow(
   };
 }
 
-/**
- * Get the earliest started_at timestamp from invocations where started_at >= windowStart.
- * Returns null if no invocations match.
- */
+/** Get the earliest invocation started_at in a time window. */
 export function getEarliestInvocationInWindow(
   db: OrcaDb,
-  windowStart: string,
+  since: string,
 ): string | null {
   const result = db
-    .select({
-      earliest: sql<string>`min(${invocations.startedAt})`,
-    })
+    .select({ earliest: sql<string>`min(${invocations.startedAt})` })
     .from(invocations)
-    .where(gte(invocations.startedAt, windowStart))
+    .where(gte(invocations.startedAt, since))
     .get();
   return result?.earliest ?? null;
+}
+
+/** Sum tokens in a specific time range [start, end). */
+export function sumTokensInWindowRange(
+  db: OrcaDb,
+  start: string,
+  end: string,
+): number {
+  const result = db
+    .select({
+      total: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
+    })
+    .from(invocations)
+    .where(
+      and(gte(invocations.startedAt, start), lt(invocations.startedAt, end)),
+    )
+    .get();
+  return result?.total ? Number(result.total) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +847,7 @@ export function getDailyStats(db: OrcaDb, days = 14): DailyStatEntry[] {
  * not real task failures.
  */
 export function getSuccessRate12h(db: OrcaDb): number | null {
-  const since = budgetWindowStart(12);
+  const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
   const result = db
     .select({
       completed: sql<number>`sum(case when ${invocations.status} = 'completed' then 1 else 0 end)`,
@@ -897,30 +904,6 @@ export function getRecentActivity(db: OrcaDb, limit = 20): ActivityEntry[] {
     ORDER BY i.id DESC
     LIMIT ${limit}
   `);
-}
-
-/**
- * Sum (input_tokens + output_tokens) from invocations where started_at is within [windowStart, windowEnd).
- * Returns 0 if no invocations match.
- */
-export function sumTokensInWindowRange(
-  db: OrcaDb,
-  windowStart: string,
-  windowEnd: string,
-): number {
-  const result = db
-    .select({
-      total: sql<number>`coalesce(sum(coalesce(${invocations.inputTokens}, 0) + coalesce(${invocations.outputTokens}, 0)), 0)`,
-    })
-    .from(invocations)
-    .where(
-      and(
-        gte(invocations.startedAt, windowStart),
-        lt(invocations.startedAt, windowEnd),
-      ),
-    )
-    .get();
-  return result?.total ? Number(result.total) : 0;
 }
 
 // ---------------------------------------------------------------------------

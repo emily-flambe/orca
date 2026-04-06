@@ -20,10 +20,8 @@ import {
   getRunningInvocations,
   countActiveSessions,
   sumTokensInWindow,
-  sumTokensSplitInWindow,
-  getEarliestInvocationInWindow,
   sumTokensInWindowRange,
-  budgetWindowStart,
+  windowStart,
   updateInvocation,
   updateTaskStatus,
   updateTaskFields,
@@ -925,22 +923,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const queuedTasks = allTasks.filter(
       (t) => t.lifecycleStage === "ready",
     ).length;
-    const windowStart = budgetWindowStart(config.budgetWindowHours);
-    const tokensInWindow = sumTokensInWindow(db, windowStart);
-    const tokensSplit = sumTokensSplitInWindow(db, windowStart);
-    const earliestInvocation = getEarliestInvocationInWindow(db, windowStart);
-
-    // Compute tokens per minute
-    let tokensPerMinute: number | null = null;
-    if (earliestInvocation && tokensInWindow > 0) {
-      const earliestMs = new Date(earliestInvocation).getTime();
-      const nowMs = Date.now();
-      const elapsedMinutes = (nowMs - earliestMs) / (1000 * 60);
-      if (elapsedMinutes > 0) {
-        tokensPerMinute = tokensInWindow / elapsedMinutes;
-      }
-    }
-
     // Check Inngest connectivity with retry/backoff and caching.
     const inngestReachable = await checkInngestHealth();
 
@@ -950,18 +932,12 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       activeSessions,
       activeTaskIds,
       queuedTasks,
-      budgetWindowHours: config.budgetWindowHours,
-      tokensInWindow,
-      tokenBudgetLimit: config.budgetMaxTokens,
       concurrencyCap: config.concurrencyCap,
       agentConcurrencyCap: config.agentConcurrencyCap,
       model: config.model,
       draining,
       drainSessionCount: draining ? activeSessions : 0,
       drainingForSeconds,
-      tokensPerMinute,
-      inputTokensInWindow: tokensSplit.input,
-      outputTokensInWindow: tokensSplit.output,
       inngestReachable,
     });
   });
@@ -1096,8 +1072,8 @@ export function createApiRoutes(deps: ApiDeps): Hono {
     const prev24hEnd = new Date(
       now.getTime() - 24 * 60 * 60 * 1000,
     ).toISOString();
-    const tokensLast24h = sumTokensInWindow(db, budgetWindowStart(24));
-    const tokensLast7d = sumTokensInWindow(db, budgetWindowStart(7 * 24));
+    const tokensLast24h = sumTokensInWindow(db, windowStart(24));
+    const tokensLast7d = sumTokensInWindow(db, windowStart(7 * 24));
     const tokensPrev24h = sumTokensInWindowRange(db, prev24hStart, prev24hEnd);
     const dailyStats = getDailyStats(db, 14);
     const recentActivity = getRecentActivity(db, 20);
@@ -1121,9 +1097,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
         ready: queueDepth,
         running: runningCount,
         inReview: inReviewCount,
-      },
-      budget: {
-        windowHours: config.budgetWindowHours,
       },
       recentEvents: recentEvents.map((e) => ({
         id: e.id,
@@ -1205,19 +1178,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       }
     }
 
-    if ("tokenBudgetLimit" in body) {
-      const val = body.tokenBudgetLimit;
-      if (typeof val !== "number" || !Number.isInteger(val) || val < 1) {
-        return c.json(
-          { error: "tokenBudgetLimit must be a positive integer" },
-          400,
-        );
-      }
-      const oldVal = config.budgetMaxTokens;
-      config.budgetMaxTokens = val;
-      configChanges.push(`tokenBudgetLimit: ${oldVal} -> ${val}`);
-    }
-
     if (configChanges.length > 0) {
       logger.info(`audit: config update ${configChanges.join(", ")}`);
     }
@@ -1226,7 +1186,6 @@ export function createApiRoutes(deps: ApiDeps): Hono {
       ok: true,
       concurrencyCap: config.concurrencyCap,
       agentConcurrencyCap: config.agentConcurrencyCap,
-      tokenBudgetLimit: config.budgetMaxTokens,
       model: config.model,
     });
   });

@@ -190,8 +190,6 @@ describe("default values", () => {
     expect(cfg.concurrencyCap).toBe(1);
     expect(cfg.sessionTimeoutMin).toBe(45);
     expect(cfg.maxRetries).toBe(3);
-    expect(cfg.budgetWindowHours).toBe(4);
-    expect(cfg.budgetMaxTokens).toBe(1_000_000_000);
     expect(cfg.claudePath).toBe("claude");
     expect(cfg.defaultMaxTurns).toBe(50);
     expect(cfg.model).toBe("sonnet");

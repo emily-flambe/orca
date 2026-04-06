@@ -51,7 +51,7 @@ vi.mock("../src/db/queries.js", () => ({
   insertInvocation: vi.fn(),
   updateInvocation: vi.fn(),
   sumTokensInWindow: vi.fn().mockReturnValue(0),
-  budgetWindowStart: vi.fn().mockReturnValue(new Date().toISOString()),
+  windowStart: vi.fn().mockReturnValue(new Date().toISOString()),
   incrementRetryCount: vi.fn(),
   incrementReviewCycleCount: vi.fn(),
   updateTaskPrBranch: vi.fn(),
@@ -144,7 +144,7 @@ import {
   insertInvocation,
   updateInvocation,
   sumTokensInWindow,
-  budgetWindowStart,
+  windowStart,
   countActiveSessions,
   countActiveAgentSessions,
   getLastMaxTurnsInvocation,
@@ -171,7 +171,7 @@ const mockUpdateTaskStatus = vi.mocked(updateTaskStatus);
 const mockInsertInvocation = vi.mocked(insertInvocation);
 const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSumTokensInWindow = vi.mocked(sumTokensInWindow);
-const mockBudgetWindowStart = vi.mocked(budgetWindowStart);
+const mockWindowStart = vi.mocked(windowStart);
 const mockCountActiveSessions = vi.mocked(countActiveSessions);
 const mockCountActiveAgentSessions = vi.mocked(countActiveAgentSessions);
 const mockSpawnSession = vi.mocked(spawnSession);
@@ -195,8 +195,6 @@ const mockGetLastCompletedImplementInvocation = vi.mocked(
 const mockConfig = {
   concurrencyCap: 1,
   agentConcurrencyCap: 1,
-  budgetMaxTokens: 10_000_000,
-  budgetWindowHours: 4,
   maxRetries: 3,
   model: "claude-sonnet-4-5",
   defaultMaxTurns: 200,
@@ -286,7 +284,7 @@ beforeEach(() => {
 
   mockInngestSend.mockResolvedValue(undefined);
   mockSumTokensInWindow.mockReturnValue(0);
-  mockBudgetWindowStart.mockReturnValue(new Date().toISOString());
+  mockWindowStart.mockReturnValue(new Date().toISOString());
   mockCountActiveSessions.mockReturnValue(0);
   mockFindPrForBranch.mockReturnValue({ exists: false } as never);
   mockGetLastMaxTurnsInvocation.mockReturnValue(null);

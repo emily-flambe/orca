@@ -291,13 +291,7 @@ function DailyActivityChart({ stats }: { stats: DailyStatEntry[] }) {
 // System Configuration
 // ---------------------------------------------------------------------------
 
-function SystemConfiguration({
-  status,
-  metrics,
-}: {
-  status: OrcaStatus | null;
-  metrics: MetricsData;
-}) {
+function SystemConfiguration({ status }: { status: OrcaStatus | null }) {
   if (!status) {
     return (
       <Card>
@@ -330,22 +324,6 @@ function SystemConfiguration({
           <span className="text-xs text-gray-400">Models</span>
           <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">
             {status.model}
-          </span>
-        </div>
-
-        {/* Token budget */}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">
-            Tokens in window ({metrics.budget.windowHours}h)
-          </span>
-          <span className="text-sm tabular-nums text-gray-200">
-            {formatCompactNumber(status.tokensInWindow)}
-            {status.tokenBudgetLimit > 0 && (
-              <span className="text-gray-500">
-                {" "}
-                / {formatCompactNumber(status.tokenBudgetLimit)}
-              </span>
-            )}
           </span>
         </div>
 
@@ -627,7 +605,7 @@ export default function MetricsPage() {
 
       {/* 4. Two-column: System Config + Task Pipeline */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <SystemConfiguration status={status} metrics={metrics} />
+        <SystemConfiguration status={status} />
         <TaskPipeline tasksByStatus={metrics.tasksByStatus} />
       </div>
 

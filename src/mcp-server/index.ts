@@ -32,8 +32,6 @@ import {
   getInvocationStats,
   getDailyStats,
   getSuccessRate12h,
-  sumTokensInWindow,
-  budgetWindowStart,
   countActiveSessions,
   countActiveAgentSessions,
 } from "../db/queries.js";
@@ -419,20 +417,12 @@ server.registerTool(
   "get_orca_status",
   {
     description:
-      "Get the current Orca scheduler status: active session counts, token usage in the rolling budget window, and concurrency caps from environment variables.",
+      "Get the current Orca scheduler status: active session counts and concurrency caps.",
     inputSchema: {},
   },
   () => {
     const activeSessions = countActiveSessions(db);
     const activeAgentSessions = countActiveAgentSessions(db);
-    const budgetWindowHours =
-      parseInt(process.env.ORCA_BUDGET_WINDOW_HOURS ?? "4", 10) || 4;
-    const windowStart = budgetWindowStart(budgetWindowHours);
-    const tokensInWindow = sumTokensInWindow(db, windowStart);
-    const budgetMaxTokens = parseInt(
-      process.env.ORCA_BUDGET_MAX_TOKENS ?? "0",
-      10,
-    );
     const concurrencyCap = parseInt(
       process.env.ORCA_CONCURRENCY_CAP ?? "1",
       10,
@@ -445,9 +435,6 @@ server.registerTool(
     const result = {
       activeSessions,
       activeAgentSessions,
-      budgetWindowHours,
-      tokensInWindow,
-      budgetMaxTokens,
       concurrencyCap,
       agentConcurrencyCap,
       model: process.env.ORCA_MODEL ?? "sonnet",

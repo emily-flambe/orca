@@ -8,9 +8,6 @@ export interface OrcaConfig {
   agentConcurrencyCap: number;
   sessionTimeoutMin: number;
   maxRetries: number;
-  budgetWindowHours: number;
-  budgetMaxTokens: number;
-
   claudePath: string;
   defaultMaxTurns: number;
   implementSystemPrompt: string;
@@ -53,14 +50,6 @@ function parsePositiveInt(name: string, value: string): number {
   return parsed;
 }
 
-function parsePositiveNumber(name: string, value: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    exitWithError(`${name} must be a positive number`);
-  }
-  return parsed;
-}
-
 function readEnv(name: string): string | undefined {
   return process.env[name];
 }
@@ -73,15 +62,6 @@ function readIntOrDefault(name: string, defaultValue: number): number {
   const raw = readEnv(name);
   if (raw === undefined) return defaultValue;
   return parsePositiveInt(name, raw);
-}
-
-function readPositiveNumberOrDefault(
-  name: string,
-  defaultValue: number,
-): number {
-  const raw = readEnv(name);
-  if (raw === undefined) return defaultValue;
-  return parsePositiveNumber(name, raw);
 }
 
 function readBoolOrDefault(name: string, defaultValue: boolean): boolean {
@@ -228,15 +208,6 @@ Steps:
     agentConcurrencyCap: readIntOrDefault("ORCA_AGENT_CONCURRENCY_CAP", 12),
     sessionTimeoutMin: readIntOrDefault("ORCA_SESSION_TIMEOUT_MIN", 45),
     maxRetries: readIntOrDefault("ORCA_MAX_RETRIES", 3),
-    budgetWindowHours: readPositiveNumberOrDefault(
-      "ORCA_BUDGET_WINDOW_HOURS",
-      4,
-    ),
-    budgetMaxTokens: readPositiveNumberOrDefault(
-      "ORCA_BUDGET_MAX_TOKENS",
-      1_000_000_000,
-    ),
-
     claudePath: readEnvOrDefault("ORCA_CLAUDE_PATH", "claude"),
     defaultMaxTurns: readIntOrDefault("ORCA_DEFAULT_MAX_TURNS", 50),
     implementSystemPrompt: readEnvOrDefault(

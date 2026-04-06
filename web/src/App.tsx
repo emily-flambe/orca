@@ -11,7 +11,6 @@ import {
 import { useSSE } from "./hooks/useSSE";
 import { useToast } from "./hooks/useToast";
 import Sidebar from "./components/Sidebar";
-import { formatTokens } from "./utils/formatTokens";
 import type { Page } from "./components/Sidebar";
 import Header from "./components/Header";
 import TaskList from "./components/TaskList";
@@ -32,26 +31,8 @@ import { MODEL_OPTIONS } from "./constants.js";
 
 function StatusStrip({ status }: { status: OrcaStatus | null }) {
   if (!status) return null;
-  const pct =
-    status.tokenBudgetLimit > 0
-      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
-      : 0;
-  const barColor =
-    pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
   return (
     <div className="shrink-0 flex items-center gap-4 px-4 py-1.5 border-b border-gray-800 bg-gray-900/50 text-xs text-gray-400">
-      <span className="flex items-center gap-2">
-        <span className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden inline-block align-middle">
-          <span
-            className={`block h-full ${barColor} rounded-full`}
-            style={{ width: `${pct}%` }}
-          />
-        </span>
-        <span className="tabular-nums">
-          {formatTokens(status.tokensInWindow)} /{" "}
-          {formatTokens(status.tokenBudgetLimit)}
-        </span>
-      </span>
       <span className="flex items-center gap-1.5">
         {status.activeSessions > 0 && <PulsingDot color="blue" />}
         {status.activeSessions} active
@@ -76,7 +57,6 @@ function SettingsPage({
   onConfigUpdate: (config: {
     concurrencyCap?: number;
     agentConcurrencyCap?: number;
-    tokenBudgetLimit?: number;
     model?: string;
   }) => Promise<void>;
   onSync: () => Promise<void>;
@@ -95,14 +75,6 @@ function SettingsPage({
       </div>
     );
   }
-
-  const pct =
-    status.tokenBudgetLimit > 0
-      ? Math.min((status.tokensInWindow / status.tokenBudgetLimit) * 100, 100)
-      : 0;
-
-  const barColor =
-    pct < 50 ? "bg-green-500" : pct < 80 ? "bg-yellow-500" : "bg-red-500";
 
   const startEditConcurrency = () => {
     setConcurrencyInput(String(status.concurrencyCap));
@@ -151,29 +123,6 @@ function SettingsPage({
       <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">
         Settings
       </h2>
-
-      {/* Token budget card */}
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 space-y-2">
-        <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
-          Token Budget
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className={`h-full ${barColor} rounded-full transition-all`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <span className="text-sm text-gray-300 tabular-nums whitespace-nowrap">
-            {formatTokens(status.tokensInWindow)}
-            <span className="text-gray-500"> / </span>
-            {formatTokens(status.tokenBudgetLimit)}
-          </span>
-        </div>
-        <div className="text-xs text-gray-500">
-          Window: {status.budgetWindowHours}h
-        </div>
-      </div>
 
       {/* Concurrency card */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">

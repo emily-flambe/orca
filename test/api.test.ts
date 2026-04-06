@@ -316,7 +316,6 @@ describe("GET /api/status", () => {
     expect(body.activeSessions).toBe(1);
     expect(body.activeTaskIds).toEqual(["RUNNING-1"]);
     expect(body.queuedTasks).toBe(1);
-    expect(body.budgetWindowHours).toBe(4);
   });
 });
 

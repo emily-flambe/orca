@@ -12,14 +12,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
   retry_count INTEGER NOT NULL DEFAULT 0,
   pr_branch_name TEXT,
-  review_cycle_count INTEGER NOT NULL DEFAULT 0,
   merge_commit_sha TEXT,
   pr_number INTEGER,
   deploy_started_at TEXT,
   ci_started_at TEXT,
   fix_reason TEXT,
   merge_attempt_count INTEGER NOT NULL DEFAULT 0,
-  stale_session_retry_count INTEGER NOT NULL DEFAULT 0,
   done_at TEXT,
   parent_identifier TEXT,
   is_parent INTEGER NOT NULL DEFAULT 0,
@@ -56,16 +54,6 @@ CREATE TABLE IF NOT EXISTS invocations (
   log_path TEXT,
   phase TEXT,
   model TEXT
-)`;
-
-const CREATE_BUDGET_EVENTS = `
-CREATE TABLE IF NOT EXISTS budget_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  invocation_id INTEGER NOT NULL REFERENCES invocations(id),
-  cost_usd REAL NOT NULL,
-  input_tokens INTEGER NOT NULL DEFAULT 0,
-  output_tokens INTEGER NOT NULL DEFAULT 0,
-  recorded_at TEXT NOT NULL
 )`;
 
 const CREATE_SYSTEM_EVENTS = `
@@ -412,18 +400,12 @@ function migrateSchema(sqlite: DatabaseType): void {
 
   // ---------------------------------------------------------------------------
   // Migration 14 (token tracking):
-  //   - Add input_tokens, output_tokens columns to invocations and budget_events
+  //   - Add input_tokens, output_tokens columns to invocations
   //   Sentinel: input_tokens column doesn't exist on invocations table.
   // ---------------------------------------------------------------------------
   if (!hasColumn(sqlite, "invocations", "input_tokens")) {
     sqlite.exec("ALTER TABLE invocations ADD COLUMN input_tokens INTEGER");
     sqlite.exec("ALTER TABLE invocations ADD COLUMN output_tokens INTEGER");
-    sqlite.exec(
-      "ALTER TABLE budget_events ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0",
-    );
-    sqlite.exec(
-      "ALTER TABLE budget_events ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0",
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -457,12 +439,6 @@ function migrateSchema(sqlite: DatabaseType): void {
   );
   sqlite.exec(
     "CREATE INDEX IF NOT EXISTS idx_invocations_linear_issue_id ON invocations(linear_issue_id)",
-  );
-  sqlite.exec(
-    "CREATE INDEX IF NOT EXISTS idx_budget_events_recorded_at ON budget_events(recorded_at)",
-  );
-  sqlite.exec(
-    "CREATE INDEX IF NOT EXISTS idx_budget_events_invocation_id ON budget_events(invocation_id)",
   );
 
   // ---------------------------------------------------------------------------
@@ -660,14 +636,12 @@ function migrateSchema(sqlite: DatabaseType): void {
           priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
           retry_count INTEGER NOT NULL DEFAULT 0,
           pr_branch_name TEXT,
-          review_cycle_count INTEGER NOT NULL DEFAULT 0,
           merge_commit_sha TEXT,
           pr_number INTEGER,
           deploy_started_at TEXT,
           ci_started_at TEXT,
           fix_reason TEXT,
           merge_attempt_count INTEGER NOT NULL DEFAULT 0,
-          stale_session_retry_count INTEGER NOT NULL DEFAULT 0,
           done_at TEXT,
           parent_identifier TEXT,
           is_parent INTEGER NOT NULL DEFAULT 0,
@@ -689,9 +663,9 @@ function migrateSchema(sqlite: DatabaseType): void {
       sqlite.exec(`
         INSERT INTO tasks_new (
           linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
-          priority, retry_count, pr_branch_name, review_cycle_count,
+          priority, retry_count, pr_branch_name,
           merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
-          fix_reason, merge_attempt_count, stale_session_retry_count,
+          fix_reason, merge_attempt_count,
           done_at, parent_identifier, is_parent, project_name,
           task_type, cron_schedule_id, agent_id,
           last_failure_reason, last_failed_phase, last_failed_at,
@@ -699,9 +673,105 @@ function migrateSchema(sqlite: DatabaseType): void {
         )
         SELECT
           linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
-          priority, retry_count, pr_branch_name, review_cycle_count,
+          priority, retry_count, pr_branch_name,
           merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
-          fix_reason, merge_attempt_count, stale_session_retry_count,
+          fix_reason, merge_attempt_count,
+          done_at, parent_identifier, is_parent, project_name,
+          task_type, cron_schedule_id, agent_id,
+          last_failure_reason, last_failed_phase, last_failed_at,
+          pr_url, pr_state, hidden, created_at, updated_at
+        FROM tasks
+      `);
+
+      sqlite.exec("DROP TABLE tasks");
+      sqlite.exec("ALTER TABLE tasks_new RENAME TO tasks");
+
+      // Recreate indexes
+      sqlite.exec(
+        "CREATE INDEX IF NOT EXISTS idx_tasks_lifecycle_stage ON tasks(lifecycle_stage)",
+      );
+
+      sqlite.exec("COMMIT");
+    } catch (err) {
+      sqlite.exec("ROLLBACK");
+      throw err;
+    }
+
+    sqlite.pragma("foreign_keys = ON");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Migration 27 (remove budget system):
+  //   - Drop budget_events table if it exists
+  //   - Remove review_cycle_count and stale_session_retry_count from tasks
+  //     (rebuild table without them if they still exist)
+  //   Sentinel: budget_events table exists OR review_cycle_count column exists.
+  // ---------------------------------------------------------------------------
+  const budgetTableExists =
+    (sqlite.pragma("table_info(budget_events)") as { name: string }[]).length >
+    0;
+  if (budgetTableExists) {
+    sqlite.exec("DROP TABLE budget_events");
+  }
+
+  if (
+    hasColumn(sqlite, "tasks", "review_cycle_count") ||
+    hasColumn(sqlite, "tasks", "stale_session_retry_count")
+  ) {
+    sqlite.pragma("foreign_keys = OFF");
+
+    sqlite.exec("BEGIN TRANSACTION");
+    try {
+      sqlite.exec(`
+        CREATE TABLE tasks_new (
+          linear_issue_id TEXT PRIMARY KEY,
+          agent_prompt TEXT NOT NULL,
+          repo_path TEXT NOT NULL,
+          lifecycle_stage TEXT NOT NULL DEFAULT 'ready',
+          current_phase TEXT,
+          priority INTEGER NOT NULL DEFAULT 0 CHECK(priority >= 0 AND priority <= 4),
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          pr_branch_name TEXT,
+          merge_commit_sha TEXT,
+          pr_number INTEGER,
+          deploy_started_at TEXT,
+          ci_started_at TEXT,
+          fix_reason TEXT,
+          merge_attempt_count INTEGER NOT NULL DEFAULT 0,
+          done_at TEXT,
+          parent_identifier TEXT,
+          is_parent INTEGER NOT NULL DEFAULT 0,
+          project_name TEXT,
+          task_type TEXT NOT NULL DEFAULT 'linear',
+          cron_schedule_id INTEGER,
+          agent_id TEXT,
+          last_failure_reason TEXT,
+          last_failed_phase TEXT,
+          last_failed_at TEXT,
+          pr_url TEXT,
+          pr_state TEXT,
+          hidden INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      sqlite.exec(`
+        INSERT INTO tasks_new (
+          linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
+          priority, retry_count, pr_branch_name,
+          merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
+          fix_reason, merge_attempt_count,
+          done_at, parent_identifier, is_parent, project_name,
+          task_type, cron_schedule_id, agent_id,
+          last_failure_reason, last_failed_phase, last_failed_at,
+          pr_url, pr_state, hidden, created_at, updated_at
+        )
+        SELECT
+          linear_issue_id, agent_prompt, repo_path, lifecycle_stage, current_phase,
+          priority, retry_count, pr_branch_name,
+          merge_commit_sha, pr_number, deploy_started_at, ci_started_at,
+          fix_reason, merge_attempt_count,
           done_at, parent_identifier, is_parent, project_name,
           task_type, cron_schedule_id, agent_id,
           last_failure_reason, last_failed_phase, last_failed_at,
@@ -742,7 +812,6 @@ export function createDb(dbPath: string) {
   // Create tables using better-sqlite3's exec method (not child_process)
   sqlite.exec(CREATE_TASKS);
   sqlite.exec(CREATE_INVOCATIONS);
-  sqlite.exec(CREATE_BUDGET_EVENTS);
   sqlite.exec(CREATE_CRON_SCHEDULES);
   sqlite.exec(CREATE_CRON_RUNS);
   sqlite.exec(CREATE_SYSTEM_EVENTS);

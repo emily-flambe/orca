@@ -545,7 +545,6 @@ describe("GET /api/status — contract", () => {
     expect(typeof body.activeSessions).toBe("number");
     expect(Array.isArray(body.activeTaskIds)).toBe(true);
     expect(typeof body.queuedTasks).toBe("number");
-    expect(typeof body.budgetWindowHours).toBe("number");
     expect(typeof body.concurrencyCap).toBe("number");
     expect(typeof body.model).toBe("string");
     expect(typeof body.draining).toBe("boolean");
@@ -639,8 +638,6 @@ describe("GET /api/metrics — contract", () => {
     expect(typeof body.queue.ready).toBe("number");
     expect(typeof body.queue.running).toBe("number");
     expect(typeof body.queue.inReview).toBe("number");
-    expect(typeof body.budget).toBe("object");
-    expect(typeof body.budget.windowHours).toBe("number");
     expect(Array.isArray(body.recentEvents)).toBe(true);
     // Legacy fields (backward-compat with dashboard)
     expect(typeof body.tasksByStatus).toBe("object");
