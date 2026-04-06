@@ -18,7 +18,7 @@ var capturedHandler: (ctx: {
 }) => Promise<unknown>;
 
 // eslint-disable-next-line no-var
-var capturedCronHandler: (ctx: {
+var capturedAgentHandler: (ctx: {
   event: unknown;
   step: unknown;
 }) => Promise<unknown>;
@@ -33,8 +33,8 @@ vi.mock("../src/inngest/client.js", () => ({
       ) => {
         if (config.id === "task-lifecycle") {
           capturedHandler = handler;
-        } else if (config.id === "cron-task-lifecycle") {
-          capturedCronHandler = handler;
+        } else if (config.id === "agent-task-lifecycle") {
+          capturedAgentHandler = handler;
         }
         return { id: config.id };
       },
@@ -68,6 +68,12 @@ vi.mock("../src/db/queries.js", () => ({
   getInvocationsByTask: vi.fn().mockReturnValue([]),
   clearSessionIds: vi.fn(),
   countActiveSessions: vi.fn().mockReturnValue(0),
+  countActiveAgentSessions: vi.fn().mockReturnValue(0),
+  getAgent: vi.fn().mockReturnValue(null),
+  getAgentMemories: vi.fn().mockReturnValue([]),
+  deleteTask: vi.fn(),
+  updateAgentLastRunStatus: vi.fn(),
+  updateTaskPrState: vi.fn(),
 }));
 
 vi.mock("../src/runner/index.js", () => ({
@@ -140,6 +146,7 @@ import {
   sumTokensInWindow,
   budgetWindowStart,
   countActiveSessions,
+  countActiveAgentSessions,
   getLastMaxTurnsInvocation,
   getLastDeployInterruptedInvocation,
   getLastCompletedImplementInvocation,
@@ -154,7 +161,7 @@ import {
   assertSessionCapacity,
   bridgeSessionCompletion,
 } from "../src/inngest/workflows/task-lifecycle.js";
-import "../src/inngest/workflows/cron-task-lifecycle.js";
+import "../src/inngest/workflows/agent-task-lifecycle.js";
 import { inngest } from "../src/inngest/client.js";
 import { activeHandles } from "../src/session-handles.js";
 
@@ -166,6 +173,7 @@ const mockUpdateInvocation = vi.mocked(updateInvocation);
 const mockSumTokensInWindow = vi.mocked(sumTokensInWindow);
 const mockBudgetWindowStart = vi.mocked(budgetWindowStart);
 const mockCountActiveSessions = vi.mocked(countActiveSessions);
+const mockCountActiveAgentSessions = vi.mocked(countActiveAgentSessions);
 const mockSpawnSession = vi.mocked(spawnSession);
 const mockExistsSync = vi.mocked(existsSync);
 const mockWriteBackStatus = vi.mocked(writeBackStatus);
@@ -186,6 +194,7 @@ const mockGetLastCompletedImplementInvocation = vi.mocked(
 
 const mockConfig = {
   concurrencyCap: 1,
+  agentConcurrencyCap: 1,
   budgetMaxTokens: 10_000_000,
   budgetWindowHours: 4,
   maxRetries: 3,
@@ -662,10 +671,10 @@ describe("TOCTOU race between claim-task and start-implement", () => {
 // 4. Cron task lifecycle: capacity enforcement
 // ===========================================================================
 
-describe("cron-task-lifecycle capacity enforcement", () => {
+describe("agent-task-lifecycle cron_claude capacity enforcement", () => {
   test("cron task respects concurrency cap — exits gracefully", async () => {
     // With cap=1 and 1 active session, cron should be blocked but not crash
-    mockCountActiveSessions.mockReturnValue(1);
+    mockCountActiveAgentSessions.mockReturnValue(1);
 
     const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
@@ -673,8 +682,8 @@ describe("cron-task-lifecycle capacity enforcement", () => {
     const step = createStep();
 
     // The claim-task step catches the capacity error and returns gracefully
-    const result = await capturedCronHandler({
-      event: makeTaskReadyEvent("CRON-1", "cron_claude"),
+    const result = await capturedAgentHandler({
+      event: makeTaskReadyEvent("cron-CRON-1", "cron_claude"),
       step,
     });
 
@@ -688,7 +697,8 @@ describe("cron-task-lifecycle capacity enforcement", () => {
   });
 
   test("cron task proceeds when under capacity", async () => {
-    mockCountActiveSessions.mockReturnValue(0);
+    mockCountActiveAgentSessions.mockReturnValue(0);
+    mockInsertInvocation.mockReturnValue(1);
 
     const task = makeTask({ lifecycleStage: "ready" });
     mockGetTask.mockReturnValue(task);
@@ -709,8 +719,8 @@ describe("cron-task-lifecycle capacity enforcement", () => {
       ]),
     );
 
-    const result = await capturedCronHandler({
-      event: makeTaskReadyEvent("CRON-1", "cron_claude"),
+    const result = await capturedAgentHandler({
+      event: makeTaskReadyEvent("cron-CRON-1", "cron_claude"),
       step,
     });
 
@@ -726,7 +736,7 @@ describe("cron-task-lifecycle capacity enforcement", () => {
     // The spawn step catches the capacity error and returns gracefully with
     // { outcome: "capacity_blocked" } instead of throwing.
 
-    mockCountActiveSessions
+    mockCountActiveAgentSessions
       .mockReturnValueOnce(0) // claim-task: under cap, proceed
       .mockReturnValueOnce(1); // start-implement: at cap, blocked
 
@@ -736,8 +746,8 @@ describe("cron-task-lifecycle capacity enforcement", () => {
 
     const step = createStep();
 
-    const result = await capturedCronHandler({
-      event: makeTaskReadyEvent("CRON-1", "cron_claude"),
+    const result = await capturedAgentHandler({
+      event: makeTaskReadyEvent("cron-CRON-1", "cron_claude"),
       step,
     });
 
@@ -746,8 +756,8 @@ describe("cron-task-lifecycle capacity enforcement", () => {
     // Session should NOT have been spawned
     expect(mockSpawnSession).not.toHaveBeenCalled();
 
-    // Verify countActiveSessions was called TWICE (claim-task + start-implement)
-    expect(mockCountActiveSessions).toHaveBeenCalledTimes(2);
+    // Verify countActiveAgentSessions was called TWICE (claim-task + start-implement)
+    expect(mockCountActiveAgentSessions).toHaveBeenCalledTimes(2);
   });
 });
 
